@@ -1,81 +1,99 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "aind-low-point"
-description = "Generated from aind-library-template"
-license = {text = "MIT"}
-requires-python = ">=3.10"
+description = "Plan neuroscience experiments"
+license = "MIT"
+requires-python = ">=3.9"
 authors = [
-    {name = "Allen Institute for Neural Dynamics"}
+  { name = "Allen Institute for Neural Dynamics" },
+  { name = "Galen Lynch", email = "galen@galenlynch.com" },
+  { name = "Yoni Browning", email = "yoni.browning@alleninstitute.org" },
 ]
-classifiers = [
-    "Programming Language :: Python :: 3"
-]
+classifiers = ["Programming Language :: Python :: 3"]
 readme = "README.md"
-dynamic = ["version"]
+version = "0.1.0"
 
 dependencies = [
+  "aind-anatomical-utils>=0.1,<0.2",
+  "aind_mri_utils>=0.10,<2",
+  "ipyevents>=2,<3",
+  "k3d>=2,<3",
+  "numpy>=1.20,<3",
+  "omegaconf>=2,<3",
+  "pandas>=2,<3",
+  "pydantic>=2,<3",
+  "pynrrd>=1,<2",
+  "python-fcl>=0.7,<0.8",
+  "SimpleITK>=2,<3",
+  "trimesh[recommend]>=4,<5",
 ]
 
-[project.optional-dependencies]
-dev = [
-    'black',
-    'coverage',
-    'flake8',
-    'interrogate',
-    'isort',
-    'Sphinx',
-    'furo'
+[project.urls]
+Repository = "https://github.com/AllenNeuralDynamics/aind-low-point/"
+Issues = "https://github.com/AllenNeuralDynamics/aind-low-point/issues"
+Changelog = "https://github.com/AllenNeuralDynamics/aind-low-point/blob/main/CHANGELOG.md"
+
+
+[dependency-groups]
+dev = ["codespell", "pytest", "pytest-cov", "ruff", "interrogate"]
+vscode = [{ include-group = "dev" }, "ipykernel", "pip", "ipympl"]
+docs = [
+  { include-group = "dev" },
+  "mkdocs",
+  "mkdocs-material",
+  "mkdocstrings[python]",
+  "pymdown-extensions",
+  "ruff",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "aind_low_point.__version__"}
+readme = { file = "README.md", content-type = "text/markdown" }
 
-[tool.black]
-line-length = 79
-target_version = ['py310']
-exclude = '''
+[tool.ruff]
+line-length = 88
+target-version = "py313"
 
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | build
-    | dist
-    | .conda
-  )/
-  | .gitignore
-)
-'''
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "C90", "I", "F", "E", "W"]
+extend-ignore = []
+mccabe = { max-complexity = 14 }
+pydocstyle = { convention = "numpy" }
 
-[tool.coverage.run]
-omit = ["*__init__*"]
-source = ["aind_low_point", "tests"]
+[tool.codespell]
+skip = ".git,*.pdf,*.svg,./bonsai,*.bonsai,./docs/_build,uv.lock"
+ignore-words-list = "nd"
 
-[tool.coverage.report]
-exclude_lines = [
-    "if __name__ == .__main__.:",
-    "^from .* import .*",
-    "^import .*",
-    "pragma: no cover"
-]
-fail_under = 100
-
-[tool.isort]
-line_length = 79
-profile = "black"
-skip = [".conda"]
+[tool.pytest.ini_options]
+addopts = "--strict-markers --tb=short --cov=src --cov-report=term-missing --cov-fail-under=0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
 [tool.interrogate]
-exclude = ["setup.py", "docs", "build", ".conda"]
-fail-under = 100
+ignore-init-method = true
+ignore-magic = true
+ignore_module = true
+fail-under = 30
+exclude = [
+  "__init__.py",
+  "tests",
+  "docs",
+  "build",
+  "setup.py",
+  "examples",
+  "site",
+]
+
+[tool.commitizen]
+version_provider = "pep621"
+version_files = ["pyproject.toml", "src/aind_low_point/__init__.py:__version__"]
+update_changelog_on_bump = true
+tag_format = "v$version"
+major_version_zero = true
