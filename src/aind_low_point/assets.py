@@ -108,7 +108,8 @@ class TargetSpec(BaseSpec):
         # Enforce typical non-collidable defaults for targets
         if self.caps & Capability.COLLIDABLE:
             raise ValueError(f"{self.key}: targets should not be collidable by default")
-        # Require either explicit points (source_path+loader) or derived (source_key+reducer)
+        # Require either explicit points (source_path+loader) or derived
+        # (source_key+reducer)
         explicit = self.source_path is not None and self.loader is not None
         derived = self.source_key is not None and self.reducer is not None
         if not explicit and not derived and self.points is None:

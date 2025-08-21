@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import (
     Annotated,
@@ -24,8 +25,6 @@ from pydantic import (
 
 from aind_low_point.common import Capability, Kind, Role
 from aind_low_point.orientation_codes import OrientationCode
-
-# Generate all 48 3-axis orientation codes (e.g., RAS, LPS, ASR, ...)
 
 # Add FILE_NATIVE as a sentinel without mixing semantics
 SourceSpace: TypeAlias = OrientationCode | Literal["FILE_NATIVE"]
@@ -271,13 +270,78 @@ class TransformRefModel(BaseModel):
 # -----------------------------------------------------------------------------
 # Catalog specs (WHAT an asset/target is; not where placed)
 # -----------------------------------------------------------------------------
+class BaseTemplateModel(BaseModel):
+    """Common defaults for both assets and targets."""
+
+    name: str
+    kind: Optional["Kind"] = None
+    role: Optional["Role"] = None
+
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+
+    tags: List[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional["CanonicalizationDefModel"] = None
+    canonicalization_override: Optional["CanonicalizationDefModel"] = None
+
+    caps: Optional[List["Capability"]] = None
+    collision: Optional["CollisionPolicyModel"] = None
+
+    pivot_LPS: Optional[List[float]] = None
+    bbox_hint: Optional[List[List[float]]] = None
+
+    # Chem-shift hints (optional, ignored if not applicable)
+    chem_shift_ppm: Optional[float] = None
+    chem_shift_policy: ChemMode = "auto"
+
+
+class AssetTemplateModel(BaseTemplateModel):
+    """Defaults oriented to geometry assets."""
+
+    loader: Optional[str] = None
+    src: Optional[str] = None
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    from_resource: Optional[str] = None
+    selector: Optional[Selector] = None
+
+
+class TargetTemplateModel(BaseTemplateModel):
+    """Defaults oriented to targets."""
+
+    # explicit points
+    src: Optional[str] = None
+    loader: Optional[str] = None
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+    # or derived
+    source_key: Optional[str] = None
+    reducer: Optional[str] = None
+    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    # or from resource
+    from_resource: Optional[str] = None
+    selector: Optional[Selector] = None
+
+    post_reducer: Optional[str] = (
+        None  # optional final reduction (e.g., COM of a selected mesh)
+    )
+
+    post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
+    approach_vector: Optional[List[float]] = None
+    uncertainty_mm: Optional[float] = None
 
 
 class BaseSpecModel(BaseModel):
     key: str
     kind: Kind
     role: Role = Role.GEOMETRY
-    default_material: MaterialModel = Field(default_factory=MaterialModel)  # type: ignore[arg-type]
+
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: List[str] = Field(default_factory=list)
 
@@ -328,6 +392,9 @@ class AssetSpecModel(BaseSpecModel):
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
+    # NEW: list of template names to apply, left→right priority
+    templates: List[str] = Field(default_factory=list)
+
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
 
@@ -371,6 +438,9 @@ class TargetSpecModel(BaseSpecModel):
     post_reducer: Optional[str] = (
         None  # optional final reduction (e.g., COM of a selected mesh)
     )
+
+    templates: List[str] = Field(default_factory=list)
+
     post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     approach_vector: Optional[List[float]] = Field(
@@ -564,8 +634,12 @@ class ConfigModel(BaseModel):
 
     paths: PathsModel = Field(default_factory=PathsModel)
     imaging: Optional[ImagingModel] = None
-    # Catalog
     resources: List[ResourceModel] = Field(default_factory=list)
+    materials: dict[str, MaterialModel] = Field(default_factory=dict)
+
+    # Catalog
+    asset_templates: dict[str, AssetTemplateModel] = Field(default_factory=dict)
+    target_templates: dict[str, TargetTemplateModel] = Field(default_factory=dict)
     assets: List[AssetSpecModel] = Field(default_factory=list)
     targets: List[TargetSpecModel] = Field(default_factory=list)
 
@@ -582,7 +656,16 @@ class ConfigModel(BaseModel):
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
-    def _xref(self):
+    def _xref_and_expand_templates(self):
+        # 1) Expand templates into concrete specs
+        if self.asset_templates and self.assets:
+            self.assets = [
+                apply_asset_templates(a, self.asset_templates) for a in self.assets
+            ]
+        if self.target_templates and self.targets:
+            self.targets = [
+                apply_target_templates(t, self.target_templates) for t in self.targets
+            ]
         errors: List[str] = []
 
         # ---------- sets for quick membership ----------
@@ -600,6 +683,28 @@ class ConfigModel(BaseModel):
 
         def _where_key(obj) -> str:
             return getattr(obj, "key", "?")
+
+        def _check_material_ref(spec, where_prefix: str):
+            mref = getattr(spec, "material_ref", None)
+            if mref and mref not in self.materials:
+                err(
+                    f"{where_prefix} '{_where_key(spec)}': material_ref '{mref}' not found in materials"
+                )
+
+        for a in self.assets:
+            _check_material_ref(a, "asset")
+        for t in self.targets:
+            _check_material_ref(t, "target")
+        for tmpl in self.asset_templates.values():
+            if tmpl.material_ref and tmpl.material_ref not in self.materials:
+                err(
+                    f"asset_templates['{tmpl.name}']: material_ref '{tmpl.material_ref}' not found"
+                )
+        for tmpl in self.target_templates.values():
+            if tmpl.material_ref and tmpl.material_ref not in self.materials:
+                err(
+                    f"target_templates['{tmpl.name}']: material_ref '{tmpl.material_ref}' not found"
+                )
 
         def _check_transform_ref(
             ref: Optional["TransformRefModel"], where: str
@@ -709,3 +814,448 @@ class ConfigModel(BaseModel):
                 "Config cross-reference errors:\n  - " + "\n  - ".join(errors)
             )
         return self
+
+
+def _union_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> Optional[List[Any]]:
+    if a is None and b is None:
+        return None
+    seen: Set[Any] = set()
+    out: List[Any] = []
+    for src in (a or []), (b or []):
+        for x in src:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+    return out
+
+
+def _merge_dict_shallow(
+    a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if a:
+        out.update(a)
+    if b:
+        out.update(b)
+    return out
+
+
+def merge_material_cfg(
+    base: Optional["MaterialModel"], over: Optional["MaterialModel"]
+) -> Optional["MaterialModel"]:
+    if base is None:
+        return over
+    if over is None:
+        return base
+    d = base.model_dump(exclude_none=True)
+    d.update(over.model_dump(exclude_none=True))
+    return type(base)(**d)
+
+
+def _merge_model_generic(base, over):
+    """Shallow overlay for pydantic models with simple fields."""
+    if base is None:
+        return over
+    if over is None:
+        return base
+    d = base.model_dump(exclude_none=True)
+    d.update(over.model_dump(exclude_none=True))
+    # Prefer 'over' class if different; both should be compatible
+    cls = type(over) if type(base) is not type(over) else type(base)
+    return cls(**d)
+
+
+def _merge_collision(
+    base: Optional["CollisionPolicyModel"], over: Optional["CollisionPolicyModel"]
+) -> Optional["CollisionPolicyModel"]:
+    if base is None:
+        return over
+    if over is None:
+        return base
+    db = base.model_dump(exclude_none=True)
+    do = over.model_dump(exclude_none=True)
+    # union mask; overlay group if provided
+    merged_mask = _union_list(db.get("mask"), do.get("mask")) or []
+    group = do.get("group", db.get("group"))
+    db.update(do)
+    db["mask"] = merged_mask
+    db["group"] = group
+    return type(base)(**db)
+
+
+# -----------------------------
+# Asset template merge
+# -----------------------------
+
+
+def _merge_asset_source_fields(
+    base: "AssetTemplateModel | AssetSpecModel",
+    over: "AssetTemplateModel | AssetSpecModel",
+) -> dict[str, Any]:
+    """
+    Choose exactly one source mode:
+      - (src + loader [+ loader_kwargs])
+      - (from_resource + selector)
+    If overlay specifies any field of a mode, that mode wins; the other mode is cleared.
+    """
+    out: dict[str, Any] = {}
+
+    base_file = (getattr(base, "src", None) is not None) or (
+        getattr(base, "loader", None) is not None
+    )
+    base_res = (getattr(base, "from_resource", None) is not None) or (
+        getattr(base, "selector", None) is not None
+    )
+
+    over_file = (getattr(over, "src", None) is not None) or (
+        getattr(over, "loader", None) is not None
+    )
+    over_res = (getattr(over, "from_resource", None) is not None) or (
+        getattr(over, "selector", None) is not None
+    )
+
+    if over_file and over_res:
+        raise ValueError("Asset: overlay specifies both file and resource source modes")
+
+    if over_file:
+        # file mode wins; take overlay values if present, else fall back to base for the same mode
+        out["src"] = getattr(over, "src", None) or getattr(base, "src", None)
+        out["loader"] = getattr(over, "loader", None) or getattr(base, "loader", None)
+        out["loader_kwargs"] = _merge_dict_shallow(
+            getattr(base, "loader_kwargs", None), getattr(over, "loader_kwargs", None)
+        )
+        out["from_resource"] = None
+        out["selector"] = None
+
+    elif over_res:
+        out["from_resource"] = getattr(over, "from_resource", None) or getattr(
+            base, "from_resource", None
+        )
+        out["selector"] = getattr(over, "selector", None) or getattr(
+            base, "selector", None
+        )
+        # clear file mode
+        out["src"] = None
+        out["loader"] = None
+        out["loader_kwargs"] = {}
+    else:
+        # overlay did not change mode → keep base (as-is)
+        out["src"] = getattr(base, "src", None)
+        out["loader"] = getattr(base, "loader", None)
+        out["loader_kwargs"] = getattr(base, "loader_kwargs", {}) or {}
+        out["from_resource"] = getattr(base, "from_resource", None)
+        out["selector"] = getattr(base, "selector", None)
+
+    return out
+
+
+def merge_template_into_asset(
+    base: "AssetTemplateModel",
+    over: "AssetTemplateModel | AssetSpecModel",
+) -> "AssetTemplateModel":
+    A = base.model_dump(exclude_none=True)
+    B = over.model_dump(exclude_none=True)
+
+    out = deepcopy(A)
+    out.update(B)
+
+    # unions
+    out["tags"] = _union_list(A.get("tags"), B.get("tags")) or []
+    out["caps"] = _union_list(A.get("caps"), B.get("caps")) or None
+
+    # metadata shallow merge
+    out["metadata"] = _merge_dict_shallow(A.get("metadata"), B.get("metadata"))
+
+    # nested merges
+    out["material"] = merge_material_cfg(base.material, getattr(over, "material", None))
+    out["canonicalization"] = _merge_model_generic(
+        base.canonicalization, getattr(over, "canonicalization", None)
+    )
+    out["canonicalization_override"] = _merge_model_generic(
+        base.canonicalization_override, getattr(over, "canonicalization_override", None)
+    )
+    out["collision"] = _merge_collision(
+        base.collision, getattr(over, "collision", None)
+    )
+
+    # refs (replace-on-write)
+    out["material_ref"] = getattr(over, "material_ref", None) or getattr(
+        base, "material_ref", None
+    )
+
+    # hints (replace-on-write)
+    out["pivot_LPS"] = getattr(over, "pivot_LPS", None) or getattr(
+        base, "pivot_LPS", None
+    )
+    out["bbox_hint"] = getattr(over, "bbox_hint", None) or getattr(
+        base, "bbox_hint", None
+    )
+
+    # chem-shift hints (replace-on-write)
+    out["chem_shift_ppm"] = (
+        getattr(over, "chem_shift_ppm", None)
+        if hasattr(over, "chem_shift_ppm")
+        else getattr(base, "chem_shift_ppm", None)
+    )
+    out["chem_shift_policy"] = getattr(over, "chem_shift_policy", None) or getattr(
+        base, "chem_shift_policy", None
+    )
+
+    # source modes
+    out.update(_merge_asset_source_fields(base, over))
+
+    return AssetTemplateModel(**out)
+
+
+def apply_asset_templates(
+    spec: "AssetSpecModel",
+    registry: dict[str, "AssetTemplateModel"],
+) -> "AssetSpecModel":
+    if not spec.templates:
+        return spec
+
+    # fold templates left→right
+    acc: Optional["AssetTemplateModel"] = None
+    for name in spec.templates:
+        t = registry.get(name)
+        if t is None:
+            raise ValueError(f"asset '{spec.key}' references unknown template '{name}'")
+        acc = t if acc is None else merge_template_into_asset(acc, t)
+
+    merged_tmpl = merge_template_into_asset(acc, spec)  # overlay spec onto templates
+    # materialize back to AssetSpecModel; ensure we keep spec's identity fields
+    payload = merged_tmpl.model_dump(exclude_none=True)
+    payload.update(
+        {
+            "key": spec.key,
+            "kind": spec.kind,
+            "role": spec.role,
+            "templates": [],  # clear to avoid re-applying in any subsequent validation
+        }
+    )
+    return AssetSpecModel(**payload)
+
+
+# -----------------------------
+# Target template merge
+# -----------------------------
+
+
+def _detect_target_mode(obj) -> Optional[str]:
+    explicit = (getattr(obj, "src", None) is not None) or (
+        getattr(obj, "loader", None) is not None
+    )
+    derived = (getattr(obj, "source_key", None) is not None) or (
+        getattr(obj, "reducer", None) is not None
+    )
+    res = (getattr(obj, "from_resource", None) is not None) or (
+        getattr(obj, "selector", None) is not None
+    )
+    cnt = int(explicit) + int(derived) + int(res)
+    if cnt == 0:
+        return None
+    if cnt == 1:
+        return "explicit" if explicit else ("derived" if derived else "resource")
+    return "conflict"
+
+
+def _merge_target_source_fields(
+    base: "TargetTemplateModel | TargetSpecModel",
+    over: "TargetTemplateModel | TargetSpecModel",
+) -> dict[str, Any]:
+    """
+    Exactly one of:
+      - explicit: src + loader [+ loader_kwargs]
+      - derived : source_key + reducer [+ reducer_kwargs]
+      - resource: from_resource + selector [+ post_reducer]
+    Overlay choosing any field of a mode selects that mode and clears others.
+    """
+    out: dict[str, Any] = {}
+
+    mode_base = _detect_target_mode(base)
+    mode_over = _detect_target_mode(over)
+    if mode_over == "conflict":
+        raise ValueError("Target: overlay specifies conflicting source modes")
+
+    # if overlay picks a mode, use it; else keep base
+    mode = mode_over or mode_base
+
+    if mode == "explicit":
+        out["src"] = getattr(over, "src", None) or getattr(base, "src", None)
+        out["loader"] = getattr(over, "loader", None) or getattr(base, "loader", None)
+        out["loader_kwargs"] = _merge_dict_shallow(
+            getattr(base, "loader_kwargs", None), getattr(over, "loader_kwargs", None)
+        )
+        # clear others
+        out.update(
+            {
+                "source_key": None,
+                "reducer": None,
+                "reducer_kwargs": {},
+                "from_resource": None,
+                "selector": None,
+                "post_reducer": None,
+                "post_reducer_kwargs": {},
+            }
+        )
+
+    elif mode == "derived":
+        out["source_key"] = getattr(over, "source_key", None) or getattr(
+            base, "source_key", None
+        )
+        out["reducer"] = getattr(over, "reducer", None) or getattr(
+            base, "reducer", None
+        )
+        out["reducer_kwargs"] = _merge_dict_shallow(
+            getattr(base, "reducer_kwargs", None), getattr(over, "reducer_kwargs", None)
+        )
+        # clear others
+        out.update(
+            {
+                "src": None,
+                "loader": None,
+                "loader_kwargs": {},
+                "from_resource": None,
+                "selector": None,
+                "post_reducer": None,
+                "post_reducer_kwargs": {},
+            }
+        )
+
+    elif mode == "resource":
+        out["from_resource"] = getattr(over, "from_resource", None) or getattr(
+            base, "from_resource", None
+        )
+        out["selector"] = getattr(over, "selector", None) or getattr(
+            base, "selector", None
+        )
+        out["post_reducer"] = getattr(over, "post_reducer", None) or getattr(
+            base, "post_reducer", None
+        )
+        out["post_reducer_kwargs"] = _merge_dict_shallow(
+            getattr(base, "post_reducer_kwargs", None),
+            getattr(over, "post_reducer_kwargs", None),
+        )
+        # clear others
+        out.update(
+            {
+                "src": None,
+                "loader": None,
+                "loader_kwargs": {},
+                "source_key": None,
+                "reducer": None,
+                "reducer_kwargs": {},
+            }
+        )
+
+    else:
+        # neither base nor overlay specified a mode → keep as is (all None/empty)
+        out.update(
+            {
+                "src": getattr(base, "src", None),
+                "loader": getattr(base, "loader", None),
+                "loader_kwargs": getattr(base, "loader_kwargs", {}) or {},
+                "source_key": getattr(base, "source_key", None),
+                "reducer": getattr(base, "reducer", None),
+                "reducer_kwargs": getattr(base, "reducer_kwargs", {}) or {},
+                "from_resource": getattr(base, "from_resource", None),
+                "selector": getattr(base, "selector", None),
+                "post_reducer": getattr(base, "post_reducer", None),
+                "post_reducer_kwargs": getattr(base, "post_reducer_kwargs", {}) or {},
+            }
+        )
+
+    return out
+
+
+def merge_template_into_target(
+    base: "TargetTemplateModel",
+    over: "TargetTemplateModel | TargetSpecModel",
+) -> "TargetTemplateModel":
+    A = base.model_dump(exclude_none=True)
+    B = over.model_dump(exclude_none=True)
+
+    out = deepcopy(A)
+    out.update(B)
+
+    # unions
+    out["tags"] = _union_list(A.get("tags"), B.get("tags")) or []
+    out["caps"] = _union_list(A.get("caps"), B.get("caps")) or None
+
+    # metadata shallow merge
+    out["metadata"] = _merge_dict_shallow(A.get("metadata"), B.get("metadata"))
+
+    # nested merges
+    out["material"] = merge_material_cfg(base.material, getattr(over, "material", None))
+    out["canonicalization"] = _merge_model_generic(
+        base.canonicalization, getattr(over, "canonicalization", None)
+    )
+    out["canonicalization_override"] = _merge_model_generic(
+        base.canonicalization_override, getattr(over, "canonicalization_override", None)
+    )
+    out["collision"] = _merge_collision(
+        base.collision, getattr(over, "collision", None)
+    )
+
+    # refs (replace-on-write)
+    out["material_ref"] = getattr(over, "material_ref", None) or getattr(
+        base, "material_ref", None
+    )
+
+    # hints (replace-on-write)
+    out["pivot_LPS"] = getattr(over, "pivot_LPS", None) or getattr(
+        base, "pivot_LPS", None
+    )
+    out["bbox_hint"] = getattr(over, "bbox_hint", None) or getattr(
+        base, "bbox_hint", None
+    )
+    out["approach_vector"] = getattr(over, "approach_vector", None) or getattr(
+        base, "approach_vector", None
+    )
+    out["uncertainty_mm"] = getattr(over, "uncertainty_mm", None) or getattr(
+        base, "uncertainty_mm", None
+    )
+
+    # chem-shift hints (targets rarely need it; still honor if present)
+    out["chem_shift_ppm"] = (
+        getattr(over, "chem_shift_ppm", None)
+        if hasattr(over, "chem_shift_ppm")
+        else getattr(base, "chem_shift_ppm", None)
+    )
+    out["chem_shift_policy"] = getattr(over, "chem_shift_policy", None) or getattr(
+        base, "chem_shift_policy", None
+    )
+
+    # source modes
+    out.update(_merge_target_source_fields(base, over))
+
+    return TargetTemplateModel(**out)
+
+
+def apply_target_templates(
+    spec: "TargetSpecModel",
+    registry: dict[str, "TargetTemplateModel"],
+) -> "TargetSpecModel":
+    if not spec.templates:
+        return spec
+
+    acc: Optional["TargetTemplateModel"] = None
+    for name in spec.templates:
+        t = registry.get(name)
+        if t is None:
+            raise ValueError(
+                f"target '{spec.key}' references unknown template '{name}'"
+            )
+        acc = t if acc is None else merge_template_into_target(acc, t)
+
+    merged_tmpl = merge_template_into_target(acc, spec)  # overlay spec last
+    payload = merged_tmpl.model_dump(exclude_none=True)
+    payload.update(
+        {
+            "key": spec.key,
+            "kind": spec.kind,
+            "role": spec.role,
+            "templates": [],
+        }
+    )
+    return TargetSpecModel(**payload)

@@ -58,6 +58,7 @@ from aind_low_point.config import (
     TransformRefModel,
     TranslateTxOpModel,
     _TxOpBase,
+    merge_material_cfg,
 )
 from aind_low_point.core import (
     AffineTransform,
@@ -179,7 +180,10 @@ def load_geometry(src: Union[str, Path], loader: str, **kwargs) -> GeometryOut:
     fn = _GEOMETRY_LOADER_REGISTRY.get(loader)
     if fn is None:
         raise KeyError(
-            f"Unknown loader '{loader}'. Known: {', '.join(sorted(_GEOMETRY_LOADER_REGISTRY)) or '(none)'}"
+            (
+                f"Unknown loader '{loader}'. Known: "
+                f"{', '.join(sorted(_GEOMETRY_LOADER_REGISTRY)) or '(none)'}"
+            )
         )
     return fn(Path(src), **kwargs)
 
@@ -205,6 +209,7 @@ def load_trimesh_lps(path: Path, src_coordinate_system: str = "ASR") -> trimesh.
 
 
 register_loader_fn(read_slicer_fcsv)
+register_loader_fn(trimesh.load, "trimesh")
 
 SourceGeo = Union[trimesh.Trimesh, NDArray[np.float64]]
 ReduceOut = NDArray[np.float64]  # usually (3,) single point; could be (N,3)
@@ -385,6 +390,26 @@ def _compile_collision_labels(labels_in_use: Iterable[str]) -> dict[str, int]:
     return mapping
 
 
+def _material_from_model(m: MaterialModel) -> Material:
+    return Material(
+        name=m.name,
+        color_hex_str=m.color,
+        opacity=m.opacity,
+        wireframe=m.wireframe,
+        visible=m.visible,
+    )
+
+
+def resolve_material_for_spec(
+    spec_like,  # AssetSpecModel or TargetSpecModel (post-template-merge)
+    registry: dict[str, MaterialModel],  # config.materials
+) -> "Material":
+    base = registry.get(spec_like.material_ref) if spec_like.material_ref else None
+    merged = merge_material_cfg(base, spec_like.material)
+    mm = merged or MaterialModel()  # fallback default
+    return _material_from_model(mm)
+
+
 def _apply_canonicalization_mesh(
     mesh: trimesh.Trimesh,
     source_space: str,
@@ -500,16 +525,6 @@ def _capabilities_from_list(lst) -> Capability:
     return Capability(val)
 
 
-def _material_from_model(m: MaterialModel) -> Material:
-    return Material(
-        name=m.name,
-        color_hex_str=m.color,
-        opacity=m.opacity,
-        wireframe=m.wireframe,
-        visible=m.visible,
-    )
-
-
 def _collision_bits(
     policy: CollisionPolicyModel, label_to_bit: dict[str, int]
 ) -> tuple[int, int]:
@@ -574,13 +589,15 @@ def _resolve_canon_model_to_runtime(
 def _base_spec_kwargs_from_model(
     m: BaseSpecModel,
     label_to_bit: dict[str, int],
+    material_models: dict[str, MaterialModel] = {},
 ) -> dict[str, Any]:
     group_bits, mask_bits = _collision_bits(m.collision, label_to_bit)
+    material = resolve_material_for_spec(m, material_models)
     return dict(
         key=m.key,
         kind=m.kind.value,  # "mesh" | "points" | "lines"
         role=m.role,  # keep enum if your runtime type expects it; else use m.role.value
-        default_material=_material_from_model(m.default_material),
+        default_material=material,
         metadata=dict(m.metadata),
         tags=set(m.tags),
         caps=_capabilities_from_list(m.caps),
@@ -599,8 +616,9 @@ def build_asset_spec(
     label_to_bit: dict[str, int],
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime],
+    material_models: dict[str, MaterialModel] = {},
 ) -> AssetSpec:
-    base_kwargs = _base_spec_kwargs_from_model(a, label_to_bit)
+    base_kwargs = _base_spec_kwargs_from_model(a, label_to_bit, material_models)
 
     mesh_tf: MeshTransformable | None = None
     pts_tf: PointsTransformable | None = None
@@ -662,8 +680,9 @@ def build_target_spec(
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime] = None,
     reducer_registry: dict[str, Callable[..., np.ndarray]] = _REDUCER_REGISTRY,
+    material_models: dict[str, MaterialModel] = {},
 ) -> tuple[TargetSpec, np.ndarray]:
-    base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit)
+    base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, material_models)
 
     # Targets must be non-collidable by default; enforce here (even if config forgot).
     base_kwargs["caps"] = Capability.RENDERABLE
@@ -759,12 +778,15 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
     runtime_assets: dict[str, AssetSpec] = {}
     for a in cfg.assets:
         maybe_cannon = _resolve_canon_model_to_runtime(a, cfg, compiled_transforms)
-        runtime_assets[a.key] = build_asset_spec(a, label_to_bit, chem, maybe_cannon)
+        runtime_assets[a.key] = build_asset_spec(
+            a, label_to_bit, chem, maybe_cannon, cfg.materials
+        )
 
     # 3) targets (specs + points index)
     runtime_targets: dict[str, TargetSpec] = {}
     targets_pts: dict[str, Float3] = {}
     for t in cfg.targets:
+        mat = resolve_material_for_spec(t, cfg.materials)
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
         tspec, pts = build_target_spec(
             t, runtime_assets, label_to_bit, chem, _REDUCER_REGISTRY, maybe_cannon
