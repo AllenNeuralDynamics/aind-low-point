@@ -32,20 +32,22 @@ class ConfigFactory:
     def config_with_basic_assets(**overrides) -> Dict[str, Any]:
         """Create config with basic assets and targets."""
         config = ConfigFactory.minimal_config()
-        config.update({
-            "assets": [
-                AssetFactory.mesh_asset(key="brain_mesh"),
-                AssetFactory.points_asset(key="landmarks"),
-            ],
-            "targets": [
-                TargetFactory.explicit_target(key="target1"),
-            ],
-            "scene": {
-                "nodes": [
-                    {"id": "brain_node", "asset": "brain_mesh"},
-                ]
+        config.update(
+            {
+                "assets": [
+                    AssetFactory.mesh_asset(key="brain_mesh"),
+                    AssetFactory.points_asset(key="landmarks"),
+                ],
+                "targets": [
+                    TargetFactory.explicit_target(key="target1"),
+                ],
+                "scene": {
+                    "nodes": [
+                        {"id": "brain_node", "asset": "brain_mesh"},
+                    ]
+                },
             }
-        })
+        )
         config.update(overrides)
         return config
 
@@ -53,24 +55,26 @@ class ConfigFactory:
     def config_with_probes(**overrides) -> Dict[str, Any]:
         """Create config with probes and planning setup."""
         config = ConfigFactory.config_with_basic_assets()
-        config.update({
-            "plan": {
-                "arcs": {"arc1": 15.0},
-                "probes": {
-                    "probe1": {
-                        "kind": "neuropixels",
-                        "arc": "arc1",
-                        "target": "target1",
-                        "slider_ml": 5.0,
-                        "spin": 0.0,
-                        "past_target_mm": 2.0,
-                        "offsets_RA": [0.0, 0.0],
-                    }
-                },
-                "reticles": {},
-                "calibrations": {"files": {}, "probe_to_ref": {}},
+        config.update(
+            {
+                "plan": {
+                    "arcs": {"arc1": 15.0},
+                    "probes": {
+                        "probe1": {
+                            "kind": "neuropixels",
+                            "arc": "arc1",
+                            "target": "target1",
+                            "slider_ml": 5.0,
+                            "spin": 0.0,
+                            "past_target_mm": 2.0,
+                            "offsets_RA": [0.0, 0.0],
+                        }
+                    },
+                    "reticles": {},
+                    "calibrations": {"files": {}, "probe_to_ref": {}},
+                }
             }
-        })
+        )
         config.update(overrides)
         return config
 
@@ -100,7 +104,7 @@ class AssetFactory:
             kind=Kind.MESH.value,
             src="/path/to/mesh.obj",
             loader="trimesh_loader",
-            **overrides
+            **overrides,
         )
 
     @staticmethod
@@ -111,20 +115,24 @@ class AssetFactory:
             kind=Kind.POINTS.value,
             src="/path/to/points.npy",
             loader="numpy_points",
-            **overrides
+            **overrides,
         )
 
     @staticmethod
-    def asset_with_canonicalization(key: str = "canon_asset", **overrides) -> Dict[str, Any]:
+    def asset_with_canonicalization(
+        key: str = "canon_asset", **overrides
+    ) -> Dict[str, Any]:
         """Create asset with canonicalization."""
         asset = AssetFactory.base_asset(key=key)
-        asset.update({
-            "canonicalization": {
-                "source_space": "RAS",
-                "scale_to_mm": 1.0,
-                "version": "canon-v1",
+        asset.update(
+            {
+                "canonicalization": {
+                    "source_space": "RAS",
+                    "scale_to_mm": 1.0,
+                    "version": "canon-v1",
+                }
             }
-        })
+        )
         asset.update(overrides)
         return asset
 
@@ -148,20 +156,16 @@ class TargetFactory:
     def explicit_target(key: str = "explicit_target", **overrides) -> Dict[str, Any]:
         """Create explicit target with source file."""
         return TargetFactory.base_target(
-            key=key,
-            src="/path/to/targets.npy",
-            loader="numpy_points",
-            **overrides
+            key=key, src="/path/to/targets.npy", loader="numpy_points", **overrides
         )
 
     @staticmethod
-    def derived_target(key: str = "derived_target", source_key: str = "brain_mesh", **overrides) -> Dict[str, Any]:
+    def derived_target(
+        key: str = "derived_target", source_key: str = "brain_mesh", **overrides
+    ) -> Dict[str, Any]:
         """Create target derived from asset."""
         return TargetFactory.base_target(
-            key=key,
-            source_key=source_key,
-            reducer="centroid",
-            **overrides
+            key=key, source_key=source_key, reducer="centroid", **overrides
         )
 
 
@@ -182,7 +186,9 @@ class TransformFactory:
         return op
 
     @staticmethod
-    def rotate_op(angles_deg: List[float] = None, order: str = "ZYX", **overrides) -> Dict[str, Any]:
+    def rotate_op(
+        angles_deg: List[float] = None, order: str = "ZYX", **overrides
+    ) -> Dict[str, Any]:
         """Create rotation transform operation."""
         if angles_deg is None:
             angles_deg = [0.0, 0.0, 90.0]
@@ -207,7 +213,9 @@ class TransformFactory:
         return op
 
     @staticmethod
-    def transform_recipe(sequence: List[Dict[str, Any]] = None, **overrides) -> Dict[str, Any]:
+    def transform_recipe(
+        sequence: List[Dict[str, Any]] = None, **overrides
+    ) -> Dict[str, Any]:
         """Create transform recipe."""
         if sequence is None:
             sequence = [TransformFactory.translate_op()]
@@ -223,7 +231,9 @@ class TransformFactory:
         return ref
 
     @staticmethod
-    def transform_ref_inline(sequence: List[Dict[str, Any]] = None, **overrides) -> Dict[str, Any]:
+    def transform_ref_inline(
+        sequence: List[Dict[str, Any]] = None, **overrides
+    ) -> Dict[str, Any]:
         """Create inline transform reference."""
         ref = {"inline": TransformFactory.transform_recipe(sequence)}
         ref.update(overrides)
@@ -243,7 +253,9 @@ class CalibrationFactory:
         return source
 
     @staticmethod
-    def calibration_source_dir(dir_path: str, reticle: str = "default_reticle", **overrides) -> Dict[str, Any]:
+    def calibration_source_dir(
+        dir_path: str, reticle: str = "default_reticle", **overrides
+    ) -> Dict[str, Any]:
         """Create directory-based calibration source."""
         source = {"directory": dir_path, "reticle": reticle}
         source.update(overrides)

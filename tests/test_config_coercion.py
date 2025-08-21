@@ -18,11 +18,13 @@ class TestTransformRecipeCoercion:
     def test_root_single_op_coercion(self):
         """Test single operation at root is coerced to sequence."""
         # Single op dict should become {sequence: [op]}
-        recipe = TransformRecipeModel.model_validate({
-            "kind": "translate_mm",
-            "delta": [1.0, 2.0, 3.0],
-            "invert": False,
-        })
+        recipe = TransformRecipeModel.model_validate(
+            {
+                "kind": "translate_mm",
+                "delta": [1.0, 2.0, 3.0],
+                "invert": False,
+            }
+        )
 
         assert len(recipe.sequence) == 1
         assert recipe.sequence[0].kind == "translate_mm"
@@ -78,7 +80,11 @@ class TestTransformRefCoercion:
         """Test list input is coerced to {inline: {sequence: list}}."""
         ops_list = [
             {"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]},
-            {"kind": "rotate_euler_deg", "order": "ZYX", "angles_deg": [0.0, 0.0, 90.0]},
+            {
+                "kind": "rotate_euler_deg",
+                "order": "ZYX",
+                "angles_deg": [0.0, 0.0, 90.0],
+            },
         ]
 
         ref = TransformRefModel.model_validate(ops_list)
@@ -89,10 +95,12 @@ class TestTransformRefCoercion:
 
     def test_single_op_dict_coercion_to_inline(self):
         """Test single op dict is coerced to {inline: {sequence: [op]}}."""
-        ref = TransformRefModel.model_validate({
-            "kind": "translate_mm",
-            "delta": [5.0, 0.0, 0.0],
-        })
+        ref = TransformRefModel.model_validate(
+            {
+                "kind": "translate_mm",
+                "delta": [5.0, 0.0, 0.0],
+            }
+        )
 
         assert ref.key is None
         assert ref.inline is not None
@@ -102,11 +110,13 @@ class TestTransformRefCoercion:
 
     def test_recipe_dict_coercion_to_inline(self):
         """Test recipe dict with 'sequence' is coerced to {inline: recipe}."""
-        ref = TransformRefModel.model_validate({
-            "sequence": [
-                {"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]},
-            ]
-        })
+        ref = TransformRefModel.model_validate(
+            {
+                "sequence": [
+                    {"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]},
+                ]
+            }
+        )
 
         assert ref.key is None
         assert ref.inline is not None
@@ -135,9 +145,7 @@ class TestTransformRefCoercion:
 
         # Explicit inline structure
         ref_inline = TransformRefModel(
-            inline=TransformRecipeModel(
-                sequence=[TransformFactory.translate_op()]
-            )
+            inline=TransformRecipeModel(sequence=[TransformFactory.translate_op()])
         )
         assert ref_inline.key is None
         assert ref_inline.inline is not None
@@ -146,8 +154,7 @@ class TestTransformRefCoercion:
         """Test that providing both key and inline raises error."""
         with pytest.raises(ValidationError, match="provide exactly one of"):
             TransformRefModel(
-                key="my_transform",
-                inline=TransformRecipeModel(sequence=[])
+                key="my_transform", inline=TransformRecipeModel(sequence=[])
             )
 
     def test_xor_validation_neither_provided(self):
@@ -163,11 +170,15 @@ class TestCalibrationModelNormalization:
         """Test string references are converted to CalibrationRefModel."""
         temp_file_path.write_text("dummy calibration file")
         calibrations = CalibrationsModel(
-            files={"cal1": CalibrationFactory.calibration_source_file(str(temp_file_path))},
+            files={
+                "cal1": CalibrationFactory.calibration_source_file(str(temp_file_path))
+            },
             probe_to_ref={
                 "probe1": "cal1:12345",  # String format
-                "probe2": CalibrationRefModel(cal_id="cal1", probe_code="67890"),  # Already object
-            }
+                "probe2": CalibrationRefModel(
+                    cal_id="cal1", probe_code="67890"
+                ),  # Already object
+            },
         )
 
         # Both should be CalibrationRefModel instances
@@ -184,12 +195,14 @@ class TestCalibrationModelNormalization:
         """Test mixed string and object references are normalized."""
         temp_file_path.write_text("dummy calibration file")
         calibrations = CalibrationsModel(
-            files={"cal1": CalibrationFactory.calibration_source_file(str(temp_file_path))},
+            files={
+                "cal1": CalibrationFactory.calibration_source_file(str(temp_file_path))
+            },
             probe_to_ref={
                 "probe1": "cal1:probe_A",
                 "probe2": {"cal_id": "cal1", "probe_code": "probe_B"},
                 "probe3": CalibrationRefModel(cal_id="cal1", probe_code="probe_C"),
-            }
+            },
         )
 
         # All should be CalibrationRefModel instances
@@ -207,10 +220,14 @@ class TestCalibrationModelNormalization:
         temp_file_path.write_text("dummy calibration file")
         with pytest.raises(ValidationError, match="Expected '<cal_id>:<probe_code>'"):
             CalibrationsModel(
-                files={"cal1": CalibrationFactory.calibration_source_file(str(temp_file_path))},
+                files={
+                    "cal1": CalibrationFactory.calibration_source_file(
+                        str(temp_file_path)
+                    )
+                },
                 probe_to_ref={
                     "probe1": "invalid_format_no_colon",
-                }
+                },
             )
 
 
@@ -257,7 +274,9 @@ class TestSelectorCoercion:
         assert selector_int.label == 42
 
         # String label
-        selector_str = LabelSelector.model_validate({"kind": "label", "label": "cortex"})
+        selector_str = LabelSelector.model_validate(
+            {"kind": "label", "label": "cortex"}
+        )
         assert selector_str.kind == "label"
         assert selector_str.label == "cortex"
 
@@ -265,5 +284,6 @@ class TestSelectorCoercion:
         """Test invalid selector kind raises validation error."""
         with pytest.raises(ValidationError):
             from aind_low_point.config import NameSelector
+
             # This should fail because we're using wrong discriminator
             NameSelector.model_validate({"kind": "invalid_kind", "name": "test"})

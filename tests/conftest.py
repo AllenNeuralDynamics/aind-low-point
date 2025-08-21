@@ -1,6 +1,5 @@
 """Pytest configuration and shared fixtures for config tests."""
 
-
 import pytest
 
 

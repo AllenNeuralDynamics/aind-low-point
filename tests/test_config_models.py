@@ -74,7 +74,9 @@ class TestAssetSpecModel:
     def test_asset_requires_both_src_and_loader(self):
         """Test that src and loader must both be provided or both be None."""
         # Only src provided
-        with pytest.raises(ValidationError, match="must provide both 'src' and 'loader'"):
+        with pytest.raises(
+            ValidationError, match="must provide both 'src' and 'loader'"
+        ):
             AssetSpecModel(
                 key="test",
                 kind="mesh",
@@ -83,7 +85,9 @@ class TestAssetSpecModel:
             )
 
         # Only loader provided
-        with pytest.raises(ValidationError, match="must provide both 'src' and 'loader'"):
+        with pytest.raises(
+            ValidationError, match="must provide both 'src' and 'loader'"
+        ):
             AssetSpecModel(
                 key="test",
                 kind="mesh",
@@ -94,7 +98,10 @@ class TestAssetSpecModel:
     def test_asset_resource_vs_src_loader_exclusive(self):
         """Test that from_resource+selector vs src+loader are mutually exclusive."""
         # Both src+loader and from_resource+selector
-        with pytest.raises(ValidationError, match="Choose either \\(src\\+loader\\) or \\(from_resource\\+selector\\)"):
+        with pytest.raises(
+            ValidationError,
+            match="Choose either \\(src\\+loader\\) or \\(from_resource\\+selector\\)",
+        ):
             AssetSpecModel(
                 key="test",
                 kind="mesh",
@@ -128,14 +135,20 @@ class TestAssetSpecModel:
             AssetSpecModel(**asset_data)
 
     def test_canonicalization_mutual_exclusion(self):
-        """Test that canonicalization_ref and canonicalization are mutually exclusive."""
+        """Test that canonicalization_ref and canonicalization are mutually
+        exclusive."""
         asset_data = AssetFactory.mesh_asset()
-        asset_data.update({
-            "canonicalization_ref": "canon1",
-            "canonicalization": {"source_space": "RAS", "scale_to_mm": 1.0},
-        })
+        asset_data.update(
+            {
+                "canonicalization_ref": "canon1",
+                "canonicalization": {"source_space": "RAS", "scale_to_mm": 1.0},
+            }
+        )
 
-        with pytest.raises(ValidationError, match="Provide either canonicalization_ref or canonicalization"):
+        with pytest.raises(
+            ValidationError,
+            match="Provide either canonicalization_ref or canonicalization",
+        ):
             AssetSpecModel(**asset_data)
 
 
@@ -175,6 +188,7 @@ class TestTargetSpecModel:
     def test_target_not_collidable_by_default(self):
         """Test that targets cannot be collidable by default."""
         from aind_low_point.common import Capability
+
         target_data = TargetFactory.explicit_target()
         target_data["caps"] = [Capability.RENDERABLE, Capability.COLLIDABLE]
 
@@ -206,19 +220,20 @@ class TestTransformRecipeModel:
 
     def test_single_op_coercion_at_root(self):
         """Test single op at root level is coerced to sequence."""
-        recipe = TransformRecipeModel.model_validate({
-            "kind": "translate_mm",
-            "delta": [1.0, 2.0, 3.0],
-        })
+        recipe = TransformRecipeModel.model_validate(
+            {
+                "kind": "translate_mm",
+                "delta": [1.0, 2.0, 3.0],
+            }
+        )
         assert len(recipe.sequence) == 1
         assert recipe.sequence[0].kind == "translate_mm"
 
     def test_sequence_single_op_coercion(self):
         """Test single op in sequence field is coerced to list."""
-        recipe = TransformRecipeModel(sequence={
-            "kind": "translate_mm",
-            "delta": [1.0, 2.0, 3.0]
-        })
+        recipe = TransformRecipeModel(
+            sequence={"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]}
+        )
         assert len(recipe.sequence) == 1
         assert recipe.sequence[0].kind == "translate_mm"
 
@@ -285,22 +300,30 @@ class TestCalibrationSourceModel:
         temp_file_path.touch()
         temp_dir_path.mkdir()
 
-        with pytest.raises(ValidationError, match="Specify exactly one of 'file' or 'directory'"):
+        with pytest.raises(
+            ValidationError, match="Specify exactly one of 'file' or 'directory'"
+        ):
             CalibrationSourceModel(file=temp_file_path, directory=temp_dir_path)
 
     def test_neither_file_nor_directory(self):
         """Test that one of file or directory must be provided."""
-        with pytest.raises(ValidationError, match="Specify exactly one of 'file' or 'directory'"):
+        with pytest.raises(
+            ValidationError, match="Specify exactly one of 'file' or 'directory'"
+        ):
             CalibrationSourceModel()
 
     def test_file_forbids_reticle(self, temp_file_path):
         """Test that reticle cannot be used with file."""
         temp_file_path.touch()
-        with pytest.raises(ValidationError, match="'reticle' must not be provided when 'file' is used"):
+        with pytest.raises(
+            ValidationError, match="'reticle' must not be provided when 'file' is used"
+        ):
             CalibrationSourceModel(file=temp_file_path, reticle="reticle1")
 
     def test_directory_requires_reticle(self, temp_dir_path):
         """Test that directory requires reticle."""
         temp_dir_path.mkdir()
-        with pytest.raises(ValidationError, match="'reticle' is required when 'directory' is used"):
+        with pytest.raises(
+            ValidationError, match="'reticle' is required when 'directory' is used"
+        ):
             CalibrationSourceModel(directory=temp_dir_path)

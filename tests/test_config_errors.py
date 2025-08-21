@@ -34,7 +34,9 @@ class TestFieldConstraintErrors:
 
         with pytest.raises(ValidationError) as exc_info:
             AssetSpecModel(**asset_data)
-        assert "bbox_hint must be [[minx,miny,minz],[maxx,maxy,maxz]]" in str(exc_info.value)
+        assert "bbox_hint must be [[minx,miny,minz],[maxx,maxy,maxz]]" in str(
+            exc_info.value
+        )
 
     def test_required_field_error_messages(self):
         """Test required field validation provides clear error messages."""
@@ -72,10 +74,14 @@ class TestModelLogicErrors:
 
     def test_asset_src_loader_mutual_requirement_error(self):
         """Test clear error when only one of src/loader provided."""
-        with pytest.raises(ValidationError, match="must provide both 'src' and 'loader'"):
+        with pytest.raises(
+            ValidationError, match="must provide both 'src' and 'loader'"
+        ):
             AssetSpecModel(key="test", kind=Kind.MESH.value, src="/path/to/file.obj")
 
-        with pytest.raises(ValidationError, match="must provide both 'src' and 'loader'"):
+        with pytest.raises(
+            ValidationError, match="must provide both 'src' and 'loader'"
+        ):
             AssetSpecModel(key="test", kind=Kind.MESH.value, loader="trimesh_loader")
 
     def test_asset_resource_exclusivity_error(self):
@@ -113,18 +119,25 @@ class TestModelLogicErrors:
         target_data = TargetFactory.explicit_target()
         target_data["caps"] = [Capability.RENDERABLE.value, Capability.COLLIDABLE.value]
 
-        with pytest.raises(ValidationError, match="targets should not be collidable by default"):
+        with pytest.raises(
+            ValidationError, match="targets should not be collidable by default"
+        ):
             TargetSpecModel(**target_data)
 
     def test_canonicalization_mutual_exclusion_error(self):
         """Test clear error for canonicalization ref/inline conflict."""
         asset_data = AssetFactory.mesh_asset()
-        asset_data.update({
-            "canonicalization_ref": "canon1",
-            "canonicalization": {"source_space": "RAS", "scale_to_mm": 1.0},
-        })
+        asset_data.update(
+            {
+                "canonicalization_ref": "canon1",
+                "canonicalization": {"source_space": "RAS", "scale_to_mm": 1.0},
+            }
+        )
 
-        with pytest.raises(ValidationError, match="Provide either canonicalization_ref or canonicalization"):
+        with pytest.raises(
+            ValidationError,
+            match="Provide either canonicalization_ref or canonicalization",
+        ):
             AssetSpecModel(**asset_data)
 
 
@@ -153,10 +166,7 @@ class TestTransformOpErrors:
         from aind_low_point.config import RotateEulerTxOpModel
 
         with pytest.raises(ValidationError):
-            RotateEulerTxOpModel(
-                order="INVALID",
-                angles_deg=[0.0, 0.0, 90.0]
-            )
+            RotateEulerTxOpModel(order="INVALID", angles_deg=[0.0, 0.0, 90.0])
 
     def test_sitk_op_missing_path(self, temp_file_path):
         """Test SITK operation requires path."""
@@ -173,9 +183,9 @@ class TestTransformOpErrors:
     def test_transform_recipe_with_invalid_op(self):
         """Test transform recipe with invalid operation."""
         with pytest.raises(ValidationError):
-            TransformRecipeModel(sequence=[
-                {"kind": "unknown_op", "some_param": "value"}
-            ])
+            TransformRecipeModel(
+                sequence=[{"kind": "unknown_op", "some_param": "value"}]
+            )
 
 
 class TestEdgeCases:
@@ -200,12 +210,14 @@ class TestEdgeCases:
     def test_deeply_nested_transform_recipe_errors(self):
         """Test error handling in deeply nested transform structures."""
         with pytest.raises(ValidationError):
-            TransformRecipeModel.model_validate({
-                "sequence": [
-                    {"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]},
-                    {"kind": "invalid_op", "param": "value"},  # Invalid op
-                ]
-            })
+            TransformRecipeModel.model_validate(
+                {
+                    "sequence": [
+                        {"kind": "translate_mm", "delta": [1.0, 2.0, 3.0]},
+                        {"kind": "invalid_op", "param": "value"},  # Invalid op
+                    ]
+                }
+            )
 
     def test_circular_reference_detection(self):
         """Test handling of potential circular references."""
@@ -214,10 +226,14 @@ class TestEdgeCases:
         config_data = ConfigFactory.minimal_config()
 
         # Derived target referencing itself would be caught by validation
-        config_data.update({
-            "assets": [AssetFactory.mesh_asset(key="asset1")],
-            "targets": [TargetFactory.derived_target(key="target1", source_key="asset1")],
-        })
+        config_data.update(
+            {
+                "assets": [AssetFactory.mesh_asset(key="asset1")],
+                "targets": [
+                    TargetFactory.derived_target(key="target1", source_key="asset1")
+                ],
+            }
+        )
 
         # Should work fine - no circular reference
         config = ConfigModel.model_validate(config_data)
@@ -250,9 +266,7 @@ class TestErrorMessageQuality:
     def test_cross_reference_error_includes_context(self):
         """Test cross-reference errors include helpful context."""
         config_data = ConfigFactory.minimal_config()
-        config_data["scene"]["nodes"] = [
-            {"id": "node1", "asset": "missing_asset"}
-        ]
+        config_data["scene"]["nodes"] = [{"id": "node1", "asset": "missing_asset"}]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
@@ -274,14 +288,16 @@ class TestErrorMessageQuality:
     def test_multiple_errors_are_collected(self):
         """Test that multiple validation errors are collected together."""
         config_data = ConfigFactory.minimal_config()
-        config_data.update({
-            "scene": {
-                "nodes": [
-                    {"id": "node1", "asset": "missing1"},
-                    {"id": "node2", "asset": "missing2"},
-                ]
+        config_data.update(
+            {
+                "scene": {
+                    "nodes": [
+                        {"id": "node1", "asset": "missing1"},
+                        {"id": "node2", "asset": "missing2"},
+                    ]
+                }
             }
-        })
+        )
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
@@ -295,6 +311,7 @@ class TestErrorMessageQuality:
         """Test discriminated union errors are helpful."""
         with pytest.raises(ValidationError) as exc_info:
             from aind_low_point.config import TranslateTxOpModel
+
             TranslateTxOpModel(kind="translate_mm")  # Missing required delta field
 
         error_msg = str(exc_info.value)

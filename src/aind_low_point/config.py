@@ -544,7 +544,7 @@ class PathsModel(BaseModel):
     """Freeform helper; keep loose so Hydra/OmegaConf interpolation is easy."""
 
     model_config = {"extra": "allow"}
-    
+
     def __init__(self, **data):
         super().__init__(**data)
 
