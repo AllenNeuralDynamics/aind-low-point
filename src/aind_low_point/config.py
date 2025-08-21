@@ -218,7 +218,7 @@ class TransformRecipeModel(BaseModel):
         if isinstance(v, dict) and "kind" in v:
             return [v]
         # if a single parsed op model, wrap it
-        if isinstance(v, _OpBase):
+        if isinstance(v, _TxOpBase):
             return [v]
         raise TypeError("sequence must be a list[TransformOp] or a single TransformOp")
 
@@ -543,7 +543,10 @@ class PlanningModel(BaseModel):
 class PathsModel(BaseModel):
     """Freeform helper; keep loose so Hydra/OmegaConf interpolation is easy."""
 
-    __root__: dict[str, Any] = Field(default_factory=dict)
+    model_config = {"extra": "allow"}
+    
+    def __init__(self, **data):
+        super().__init__(**data)
 
 
 class OptionsModel(BaseModel):
