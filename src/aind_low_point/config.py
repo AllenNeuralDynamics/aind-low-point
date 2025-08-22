@@ -914,13 +914,6 @@ def _merge_asset_source_fields(
     """
     out: dict[str, Any] = {}
 
-    base_file = (getattr(base, "src", None) is not None) or (
-        getattr(base, "loader", None) is not None
-    )
-    base_res = (getattr(base, "from_resource", None) is not None) or (
-        getattr(base, "selector", None) is not None
-    )
-
     over_file = (getattr(over, "src", None) is not None) or (
         getattr(over, "loader", None) is not None
     )
