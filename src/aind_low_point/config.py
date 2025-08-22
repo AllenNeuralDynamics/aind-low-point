@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import (
     Annotated,
     Any,
-    List,
     Literal,
     Optional,
     TypeAlias,
@@ -33,7 +32,7 @@ SourceSpace: TypeAlias = OrientationCode | Literal["FILE_NATIVE"]
 class ImagingModel(BaseModel):
     magnet_frequency_MHz: float
     chem_shift_ppm_default: float = 3.7
-    chem_shift_apply_by_role: List[Role] = Field(default_factory=lambda: [Role.ANATOMY])
+    chem_shift_apply_by_role: list[Role] = Field(default_factory=lambda: [Role.ANATOMY])
     # optionally, where to read the reference image from if needed by your library
     image_path: Optional[FilePath] = None
 
@@ -144,7 +143,7 @@ class CollisionPolicyModel(BaseModel):
     group: Optional[str] = Field(
         default=None, description="e.g., STATIC, FIXTURE, PROBE"
     )
-    mask: List[str] = Field(
+    mask: list[str] = Field(
         default_factory=list, description="Labels it can collide with"
     )
 
@@ -155,7 +154,7 @@ class _TxOpBase(BaseModel):
 
 class TranslateTxOpModel(_TxOpBase):
     kind: Literal["translate_mm"] = "translate_mm"
-    delta: List[float] = Field(..., min_length=3, max_length=3)
+    delta: list[float] = Field(..., min_length=3, max_length=3)
 
 
 class RotateEulerTxOpModel(_TxOpBase):
@@ -174,7 +173,7 @@ class RotateEulerTxOpModel(_TxOpBase):
         "zxy",
         "zyx",
     ] = "ZYX"
-    angles_deg: List[float] = Field(..., min_length=3, max_length=3)
+    angles_deg: list[float] = Field(..., min_length=3, max_length=3)
 
 
 class LoadSITKTxOpModel(_TxOpBase):
@@ -192,7 +191,7 @@ TransformOp = Annotated[
 class TransformRecipeModel(BaseModel):
     """Sequence of ops; accepts a single op or a list and normalizes to list."""
 
-    sequence: List[TransformOp] = Field(default_factory=list)
+    sequence: list[TransformOp] = Field(default_factory=list)
 
     # Allow top-level single-op form:
     #   transforms:
@@ -280,18 +279,18 @@ class BaseTemplateModel(BaseModel):
     material_ref: Optional[str] = None
     material: Optional[MaterialModel] = None
 
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     canonicalization_ref: Optional[str] = None
     canonicalization: Optional["CanonicalizationDefModel"] = None
     canonicalization_override: Optional["CanonicalizationDefModel"] = None
 
-    caps: Optional[List["Capability"]] = None
+    caps: Optional[list["Capability"]] = None
     collision: Optional["CollisionPolicyModel"] = None
 
-    pivot_LPS: Optional[List[float]] = None
-    bbox_hint: Optional[List[List[float]]] = None
+    pivot_LPS: Optional[list[float]] = None
+    bbox_hint: Optional[list[list[float]]] = None
 
     # Chem-shift hints (optional, ignored if not applicable)
     chem_shift_ppm: Optional[float] = None
@@ -330,7 +329,7 @@ class TargetTemplateModel(BaseTemplateModel):
     )
 
     post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
-    approach_vector: Optional[List[float]] = None
+    approach_vector: Optional[list[float]] = None
     uncertainty_mm: Optional[float] = None
 
 
@@ -343,7 +342,7 @@ class BaseSpecModel(BaseModel):
     material: Optional[MaterialModel] = None
 
     metadata: dict[str, Any] = Field(default_factory=dict)
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     canonicalization_ref: Optional[str] = None
     canonicalization: Optional[CanonicalizationDefModel] = (
@@ -352,12 +351,12 @@ class BaseSpecModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     # capabilities are parsed from strings like ["RENDERABLE", "COLLIDABLE"]
-    caps: List[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     # UI/layout hints
-    pivot_LPS: Optional[List[float]] = Field(default=None, min_length=3, max_length=3)
-    bbox_hint: Optional[List[List[float]]] = Field(default=None)
+    pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
+    bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
     chem_shift_ppm: Optional[float] = None
@@ -393,7 +392,7 @@ class AssetSpecModel(BaseSpecModel):
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     # NEW: list of template names to apply, left→right priority
-    templates: List[str] = Field(default_factory=list)
+    templates: list[str] = Field(default_factory=list)
 
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
@@ -439,11 +438,11 @@ class TargetSpecModel(BaseSpecModel):
         None  # optional final reduction (e.g., COM of a selected mesh)
     )
 
-    templates: List[str] = Field(default_factory=list)
+    templates: list[str] = Field(default_factory=list)
 
     post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
-    approach_vector: Optional[List[float]] = Field(
+    approach_vector: Optional[list[float]] = Field(
         default=None, min_length=3, max_length=3
     )
     uncertainty_mm: Optional[float] = None
@@ -477,7 +476,7 @@ class TargetSpecModel(BaseSpecModel):
 class SceneNodeModel(BaseModel):
     id: str
     asset: str = Field(description="Key of an AssetSpec in catalog")
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     # Reference a named transform (from ConfigModel.transforms) or leave None for identity
     transform: Optional[TransformRefModel] = None
@@ -490,7 +489,7 @@ class SceneNodeModel(BaseModel):
 
 
 class SceneModel(BaseModel):
-    nodes: List[SceneNodeModel] = Field(default_factory=list)
+    nodes: list[SceneNodeModel] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
@@ -506,7 +505,7 @@ class ProbeDeclModel(BaseModel):
 
     target: str = Field(description="Key of a target (TargetSpecModel.key)")
     past_target_mm: float = 0.0
-    offsets_RA: List[float] = Field(
+    offsets_RA: list[float] = Field(
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
     )
 
@@ -531,7 +530,7 @@ class CalibrationRefModel(BaseModel):
 class CalibrationReticleModel(BaseModel):
     """Model for calibration reticle used in calibrations"""
 
-    offset_RAS: List[float] = Field(default_factory=list, min_length=3, max_length=3)
+    offset_RAS: list[float] = Field(default_factory=list, min_length=3, max_length=3)
     rotation_z: float = 0.0
 
 
@@ -634,14 +633,14 @@ class ConfigModel(BaseModel):
 
     paths: PathsModel = Field(default_factory=PathsModel)
     imaging: Optional[ImagingModel] = None
-    resources: List[ResourceModel] = Field(default_factory=list)
+    resources: list[ResourceModel] = Field(default_factory=list)
     materials: dict[str, MaterialModel] = Field(default_factory=dict)
 
     # Catalog
     asset_templates: dict[str, AssetTemplateModel] = Field(default_factory=dict)
     target_templates: dict[str, TargetTemplateModel] = Field(default_factory=dict)
-    assets: List[AssetSpecModel] = Field(default_factory=list)
-    targets: List[TargetSpecModel] = Field(default_factory=list)
+    assets: list[AssetSpecModel] = Field(default_factory=list)
+    targets: list[TargetSpecModel] = Field(default_factory=list)
 
     # Scene
     scene: SceneModel = Field(default_factory=SceneModel)
@@ -659,7 +658,7 @@ class ConfigModel(BaseModel):
     def _xref_and_expand_templates(self):
         # 1) Expand templates into concrete specs
 
-        errors: List[str] = []
+        errors: list[str] = []
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
@@ -831,11 +830,11 @@ class ConfigModel(BaseModel):
         return self
 
 
-def _union_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> Optional[List[Any]]:
+def _union_list(a: Optional[list[Any]], b: Optional[list[Any]]) -> Optional[list[Any]]:
     if a is None and b is None:
         return None
-    seen: Set[Any] = set()
-    out: List[Any] = []
+    seen: set[Any] = set()
+    out: list[Any] = []
     for src in (a or []), (b or []):
         for x in src:
             if x not in seen:
