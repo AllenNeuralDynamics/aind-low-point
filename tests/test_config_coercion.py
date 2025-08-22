@@ -287,3 +287,141 @@ class TestSelectorCoercion:
 
             # This should fail because we're using wrong discriminator
             NameSelector.model_validate({"kind": "invalid_kind", "name": "test"})
+
+
+class TestTemplateCoercion:
+    """Test template field coercion and normalization."""
+
+    def test_templates_list_normalization(self):
+        """Test templates field accepts list of strings."""
+        from tests.config_factories import AssetFactory
+        
+        asset_data = AssetFactory.asset_with_templates(
+            templates=["template1", "template2", "template3"]
+        )
+        from aind_low_point.config import AssetSpecModel
+        asset = AssetSpecModel(**asset_data)
+        assert asset.templates == ["template1", "template2", "template3"]
+
+    def test_empty_templates_list_default(self):
+        """Test templates defaults to empty list."""
+        from tests.config_factories import AssetFactory, TargetFactory
+        from aind_low_point.config import AssetSpecModel, TargetSpecModel
+        
+        asset_data = AssetFactory.mesh_asset()
+        asset = AssetSpecModel(**asset_data)
+        assert asset.templates == []
+
+        target_data = TargetFactory.explicit_target()
+        target = TargetSpecModel(**target_data)
+        assert target.templates == []
+
+    def test_single_template_in_list(self):
+        """Test single template in list works correctly."""
+        from tests.config_factories import TargetFactory
+        from aind_low_point.config import TargetSpecModel
+        
+        target_data = TargetFactory.target_with_templates(templates=["single_template"])
+        target = TargetSpecModel(**target_data)
+        assert target.templates == ["single_template"]
+
+
+class TestMaterialResolution:
+    """Test material_ref resolution and precedence."""
+
+    def test_material_ref_field_present(self):
+        """Test material_ref field is preserved."""
+        from tests.config_factories import AssetFactory
+        from aind_low_point.config import AssetSpecModel
+        
+        asset_data = AssetFactory.asset_with_material_ref(material_ref="test_material")
+        asset = AssetSpecModel(**asset_data)
+        assert asset.material_ref == "test_material"
+
+    def test_material_ref_with_inline_material_coexist(self):
+        """Test material_ref and inline material can coexist."""
+        from tests.config_factories import AssetFactory, MaterialFactory
+        from aind_low_point.config import AssetSpecModel
+        
+        asset_data = AssetFactory.asset_with_material_ref(
+            material_ref="ref_material",
+            material=MaterialFactory.material(name="inline_material", color="#FF0000")
+        )
+        asset = AssetSpecModel(**asset_data)
+        assert asset.material_ref == "ref_material"
+        assert asset.material.name == "inline_material"
+        assert asset.material.color == "#FF0000"
+
+    def test_none_material_ref_allowed(self):
+        """Test material_ref can be None."""
+        from tests.config_factories import AssetFactory
+        from aind_low_point.config import AssetSpecModel
+        
+        asset_data = AssetFactory.mesh_asset(material_ref=None)
+        asset = AssetSpecModel(**asset_data)
+        assert asset.material_ref is None
+
+    def test_template_material_ref_preserved(self):
+        """Test material_ref in templates is preserved."""
+        from tests.config_factories import TemplateFactory
+        from aind_low_point.config import AssetTemplateModel
+        
+        template_data = TemplateFactory.asset_template(material_ref="template_material")
+        template = AssetTemplateModel(**template_data)
+        assert template.material_ref == "template_material"
+
+
+class TestTemplateFieldCoercion:
+    """Test template-specific field coercion."""
+
+    def test_template_optional_fields_coercion(self):
+        """Test optional fields in templates work correctly."""
+        from tests.config_factories import TemplateFactory
+        from aind_low_point.config import BaseTemplateModel
+        
+        # Test with None values
+        template_data = TemplateFactory.base_template(
+            kind=None,
+            role=None,
+            material_ref=None
+        )
+        template = BaseTemplateModel(**template_data)
+        assert template.kind is None
+        assert template.role is None
+        assert template.material_ref is None
+
+    def test_asset_template_source_modes_coercion(self):
+        """Test asset template source mode fields."""
+        from tests.config_factories import TemplateFactory, SelectorFactory
+        from aind_low_point.config import AssetTemplateModel
+        
+        # Test with resource mode
+        template_data = TemplateFactory.asset_template(
+            from_resource="test_resource",
+            selector=SelectorFactory.name_selector("mesh_data"),
+            src=None,
+            loader=None
+        )
+        template = AssetTemplateModel(**template_data)
+        assert template.from_resource == "test_resource"
+        assert template.selector.name == "mesh_data"
+        assert template.src is None
+        assert template.loader is None
+
+    def test_target_template_source_modes_coercion(self):
+        """Test target template source mode fields."""
+        from tests.config_factories import TemplateFactory
+        from aind_low_point.config import TargetTemplateModel
+        
+        # Test derived mode
+        template_data = TemplateFactory.target_template_derived(
+            source_key="source_asset",
+            reducer="mean",
+            src=None,
+            loader=None
+        )
+        template = TargetTemplateModel(**template_data)
+        assert template.source_key == "source_asset"
+        assert template.reducer == "mean"
+        assert template.src is None
+        assert template.loader is None

@@ -416,3 +416,181 @@ class TestConfigCrossReferenceValidation:
         assert len(config.targets) == 2
         assert len(config.scene.nodes) == 1
         assert len(config.plan.probes) == 1
+
+
+class TestMaterialReferenceValidation:
+    """Test cross-reference validation for material_ref fields."""
+
+    def test_asset_material_ref_validation(self):
+        """Test assets must reference existing materials."""
+        from tests.config_factories import ConfigFactory, AssetFactory
+        
+        config_data = ConfigFactory.config_with_materials()
+        config_data["assets"] = [
+            AssetFactory.asset_with_material_ref(
+                key="valid_asset", material_ref="default_material"
+            ),
+            AssetFactory.asset_with_material_ref(
+                key="invalid_asset", material_ref="nonexistent_material"
+            ),
+        ]
+
+        with pytest.raises(
+            ValidationError, match="material_ref 'nonexistent_material' not found in materials"
+        ):
+            ConfigModel.model_validate(config_data)
+
+    def test_target_material_ref_validation(self):
+        """Test targets must reference existing materials."""
+        from tests.config_factories import ConfigFactory, TargetFactory
+        
+        config_data = ConfigFactory.config_with_materials()
+        config_data["targets"] = [
+            TargetFactory.target_with_material_ref(
+                key="valid_target", material_ref="green_material"
+            ),
+            TargetFactory.target_with_material_ref(
+                key="invalid_target", material_ref="missing_material"
+            ),
+        ]
+
+        with pytest.raises(
+            ValidationError, match="material_ref 'missing_material' not found in materials"
+        ):
+            ConfigModel.model_validate(config_data)
+
+    def test_template_material_ref_validation(self):
+        """Test templates must reference existing materials."""
+        from tests.config_factories import ConfigFactory, TemplateFactory
+        
+        config_data = ConfigFactory.config_with_materials()
+        config_data.update({
+            "asset_templates": {
+                "valid_template": TemplateFactory.asset_template(
+                    material_ref="default_material"
+                ),
+                "invalid_template": TemplateFactory.asset_template(
+                    material_ref="missing_material"
+                ),
+            }
+        })
+
+        with pytest.raises(ValidationError) as exc_info:
+            ConfigModel.model_validate(config_data)
+        
+        error_msg = str(exc_info.value)
+        assert "material_ref 'missing_material' not found" in error_msg
+
+
+class TestTemplateReferenceValidation:
+    """Test cross-reference validation for template fields."""
+
+    def test_asset_template_references(self):
+        """Test assets.templates must reference existing asset_templates."""
+        from tests.config_factories import ConfigFactory, AssetFactory
+        
+        config_data = ConfigFactory.config_with_templates()
+        config_data["assets"] = [
+            AssetFactory.asset_with_templates(
+                key="valid_asset", templates=["mesh_template"]
+            ),
+            AssetFactory.asset_with_templates(
+                key="invalid_asset", templates=["nonexistent_template"]
+            ),
+        ]
+
+        with pytest.raises(
+            ValidationError, match="references unknown template 'nonexistent_template'"
+        ):
+            ConfigModel.model_validate(config_data)
+
+    def test_target_template_references(self):
+        """Test targets.templates must reference existing target_templates."""
+        from tests.config_factories import ConfigFactory, TargetFactory
+        
+        config_data = ConfigFactory.config_with_templates()
+        config_data["targets"] = [
+            TargetFactory.target_with_templates(
+                key="valid_target", templates=["explicit_template"]
+            ),
+            TargetFactory.target_with_templates(
+                key="invalid_target", templates=["missing_template"]
+            ),
+        ]
+
+        with pytest.raises(
+            ValidationError, match="references unknown template 'missing_template'"
+        ):
+            ConfigModel.model_validate(config_data)
+
+    def test_multiple_template_references(self):
+        """Test validation of multiple template references."""
+        from tests.config_factories import ConfigFactory, AssetFactory
+        
+        config_data = ConfigFactory.config_with_templates()
+        config_data["assets"] = [
+            AssetFactory.asset_with_templates(
+                key="multi_template_asset", 
+                templates=["mesh_template", "nonexistent_template"]
+            ),
+        ]
+
+        with pytest.raises(
+            ValidationError, match="references unknown template 'nonexistent_template'"
+        ):
+            ConfigModel.model_validate(config_data)
+
+
+class TestTemplateExpansionValidation:
+    """Test template expansion and validation integration."""
+
+    def test_template_expansion_occurs_before_validation(self):
+        """Test template expansion happens in _xref_and_expand_templates."""
+        from tests.config_factories import ConfigFactory
+        
+        # This should pass validation because templates are expanded first
+        config_data = ConfigFactory.config_with_templated_assets()
+        
+        # Should not raise validation errors
+        config = ConfigModel.model_validate(config_data)
+        assert len(config.assets) == 2
+        assert len(config.targets) == 2
+
+    def test_expanded_assets_have_material_refs_validated(self):
+        """Test that after template expansion, material_ref validation occurs."""
+        from tests.config_factories import ConfigFactory, AssetFactory, TemplateFactory
+        
+        config_data = ConfigFactory.config_with_materials()
+        config_data.update({
+            "asset_templates": {
+                "bad_template": TemplateFactory.asset_template(
+                    material_ref="nonexistent_material"
+                )
+            },
+            "assets": [
+                AssetFactory.asset_with_templates(
+                    key="templated_asset", templates=["bad_template"]
+                )
+            ]
+        })
+
+        with pytest.raises(ValidationError) as exc_info:
+            ConfigModel.model_validate(config_data)
+        
+        error_msg = str(exc_info.value)
+        assert "material_ref 'nonexistent_material' not found" in error_msg
+
+    def test_valid_complete_config_with_templates(self):
+        """Test complete valid configuration with templates passes validation."""
+        from tests.config_factories import ConfigFactory
+        
+        config_data = ConfigFactory.config_with_templated_assets()
+        
+        # Should not raise any validation errors
+        config = ConfigModel.model_validate(config_data)
+        assert config.version == 1
+        assert len(config.materials) == 4  # default, red, green, transparent
+        assert len(config.asset_templates) == 2
+        assert len(config.target_templates) == 2
+        assert len(config.assets) == 2
+        assert len(config.targets) == 2

@@ -1,5 +1,6 @@
 """Factory classes for generating test configuration data."""
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 from aind_low_point.common import Capability, Kind, Role
@@ -78,6 +79,92 @@ class ConfigFactory:
         config.update(overrides)
         return config
 
+    @staticmethod
+    def config_with_materials(**overrides) -> Dict[str, Any]:
+        """Create config with materials bank."""
+        config = ConfigFactory.minimal_config()
+        config.update(
+            {
+                "materials": {
+                    "default_material": MaterialFactory.material(),
+                    "red_material": MaterialFactory.red_material(),
+                    "green_material": MaterialFactory.green_material(),
+                    "transparent_material": MaterialFactory.transparent_material(),
+                },
+            }
+        )
+        config.update(overrides)
+        return config
+
+    @staticmethod
+    def config_with_templates(**overrides) -> Dict[str, Any]:
+        """Create config with materials and templates."""
+        config = ConfigFactory.config_with_materials()
+        config.update(
+            {
+                "asset_templates": {
+                    "mesh_template": TemplateFactory.mesh_template_with_loader(
+                        material_ref="default_material"
+                    ),
+                    "transparent_mesh": TemplateFactory.asset_template(
+                        name="transparent_mesh",
+                        material_ref="transparent_material",
+                        kind=Kind.MESH.value,
+                    ),
+                },
+                "target_templates": {
+                    "explicit_template": TemplateFactory.points_template_explicit(
+                        material_ref="green_material"
+                    ),
+                    "derived_template": TemplateFactory.target_template_derived(
+                        material_ref="red_material"
+                    ),
+                },
+            }
+        )
+        config.update(overrides)
+        return config
+
+    @staticmethod
+    def config_with_templated_assets(**overrides) -> Dict[str, Any]:
+        """Create config with assets that use templates."""
+        config = ConfigFactory.config_with_templates()
+        config.update(
+            {
+                "assets": [
+                    AssetFactory.base_asset(
+                        key="brain_mesh",
+                        kind=Kind.MESH.value,
+                        templates=["mesh_template"],
+                        src=Path("/data/brain.obj"),
+                        loader="trimesh_loader",
+                    ),
+                    AssetFactory.base_asset(
+                        key="skull_mesh",
+                        kind=Kind.MESH.value,
+                        templates=["transparent_mesh"],
+                        src=Path("/data/skull.obj"),
+                        loader="trimesh_loader",
+                    ),
+                ],
+                "targets": [
+                    TargetFactory.base_target(
+                        key="target1",
+                        templates=["explicit_template"],
+                        src=Path("/data/targets.npy"),
+                        loader="numpy_points",
+                    ),
+                    TargetFactory.derived_target(
+                        key="target2",
+                        templates=["derived_template"],
+                        source_key="brain_mesh",
+                    ),
+                ],
+            }
+        )
+        config.update(overrides)
+        return config
+
 
 class AssetFactory:
     """Factory for creating asset specifications."""
@@ -89,9 +176,10 @@ class AssetFactory:
             "key": key,
             "kind": Kind.MESH.value,
             "role": Role.GEOMETRY.value,
-            "src": "/path/to/asset.obj",
+            "src": Path("/path/to/asset.obj"),
             "loader": "trimesh_loader",
             "caps": [Capability.RENDERABLE.value],
+            "templates": [],
         }
         asset.update(overrides)
         return asset
@@ -102,7 +190,7 @@ class AssetFactory:
         return AssetFactory.base_asset(
             key=key,
             kind=Kind.MESH.value,
-            src="/path/to/mesh.obj",
+            src=Path("/path/to/mesh.obj"),
             loader="trimesh_loader",
             **overrides,
         )
@@ -113,7 +201,7 @@ class AssetFactory:
         return AssetFactory.base_asset(
             key=key,
             kind=Kind.POINTS.value,
-            src="/path/to/points.npy",
+            src=Path("/path/to/points.npy"),
             loader="numpy_points",
             **overrides,
         )
@@ -136,6 +224,34 @@ class AssetFactory:
         asset.update(overrides)
         return asset
 
+    @staticmethod
+    def asset_with_material_ref(
+        key: str = "material_ref_asset", 
+        material_ref: str = "default_material",
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create asset with material reference."""
+        return AssetFactory.base_asset(
+            key=key,
+            material_ref=material_ref,
+            **overrides
+        )
+
+    @staticmethod
+    def asset_with_templates(
+        key: str = "templated_asset",
+        templates: List[str] = None,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create asset with templates."""
+        if templates is None:
+            templates = ["mesh_template"]
+        return AssetFactory.base_asset(
+            key=key,
+            templates=templates,
+            **overrides
+        )
+
 
 class TargetFactory:
     """Factory for creating target specifications."""
@@ -148,6 +264,7 @@ class TargetFactory:
             "kind": Kind.POINTS.value,
             "role": Role.TARGET.value,
             "caps": [Capability.RENDERABLE.value],
+            "templates": [],
         }
         target.update(overrides)
         return target
@@ -156,7 +273,7 @@ class TargetFactory:
     def explicit_target(key: str = "explicit_target", **overrides) -> Dict[str, Any]:
         """Create explicit target with source file."""
         return TargetFactory.base_target(
-            key=key, src="/path/to/targets.npy", loader="numpy_points", **overrides
+            key=key, src=Path("/path/to/targets.npy"), loader="numpy_points", **overrides
         )
 
     @staticmethod
@@ -166,6 +283,34 @@ class TargetFactory:
         """Create target derived from asset."""
         return TargetFactory.base_target(
             key=key, source_key=source_key, reducer="centroid", **overrides
+        )
+
+    @staticmethod
+    def target_with_material_ref(
+        key: str = "material_ref_target",
+        material_ref: str = "green_material",
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create target with material reference."""
+        return TargetFactory.explicit_target(
+            key=key,
+            material_ref=material_ref,
+            **overrides
+        )
+
+    @staticmethod
+    def target_with_templates(
+        key: str = "templated_target",
+        templates: List[str] = None,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create target with templates."""
+        if templates is None:
+            templates = ["explicit_template"]
+        return TargetFactory.explicit_target(
+            key=key,
+            templates=templates,
+            **overrides
         )
 
 
@@ -299,3 +444,147 @@ class SelectorFactory:
         selector = {"kind": "label", "label": label}
         selector.update(overrides)
         return selector
+
+
+class MaterialFactory:
+    """Factory for creating material specifications."""
+
+    @staticmethod
+    def material(
+        name: str = "default", 
+        color: str = "#C8C8C8", 
+        opacity: float = 1.0,
+        wireframe: bool = False,
+        visible: bool = True,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create material specification."""
+        material = {
+            "name": name,
+            "color": color,
+            "opacity": opacity,
+            "wireframe": wireframe,
+            "visible": visible,
+        }
+        material.update(overrides)
+        return material
+
+    @staticmethod
+    def red_material(**overrides) -> Dict[str, Any]:
+        """Create red material."""
+        return MaterialFactory.material(
+            name="red_material", color="#FF0000", **overrides
+        )
+
+    @staticmethod
+    def green_material(**overrides) -> Dict[str, Any]:
+        """Create green material."""
+        return MaterialFactory.material(
+            name="green_material", color="#00FF00", **overrides
+        )
+
+    @staticmethod
+    def transparent_material(**overrides) -> Dict[str, Any]:
+        """Create transparent material."""
+        return MaterialFactory.material(
+            name="transparent_material", opacity=0.5, **overrides
+        )
+
+
+class TemplateFactory:
+    """Factory for creating template specifications."""
+
+    @staticmethod
+    def base_template(
+        name: str = "base_template",
+        kind: str = None,
+        role: str = None,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create base template specification."""
+        template = {"name": name}
+        if kind:
+            template["kind"] = kind
+        if role:
+            template["role"] = role
+        template.update(overrides)
+        return template
+
+    @staticmethod
+    def asset_template(
+        name: str = "asset_template",
+        material_ref: str = None,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create asset template specification."""
+        template = TemplateFactory.base_template(
+            name=name,
+            kind=Kind.MESH.value,
+            role=Role.GEOMETRY.value,
+        )
+        if material_ref:
+            template["material_ref"] = material_ref
+        template.update(overrides)
+        return template
+
+    @staticmethod
+    def target_template(
+        name: str = "target_template",
+        material_ref: str = None,
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create target template specification."""
+        template = TemplateFactory.base_template(
+            name=name,
+            kind=Kind.POINTS.value,
+            role=Role.TARGET.value,
+        )
+        if material_ref:
+            template["material_ref"] = material_ref
+        template.update(overrides)
+        return template
+
+    @staticmethod
+    def mesh_template_with_loader(
+        name: str = "mesh_template",
+        src: str = "/template/mesh.obj",
+        loader: str = "trimesh_loader",
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create mesh template with source loader."""
+        return TemplateFactory.asset_template(
+            name=name,
+            src=Path(src),
+            loader=loader,
+            **overrides
+        )
+
+    @staticmethod
+    def points_template_explicit(
+        name: str = "points_template",
+        src: str = "/template/points.npy",
+        loader: str = "numpy_points",
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create points template with explicit source."""
+        return TemplateFactory.target_template(
+            name=name,
+            src=Path(src),
+            loader=loader,
+            **overrides
+        )
+
+    @staticmethod
+    def target_template_derived(
+        name: str = "derived_template",
+        source_key: str = "brain_mesh",
+        reducer: str = "centroid",
+        **overrides
+    ) -> Dict[str, Any]:
+        """Create derived target template."""
+        return TemplateFactory.target_template(
+            name=name,
+            source_key=source_key,
+            reducer=reducer,
+            **overrides
+        )
