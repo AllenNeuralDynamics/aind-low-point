@@ -245,6 +245,22 @@ def reduce_target(source: SourceGeo, reducer: str, **kwargs) -> ReduceOut:
     return fn(source, **kwargs)
 
 
+@register_reducer
+def mesh_center_mass(source: SourceGeo, **_) -> ReduceOut:
+    # Compute the center of mass for the given geometry.
+    if isinstance(source, trimesh.Trimesh):
+        return np.array(source.center_mass)
+    raise TypeError(f"Unsupported source type: {type(source)}")
+
+
+@register_reducer
+def mesh_centroid(source: SourceGeo, **_) -> ReduceOut:
+    # Compute the centroid for the given geometry.
+    if isinstance(source, trimesh.Trimesh):
+        return np.array(source.centroid)
+    raise TypeError(f"Unsupported source type: {type(source)}")
+
+
 @dataclass(frozen=True)
 class CanonicalizationRuntime:
     source_space: SourceSpace = OrientationCode.LPS  # e.g. "LPS", "RAS", "ASR"
