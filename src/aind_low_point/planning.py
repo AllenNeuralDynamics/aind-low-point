@@ -25,7 +25,7 @@ from aind_low_point.core import (
     TransformChain,
     TransformedPoints,
 )
-from aind_low_point.scene import NodeInstance
+from aind_low_point.scene import NodeInstance, Scene
 
 
 # Plan for probe location
@@ -45,7 +45,7 @@ class ProbePlan:
     # targeting
     past_target_mm: float = 0.0
     offsets_RA: Tuple[float, float] = (0.0, 0.0)
-    target_key: Optional[str] = None  # preferred: reference into asset catalog
+    target_key: Optional[str] = None
     target_point_RAS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
     # calibration policy
     calibrated: bool = (
@@ -147,6 +147,7 @@ class PlanningState:
     target_index: dict[str, Float3] = field(default_factory=dict)
 
 
+# TODO: make node targets update with node pose
 def _resolve_target_LPS_from_plan(
     plan: ProbePlan,
     target_index: dict[str, np.ndarray],
@@ -273,18 +274,28 @@ GetPivotFn = Callable[[str], Optional[np.ndarray]]
 
 @dataclass
 class PoseResolver:
-    planning: PlanningState
+    scene: Scene
+    plan: PlanningState
     get_pivot_for_asset: GetPivotFn = (
         lambda _key: None
     )  # default: rotate around asset origin
 
+    # ---- final world transform = base ∘ dynamic ----
+    def world_chain_for_node(self, node: "NodeInstance") -> TransformChain:
+        base = node.transform
+        dyn = self._dynamic_chain_for_node(node)
+        return TransformChain.new([*base.elements, *dyn.elements])
+
+    def world_rt_for_node(self, node: "NodeInstance") -> tuple[np.ndarray, np.ndarray]:
+        return self.world_chain_for_node(node).composed_transform
+
     # ---- dynamic pose for a probe (no scene knowledge) ----
     def _probe_chain(self, probe_name: str) -> TransformChain:
-        pose = ProbePose.from_planning_state(self.planning, probe_name)
+        pose = ProbePose.from_planning_state(self.plan, probe_name)
         return pose.chain()
 
     # ---- dynamic transform for a scene node (may be identity) ----
-    def dynamic_chain_for_node(self, node: "NodeInstance") -> TransformChain:
+    def _dynamic_chain_for_node(self, node: "NodeInstance") -> TransformChain:
         probe_name: Optional[str] = node.extras.get("pose_source_probe")
         if not probe_name:
             return TransformChain.new([AffineTransform.identity()])
@@ -304,12 +315,3 @@ class PoseResolver:
             return TransformChain.new([T_p, *dyn.elements, T_m])
 
         return dyn
-
-    # ---- final world transform = base ∘ dynamic ----
-    def world_chain_for_node(self, node: "NodeInstance") -> TransformChain:
-        base = node.transform
-        dyn = self.dynamic_chain_for_node(node)
-        return TransformChain.new([*base.elements, *dyn.elements])
-
-    def world_rt_for_node(self, node: "NodeInstance") -> tuple[np.ndarray, np.ndarray]:
-        return self.world_chain_for_node(node).composed_transform

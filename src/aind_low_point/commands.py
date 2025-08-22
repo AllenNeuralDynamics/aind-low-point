@@ -218,7 +218,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
             raise ValueError(
                 "SetProbeTarget: specify exactly one of target_key or target_point_RAS"
             )
-        plan.target_key = cmd.target_key
+        plan.target_ref = cmd.target_key
         plan.target_point_RAS = cmd.target_point_RAS
         changed.add(cmd.name)
         return sorted(changed)

@@ -58,7 +58,7 @@ class MaterialModel(BaseModel):
 class CanonicalizationDefModel(BaseModel):
     source_space: SourceSpace
     scale_to_mm: float = 1.0
-    transform: Optional[TransformRefModel] = None  # name in your transforms registry
+    transform: Optional[TransformRefModel] = None
     version: str = "canon-v1"
 
 
@@ -484,7 +484,7 @@ class SceneNodeModel(BaseModel):
     # Optional domain binding for pose (use for probes): ties node to domain.probes[name]
     pose_source_probe: Optional[str] = Field(
         default=None,
-        description="If set, renderer should take pose from domain.probes[pose_source_probe].",
+        description="If set, renderer should take pose from plan.probes[pose_source_probe].",
     )
 
 
@@ -495,6 +495,20 @@ class SceneModel(BaseModel):
 # -----------------------------------------------------------------------------
 # Domain (mechanics: arcs, probes, calibrations, target declarations)
 # -----------------------------------------------------------------------------
+class CatalogTargetRefModel(BaseModel):
+    kind: Literal["catalog"] = "catalog"
+    key: str  # TargetSpecModel.key
+
+
+class NodeTargetRefModel(BaseModel):
+    kind: Literal["node"] = "node"
+    key: str  # SceneNodeModel.id / NodeInstance.id
+
+
+TargetRef = Annotated[
+    Union[CatalogTargetRefModel, NodeTargetRefModel],
+    Field(discriminator="kind"),
+]
 
 
 class ProbeDeclModel(BaseModel):
@@ -503,7 +517,7 @@ class ProbeDeclModel(BaseModel):
     slider_ml: float = 0.0
     spin: float = 0.0
 
-    target: str = Field(description="Key of a target (TargetSpecModel.key)")
+    target: TargetRef
     past_target_mm: float = 0.0
     offsets_RA: list[float] = Field(
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
@@ -662,6 +676,7 @@ class ConfigModel(BaseModel):
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
+        node_ids = {n.id for n in self.scene.nodes}
         transform_keys = set(self.transforms.keys())
         arc_ids = set(self.plan.arcs.keys())
         probe_names = set(self.plan.probes.keys())
@@ -757,9 +772,13 @@ class ConfigModel(BaseModel):
             )
 
         # ---------- scene checks ----------
+        catalog_keys = asset_keys | target_keys
+        dups = asset_keys & target_keys
+        if dups:
+            err(f"Catalog has duplicate keys: {sorted(dups)}")
         for n in self.scene.nodes:
-            if n.asset not in asset_keys:
-                err(f"scene.nodes['{n.id}']: asset '{n.asset}' not found in assets")
+            if n.asset not in catalog_keys:
+                err(f"scene.nodes['{n.id}']: asset '{n.asset}' not found in catalog")
             _check_transform_ref(
                 getattr(n, "transform", None), f"scene.nodes['{n.id}'].transform"
             )
@@ -787,12 +806,37 @@ class ConfigModel(BaseModel):
             _check_canon_fields(r, "resource")
 
         # ---------- plan (arcs, probes, calibrations) ----------
+        seen_catalog_target_names = set()
+        seen_node_target_names = set()
         for pname, p in self.plan.probes.items():
             if p.arc not in arc_ids:
                 err(f"plan.probes['{pname}']: arc '{p.arc}' not found in plan.arcs")
-            if p.target not in target_keys:
-                err(f"plan.probes['{pname}']: target '{p.target}' not found in targets")
-
+            target_key = p.target.key
+            if p.target.kind == "catalog":
+                if target_key not in target_keys:
+                    err(
+                        f"plan.probes['{pname}']: catalog target '{target_key}' not found in targets"
+                    )
+                seen_catalog_target_names.add(target_key)
+            else:  # node
+                if target_key not in node_ids:
+                    err(
+                        f"plan.probes['{pname}']: node target key '{target_key}' not found in scene.nodes"
+                    )
+                target_ref = self.scene.nodes[target_key].asset
+                if target_ref in asset_keys:
+                    err(
+                        f"plan.probes['{pname}']: node target '{target_key}' "
+                        f"references asset '{target_ref}' instead of target"
+                    )
+                seen_node_target_names.add(target_key)
+        conflicting_names = seen_catalog_target_names.intersection(
+            seen_node_target_names
+        )
+        if conflicting_names:
+            err(
+                f"plan.probes: targets '{conflicting_names}' are ambiguous (found in both catalog and node targets)"
+            )
         # each calibration file must reference an existing reticle
         for cal_id, cal in cal_files.items():
             if cal.reticle not in reticle_names:
@@ -821,6 +865,34 @@ class ConfigModel(BaseModel):
                 errors.append(
                     f"canonicalizations['{cname}']: source_space=FILE_NATIVE requires a transform (key or inline)"
                 )
+
+        for seq, kind in (
+            (self.assets, "asset"),
+            (self.targets, "target"),
+            (self.resources, "resource"),
+        ):
+            for item in seq:
+                eff = _effective_canon_for_spec(item, self.canonicalizations)
+                if eff is None:
+                    continue
+
+                # ----- XOR rule -----
+                named_space = eff.source_space != "FILE_NATIVE"
+                has_tx = _has_transform(eff.transform)
+
+                # Exactly one must be true:
+                if named_space == has_tx:  # both True or both False
+                    # Build a concise, actionable message:
+                    if named_space and has_tx:
+                        err(
+                            f"{kind} '{getattr(item, 'key', '?')}': choose either a named source_space "
+                            f"({eff.source_space}) or a canonicalization.transform, not both (XOR)."
+                        )
+                    else:
+                        err(
+                            f"{kind} '{getattr(item, 'key', '?')}': provide either a named source_space "
+                            f"(RAS/LPS/…) or a canonicalization.transform (for FILE_NATIVE), exactly one."
+                        )
 
         # ---------- final ----------
         if errors:
@@ -1267,3 +1339,30 @@ def apply_target_templates(
         }
     )
     return TargetSpecModel(**payload)
+
+
+def _effective_canon_for_spec(
+    spec: Any, canonicalizations: dict[str, "CanonicalizationDefModel"]
+) -> Optional["CanonicalizationDefModel"]:
+    # merge: ref -> inline -> override (last wins)
+    c = None
+    if getattr(spec, "canonicalization_ref", None):
+        base = canonicalizations.get(spec.canonicalization_ref)
+        if base is not None:
+            c = deepcopy(base)
+    if getattr(spec, "canonicalization", None):
+        over = spec.canonicalization
+        c = CanonicalizationDefModel(
+            **{**(c.model_dump() if c else {}), **over.model_dump(exclude_none=True)}
+        )
+    if getattr(spec, "canonicalization_override", None):
+        over = spec.canonicalization_override
+        c = CanonicalizationDefModel(
+            **{**(c.model_dump() if c else {}), **over.model_dump(exclude_none=True)}
+        )
+    return c
+
+
+def _has_transform(ref: Optional["TransformRefModel"]) -> bool:
+    # Your TransformRefModel already enforces exactly one of {key | inline} if present.
+    return bool(ref and (ref.key is not None or ref.inline is not None))

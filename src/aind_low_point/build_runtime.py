@@ -71,7 +71,7 @@ from aind_low_point.core import (
 )
 from aind_low_point.orientation_codes import OrientationCode
 from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
-from aind_low_point.scene import NodeInstance, Scene
+from aind_low_point.scene import NodeInstance, Scene, resolve_base_geometry
 
 FloatAABB = NDArray[np.float64]  # shape (2, 3)
 
@@ -800,17 +800,16 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
 
     # 3) targets (specs + points index)
     runtime_targets: dict[str, TargetSpec] = {}
-    targets_pts: dict[str, Float3] = {}
+    target_index: dict[str, Float3] = {}
     for t in cfg.targets:
-        mat = resolve_material_for_spec(t, cfg.materials)
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
         tspec, pts = build_target_spec(
             t, runtime_assets, label_to_bit, chem, _REDUCER_REGISTRY, maybe_cannon
         )
         runtime_targets[tspec.key] = tspec
-        targets_pts[tspec.key] = pts
+        target_index[tspec.key] = pts
 
-    asset_catalog = AssetCatalog(assets=runtime_assets, targets=runtime_targets)
+    catalog = AssetCatalog(assets=runtime_assets, targets=runtime_targets)
 
     # 4) scene
     scene = Scene()
@@ -855,6 +854,15 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
         else:
             ap = kinematics.get_arc(probe_decl.arc)
             ml = probe_decl.slider_ml
+        if probe_decl.target.kind == "node":
+            key = probe_decl.target.key
+            transformed_points = resolve_base_geometry(catalog, scene, key)
+            if not transformed_points:
+                raise RuntimeError(
+                    f"Probe '{probe_name}' references unknown target '{probe_decl.target.key}'"
+                )
+            transformed_points = transformed_points.raw
+            target_index[key] = transformed_points
         probes[probe_name] = ProbePlan(
             probe_type=probe_decl.kind,
             arc_id=probe_decl.arc,
@@ -864,7 +872,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
             spin=probe_decl.spin,
             past_target_mm=probe_decl.past_target_mm,
             offsets_RA=probe_decl.offsets_RA,
-            target_key=probe_decl.target,
+            target_key=probe_decl.target.key,
             target_point_RAS=None,
             calibrated=probe_calibrated,
         )
@@ -872,12 +880,12 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
         kinematics=kinematics,
         probes=probes,
         calibrations=calibrations,
-        target_index=targets_pts,
+        target_index=target_index,
     )
 
     return RuntimeBundle(
-        asset_catalog=asset_catalog,
-        targets_pts=targets_pts,
+        asset_catalog=catalog,
+        targets_pts=target_index,
         scene=scene,
         collision_labels=label_index,
         plan_state=plan_state,

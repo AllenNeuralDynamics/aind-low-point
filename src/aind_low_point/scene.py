@@ -9,10 +9,12 @@ from typing import (
     Set,
 )
 
+from aind_low_point.assets import AssetCatalog
 from aind_low_point.core import (
     AffineTransform,
     Material,
     TransformChain,
+    Transformed,
 )
 
 
@@ -47,3 +49,24 @@ class Scene:
 
     def by_tag(self, tag: str):
         return [n for n in self.nodes.values() if tag in n.tags]
+
+
+def resolve_base_pose(scene: Scene, id: str) -> Optional[TransformChain]:
+    node = scene.nodes.get(id)
+    if not node:
+        return None
+    # Resolve the base pose by following the transform chain
+    return node.transform
+
+
+def resolve_base_geometry(
+    catalog: AssetCatalog, scene: Scene, id: str
+) -> Optional[Transformed]:
+    pose = resolve_base_pose(scene, id)
+    if not pose:
+        return None
+    # Look up the geometry in the catalog
+    geometry = catalog.get_geometry(id)
+    if not geometry:
+        return None
+    return Transformed(geometry, pose)

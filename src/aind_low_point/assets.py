@@ -8,6 +8,7 @@ from typing import (
     Any,
     Literal,
     Optional,
+    Union,
 )
 
 from aind_low_point.common import Capability, Role
@@ -58,7 +59,7 @@ class AssetSpec(BaseSpec):
         None  # name of a registered loader (e.g. "trimesh", "trimesh_from_sitk_mask")
     )
 
-    # CANONICAL GEOMETRY (post-load, guaranteed in canonical LPS mm when applied=True)
+    # CANONICAL GEOMETRY (post-load, guaranteed in canonical LPS mm)
     mesh: Optional[MeshTransformable] = None
     points: Optional[PointsTransformable] = None
     # (lines, volume, etc. could be added later)
@@ -122,3 +123,32 @@ class TargetSpec(BaseSpec):
 class AssetCatalog:
     assets: dict[str, AssetSpec]  # asset catalog
     targets: dict[str, TargetSpec] = field(default_factory=dict)
+
+    def has_key(self, key: str) -> bool:
+        return key in self.assets or key in self.targets
+
+    def get_spec(self, key: str) -> Union[AssetSpec, TargetSpec]:
+        if key in self.assets:
+            return self.assets[key]
+        if key in self.targets:
+            return self.targets[key]
+        raise KeyError(f"CatalogRuntime: unknown key '{key}'")
+
+    def get_geometry(self, key: str) -> Union[MeshTransformable, PointsTransformable]:
+        """
+        Returns (kind, geometry) where kind is 'mesh'|'points'|'lines'.
+        Targets always return 'points'.
+        """
+        if key in self.assets:
+            spec = self.assets[key]
+            if spec.mesh is not None:
+                return spec.mesh
+            if spec.points is not None:
+                return spec.points
+            raise ValueError(f"{key}: asset has no concrete geometry loaded")
+        if key in self.targets:
+            spec = self.targets[key]
+            if spec.points is not None:
+                return spec.points
+            raise ValueError(f"{key}: target has no points (was it resolved?)")
+        raise KeyError(f"CatalogRuntime: unknown key '{key}'")
