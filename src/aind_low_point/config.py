@@ -910,7 +910,8 @@ def _merge_asset_source_fields(
     Choose exactly one source mode:
       - (src + loader [+ loader_kwargs])
       - (from_resource + selector)
-    If overlay specifies any field of a mode, that mode wins; the other mode is cleared.
+    If overlay specifies any field of a mode, that mode wins; the other mode is
+    cleared.
     """
     out: dict[str, Any] = {}
 

@@ -11,6 +11,8 @@ from typing import (
 import k3d
 import numpy as np
 
+from aind_low_point.rendering import RenderBackend
+
 
 @dataclass
 class K3DBackend(RenderBackend):

@@ -23,6 +23,7 @@ from aind_low_point.core import (
     AffineTransform,
     Float3,
     TransformChain,
+    TransformedPoints,
 )
 from aind_low_point.scene import NodeInstance
 

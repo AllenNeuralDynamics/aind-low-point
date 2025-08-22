@@ -33,6 +33,7 @@ FloatNx3 = NDArray[np.float64]  # shape (3, N)
 FloatAABB = NDArray[np.float64]  # shape (2, 3)
 
 RawT_co = TypeVar("RawT_co", covariant=True)
+Pair = Tuple[str, str]
 
 
 @dataclass(frozen=True)

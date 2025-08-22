@@ -11,7 +11,7 @@ from typing import (
     Union,
 )
 
-from aind_low_point.planning import PlanningState
+from aind_low_point.planning import PlanningState, _resolved_angles
 
 
 @dataclass(frozen=True)

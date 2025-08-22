@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import (
     Callable,
@@ -11,16 +12,20 @@ from typing import (
     Optional,
     Protocol,
     Set,
+    Tuple,
 )
 
 import numpy as np
+import trimesh
 from aind_mri_utils.plots import hex_string_to_int
 
+from aind_low_point.assets import AssetCatalog
+from aind_low_point.collisions import CollisionState
 from aind_low_point.core import (
     Material,
 )
 from aind_low_point.planning import PlanningState
-from aind_low_point.scene import Scene
+from aind_low_point.scene import NodeInstance, Scene
 
 
 @dataclass(frozen=True)
@@ -183,6 +188,158 @@ class RenderBackend(Protocol):
         material: ViewMaterial | None = None,
     ) -> None: ...
     def remove(self, node_ids: Iterable[str]) -> None: ...
+
+
+## LRU of pose
+# ---- pose signature ----
+def _pose_signature(R: np.ndarray, t: np.ndarray, *, tol: float = 1e-6) -> bytes:
+    qR = np.round(R / tol).astype(np.int64).ravel()
+    qt = np.round(t / tol).astype(np.int64).ravel()
+    return b"v1|" + qR.tobytes() + b"|" + qt.tobytes()
+
+
+Key = Tuple[str, bytes]  # (mesh_id, pose_sig)
+
+
+# ---- cache entry ----
+@dataclass(slots=True)
+class _CacheEntry:
+    vertices: np.ndarray  # (N,3) float64
+    faces: np.ndarray  # (M,3) int32/64 (passed through; backend re-casts as needed)
+
+
+# ---- LRU cache of transformed vertices ----
+class _TransformCache:
+    def __init__(self, maxsize: int = 256):
+        self.maxsize = int(maxsize)
+        self._od: "OrderedDict[Key, _CacheEntry]" = OrderedDict()
+
+    def get_or_compute(
+        self, mesh_id: str, base: trimesh.Trimesh, R: np.ndarray, t: np.ndarray
+    ) -> _CacheEntry:
+        key = (mesh_id, _pose_signature(R, t))
+        hit = self._od.get(key)
+        if hit is not None:
+            self._od.move_to_end(key)
+            return hit
+        # transform
+        v = (base.vertices @ R.T) + t
+        entry = _CacheEntry(vertices=v.astype(np.float64, copy=False), faces=base.faces)
+        self._od[key] = entry
+        if len(self._od) > self.maxsize:
+            self._od.popitem(last=False)
+        return entry
+
+    def clear(self) -> None:
+        self._od.clear()
+
+    def invalidate_mesh(self, mesh_id: str) -> None:
+        """Drop all cache entries derived from a particular mesh key (e.g., topology changed)."""
+        to_del = [k for k in self._od.keys() if k[0] == mesh_id]
+        for k in to_del:
+            self._od.pop(k, None)
+
+
+@dataclass
+class RendererAdapter:
+    backend: RenderBackend
+    scene: Scene
+    assets: AssetCatalog
+    cache: _TransformCache = _TransformCache(maxsize=256)
+    overlays: OverlayResolver | None = None
+
+    # ----- public API -----
+    def build(self, plan: PlanningState, coll: CollisionState | None = None) -> None:
+        hot = coll.hot if coll else frozenset()
+        for node in self.scene.nodes.values():
+            self._upsert_node(node, plan, node.id in hot)
+
+    def sync_nodes(
+        self,
+        plan: PlanningState,
+        nodes: Iterable[NodeInstance],
+        coll: CollisionState | None = None,
+    ) -> None:
+        hot = coll.hot if coll else frozenset()
+        for node in nodes:
+            self._upsert_node(node, plan, node.id in hot)
+
+    def remove(self, node_ids: Iterable[str]) -> None:
+        self.backend.remove(node_ids)
+
+    def invalidate_mesh_key(self, mesh_key: str) -> None:
+        """Call this if a base mesh topology changes (forces re-transform)."""
+        self.cache.invalidate_mesh(mesh_key)
+
+    # ----- internals -----
+    def _upsert_node(
+        self, node: NodeInstance, plan: PlanningState, colliding: bool
+    ) -> None:
+        base_vm = material_to_view(node.material)
+        vm = self.overlays.apply(node.id, base_vm) if self.overlays else base_vm
+
+        if node.geom.kind == "mesh":
+            base = self._resolve_mesh(node.geom.key, self.assets)
+
+            # Default pose is identity; probes use live pose
+            R, t = self._pose_for_node(node, node.geom)
+
+            # Use LRU only for PROBE meshes (dynamic). Key the cache by probe TYPE string in geom key.
+            if node.id.startswith("probe:") and node.geom.key.startswith("probe:"):
+                mesh_id = node.geom.key  # e.g., "probe:2.1"
+                entry = self.cache.get_or_compute(mesh_id, base, R, t)
+                v, f = entry.vertices, entry.faces
+            else:
+                v = (base.vertices @ R.T) + t
+                f = base.faces
+
+            if node.id in getattr(self.backend, "_handles", {}):
+                self.backend.update_mesh(node.id, vertices=v, indices=None, material=vm)
+            else:
+                self.backend.create_mesh(
+                    node.id, name=node.name, vertices=v, indices=f, material=vm
+                )
+
+        elif node.geom.kind == "points":
+            pts = self._resolve_points(node.geom.key, self.assets)
+            if node.id in getattr(self.backend, "_handles", {}):
+                self.backend.update_points(node.id, positions=pts, material=vm)
+            else:
+                self.backend.create_points(
+                    node.id, name=node.name, positions=pts, material=vm, point_size=0.5
+                )
+        else:
+            raise ValueError(f"Unsupported node kind: {node.geom.kind}")
+
+    def _pose_for_node(
+        self, node: NodeInstance, plan: PlanningState
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if node.id.startswith("probe:"):
+            pname = node.id.split(":", 1)[1]
+            return plan.probes[pname].pose.chain().composed_transform
+        return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
+
+    def _resolve_mesh(self, key: str, a: AssetCatalog) -> trimesh.Trimesh:
+        if key == "brain":
+            return a.brain_mesh.raw
+        if key == "implant":
+            return a.implant_mesh.raw
+        if key == "headframe":
+            return a.headframe_mesh.raw
+        if key == "well":
+            return a.well_mesh.raw
+        if key == "cone":
+            return a.cone_mesh.raw
+        if key.startswith("structure:"):
+            return a.brain_structures[key.split(":", 1)[1]].raw
+        if key.startswith("hole:"):
+            return a.hole_models[int(key.split(":", 1)[1])].raw
+        if key.startswith("probe:"):
+            return a.probe_models[key.split(":", 1)[1]].raw  # TYPE, not name
+        raise KeyError(f"Unknown mesh key: {key}")
+
+    def _resolve_points(self, key: str, a: AssetCatalog) -> np.ndarray:
+        raise KeyError(f"Unknown points key: {key}")
 
 
 @dataclass

@@ -21,8 +21,9 @@ import trimesh
 from aind_low_point.assets import (
     AssetCatalog,
 )
+from aind_low_point.core import Pair
 from aind_low_point.planning import PlanningState
-from aind_low_point.scene import Scene
+from aind_low_point.scene import NodeInstance, Scene
 
 
 ## Collision detection
@@ -74,7 +75,7 @@ class CollisionBackend(Protocol):
     ) -> List[CollisionPair]: ...
 
 
-def default_include(node: Node) -> bool:
+def default_include(node: NodeInstance) -> bool:
     # Exclude brain + structures; include only meshes
     if node.geom.kind != "mesh":
         return False
@@ -88,7 +89,7 @@ class CollisionAdapter:
     backend: CollisionBackend
     scene: Scene
     assets: AssetCatalog
-    include: Callable[[Node], bool] = default_include
+    include: Callable[[NodeInstance], bool] = default_include
 
     # ---- lifecycle wiring ----
     def rebuild(self, plan: PlanningState) -> None:
@@ -105,7 +106,7 @@ class CollisionAdapter:
         self, plan: PlanningState, changed_probe_names: List[str]
     ) -> None:
         # Only probes move; map probe names -> scene nodes
-        nodes: List[Node] = []
+        nodes: List[NodeInstance] = []
         for pname in changed_probe_names:
             nid = f"probe:{pname}"
             node = self.scene.nodes.get(nid)
@@ -140,7 +141,9 @@ class CollisionAdapter:
         )
 
     # ---- domain → backend spec ----
-    def _spec_for_node(self, node: Node, plan: PlanningState) -> Optional[ObjSpec]:
+    def _spec_for_node(
+        self, node: NodeInstance, plan: PlanningState
+    ) -> Optional[ObjSpec]:
         if node.geom.kind != "mesh":
             return None
         base = self._resolve_mesh(node.geom.key, self.assets)
@@ -150,7 +153,7 @@ class CollisionAdapter:
         return ObjSpec(node_id=node.id, geom=bvh, transform=tf)
 
     def _pose_for_node(
-        self, node: Node, plan: PlanningState
+        self, node: NodeInstance, plan: PlanningState
     ) -> Tuple[np.ndarray, np.ndarray]:
         if node.id.startswith("probe:"):
             pname = node.id.split(":", 1)[1]
@@ -186,6 +189,46 @@ def _diff_hot(curr: CollisionState, prev: CollisionState | None = None) -> set[s
     if prev is None:
         return set(curr.hot)
     return set((prev.hot - curr.hot) | (curr.hot - prev.hot))
+
+
+def _ensure_fcl_arrays(
+    mesh: trimesh.Trimesh, *, name: str
+) -> tuple[np.ndarray, np.ndarray]:
+    if mesh.vertices.ndim != 2 or mesh.vertices.shape[1] != 3:
+        raise FCLInputError(f"{name}: vertices must be (N,3)")
+    if mesh.faces.ndim != 2 or mesh.faces.shape[1] != 3 or mesh.faces.size == 0:
+        raise FCLInputError(f"{name}: faces must be (M,3) and non-empty")
+    v = np.ascontiguousarray(mesh.vertices, dtype=np.float64)
+    f = np.ascontiguousarray(mesh.faces, dtype=np.int32)  # FCL wants int32
+    if not np.isfinite(v).all():
+        raise FCLInputError(f"{name}: NaN/Inf in vertices")
+    vmax = v.shape[0] - 1
+    if f.min() < 0 or f.max() > vmax:
+        raise FCLInputError(f"{name}: face index out of range [0..{vmax}]")
+    return v, f
+
+
+def _bvh_from_mesh(mesh: trimesh.Trimesh, *, name: str) -> fcl.BVHModel:
+    v, f = _ensure_fcl_arrays(mesh, name=name)
+    m = fcl.BVHModel()
+    m.beginModel(v.shape[0], f.shape[0])
+    m.addSubModel(v, f)
+    m.endModel()
+    return m
+
+
+def _rt_to_transform(R: np.ndarray, t: np.ndarray, *, name: str) -> fcl.Transform:
+    R = np.ascontiguousarray(R, dtype=np.float64).reshape(3, 3)
+    t = np.ascontiguousarray(t, dtype=np.float64).reshape(
+        3,
+    )
+    if not np.isfinite(R).all() or not np.isfinite(t).all():
+        raise FCLInputError(f"{name}: non-finite R/t")
+    return fcl.Transform(R, t)
+
+
+class FCLInputError(ValueError):
+    pass
 
 
 @dataclass
