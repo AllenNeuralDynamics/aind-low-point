@@ -301,8 +301,8 @@ class BaseTemplateModel(BaseModel):
 class AssetTemplateModel(BaseTemplateModel):
     """Defaults oriented to geometry assets."""
 
+    src: Optional[Path] = None
     loader: Optional[str] = None
-    src: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     from_resource: Optional[str] = None
@@ -313,7 +313,7 @@ class TargetTemplateModel(BaseTemplateModel):
     """Defaults oriented to targets."""
 
     # explicit points
-    src: Optional[str] = None
+    src: Optional[Path] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
     # or derived
@@ -658,16 +658,8 @@ class ConfigModel(BaseModel):
     @model_validator(mode="after")
     def _xref_and_expand_templates(self):
         # 1) Expand templates into concrete specs
-        if self.asset_templates and self.assets:
-            self.assets = [
-                apply_asset_templates(a, self.asset_templates) for a in self.assets
-            ]
-        if self.target_templates and self.targets:
-            self.targets = [
-                apply_target_templates(t, self.target_templates) for t in self.targets
-            ]
-        errors: List[str] = []
 
+        errors: List[str] = []
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
@@ -683,6 +675,29 @@ class ConfigModel(BaseModel):
 
         def _where_key(obj) -> str:
             return getattr(obj, "key", "?")
+
+        def _check_template_ref(spec, templates, where_prefix: str):
+            trefs = getattr(spec, "templates", [])
+            for tref in trefs:
+                if tref not in templates:
+                    err(
+                        f"{where_prefix} '{_where_key(spec)}': template '{tref}' not found in templates"
+                    )
+
+        for a in self.assets:
+            _check_template_ref(a, self.asset_templates, "asset")
+        for t in self.targets:
+            _check_template_ref(t, self.target_templates, "target")
+
+        # Expand templates into concrete specs
+        if self.asset_templates and self.assets:
+            self.assets = [
+                apply_asset_templates(a, self.asset_templates) for a in self.assets
+            ]
+        if self.target_templates and self.targets:
+            self.targets = [
+                apply_target_templates(t, self.target_templates) for t in self.targets
+            ]
 
         def _check_material_ref(spec, where_prefix: str):
             mref = getattr(spec, "material_ref", None)
