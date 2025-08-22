@@ -272,7 +272,6 @@ class TransformRefModel(BaseModel):
 class BaseTemplateModel(BaseModel):
     """Common defaults for both assets and targets."""
 
-    name: str
     kind: Optional["Kind"] = None
     role: Optional["Role"] = None
 
@@ -334,9 +333,9 @@ class TargetTemplateModel(BaseTemplateModel):
 
 
 class BaseSpecModel(BaseModel):
-    key: str
-    kind: Kind
-    role: Role = Role.GEOMETRY
+    key: Optional[str] = None
+    kind: Optional[Kind] = None
+    role: Optional[Role] = None
 
     material_ref: Optional[str] = None
     material: Optional[MaterialModel] = None
@@ -418,8 +417,8 @@ class AssetSpecModel(BaseSpecModel):
 class TargetSpecModel(BaseSpecModel):
     """Targets are points; explicit (src+loader) or derived (source_key+reducer)."""
 
-    kind: Kind = Kind.POINTS
-    role: Role = Role.TARGET
+    kind: Optional[Kind] = None
+    role: Optional[Role] = None
 
     # Explicit points (file)
     src: Optional[Path] = None
@@ -713,6 +712,13 @@ class ConfigModel(BaseModel):
                 apply_target_templates(t, self.target_templates) for t in self.targets
             ]
 
+        def _check_spec_kind_role(spec, where_prefix: str):
+            kind = getattr(spec, "kind", None)
+            if kind and kind not in self.kinds:
+                err(
+                    f"{where_prefix} '{_where_key(spec)}': kind '{kind}' not found in kinds"
+                )
+
         def _check_material_ref(spec, where_prefix: str):
             mref = getattr(spec, "material_ref", None)
             if mref and mref not in self.materials:
@@ -724,15 +730,15 @@ class ConfigModel(BaseModel):
             _check_material_ref(a, "asset")
         for t in self.targets:
             _check_material_ref(t, "target")
-        for tmpl in self.asset_templates.values():
+        for name, tmpl in self.asset_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
                 err(
-                    f"asset_templates['{tmpl.name}']: material_ref '{tmpl.material_ref}' not found"
+                    f"asset_templates['{name}']: material_ref '{tmpl.material_ref}' not found"
                 )
-        for tmpl in self.target_templates.values():
+        for name, tmpl in self.target_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
                 err(
-                    f"target_templates['{tmpl.name}']: material_ref '{tmpl.material_ref}' not found"
+                    f"target_templates['{name}']: material_ref '{tmpl.material_ref}' not found"
                 )
 
         def _check_transform_ref(
