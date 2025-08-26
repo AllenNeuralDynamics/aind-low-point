@@ -17,7 +17,7 @@ readme = "README.md"
 version = "0.1.0"
 
 dependencies = [
-  "aind-anatomical-utils>=0.1,<0.2",
+  "aind-anatomical-utils>=0.1,<0.3",
   "aind_mri_utils>=0.10,<2",
   "ipyevents>=2,<3",
   "k3d>=2,<3",
