@@ -86,13 +86,15 @@ class TargetSpec(BaseSpec):
     role: Role = Role.TARGET
     caps: Capability = Capability.RENDERABLE
 
-    # SOURCE: either load explicit points, or derive from another asset via a reducer
+    # SOURCE: either load explicit points, or derive from another asset
     # - If 'source_path' + 'loader' given → explicit points (like AssetSpec points)
-    # - If 'source_key' + 'reducer' given → derive from another AssetSpec
+    # - If 'source_key' given → derive from another AssetSpec
     # already in catalog
     source_path: Optional[Path] = None
     loader: Optional[str] = None  # e.g. "numpy_points"
     source_key: Optional[str] = None  # e.g. "structure:PL"
+
+    # reducer to reduce loaded or derived geometry
     reducer: Optional[str] = None  # registered reducer name
     reducer_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -112,10 +114,10 @@ class TargetSpec(BaseSpec):
         # Require either explicit points (source_path+loader) or derived
         # (source_key+reducer)
         explicit = self.source_path is not None and self.loader is not None
-        derived = self.source_key is not None and self.reducer is not None
+        derived = self.source_key is not None
         if not explicit and not derived and self.points is None:
             raise ValueError(
-                f"{self.key}: must provide explicit points or a (source_key, reducer)"
+                f"{self.key}: must provide explicit points or a source_key"
             )
 
 

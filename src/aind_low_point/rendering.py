@@ -252,7 +252,7 @@ class RendererAdapter:
     def build(self, plan: PlanningState, coll: CollisionState | None = None) -> None:
         hot = coll.hot if coll else frozenset()
         for node in self.scene.nodes.values():
-            self._upsert_node(node, plan, node.id in hot)
+            self._upsert_node(node, plan, node.key in hot)
 
     def sync_nodes(
         self,
@@ -262,7 +262,7 @@ class RendererAdapter:
     ) -> None:
         hot = coll.hot if coll else frozenset()
         for node in nodes:
-            self._upsert_node(node, plan, node.id in hot)
+            self._upsert_node(node, plan, node.key in hot)
 
     def remove(self, node_ids: Iterable[str]) -> None:
         self.backend.remove(node_ids)
@@ -276,7 +276,7 @@ class RendererAdapter:
         self, node: NodeInstance, plan: PlanningState, colliding: bool
     ) -> None:
         base_vm = material_to_view(node.material)
-        vm = self.overlays.apply(node.id, base_vm) if self.overlays else base_vm
+        vm = self.overlays.apply(node.key, base_vm) if self.overlays else base_vm
 
         if node.geom.kind == "mesh":
             base = self._resolve_mesh(node.geom.key, self.assets)
@@ -285,7 +285,7 @@ class RendererAdapter:
             R, t = self._pose_for_node(node, node.geom)
 
             # Use LRU only for PROBE meshes (dynamic). Key the cache by probe TYPE string in geom key.
-            if node.id.startswith("probe:") and node.geom.key.startswith("probe:"):
+            if node.key.startswith("probe:") and node.geom.key.startswith("probe:"):
                 mesh_id = node.geom.key  # e.g., "probe:2.1"
                 entry = self.cache.get_or_compute(mesh_id, base, R, t)
                 v, f = entry.vertices, entry.faces
@@ -293,20 +293,22 @@ class RendererAdapter:
                 v = (base.vertices @ R.T) + t
                 f = base.faces
 
-            if node.id in getattr(self.backend, "_handles", {}):
-                self.backend.update_mesh(node.id, vertices=v, indices=None, material=vm)
+            if node.key in getattr(self.backend, "_handles", {}):
+                self.backend.update_mesh(
+                    node.key, vertices=v, indices=None, material=vm
+                )
             else:
                 self.backend.create_mesh(
-                    node.id, name=node.name, vertices=v, indices=f, material=vm
+                    node.key, name=node.name, vertices=v, indices=f, material=vm
                 )
 
         elif node.geom.kind == "points":
             pts = self._resolve_points(node.geom.key, self.assets)
-            if node.id in getattr(self.backend, "_handles", {}):
-                self.backend.update_points(node.id, positions=pts, material=vm)
+            if node.key in getattr(self.backend, "_handles", {}):
+                self.backend.update_points(node.key, positions=pts, material=vm)
             else:
                 self.backend.create_points(
-                    node.id, name=node.name, positions=pts, material=vm, point_size=0.5
+                    node.key, name=node.name, positions=pts, material=vm, point_size=0.5
                 )
         else:
             raise ValueError(f"Unsupported node kind: {node.geom.kind}")
@@ -314,8 +316,8 @@ class RendererAdapter:
     def _pose_for_node(
         self, node: NodeInstance, plan: PlanningState
     ) -> Tuple[np.ndarray, np.ndarray]:
-        if node.id.startswith("probe:"):
-            pname = node.id.split(":", 1)[1]
+        if node.key.startswith("probe:"):
+            pname = node.key.split(":", 1)[1]
             return plan.probes[pname].pose.chain().composed_transform
         return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
 

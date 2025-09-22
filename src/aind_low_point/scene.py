@@ -20,7 +20,7 @@ from aind_low_point.core import (
 
 @dataclass(slots=True)
 class NodeInstance:
-    id: str  # unique per-node, e.g., "probe:PL"
+    key: str  # unique per-node, e.g., "probe:PL"
     asset_key: str  # foreign key to AssetSpec.key, e.g., "probe:2.1"
     transform: TransformChain = field(
         default_factory=lambda: TransformChain.new([AffineTransform.identity()])
@@ -42,7 +42,7 @@ class Scene:
     nodes: dict[str, NodeInstance] = field(default_factory=dict)
 
     def upsert(self, node: NodeInstance):
-        self.nodes[node.id] = node
+        self.nodes[node.key] = node
 
     def remove(self, node_id: str):
         self.nodes.pop(node_id, None)

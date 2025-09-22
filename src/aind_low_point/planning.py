@@ -31,7 +31,7 @@ from aind_low_point.scene import NodeInstance, Scene
 # Plan for probe location
 @dataclass(slots=True)
 class ProbePlan:
-    probe_type: str
+    kind: str
     arc_id: Optional[
         str
     ]  # which arc this probe belongs to (None = not bound to any arc)
@@ -235,7 +235,6 @@ class ProbePose:
         offsets_RA.
         """
         plan = ps.probes[probe_name]
-        cal = ps.calibrations.get(probe_name)
 
         # --- angles (AP/ML) ---
         ap_deg, ml_deg, spin_deg = _resolved_angles(probe_name, ps)

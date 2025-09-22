@@ -51,14 +51,15 @@ from aind_low_point.config import (
     ConfigModel,
     LoadSITKTxOpModel,
     MaterialModel,
+    ResourceModel,
     RotateEulerTxOpModel,
     SourceSpace,
     TargetSpecModel,
     TransformRecipeModel,
     TransformRefModel,
     TranslateTxOpModel,
+    _merge_dict_shallow,
     _TxOpBase,
-    merge_material_cfg,
 )
 from aind_low_point.core import (
     AffineTransform,
@@ -421,7 +422,7 @@ def resolve_material_for_spec(
     registry: dict[str, MaterialModel],  # config.materials
 ) -> "Material":
     base = registry.get(spec_like.material_ref) if spec_like.material_ref else None
-    merged = merge_material_cfg(base, spec_like.material)
+    merged = _merge_dict_shallow(base, spec_like.material)
     mm = merged or MaterialModel()  # fallback default
     return _material_from_model(mm)
 
@@ -552,7 +553,7 @@ def _collision_bits(
 
 
 def _resolve_canonicalization_model(
-    spec: BaseSpecModel,
+    spec: BaseSpecModel | ResourceModel,
     cfg: ConfigModel,
 ) -> Optional[CanonicalizationDefModel]:
     # pick base: from ref, or inline, or safe default
@@ -592,7 +593,7 @@ def _canon_runtime_from_model(
 
 
 def _resolve_canon_model_to_runtime(
-    spec: BaseSpecModel,
+    spec: BaseSpecModel | ResourceModel,
     cfg: ConfigModel,
     compiled_transforms: dict[str, AffineTransform],
 ) -> Optional[CanonicalizationRuntime]:
@@ -624,61 +625,71 @@ def _base_spec_kwargs_from_model(
     )
 
 
+def _load_geo(
+    spec: BaseSpecModel,
+    chem: ChemShiftContext,
+    canon: Optional[CanonicalizationRuntime],
+) -> Optional[GeometryOut]:
+    if spec.src and spec.loader:
+        loader_kwargs = spec.loader_kwargs or {}
+        geo = load_geometry(Path(spec.src), loader=spec.loader, **loader_kwargs)
+        if isinstance(geo, dict):
+            if canon:
+                canon_geo = _apply_canonicalization_mesh(
+                    geo,
+                    canon.source_space,
+                    canon.scale_to_mm,
+                    canon.transform_file_to_canonical,
+                )
+            else:
+                canon_geo = geo
+            if _should_apply_chem(spec, chem):
+                chem_point_transform = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
+                shifted_vertices = chem_point_transform.apply_to(canon_geo.vertices)
+                canon_geo = trimesh.Trimesh(
+                    vertices=shifted_vertices, faces=canon_geo.faces, process=False
+                )
+        else:
+            if canon:
+                canon_geo = _apply_canonicalization_points(
+                    geo,
+                    canon.source_space,
+                    canon.scale_to_mm,
+                    canon.transform_file_to_canonical,
+                )
+            else:
+                canon_geo = geo
+            if _should_apply_chem(spec, chem):
+                chem_point_transform = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
+                canon_geo = chem_point_transform.apply_to(canon_geo)
+    else:
+        canon_geo = None
+    return canon_geo
+
+
 # --- asset builder -----------------------------------------------------------
 
 
 def build_asset_spec(
     a: AssetSpecModel,
-    label_to_bit: dict[str, int],
+    base_kwargs: dict[str, Any],
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime],
-    material_models: dict[str, MaterialModel] = {},
 ) -> AssetSpec:
-    base_kwargs = _base_spec_kwargs_from_model(a, label_to_bit, material_models)
-
     mesh_tf: MeshTransformable | None = None
     pts_tf: PointsTransformable | None = None
 
-    if a.src and a.loader:
-        loader_kwargs = a.loader_kwargs or {}
-        geo = load_geometry(Path(a.src), loader=a.loader, **loader_kwargs)
-        if a.kind == Kind.MESH:
-            if not isinstance(geo, trimesh.Trimesh):
-                raise TypeError(f"Asset '{a.key}' loader returned points but kind=MESH")
-            if canon:
-                canon_mesh = _apply_canonicalization_mesh(
-                    geo,
-                    canon.source_space,
-                    canon.scale_to_mm,
-                    canon.transform_file_to_canonical,
-                )
-            else:
-                canon_mesh = geo
-            if _should_apply_chem(a, chem):
-                chem_point_transform = chem.pt_transform_for_ppm(a.chem_shift_ppm)
-                shifted_vertices = chem_point_transform.apply_to(canon_mesh.vertices)
-                canon_mesh = trimesh.Trimesh(
-                    vertices=shifted_vertices, faces=canon_mesh.faces, process=False
-                )
-            mesh_tf = MeshTransformable(canon_mesh)
-        elif a.kind == Kind.POINTS:
-            if isinstance(geo, trimesh.Trimesh):
-                raise TypeError(f"Asset '{a.key}' loader returned mesh but kind=POINTS")
-            if canon:
-                pts = _apply_canonicalization_points(
-                    geo,
-                    canon.source_space,
-                    canon.scale_to_mm,
-                    canon.transform_file_to_canonical,
-                )
-            else:
-                pts = geo
-            if _should_apply_chem(a, chem):
-                chem_point_transform = chem.pt_transform_for_ppm(a.chem_shift_ppm)
-                pts = chem_point_transform.apply_to(pts)
-            pts_tf = PointsTransformable(pts)
-        elif a.kind == Kind.LINES:
-            raise NotImplementedError("kind='lines' not implemented in loader")
+    geo = _load_geo(a, chem, canon)
+    if a.kind == Kind.MESH:
+        if not isinstance(geo, trimesh.Trimesh):
+            raise TypeError(f"Asset '{a.key}' loader returned points but kind=MESH")
+        mesh_tf = MeshTransformable(geo)
+    elif a.kind == Kind.POINTS:
+        if isinstance(geo, trimesh.Trimesh):
+            raise TypeError(f"Asset '{a.key}' loader returned mesh but kind=POINTS")
+        pts_tf = PointsTransformable(geo)
+    elif a.kind == Kind.LINES:
+        raise NotImplementedError("kind='lines' not implemented in loader")
 
     return AssetSpec(
         **base_kwargs,
@@ -692,14 +703,12 @@ def build_asset_spec(
 def build_target_spec(
     t: TargetSpecModel,
     runtime_assets: dict[str, AssetSpec],
-    label_to_bit: dict[str, int],
+    base_kwargs: dict[str, Any],
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime] = None,
     reducer_registry: dict[str, Callable[..., np.ndarray]] = _REDUCER_REGISTRY,
-    material_models: dict[str, MaterialModel] = {},
+    resource_registry: dict[str, GeometryOut] = {},
 ) -> tuple[TargetSpec, np.ndarray]:
-    base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, material_models)
-
     # Targets must be non-collidable by default; enforce here (even if config forgot).
     base_kwargs["caps"] = Capability.RENDERABLE
     base_kwargs["collidable_group"] = 0
@@ -707,24 +716,8 @@ def build_target_spec(
 
     # Resolve points (explicit file or derived by reducer)
     if t.src and t.loader:
-        loader_kwargs = t.loader_kwargs or {}
-        pts = load_geometry(Path(t.src), loader=t.loader, **loader_kwargs)
-        if isinstance(pts, trimesh.Trimesh):
-            raise TypeError(f"Target '{t.key}' loader returned mesh; expected points")
-        if canon:
-            pts = _apply_canonicalization_points(
-                pts,
-                canon.source_space,
-                canon.scale_to_mm,
-                canon.transform_file_to_canonical,
-            )
-        if _should_apply_chem(t, chem):
-            chem_point_transform = chem.pt_transform_for_ppm(t.chem_shift_ppm)
-            pts = chem_point_transform.apply_to(pts)
-        pts = np.asarray(pts, dtype=np.float64)
-        if pts.ndim == 1:
-            pts = pts.reshape(1, 3)
-    else:
+        geo = _load_geo(t, chem, canon)
+    elif t.source_key:
         # Derived: fetch source asset geometry first
         src_key = t.source_key or ""
         src_asset = runtime_assets.get(src_key)
@@ -732,27 +725,33 @@ def build_target_spec(
             raise KeyError(
                 f"Target '{t.key}' source_key '{src_key}' not found in loaded assets"
             )
-        src_geo = (
-            src_asset.mesh.raw
-            if src_asset.mesh is not None
-            else (src_asset.points.raw if src_asset.points is not None else None)
-        )
-        if src_geo is None:
+        if src_asset.mesh:
+            geo = src_asset.mesh.raw
+        elif src_asset.points:
+            geo = src_asset.points.raw
+        else:
             raise ValueError(
                 f"Target '{t.key}': source asset '{src_key}' has no geometry loaded"
             )
+    elif t.from_resource and t.selector:
+        geo = t.selector.select(resource_registry[t.from_resource])
+    else:
+        raise ValueError(f"Target '{t.key}' has no src, source_key, or from_resource")
 
-        reducer_name = t.reducer or ""
-        reducer_fn = reducer_registry.get(reducer_name)
+    # Apply reducer if present
+    if t.reducer:
+        reducer_fn = reducer_registry.get(t.reducer)
         if reducer_fn is None:
-            raise KeyError(
-                f"Unknown target reducer '{reducer_name}' for target '{t.key}'"
-            )
+            raise KeyError(f"Unknown target reducer '{t.reducer}' for target '{t.key}'")
 
-        pt = reducer_fn(
-            src_geo, **(t.reducer_kwargs or {})
-        )  # should return (3,) or (1,3)
-        pts = np.asarray(pt, dtype=np.float64).reshape(1, 3)
+        geo = reducer_fn(geo, **(t.reducer_kwargs or {}))  # should return (3,) or (1,3)
+        geo = np.asarray(geo, dtype=np.float64).reshape(1, 3)
+
+    if isinstance(geo, trimesh.Trimesh):
+        raise TypeError(f"Target '{t.key}' loader returned mesh; expected points")
+    geo = np.asarray(geo, dtype=np.float64)
+    if geo.ndim == 1:
+        geo = geo.reshape(1, 3)
 
     spec = TargetSpec(
         **base_kwargs,
@@ -763,13 +762,24 @@ def build_target_spec(
         source_key=t.source_key,
         reducer=t.reducer,
         reducer_kwargs=dict(t.reducer_kwargs),
-        points=PointsTransformable(pts),
+        points=PointsTransformable(geo),
         approach_vector=np.array(t.approach_vector, float)
         if t.approach_vector
         else None,
         uncertainty_mm=t.uncertainty_mm,
     )
-    return spec, pts
+    return spec, geo
+
+
+def load_resource(
+    r: ResourceModel,
+    chem: ChemShiftContext,
+    canon: Optional[CanonicalizationRuntime] = None,
+) -> GeometryOut:
+    # Load the resource using the provided context and canonicalization
+    # This is a placeholder implementation
+    geo = _load_geo(r, chem, canon)
+    return geo
 
 
 def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
@@ -794,30 +804,36 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
     runtime_assets: dict[str, AssetSpec] = {}
     for a in cfg.assets:
         maybe_cannon = _resolve_canon_model_to_runtime(a, cfg, compiled_transforms)
-        runtime_assets[a.key] = build_asset_spec(
-            a, label_to_bit, chem, maybe_cannon, cfg.materials
-        )
+        base_kwargs = _base_spec_kwargs_from_model(a, label_to_bit, cfg.materials)
+        runtime_assets[a.key] = build_asset_spec(a, base_kwargs, chem, maybe_cannon)
 
-    # 3) targets (specs + points index)
+    # 3) resources
+    runtime_resources: dict[str, GeometryOut] = {}
+    for r in cfg.resources:
+        maybe_cannon = _resolve_canon_model_to_runtime(r, cfg, compiled_transforms)
+        runtime_resources[r.key] = load_resource(r, chem, maybe_cannon)
+
+    # 4) targets (specs + points index)
     runtime_targets: dict[str, TargetSpec] = {}
     target_index: dict[str, Float3] = {}
     for t in cfg.targets:
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
+        base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, cfg.materials)
         tspec, pts = build_target_spec(
-            t, runtime_assets, label_to_bit, chem, _REDUCER_REGISTRY, maybe_cannon
+            t, runtime_assets, base_kwargs, chem, maybe_cannon, _REDUCER_REGISTRY
         )
         runtime_targets[tspec.key] = tspec
         target_index[tspec.key] = pts
 
     catalog = AssetCatalog(assets=runtime_assets, targets=runtime_targets)
 
-    # 4) scene
+    # 5) scene
     scene = Scene()
     for n in cfg.scene.nodes:
         asset_key = n.asset
         if asset_key not in runtime_assets:
             raise KeyError(
-                f"Scene node '{n.id}' references unknown asset '{asset_key}'"
+                f"Scene node '{n.key}' references unknown asset '{asset_key}'"
             )
 
         node_tf = _transform_chain_from_ref(cfg.transforms, n.transform)
@@ -832,7 +848,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
 
         scene.upsert(
             NodeInstance(
-                id=n.id,
+                key=n.key,
                 asset_key=asset_key,
                 transform=node_tf,
                 tags=set(n.tags),
@@ -843,7 +859,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
             )
         )
 
-    # 5) kinematics, calibrations, plans (build PlanningState)
+    # 6) kinematics, calibrations, plans (build PlanningState)
     kinematics = Kinematics(arc_angles=dict(cfg.plan.arcs))
     calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
     probes: dict[str, ProbePlan] = {}
@@ -864,7 +880,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
             transformed_points = transformed_points.raw
             target_index[key] = transformed_points
         probes[probe_name] = ProbePlan(
-            probe_type=probe_decl.kind,
+            kind=probe_decl.kind,
             arc_id=probe_decl.arc,
             bind_ap_to_arc=probe_calibrated,
             ap_local=ap,

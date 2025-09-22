@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import (
     Annotated,
     Any,
+    Callable,
     Literal,
     Optional,
     TypeAlias,
+    TypeVar,
     Union,
 )
 
@@ -70,7 +72,35 @@ class CanonicalizationOverrideModel(BaseModel):
     version: Optional[str] = None
 
 
-class ResourceModel(BaseModel):
+class GeometrySourceModel(BaseModel):
+    key: Optional[str] = None
+    kind: Optional[Kind] = None
+
+    # Explicit points (file)
+    src: Optional[Path] = None
+    loader: Optional[str] = None  # e.g., "numpy_points"
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional[CanonicalizationDefModel] = (
+        None  # inline (legacy/one-off)
+    )
+    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+
+    chem_shift_policy: ChemMode = "auto"
+    chem_shift_ppm: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _check_canon_choice(self):
+        # allow: (ref) or (inline); not both
+        if self.canonicalization_ref and self.canonicalization:
+            raise ValueError(
+                "Provide either canonicalization_ref or canonicalization, not both."
+            )
+        return self
+
+
+class ResourceModel(GeometrySourceModel):
     """
     A load-once file. The loader may return a structured container:
     - dict[str, np.ndarray] of named points
@@ -78,14 +108,17 @@ class ResourceModel(BaseModel):
     - GLTF scene graph keyed by node paths, etc.
     """
 
-    key: str
-    kind: Kind  # POINTS, MESH, LABELS, GLTF, etc. (choose the set you support)
-    src: str
-    loader: str  # e.g., "named_points_npz", "labelmap_to_meshes", "gltf"
-    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
-    canonicalization_ref: Optional[str] = None
-    canonicalization: Optional[CanonicalizationDefModel] = None
-    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+    @model_validator(mode="after")
+    def _require_fields(self):
+        if self.key is None:
+            raise ValueError("ResourceModel.key is required")
+        if self.kind is None:
+            raise ValueError("ResourceModel.kind is required")
+        if self.src is None:
+            raise ValueError("ResourceModel.src is required")
+        if self.loader is None:
+            raise ValueError("ResourceModel.loader is required")
+        return self
 
 
 class SelectorBase(BaseModel):
@@ -195,7 +228,7 @@ class TransformRecipeModel(BaseModel):
 
     # Allow top-level single-op form:
     #   transforms:
-    #     fit: { kind: sitk_file, path: ... }
+    #     fit:  kind: sitk_file, path: ...
     @model_validator(mode="before")
     @classmethod
     def _coerce_root_single_op(cls, data: Any):
@@ -269,11 +302,11 @@ class TransformRefModel(BaseModel):
 # -----------------------------------------------------------------------------
 # Catalog specs (WHAT an asset/target is; not where placed)
 # -----------------------------------------------------------------------------
-class BaseTemplateModel(BaseModel):
+class BaseTemplateModel(GeometrySourceModel):
     """Common defaults for both assets and targets."""
 
-    kind: Optional["Kind"] = None
-    role: Optional["Role"] = None
+    kind: Optional[Kind] = None
+    role: Optional[Role] = None
 
     material_ref: Optional[str] = None
     material: Optional[MaterialModel] = None
@@ -310,24 +343,25 @@ class AssetTemplateModel(BaseTemplateModel):
 class TargetTemplateModel(BaseTemplateModel):
     """Defaults oriented to targets."""
 
+    kind: Optional[Kind] = Kind.POINTS
+    role: Optional[Role] = Role.TARGET
+
     # explicit points
     src: Optional[Path] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
     # or derived
     source_key: Optional[str] = None
-    reducer: Optional[str] = None
-    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     # or from resource
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
 
-    post_reducer: Optional[str] = (
-        None  # optional final reduction (e.g., COM of a selected mesh)
-    )
+    # Reduces geometry from any of the above sources (e.g. COM of a mesh)
+    reducer: Optional[str] = None
+    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
-    post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
     approach_vector: Optional[list[float]] = None
     uncertainty_mm: Optional[float] = None
 
@@ -342,6 +376,11 @@ class BaseSpecModel(BaseModel):
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+
+    # Explicit points (file)
+    src: Optional[Path] = None
+    loader: Optional[str] = None  # e.g., "numpy_points"
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     canonicalization_ref: Optional[str] = None
     canonicalization: Optional[CanonicalizationDefModel] = (
@@ -386,85 +425,36 @@ class BaseSpecModel(BaseModel):
 class AssetSpecModel(BaseSpecModel):
     """Geometry/points/lines that can be loaded by a named loader."""
 
-    src: Optional[Path] = None
-    loader: Optional[str] = None
-    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
-
     # NEW: list of template names to apply, left→right priority
     templates: list[str] = Field(default_factory=list)
 
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
 
-    @model_validator(mode="after")
-    def _check_src_loader(self):
-        if (self.src is None) ^ (self.loader is None):
-            raise ValueError(
-                "Asset must provide both 'src' and 'loader', or neither (if injected elsewhere)."
-            )
-        if (self.src and self.loader) and (self.from_resource or self.selector):
-            raise ValueError(
-                "Choose either (src+loader) or (from_resource+selector), not both."
-            )
-        if (self.from_resource is None) ^ (self.selector is None):
-            # only one given
-            raise ValueError(
-                "When using from_resource, you must also provide a selector."
-            )
-        return self
-
 
 class TargetSpecModel(BaseSpecModel):
     """Targets are points; explicit (src+loader) or derived (source_key+reducer)."""
 
-    kind: Optional[Kind] = None
-    role: Optional[Role] = None
-
-    # Explicit points (file)
-    src: Optional[Path] = None
-    loader: Optional[str] = None  # e.g., "numpy_points"
-    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+    kind: Kind = Kind.POINTS
+    role: Role = Role.TARGET
 
     # Or derived from an existing asset in catalog
     source_key: Optional[str] = None
-    reducer: Optional[str] = None
-    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     # Or resource
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
-    post_reducer: Optional[str] = (
-        None  # optional final reduction (e.g., COM of a selected mesh)
-    )
+
+    # Optional reduction (e.g., COM of a selected mesh)
+    reducer: Optional[str] = None
+    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     templates: list[str] = Field(default_factory=list)
-
-    post_reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     approach_vector: Optional[list[float]] = Field(
         default=None, min_length=3, max_length=3
     )
     uncertainty_mm: Optional[float] = None
-
-    @model_validator(mode="after")
-    def _exactly_one_source(self):
-        explicit = self.src is not None and self.loader is not None
-        derived = self.source_key is not None and self.reducer is not None
-        from_res = (self.from_resource is not None) and (self.selector is not None)
-        paths = sum([explicit, derived, from_res])
-        if paths != 1:
-            raise ValueError(
-                f"{self.key}: provide exactly one of (src+loader) | (source_key+reducer) | (from_resource+selector)"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _noncollidable_default(self):
-        if Capability.COLLIDABLE in self.caps:
-            raise ValueError(
-                f"{self.key}: targets should not be collidable by default."
-            )
-        return self
 
 
 # -----------------------------------------------------------------------------
@@ -473,7 +463,7 @@ class TargetSpecModel(BaseSpecModel):
 
 
 class SceneNodeModel(BaseModel):
-    id: str
+    key: str
     asset: str = Field(description="Key of an AssetSpec in catalog")
     tags: list[str] = Field(default_factory=list)
 
@@ -669,18 +659,18 @@ class ConfigModel(BaseModel):
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
     def _xref_and_expand_templates(self):
-        # 1) Expand templates into concrete specs
-
         errors: list[str] = []
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
-        node_ids = {n.id for n in self.scene.nodes}
+        node_keys = {n.key for n in self.scene.nodes}
         transform_keys = set(self.transforms.keys())
-        arc_ids = set(self.plan.arcs.keys())
+        arc_keys = set(self.plan.arcs.keys())
         probe_names = set(self.plan.probes.keys())
         reticle_names = set(self.plan.reticles.keys())
         cal_files = self.plan.calibrations.files  # dict[id -> CalFileDecl]
+
+        node_idx_by_key = {k: i for i, k in enumerate(node_keys)}
 
         # ---------- helpers ----------
         def err(msg: str) -> None:
@@ -701,22 +691,87 @@ class ConfigModel(BaseModel):
             _check_template_ref(a, self.asset_templates, "asset")
         for t in self.targets:
             _check_template_ref(t, self.target_templates, "target")
-
+        print("about to apply templates")
         # Expand templates into concrete specs
         if self.asset_templates and self.assets:
-            self.assets = [
-                apply_asset_templates(a, self.asset_templates) for a in self.assets
-            ]
+            print("Applying asset templates...")
+            assets = []
+            for a in self.assets:
+                print(f"  applying templates for asset '{a.key}'...")
+                assets.append(
+                    apply_templates_generic(
+                        merge_asset_template_model_dumps,
+                        a,
+                        a.templates,
+                        self.asset_templates,
+                    )
+                )
+            self.assets = assets
         if self.target_templates and self.targets:
-            self.targets = [
-                apply_target_templates(t, self.target_templates) for t in self.targets
-            ]
+            print("Applying target templates...")
+            targets = []
+            for t in self.targets:
+                print(f"  applying templates for target '{t.key}'...")
+                targets.append(
+                    apply_templates_generic(
+                        merge_target_template_model_dumps,
+                        t,
+                        t.templates,
+                        self.target_templates,
+                    )
+                )
+            self.targets = targets
+        print("Applied templates")
 
-        def _check_spec_kind_role(spec, where_prefix: str):
+        def _check_spec_kind(spec, where_prefix: str, allowable=None):
             kind = getattr(spec, "kind", None)
-            if kind and kind not in self.kinds:
+            if not kind:
+                # Dump spec
+                print(spec.model_dump())
+                err(f"{where_prefix} '{_where_key(spec)}': kind not set")
+            if allowable and kind not in allowable:
+                err(f"{where_prefix} '{_where_key(spec)}': kind '{kind}' not allowed")
+
+        def _check_spec_role(spec, where_prefix: str, allowable=None):
+            role = getattr(spec, "role", None)
+            if not role:
+                # Dump spec
+                print(spec.model_dump())
+                err(f"{where_prefix} '{_where_key(spec)}': role not set")
+            if allowable and role not in allowable:
+                err(f"{where_prefix} '{_where_key(spec)}': role '{role}' not allowed")
+
+        def _check_asset_spec_src_loader(spec: AssetSpecModel):
+            if (spec.src is None) ^ (spec.loader is None):
                 err(
-                    f"{where_prefix} '{_where_key(spec)}': kind '{kind}' not found in kinds"
+                    f"Asset '{_where_key(spec)}' must provide "
+                    "both 'src' and 'loader', or neither (if injected elsewhere)."
+                )
+            if (spec.src and spec.loader) and (spec.from_resource or spec.selector):
+                err(
+                    f"Asset '{_where_key(spec)}': Choose either "
+                    "(src+loader) or (from_resource+selector), not both."
+                )
+            if (spec.from_resource is None) ^ (spec.selector is None):
+                # only one given
+                err(
+                    f"Asset '{_where_key(spec)}': When using "
+                    "from_resource, you must also provide a selector."
+                )
+
+        def _check_target_spec_single_source_and_caps(spec: TargetSpecModel):
+            explicit = spec.src is not None and spec.loader is not None
+            derived = spec.source_key is not None
+            from_res = (spec.from_resource is not None) and (spec.selector is not None)
+            paths = sum([explicit, derived, from_res])
+            if paths != 1:
+                err(
+                    f"Target '{_where_key(spec)}': provide exactly one of "
+                    "(src+loader) | (source_key+reducer) | (from_resource+selector)"
+                )
+            if Capability.COLLIDABLE in spec.caps:
+                err(
+                    f"Target '{_where_key(spec)}': targets should not be collidable by default."
                 )
 
         def _check_material_ref(spec, where_prefix: str):
@@ -728,8 +783,15 @@ class ConfigModel(BaseModel):
 
         for a in self.assets:
             _check_material_ref(a, "asset")
+            _check_spec_kind(a, "asset")
+            _check_spec_role(a, "asset")
+            _check_asset_spec_src_loader(a)
         for t in self.targets:
             _check_material_ref(t, "target")
+            _check_spec_kind(t, "target", allowable=set(Kind.POINTS))
+            _check_spec_role(t, "target", allowable=set(Role.TARGET))
+            _check_target_spec_single_source_and_caps(t)
+
         for name, tmpl in self.asset_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
                 err(
@@ -781,19 +843,19 @@ class ConfigModel(BaseModel):
         catalog_keys = asset_keys | target_keys
         dups = asset_keys & target_keys
         if dups:
-            err(f"Catalog has duplicate keys: {sorted(dups)}")
+            err(f"Catalog has duplicate keys: {dups}")
         for n in self.scene.nodes:
             if n.asset not in catalog_keys:
-                err(f"scene.nodes['{n.id}']: asset '{n.asset}' not found in catalog")
+                err(f"scene.nodes['{n.key}']: asset '{n.asset}' not found in catalog")
             _check_transform_ref(
-                getattr(n, "transform", None), f"scene.nodes['{n.id}'].transform"
+                getattr(n, "transform", None), f"scene.nodes['{n.key}'].transform"
             )
             if (
                 getattr(n, "pose_source_probe", None)
                 and n.pose_source_probe not in probe_names
             ):
                 err(
-                    f"scene.nodes['{n.id}'].pose_source_probe '{n.pose_source_probe}' not in plan.probes"
+                    f"scene.nodes['{n.key}'].pose_source_probe '{n.pose_source_probe}' not in plan.probes"
                 )
 
         # ---------- targets ----------
@@ -815,7 +877,7 @@ class ConfigModel(BaseModel):
         seen_catalog_target_names = set()
         seen_node_target_names = set()
         for pname, p in self.plan.probes.items():
-            if p.arc not in arc_ids:
+            if p.arc not in arc_keys:
                 err(f"plan.probes['{pname}']: arc '{p.arc}' not found in plan.arcs")
             target_key = p.target.key
             if p.target.kind == "catalog":
@@ -825,11 +887,12 @@ class ConfigModel(BaseModel):
                     )
                 seen_catalog_target_names.add(target_key)
             else:  # node
-                if target_key not in node_ids:
+                if target_key not in node_keys:
                     err(
                         f"plan.probes['{pname}']: node target key '{target_key}' not found in scene.nodes"
                     )
-                target_ref = self.scene.nodes[target_key].asset
+                node_idx = node_idx_by_key.get(target_key)
+                target_ref = self.scene.nodes[node_idx].asset
                 if target_ref in asset_keys:
                     err(
                         f"plan.probes['{pname}']: node target '{target_key}' "
@@ -908,6 +971,10 @@ class ConfigModel(BaseModel):
         return self
 
 
+def _as_overlay(model: BaseModel | None) -> Dict[str, Any]:
+    return {} if model is None else model.model_dump(exclude_unset=True)
+
+
 def _union_list(a: Optional[list[Any]], b: Optional[list[Any]]) -> Optional[list[Any]]:
     if a is None and b is None:
         return None
@@ -923,7 +990,13 @@ def _union_list(a: Optional[list[Any]], b: Optional[list[Any]]) -> Optional[list
 
 def _merge_dict_shallow(
     a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]
-) -> dict[str, Any]:
+) -> Optional[dict[str, Any]]:
+    if not a and b:
+        return
+    if not b:
+        return a
+    if not a:
+        return b
     out: dict[str, Any] = {}
     if a:
         out.update(a)
@@ -932,47 +1005,20 @@ def _merge_dict_shallow(
     return out
 
 
-def merge_material_cfg(
-    base: Optional["MaterialModel"], over: Optional["MaterialModel"]
-) -> Optional["MaterialModel"]:
-    if base is None:
-        return over
-    if over is None:
-        return base
-    d = base.model_dump(exclude_none=True)
-    d.update(over.model_dump(exclude_none=True))
-    return type(base)(**d)
-
-
-def _merge_model_generic(base, over):
-    """Shallow overlay for pydantic models with simple fields."""
-    if base is None:
-        return over
-    if over is None:
-        return base
-    d = base.model_dump(exclude_none=True)
-    d.update(over.model_dump(exclude_none=True))
-    # Prefer 'over' class if different; both should be compatible
-    cls = type(over) if type(base) is not type(over) else type(base)
-    return cls(**d)
-
-
 def _merge_collision(
-    base: Optional["CollisionPolicyModel"], over: Optional["CollisionPolicyModel"]
-) -> Optional["CollisionPolicyModel"]:
+    base: Optional[dict[str, Any]], over: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
     if base is None:
         return over
     if over is None:
         return base
-    db = base.model_dump(exclude_none=True)
-    do = over.model_dump(exclude_none=True)
     # union mask; overlay group if provided
-    merged_mask = _union_list(db.get("mask"), do.get("mask")) or []
-    group = do.get("group", db.get("group"))
-    db.update(do)
-    db["mask"] = merged_mask
-    db["group"] = group
-    return type(base)(**db)
+    merged_mask = _union_list(base.get("mask"), over.get("mask")) or []
+    group = over.get("group", base.get("group"))
+    base.update(over)
+    base["mask"] = merged_mask
+    base["group"] = group
+    return type(base)(**base)
 
 
 # -----------------------------
@@ -981,8 +1027,8 @@ def _merge_collision(
 
 
 def _merge_asset_source_fields(
-    base: "AssetTemplateModel | AssetSpecModel",
-    over: "AssetTemplateModel | AssetSpecModel",
+    base: dict[str, Any],
+    over: dict[str, Any],
 ) -> dict[str, Any]:
     """
     Choose exactly one source mode:
@@ -993,11 +1039,11 @@ def _merge_asset_source_fields(
     """
     out: dict[str, Any] = {}
 
-    over_file = (getattr(over, "src", None) is not None) or (
-        getattr(over, "loader", None) is not None
+    over_file = (over.get("src", None) is not None) or (
+        over.get("loader", None) is not None
     )
-    over_res = (getattr(over, "from_resource", None) is not None) or (
-        getattr(over, "selector", None) is not None
+    over_res = (over.get("from_resource", None) is not None) or (
+        over.get("selector", None) is not None
     )
 
     if over_file and over_res:
@@ -1005,121 +1051,120 @@ def _merge_asset_source_fields(
 
     if over_file:
         # file mode wins; take overlay values if present, else fall back to base for the same mode
-        out["src"] = getattr(over, "src", None) or getattr(base, "src", None)
-        out["loader"] = getattr(over, "loader", None) or getattr(base, "loader", None)
+        out["src"] = over.get("src", None) or base.get("src", None)
+        out["loader"] = over.get("loader", None) or base.get("loader", None)
         out["loader_kwargs"] = _merge_dict_shallow(
-            getattr(base, "loader_kwargs", None), getattr(over, "loader_kwargs", None)
+            base.get("loader_kwargs", None), over.get("loader_kwargs", None)
         )
         out["from_resource"] = None
         out["selector"] = None
 
     elif over_res:
-        out["from_resource"] = getattr(over, "from_resource", None) or getattr(
-            base, "from_resource", None
+        out["from_resource"] = over.get("from_resource", None) or base.get(
+            "from_resource", None
         )
-        out["selector"] = getattr(over, "selector", None) or getattr(
-            base, "selector", None
-        )
+        out["selector"] = over.get("selector", None) or base.get("selector", None)
+
         # clear file mode
         out["src"] = None
         out["loader"] = None
         out["loader_kwargs"] = {}
     else:
         # overlay did not change mode → keep base (as-is)
-        out["src"] = getattr(base, "src", None)
-        out["loader"] = getattr(base, "loader", None)
-        out["loader_kwargs"] = getattr(base, "loader_kwargs", {}) or {}
-        out["from_resource"] = getattr(base, "from_resource", None)
-        out["selector"] = getattr(base, "selector", None)
+        out["src"] = over.get("src", None) or base.get("src", None)
+        out["loader"] = over.get("loader", None) or base.get("loader", None)
+        out["loader_kwargs"] = (
+            over.get("loader_kwargs", {}) or base.get("loader_kwargs", {}) or {}
+        )
+        out["from_resource"] = over.get("from_resource", None) or base.get(
+            "from_resource", None
+        )
+        out["selector"] = over.get("selector", None) or base.get("selector", None)
 
     return out
 
 
-def merge_template_into_asset(
-    base: "AssetTemplateModel",
-    over: "AssetTemplateModel | AssetSpecModel",
-) -> "AssetTemplateModel":
-    A = base.model_dump(exclude_none=True)
-    B = over.model_dump(exclude_none=True)
-
-    out = deepcopy(A)
-    out.update(B)
+def merge_asset_template_model_dumps(
+    base: dict[str, Any],
+    over: dict[str, Any],
+) -> dict[str, Any]:
+    out = deepcopy(base)
+    out.update(over)
 
     # unions
-    out["tags"] = _union_list(A.get("tags"), B.get("tags")) or []
-    out["caps"] = _union_list(A.get("caps"), B.get("caps")) or None
+    out["tags"] = _union_list(base.get("tags"), over.get("tags")) or []
+    out["caps"] = _union_list(base.get("caps"), over.get("caps")) or None
 
     # metadata shallow merge
-    out["metadata"] = _merge_dict_shallow(A.get("metadata"), B.get("metadata"))
+    out["metadata"] = _merge_dict_shallow(base.get("metadata"), over.get("metadata"))
 
     # nested merges
-    out["material"] = merge_material_cfg(base.material, getattr(over, "material", None))
-    out["canonicalization"] = _merge_model_generic(
-        base.canonicalization, getattr(over, "canonicalization", None)
+    out["material"] = _merge_dict_shallow(
+        base.get("material"), over.get("material", None)
     )
-    out["canonicalization_override"] = _merge_model_generic(
-        base.canonicalization_override, getattr(over, "canonicalization_override", None)
+    out["canonicalization"] = _merge_dict_shallow(
+        base.get("canonicalization"), over.get("canonicalization", None)
+    )
+    out["canonicalization_override"] = _merge_dict_shallow(
+        base.get("canonicalization_override"),
+        over.get("canonicalization_override", None),
     )
     out["collision"] = _merge_collision(
-        base.collision, getattr(over, "collision", None)
+        base.get("collision"), over.get("collision", None)
     )
 
     # refs (replace-on-write)
-    out["material_ref"] = getattr(over, "material_ref", None) or getattr(
-        base, "material_ref", None
+    out["material_ref"] = over.get("material_ref", None) or base.get(
+        "material_ref", None
     )
 
     # hints (replace-on-write)
-    out["pivot_LPS"] = getattr(over, "pivot_LPS", None) or getattr(
-        base, "pivot_LPS", None
-    )
-    out["bbox_hint"] = getattr(over, "bbox_hint", None) or getattr(
-        base, "bbox_hint", None
-    )
+    out["pivot_LPS"] = over.get("pivot_LPS", None) or base.get("pivot_LPS", None)
+    out["bbox_hint"] = over.get("bbox_hint", None) or base.get("bbox_hint", None)
 
     # chem-shift hints (replace-on-write)
     out["chem_shift_ppm"] = (
-        getattr(over, "chem_shift_ppm", None)
-        if hasattr(over, "chem_shift_ppm")
-        else getattr(base, "chem_shift_ppm", None)
+        over.get("chem_shift_ppm", None)
+        if "chem_shift_ppm" in over
+        else base.get("chem_shift_ppm", None)
     )
-    out["chem_shift_policy"] = getattr(over, "chem_shift_policy", None) or getattr(
-        base, "chem_shift_policy", None
+    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or base.get(
+        "chem_shift_policy", None
     )
 
     # source modes
     out.update(_merge_asset_source_fields(base, over))
 
-    return AssetTemplateModel(**out)
+    return out
 
 
-def apply_asset_templates(
-    spec: "AssetSpecModel",
-    registry: dict[str, "AssetTemplateModel"],
-) -> "AssetSpecModel":
-    if not spec.templates:
+T = TypeVar("T", bound=BaseSpecModel)
+
+
+def apply_templates_generic(
+    mergefun: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    spec: T,
+    template_names: list[str],
+    registry: dict[str, Any],
+) -> T:
+    if not template_names:
         return spec
 
+    # Start with spec
+    base = spec.model_dump()
     # fold templates left→right
-    acc: Optional["AssetTemplateModel"] = None
-    for name in spec.templates:
+    merged = base
+    for name in template_names:
         t = registry.get(name)
         if t is None:
             raise ValueError(f"asset '{spec.key}' references unknown template '{name}'")
-        acc = t if acc is None else merge_template_into_asset(acc, t)
+        merged = mergefun(merged, _as_overlay(t))
 
-    merged_tmpl = merge_template_into_asset(acc, spec)  # overlay spec onto templates
+    merged_tmpl = mergefun(merged, _as_overlay(spec))  # overlay spec onto templates
     # materialize back to AssetSpecModel; ensure we keep spec's identity fields
-    payload = merged_tmpl.model_dump(exclude_none=True)
-    payload.update(
-        {
-            "key": spec.key,
-            "kind": spec.kind,
-            "role": spec.role,
-            "templates": [],  # clear to avoid re-applying in any subsequent validation
-        }
-    )
-    return AssetSpecModel(**payload)
+    merged_tmpl["key"] = spec.key
+    merged_tmpl["templates"] = []
+    return spec.__class__(**merged_tmpl)
 
 
 # -----------------------------
@@ -1127,15 +1172,13 @@ def apply_asset_templates(
 # -----------------------------
 
 
-def _detect_target_mode(obj) -> Optional[str]:
-    explicit = (getattr(obj, "src", None) is not None) or (
-        getattr(obj, "loader", None) is not None
+def _detect_target_mode(target_dump: dict[str, Any]) -> Optional[str]:
+    explicit = (target_dump.get("src", None) is not None) or (
+        target_dump.get("loader", None) is not None
     )
-    derived = (getattr(obj, "source_key", None) is not None) or (
-        getattr(obj, "reducer", None) is not None
-    )
-    res = (getattr(obj, "from_resource", None) is not None) or (
-        getattr(obj, "selector", None) is not None
+    derived = target_dump.get("source_key", None) is not None
+    res = (target_dump.get("from_resource", None) is not None) or (
+        target_dump.get("selector", None) is not None
     )
     cnt = int(explicit) + int(derived) + int(res)
     if cnt == 0:
@@ -1146,14 +1189,14 @@ def _detect_target_mode(obj) -> Optional[str]:
 
 
 def _merge_target_source_fields(
-    base: "TargetTemplateModel | TargetSpecModel",
-    over: "TargetTemplateModel | TargetSpecModel",
+    base: dict[str, Any],
+    over: dict[str, Any],
 ) -> dict[str, Any]:
     """
     Exactly one of:
       - explicit: src + loader [+ loader_kwargs]
-      - derived : source_key + reducer [+ reducer_kwargs]
-      - resource: from_resource + selector [+ post_reducer]
+      - derived : source_key + reducer
+      - resource: from_resource + selector
     Overlay choosing any field of a mode selects that mode and clears others.
     """
     out: dict[str, Any] = {}
@@ -1167,33 +1210,23 @@ def _merge_target_source_fields(
     mode = mode_over or mode_base
 
     if mode == "explicit":
-        out["src"] = getattr(over, "src", None) or getattr(base, "src", None)
-        out["loader"] = getattr(over, "loader", None) or getattr(base, "loader", None)
+        out["src"] = over.get("src", None) or base.get("src", None)
+        out["loader"] = over.get("loader", None) or base.get("loader", None)
         out["loader_kwargs"] = _merge_dict_shallow(
-            getattr(base, "loader_kwargs", None), getattr(over, "loader_kwargs", None)
+            base.get("loader_kwargs", None), over.get("loader_kwargs", None)
         )
         # clear others
         out.update(
             {
                 "source_key": None,
-                "reducer": None,
-                "reducer_kwargs": {},
                 "from_resource": None,
                 "selector": None,
-                "post_reducer": None,
-                "post_reducer_kwargs": {},
             }
         )
 
     elif mode == "derived":
-        out["source_key"] = getattr(over, "source_key", None) or getattr(
+        out["source_key"] = over.get("source_key", None) or getattr(
             base, "source_key", None
-        )
-        out["reducer"] = getattr(over, "reducer", None) or getattr(
-            base, "reducer", None
-        )
-        out["reducer_kwargs"] = _merge_dict_shallow(
-            getattr(base, "reducer_kwargs", None), getattr(over, "reducer_kwargs", None)
         )
         # clear others
         out.update(
@@ -1203,25 +1236,14 @@ def _merge_target_source_fields(
                 "loader_kwargs": {},
                 "from_resource": None,
                 "selector": None,
-                "post_reducer": None,
-                "post_reducer_kwargs": {},
             }
         )
 
     elif mode == "resource":
-        out["from_resource"] = getattr(over, "from_resource", None) or getattr(
+        out["from_resource"] = over.get("from_resource", None) or getattr(
             base, "from_resource", None
         )
-        out["selector"] = getattr(over, "selector", None) or getattr(
-            base, "selector", None
-        )
-        out["post_reducer"] = getattr(over, "post_reducer", None) or getattr(
-            base, "post_reducer", None
-        )
-        out["post_reducer_kwargs"] = _merge_dict_shallow(
-            getattr(base, "post_reducer_kwargs", None),
-            getattr(over, "post_reducer_kwargs", None),
-        )
+        out["selector"] = over.get("selector", None) or getattr(base, "selector", None)
         # clear others
         out.update(
             {
@@ -1229,8 +1251,6 @@ def _merge_target_source_fields(
                 "loader": None,
                 "loader_kwargs": {},
                 "source_key": None,
-                "reducer": None,
-                "reducer_kwargs": {},
             }
         )
 
@@ -1238,115 +1258,79 @@ def _merge_target_source_fields(
         # neither base nor overlay specified a mode → keep as is (all None/empty)
         out.update(
             {
-                "src": getattr(base, "src", None),
-                "loader": getattr(base, "loader", None),
-                "loader_kwargs": getattr(base, "loader_kwargs", {}) or {},
-                "source_key": getattr(base, "source_key", None),
-                "reducer": getattr(base, "reducer", None),
-                "reducer_kwargs": getattr(base, "reducer_kwargs", {}) or {},
-                "from_resource": getattr(base, "from_resource", None),
-                "selector": getattr(base, "selector", None),
-                "post_reducer": getattr(base, "post_reducer", None),
-                "post_reducer_kwargs": getattr(base, "post_reducer_kwargs", {}) or {},
+                "src": base.get("src", None),
+                "loader": base.get("loader", None),
+                "loader_kwargs": base.get("loader_kwargs", {}) or {},
+                "source_key": base.get("source_key", None),
+                "from_resource": base.get("from_resource", None),
+                "selector": base.get("selector", None),
             }
         )
 
     return out
 
 
-def merge_template_into_target(
-    base: "TargetTemplateModel",
-    over: "TargetTemplateModel | TargetSpecModel",
-) -> "TargetTemplateModel":
-    A = base.model_dump(exclude_none=True)
-    B = over.model_dump(exclude_none=True)
-
-    out = deepcopy(A)
-    out.update(B)
+def merge_target_template_model_dumps(
+    base: dict[str, Any],
+    over: dict[str, Any],
+) -> dict[str, Any]:
+    out = deepcopy(base)
+    out.update(over)
 
     # unions
-    out["tags"] = _union_list(A.get("tags"), B.get("tags")) or []
-    out["caps"] = _union_list(A.get("caps"), B.get("caps")) or None
+    out["tags"] = _union_list(base.get("tags"), over.get("tags")) or []
+    out["caps"] = _union_list(base.get("caps"), over.get("caps")) or None
 
     # metadata shallow merge
-    out["metadata"] = _merge_dict_shallow(A.get("metadata"), B.get("metadata"))
+    out["metadata"] = _merge_dict_shallow(base.get("metadata"), over.get("metadata"))
 
     # nested merges
-    out["material"] = merge_material_cfg(base.material, getattr(over, "material", None))
-    out["canonicalization"] = _merge_model_generic(
-        base.canonicalization, getattr(over, "canonicalization", None)
+    out["material"] = _merge_dict_shallow(
+        base.get("material"), over.get("material", None)
     )
-    out["canonicalization_override"] = _merge_model_generic(
-        base.canonicalization_override, getattr(over, "canonicalization_override", None)
+    out["canonicalization"] = _merge_dict_shallow(
+        base.get("canonicalization"), over.get("canonicalization", None)
+    )
+    out["canonicalization_override"] = _merge_dict_shallow(
+        base.get("canonicalization_override"),
+        over.get("canonicalization_override", None),
     )
     out["collision"] = _merge_collision(
-        base.collision, getattr(over, "collision", None)
+        base.get("collision"), over.get("collision", None)
     )
 
     # refs (replace-on-write)
-    out["material_ref"] = getattr(over, "material_ref", None) or getattr(
+    out["material_ref"] = over.get("material_ref", None) or getattr(
         base, "material_ref", None
     )
 
     # hints (replace-on-write)
-    out["pivot_LPS"] = getattr(over, "pivot_LPS", None) or getattr(
-        base, "pivot_LPS", None
-    )
-    out["bbox_hint"] = getattr(over, "bbox_hint", None) or getattr(
-        base, "bbox_hint", None
-    )
-    out["approach_vector"] = getattr(over, "approach_vector", None) or getattr(
+    out["pivot_LPS"] = over.get("pivot_LPS", None) or getattr(base, "pivot_LPS", None)
+    out["bbox_hint"] = over.get("bbox_hint", None) or getattr(base, "bbox_hint", None)
+    out["approach_vector"] = over.get("approach_vector", None) or getattr(
         base, "approach_vector", None
     )
-    out["uncertainty_mm"] = getattr(over, "uncertainty_mm", None) or getattr(
+    out["uncertainty_mm"] = over.get("uncertainty_mm", None) or getattr(
         base, "uncertainty_mm", None
     )
 
     # chem-shift hints (targets rarely need it; still honor if present)
     out["chem_shift_ppm"] = (
-        getattr(over, "chem_shift_ppm", None)
+        over.get("chem_shift_ppm", None)
         if hasattr(over, "chem_shift_ppm")
-        else getattr(base, "chem_shift_ppm", None)
+        else base.get("chem_shift_ppm", None)
     )
-    out["chem_shift_policy"] = getattr(over, "chem_shift_policy", None) or getattr(
+    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or getattr(
         base, "chem_shift_policy", None
     )
 
     # source modes
     out.update(_merge_target_source_fields(base, over))
 
-    return TargetTemplateModel(**out)
+    return out
 
 
-def apply_target_templates(
-    spec: "TargetSpecModel",
-    registry: dict[str, "TargetTemplateModel"],
-) -> "TargetSpecModel":
-    if not spec.templates:
-        return spec
-
-    acc: Optional["TargetTemplateModel"] = None
-    for name in spec.templates:
-        t = registry.get(name)
-        if t is None:
-            raise ValueError(
-                f"target '{spec.key}' references unknown template '{name}'"
-            )
-        acc = t if acc is None else merge_template_into_target(acc, t)
-
-    merged_tmpl = merge_template_into_target(acc, spec)  # overlay spec last
-    payload = merged_tmpl.model_dump(exclude_none=True)
-    payload.update(
-        {
-            "key": spec.key,
-            "kind": spec.kind,
-            "role": spec.role,
-            "templates": [],
-        }
-    )
-    return TargetSpecModel(**payload)
-
-
+# ---------------------------------------
 def _effective_canon_for_spec(
     spec: Any, canonicalizations: dict[str, "CanonicalizationDefModel"]
 ) -> Optional["CanonicalizationDefModel"]:

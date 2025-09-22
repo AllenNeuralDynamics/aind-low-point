@@ -149,14 +149,14 @@ class CollisionAdapter:
         base = self._resolve_mesh(node.geom.key, self.assets)
         bvh = _bvh_from_mesh(base, name=node.geom.key)  # unique geometry per node
         R, t = self._pose_for_node(node, plan)
-        tf = _rt_to_transform(R, t, name=f"pose:{node.id}")
-        return ObjSpec(node_id=node.id, geom=bvh, transform=tf)
+        tf = _rt_to_transform(R, t, name=f"pose:{node.key}")
+        return ObjSpec(node_id=node.key, geom=bvh, transform=tf)
 
     def _pose_for_node(
         self, node: NodeInstance, plan: PlanningState
     ) -> Tuple[np.ndarray, np.ndarray]:
-        if node.id.startswith("probe:"):
-            pname = node.id.split(":", 1)[1]
+        if node.key.startswith("probe:"):
+            pname = node.key.split(":", 1)[1]
             return plan.probes[pname].pose.chain().composed_transform
         return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
 
