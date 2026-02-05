@@ -103,7 +103,7 @@ class Kinematics:
     - arc_angles: shared AP tilt per arc id (deg)
     - limits: mechanical/operational joint limits
     - coupled_axes: which DOFs are shared by all probes on the same arc
-      (by convention these names match your ProbePose fields: 'ap_deg', 'ml_deg', 'spin_deg', 'x_mm', 'y_mm', 'z_mm')
+      (names match ProbePose fields: ap_deg, ml_deg, spin_deg, x_mm, y_mm, z_mm)
     """
 
     arc_angles: dict[str, float] = field(
@@ -182,7 +182,7 @@ def _resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]
     if plan.calibrated and cal is not None:
         ap, ml = find_probe_angle(cal.rotation)  # locked to calibration
     else:
-        # AP: from arc if bound, else local; ML: always per-probe local unless you add another binding flag
+        # AP: from arc if bound, else local; ML: always per-probe local
         ap = (
             ps.kinematics.get_arc(plan.arc_id)
             if (plan.arc_id and plan.bind_ap_to_arc)

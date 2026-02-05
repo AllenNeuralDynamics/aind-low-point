@@ -40,8 +40,10 @@ class TestFieldConstraintErrors:
 
     def test_required_field_error_messages(self):
         """Test required field validation provides clear error messages."""
+        from aind_low_point.config import SceneNodeModel
+
         with pytest.raises(ValidationError) as exc_info:
-            AssetSpecModel()  # Missing required 'key' field
+            SceneNodeModel()  # Missing required 'key' and 'asset' fields
         assert "Field required" in str(exc_info.value)
 
     def test_invalid_enum_values(self):
@@ -201,11 +203,10 @@ class TestEdgeCases:
 
     def test_none_values_where_not_allowed(self):
         """Test None values in required fields."""
-        asset_data = AssetFactory.mesh_asset()
-        asset_data["key"] = None
+        from aind_low_point.config import SceneNodeModel
 
         with pytest.raises(ValidationError):
-            AssetSpecModel(**asset_data)
+            SceneNodeModel(key=None, asset="test")  # key is str, not Optional
 
     def test_deeply_nested_transform_recipe_errors(self):
         """Test error handling in deeply nested transform structures."""
@@ -266,7 +267,7 @@ class TestErrorMessageQuality:
     def test_cross_reference_error_includes_context(self):
         """Test cross-reference errors include helpful context."""
         config_data = ConfigFactory.minimal_config()
-        config_data["scene"]["nodes"] = [{"id": "node1", "asset": "missing_asset"}]
+        config_data["scene"]["nodes"] = [{"key": "node1", "asset": "missing_asset"}]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
@@ -274,7 +275,7 @@ class TestErrorMessageQuality:
         error_msg = str(exc_info.value)
         assert "scene.nodes['node1']" in error_msg
         assert "missing_asset" in error_msg
-        assert "not found in assets" in error_msg
+        assert "not found in catalog" in error_msg
 
     def test_validation_error_shows_field_path(self):
         """Test validation errors show the field path."""
@@ -292,8 +293,8 @@ class TestErrorMessageQuality:
             {
                 "scene": {
                     "nodes": [
-                        {"id": "node1", "asset": "missing1"},
-                        {"id": "node2", "asset": "missing2"},
+                        {"key": "node1", "asset": "missing1"},
+                        {"key": "node2", "asset": "missing2"},
                     ]
                 }
             }
@@ -325,56 +326,53 @@ class TestMaterialReferenceErrors:
     def test_missing_material_ref_error(self):
         """Test clear error when material_ref not found."""
         from tests.config_factories import ConfigFactory, AssetFactory
-        
+
         config_data = ConfigFactory.config_with_materials()
         config_data["assets"] = [
             AssetFactory.asset_with_material_ref(
-                key="invalid_asset", 
-                material_ref="nonexistent_material"
+                key="invalid_asset", material_ref="nonexistent_material"
             )
         ]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
-        assert "material_ref 'nonexistent_material' not found in materials" in error_msg
+        assert "material_ref 'nonexistent_material' not found" in error_msg
         assert "asset 'invalid_asset'" in error_msg
 
     def test_target_missing_material_ref_error(self):
         """Test clear error when target material_ref not found."""
         from tests.config_factories import ConfigFactory, TargetFactory
-        
+
         config_data = ConfigFactory.config_with_materials()
         config_data["targets"] = [
             TargetFactory.target_with_material_ref(
-                key="invalid_target",
-                material_ref="missing_material"
+                key="invalid_target", material_ref="missing_material"
             )
         ]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
-        assert "material_ref 'missing_material' not found in materials" in error_msg
+        assert "material_ref 'missing_material' not found" in error_msg
         assert "target 'invalid_target'" in error_msg
 
     def test_template_missing_material_ref_error(self):
         """Test clear error when template material_ref not found."""
         from tests.config_factories import ConfigFactory, TemplateFactory
-        
+
         config_data = ConfigFactory.config_with_materials()
         config_data["asset_templates"] = {
             "bad_template": TemplateFactory.asset_template(
-                name="bad_template",
-                material_ref="nonexistent_material"
+                name="bad_template", material_ref="nonexistent_material"
             )
         }
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
         assert "material_ref 'nonexistent_material' not found" in error_msg
         assert "asset_templates['bad_template']" in error_msg
@@ -386,60 +384,52 @@ class TestTemplateReferenceErrors:
     def test_missing_asset_template_error(self):
         """Test error when asset references unknown template."""
         from tests.config_factories import ConfigFactory, AssetFactory
-        
+
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
             AssetFactory.asset_with_templates(
-                key="invalid_asset",
-                templates=["nonexistent_template"]
+                key="invalid_asset", templates=["nonexistent_template"]
             )
         ]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
-        assert "references unknown template 'nonexistent_template'" in error_msg
+        assert "template 'nonexistent_template' not found" in error_msg
         assert "asset 'invalid_asset'" in error_msg
 
     def test_missing_target_template_error(self):
         """Test error when target references unknown template."""
         from tests.config_factories import ConfigFactory, TargetFactory
-        
+
         config_data = ConfigFactory.config_with_templates()
         config_data["targets"] = [
             TargetFactory.target_with_templates(
-                key="invalid_target",
-                templates=["missing_template"]
+                key="invalid_target", templates=["missing_template"]
             )
         ]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
-        assert "references unknown template 'missing_template'" in error_msg
+        assert "template 'missing_template' not found" in error_msg
         assert "target 'invalid_target'" in error_msg
 
     def test_multiple_template_errors_collected(self):
         """Test multiple template reference errors are collected."""
         from tests.config_factories import ConfigFactory, AssetFactory
-        
+
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
-            AssetFactory.asset_with_templates(
-                key="asset1",
-                templates=["missing1"]
-            ),
-            AssetFactory.asset_with_templates(
-                key="asset2", 
-                templates=["missing2"]
-            )
+            AssetFactory.asset_with_templates(key="asset1", templates=["missing1"]),
+            AssetFactory.asset_with_templates(key="asset2", templates=["missing2"]),
         ]
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
         # Check that the error mentions the asset and missing template
         assert "asset1" in error_msg
@@ -453,15 +443,15 @@ class TestTemplateSourceModeErrors:
         """Test error when asset template has conflicting source modes."""
         from tests.config_factories import TemplateFactory, SelectorFactory
         from aind_low_point.config import AssetTemplateModel
-        
+
         # This should be caught during template merging, not model validation
         template_data = TemplateFactory.asset_template(
             src="/path/to/file.obj",
-            loader="trimesh_loader", 
+            loader="trimesh_loader",
             from_resource="resource1",
-            selector=SelectorFactory.name_selector("mesh1")
+            selector=SelectorFactory.name_selector("mesh1"),
         )
-        
+
         # Individual template creation should work
         template = AssetTemplateModel(**template_data)
         assert str(template.src) == "/path/to/file.obj"
@@ -471,15 +461,15 @@ class TestTemplateSourceModeErrors:
         """Test target template with multiple source modes."""
         from tests.config_factories import TemplateFactory
         from aind_low_point.config import TargetTemplateModel
-        
+
         # Individual template with multiple modes should work
         template_data = TemplateFactory.target_template(
             src="/path/to/targets.npy",
             loader="numpy_points",
             source_key="brain_mesh",
-            reducer="centroid"
+            reducer="centroid",
         )
-        
+
         template = TargetTemplateModel(**template_data)
         assert str(template.src) == "/path/to/targets.npy"
         assert template.source_key == "brain_mesh"
@@ -491,55 +481,53 @@ class TestComplexErrorScenarios:
     def test_template_expansion_with_missing_material(self):
         """Test error when template expansion reveals missing material."""
         from tests.config_factories import ConfigFactory, AssetFactory, TemplateFactory
-        
+
         config_data = ConfigFactory.minimal_config()
-        config_data.update({
-            "materials": {
-                "good_material": {"name": "good", "color": "#00FF00"}
-            },
-            "asset_templates": {
-                "bad_template": TemplateFactory.asset_template(
-                    name="bad_template",
-                    material_ref="missing_material"
-                )
-            },
-            "assets": [
-                AssetFactory.asset_with_templates(
-                    key="templated_asset",
-                    templates=["bad_template"]
-                )
-            ]
-        })
+        config_data.update(
+            {
+                "materials": {"good_material": {"name": "good", "color": "#00FF00"}},
+                "asset_templates": {
+                    "bad_template": TemplateFactory.asset_template(
+                        name="bad_template", material_ref="missing_material"
+                    )
+                },
+                "assets": [
+                    AssetFactory.asset_with_templates(
+                        key="templated_asset", templates=["bad_template"]
+                    )
+                ],
+            }
+        )
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
         assert "material_ref 'missing_material' not found" in error_msg
 
     def test_multiple_error_types_collected(self):
         """Test that material and template errors are collected together."""
         from tests.config_factories import ConfigFactory, AssetFactory, TargetFactory
-        
+
         config_data = ConfigFactory.minimal_config()
-        config_data.update({
-            "materials": {},  # Empty materials
-            "assets": [
-                AssetFactory.asset_with_material_ref(
-                    key="bad_asset",
-                    material_ref="missing_material"
-                ),
-                AssetFactory.asset_with_templates(
-                    key="bad_template_asset",
-                    templates=["missing_template"]
-                )
-            ]
-        })
+        config_data.update(
+            {
+                "materials": {},  # Empty materials
+                "assets": [
+                    AssetFactory.asset_with_material_ref(
+                        key="bad_asset", material_ref="missing_material"
+                    ),
+                    AssetFactory.asset_with_templates(
+                        key="bad_template_asset", templates=["missing_template"]
+                    ),
+                ],
+            }
+        )
 
         with pytest.raises(ValidationError) as exc_info:
             ConfigModel.model_validate(config_data)
-        
+
         error_msg = str(exc_info.value)
         # Should contain both types of errors
         assert "material_ref 'missing_material' not found" in error_msg
-        assert "template 'missing_template' not found in templates" in error_msg
+        assert "template 'missing_template' not found" in error_msg

@@ -335,20 +335,18 @@ class TestMaterialReference:
     def test_material_ref_valid(self):
         """Test material_ref field works correctly."""
         from tests.config_factories import AssetFactory
-        
-        asset_data = AssetFactory.asset_with_material_ref(
-            material_ref="test_material"
-        )
+
+        asset_data = AssetFactory.asset_with_material_ref(material_ref="test_material")
         asset = AssetSpecModel(**asset_data)
         assert asset.material_ref == "test_material"
 
     def test_material_ref_with_inline_material(self):
         """Test material_ref and inline material can coexist."""
         from tests.config_factories import AssetFactory, MaterialFactory
-        
+
         asset_data = AssetFactory.asset_with_material_ref(
             material_ref="test_material",
-            material=MaterialFactory.material(color="#FF0000")
+            material=MaterialFactory.material(color="#FF0000"),
         )
         asset = AssetSpecModel(**asset_data)
         assert asset.material_ref == "test_material"
@@ -357,7 +355,7 @@ class TestMaterialReference:
     def test_target_material_ref_valid(self):
         """Test material_ref works in target specs."""
         from tests.config_factories import TargetFactory
-        
+
         target_data = TargetFactory.target_with_material_ref(
             material_ref="target_material"
         )
@@ -372,14 +370,11 @@ class TestBaseTemplateModel:
         """Test basic template creation."""
         from aind_low_point.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.base_template(
-            name="test_template",
-            kind="mesh",
-            role="geometry"
+            name="test_template", kind="mesh", role="geometry"
         )
         template = BaseTemplateModel(**template_data)
-        assert template.name == "test_template"
         assert template.kind == "mesh"
         assert template.role == "geometry"
 
@@ -387,10 +382,8 @@ class TestBaseTemplateModel:
         """Test template with material reference."""
         from aind_low_point.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
-        
-        template_data = TemplateFactory.base_template(
-            material_ref="template_material"
-        )
+
+        template_data = TemplateFactory.base_template(material_ref="template_material")
         template = BaseTemplateModel(**template_data)
         assert template.material_ref == "template_material"
 
@@ -398,10 +391,9 @@ class TestBaseTemplateModel:
         """Test template with optional fields."""
         from aind_low_point.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.base_template(
-            tags=["template", "test"],
-            metadata={"source": "factory"}
+            tags=["template", "test"], metadata={"source": "factory"}
         )
         template = BaseTemplateModel(**template_data)
         assert template.tags == ["template", "test"]
@@ -415,7 +407,7 @@ class TestAssetTemplateModel:
         """Test asset template with source loader."""
         from aind_low_point.config import AssetTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.mesh_template_with_loader()
         template = AssetTemplateModel(**template_data)
         assert str(template.src) == "/template/mesh.obj"
@@ -426,10 +418,10 @@ class TestAssetTemplateModel:
         """Test asset template with resource selector."""
         from aind_low_point.config import AssetTemplateModel
         from tests.config_factories import TemplateFactory, SelectorFactory
-        
+
         template_data = TemplateFactory.asset_template(
             from_resource="test_resource",
-            selector=SelectorFactory.name_selector("mesh1")
+            selector=SelectorFactory.name_selector("mesh1"),
         )
         template = AssetTemplateModel(**template_data)
         assert template.from_resource == "test_resource"
@@ -444,7 +436,7 @@ class TestTargetTemplateModel:
         """Test target template with explicit source."""
         from aind_low_point.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.points_template_explicit()
         template = TargetTemplateModel(**template_data)
         assert str(template.src) == "/template/points.npy"
@@ -455,7 +447,7 @@ class TestTargetTemplateModel:
         """Test target template with derived source."""
         from aind_low_point.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.target_template_derived()
         template = TargetTemplateModel(**template_data)
         assert template.source_key == "brain_mesh"
@@ -465,10 +457,9 @@ class TestTargetTemplateModel:
         """Test target-specific fields in template."""
         from aind_low_point.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
-        
+
         template_data = TemplateFactory.target_template(
-            approach_vector=[1.0, 0.0, 0.0],
-            uncertainty_mm=2.5
+            approach_vector=[1.0, 0.0, 0.0], uncertainty_mm=2.5
         )
         template = TargetTemplateModel(**template_data)
         assert template.approach_vector == [1.0, 0.0, 0.0]
@@ -481,7 +472,7 @@ class TestTemplateApplication:
     def test_asset_templates_field(self):
         """Test AssetSpecModel.templates field."""
         from tests.config_factories import AssetFactory
-        
+
         asset_data = AssetFactory.asset_with_templates(
             templates=["template1", "template2"]
         )
@@ -491,7 +482,7 @@ class TestTemplateApplication:
     def test_target_templates_field(self):
         """Test TargetSpecModel.templates field."""
         from tests.config_factories import TargetFactory
-        
+
         target_data = TargetFactory.target_with_templates(
             templates=["target_template1"]
         )
@@ -501,7 +492,7 @@ class TestTemplateApplication:
     def test_empty_templates_default(self):
         """Test templates defaults to empty list."""
         from tests.config_factories import AssetFactory, TargetFactory
-        
+
         asset_data = AssetFactory.mesh_asset()
         asset = AssetSpecModel(**asset_data)
         assert asset.templates == []

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, IntFlag
 
 
-class Capability(str, Enum):
-    RENDERABLE = "renderable"
-    MOVABLE = "movable"
-    COLLIDABLE = "collidable"
-    SELECTABLE = "selectable"
-    DEFORMABLE = "deformable"
-    SAVABLE = "savable"
+class Capability(IntFlag):
+    RENDERABLE = 1
+    MOVABLE = 2
+    COLLIDABLE = 4
+    SELECTABLE = 8
+    DEFORMABLE = 16
+    SAVABLE = 32
 
 
 class Role(str, Enum):

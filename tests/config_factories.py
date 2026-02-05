@@ -44,7 +44,7 @@ class ConfigFactory:
                 ],
                 "scene": {
                     "nodes": [
-                        {"id": "brain_node", "asset": "brain_mesh"},
+                        {"key": "brain_node", "asset": "brain_mesh"},
                     ]
                 },
             }
@@ -226,31 +226,21 @@ class AssetFactory:
 
     @staticmethod
     def asset_with_material_ref(
-        key: str = "material_ref_asset", 
+        key: str = "material_ref_asset",
         material_ref: str = "default_material",
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create asset with material reference."""
-        return AssetFactory.base_asset(
-            key=key,
-            material_ref=material_ref,
-            **overrides
-        )
+        return AssetFactory.base_asset(key=key, material_ref=material_ref, **overrides)
 
     @staticmethod
     def asset_with_templates(
-        key: str = "templated_asset",
-        templates: List[str] = None,
-        **overrides
+        key: str = "templated_asset", templates: List[str] = None, **overrides
     ) -> Dict[str, Any]:
         """Create asset with templates."""
         if templates is None:
             templates = ["mesh_template"]
-        return AssetFactory.base_asset(
-            key=key,
-            templates=templates,
-            **overrides
-        )
+        return AssetFactory.base_asset(key=key, templates=templates, **overrides)
 
 
 class TargetFactory:
@@ -273,7 +263,10 @@ class TargetFactory:
     def explicit_target(key: str = "explicit_target", **overrides) -> Dict[str, Any]:
         """Create explicit target with source file."""
         return TargetFactory.base_target(
-            key=key, src=Path("/path/to/targets.npy"), loader="numpy_points", **overrides
+            key=key,
+            src=Path("/path/to/targets.npy"),
+            loader="numpy_points",
+            **overrides,
         )
 
     @staticmethod
@@ -289,29 +282,21 @@ class TargetFactory:
     def target_with_material_ref(
         key: str = "material_ref_target",
         material_ref: str = "green_material",
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create target with material reference."""
         return TargetFactory.explicit_target(
-            key=key,
-            material_ref=material_ref,
-            **overrides
+            key=key, material_ref=material_ref, **overrides
         )
 
     @staticmethod
     def target_with_templates(
-        key: str = "templated_target",
-        templates: List[str] = None,
-        **overrides
+        key: str = "templated_target", templates: List[str] = None, **overrides
     ) -> Dict[str, Any]:
         """Create target with templates."""
         if templates is None:
             templates = ["explicit_template"]
-        return TargetFactory.explicit_target(
-            key=key,
-            templates=templates,
-            **overrides
-        )
+        return TargetFactory.explicit_target(key=key, templates=templates, **overrides)
 
 
 class TransformFactory:
@@ -451,12 +436,12 @@ class MaterialFactory:
 
     @staticmethod
     def material(
-        name: str = "default", 
-        color: str = "#C8C8C8", 
+        name: str = "default",
+        color: str = "#C8C8C8",
         opacity: float = 1.0,
         wireframe: bool = False,
         visible: bool = True,
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create material specification."""
         material = {
@@ -496,10 +481,7 @@ class TemplateFactory:
 
     @staticmethod
     def base_template(
-        name: str = "base_template",
-        kind: str = None,
-        role: str = None,
-        **overrides
+        name: str = "base_template", kind: str = None, role: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create base template specification."""
         template = {"name": name}
@@ -512,9 +494,7 @@ class TemplateFactory:
 
     @staticmethod
     def asset_template(
-        name: str = "asset_template",
-        material_ref: str = None,
-        **overrides
+        name: str = "asset_template", material_ref: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create asset template specification."""
         template = TemplateFactory.base_template(
@@ -529,9 +509,7 @@ class TemplateFactory:
 
     @staticmethod
     def target_template(
-        name: str = "target_template",
-        material_ref: str = None,
-        **overrides
+        name: str = "target_template", material_ref: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create target template specification."""
         template = TemplateFactory.base_template(
@@ -549,14 +527,11 @@ class TemplateFactory:
         name: str = "mesh_template",
         src: str = "/template/mesh.obj",
         loader: str = "trimesh_loader",
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create mesh template with source loader."""
         return TemplateFactory.asset_template(
-            name=name,
-            src=Path(src),
-            loader=loader,
-            **overrides
+            name=name, src=Path(src), loader=loader, **overrides
         )
 
     @staticmethod
@@ -564,14 +539,11 @@ class TemplateFactory:
         name: str = "points_template",
         src: str = "/template/points.npy",
         loader: str = "numpy_points",
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create points template with explicit source."""
         return TemplateFactory.target_template(
-            name=name,
-            src=Path(src),
-            loader=loader,
-            **overrides
+            name=name, src=Path(src), loader=loader, **overrides
         )
 
     @staticmethod
@@ -579,12 +551,9 @@ class TemplateFactory:
         name: str = "derived_template",
         source_key: str = "brain_mesh",
         reducer: str = "centroid",
-        **overrides
+        **overrides,
     ) -> Dict[str, Any]:
         """Create derived target template."""
         return TemplateFactory.target_template(
-            name=name,
-            source_key=source_key,
-            reducer=reducer,
-            **overrides
+            name=name, source_key=source_key, reducer=reducer, **overrides
         )

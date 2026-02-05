@@ -240,9 +240,8 @@ def register_reducer(arg: str | Callable[..., ReduceOut] | None = None):
 def reduce_target(source: SourceGeo, reducer: str, **kwargs) -> ReduceOut:
     fn = _REDUCER_REGISTRY.get(reducer)
     if fn is None:
-        raise KeyError(
-            f"Unknown reducer '{reducer}'. Known: {', '.join(sorted(_REDUCER_REGISTRY)) or '(none)'}"
-        )
+        known = ", ".join(sorted(_REDUCER_REGISTRY)) or "(none)"
+        raise KeyError(f"Unknown reducer '{reducer}'. Known: {known}")
     return fn(source, **kwargs)
 
 
@@ -400,7 +399,7 @@ def _compile_collision_labels(labels_in_use: Iterable[str]) -> dict[str, int]:
     """
     Assign each collision label a bit. Bit 0 is reserved for 'NONE' (unused).
     """
-    labels = [l for l in dict.fromkeys(labels_in_use) if l]  # unique, drop falsy
+    labels = [lab for lab in dict.fromkeys(labels_in_use) if lab]  # unique, drop falsy
     mapping: dict[str, int] = {}
     for i, lab in enumerate(labels, start=1):  # start bits at 1
         mapping[lab] = 1 << i
@@ -481,27 +480,21 @@ def _apply_canonicalization_points(
     return p
 
 
-def _transform_chain_from_ref(transforms_model, key: str | None) -> TransformChain:
-    """
-    Resolve a ConfigModel.transforms entry into a TransformChain.
-    Falls back to identity when key is None.
-    """
-    if not key:
-        return TransformChain.new([AffineTransform.identity()])
-
-    ref = transforms_model.get(key)
+def _resolve_scene_node_transform(
+    ref: Optional[TransformRefModel],
+    compiled_transforms: CompiledTransforms,
+) -> TransformChain:
+    """Resolve a scene node's TransformRefModel into a TransformChain."""
     if ref is None:
-        raise KeyError(f"Unknown transform_key '{key}'")
-
-    if ref.kind == "identity":
         return TransformChain.new([AffineTransform.identity()])
-
-    if ref.kind == "sitk_file":
-        return TransformChain.new(
-            [AffineTransform.from_sitk_path(Path(ref.path), inverted=ref.invert)]
-        )
-
-    raise ValueError(f"Unsupported transform kind: {ref.kind!r}")
+    if ref.key:
+        affine = resolve_transform_key_cached(ref.key, compiled_transforms)
+        if affine is None:
+            return TransformChain.new([AffineTransform.identity()])
+        return TransformChain.new([affine])
+    if ref.inline:
+        return compile_recipe_to_chain(ref.inline)
+    return TransformChain.new([AffineTransform.identity()])
 
 
 # -------------------------------------------------------------------------
@@ -531,15 +524,17 @@ class RuntimeBundle:
 
 
 def _capabilities_from_list(lst) -> Capability:
-    val = 0
+    val = Capability(0)
     for c in lst or []:
-        # if Pydantic parsed as Capability already, bit-or directly
-        if isinstance(c, int):
+        if isinstance(c, Capability):
             val |= c
+        elif isinstance(c, int):
+            val |= Capability(c)
+        elif isinstance(c, str):
+            val |= Capability[c.upper()]
         else:
-            # string fallback
-            val |= getattr(Capability, str(c))
-    return Capability(val)
+            val |= Capability(int(c))
+    return val
 
 
 def _collision_bits(
@@ -562,7 +557,8 @@ def _resolve_canonicalization_model(
             base = cfg.canonicalizations[spec.canonicalization_ref]
         except KeyError:
             raise KeyError(
-                f"Unknown canonicalization_ref '{spec.canonicalization_ref}' for '{spec.key}'"
+                f"Unknown canonicalization_ref "
+                f"'{spec.canonicalization_ref}' for '{spec.key}'"
             )
     elif spec.canonicalization:
         base = spec.canonicalization
@@ -782,7 +778,7 @@ def load_resource(
     return geo
 
 
-def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
+def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     # 1) collision labels → bit mapping
     labels: list[str] = []
     for a in cfg.assets:
@@ -836,7 +832,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
                 f"Scene node '{n.key}' references unknown asset '{asset_key}'"
             )
 
-        node_tf = _transform_chain_from_ref(cfg.transforms, n.transform)
+        node_tf = _resolve_scene_node_transform(n.transform, compiled_transforms)
 
         extras: dict[str, Any] = {}
         locked_axes: set[str] = set()
@@ -875,7 +871,8 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
             transformed_points = resolve_base_geometry(catalog, scene, key)
             if not transformed_points:
                 raise RuntimeError(
-                    f"Probe '{probe_name}' references unknown target '{probe_decl.target.key}'"
+                    f"Probe '{probe_name}' references unknown target "
+                    f"'{probe_decl.target.key}'"
                 )
             transformed_points = transformed_points.raw
             target_index[key] = transformed_points

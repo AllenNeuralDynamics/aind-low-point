@@ -18,11 +18,10 @@ import fcl
 import numpy as np
 import trimesh
 
-from aind_low_point.assets import (
-    AssetCatalog,
-)
-from aind_low_point.core import Pair
-from aind_low_point.planning import PlanningState
+from aind_low_point.assets import AssetCatalog
+from aind_low_point.common import Capability
+from aind_low_point.core import MeshTransformable, Pair
+from aind_low_point.planning import PlanningState, PoseResolver
 from aind_low_point.scene import NodeInstance, Scene
 
 
@@ -75,13 +74,9 @@ class CollisionBackend(Protocol):
     ) -> List[CollisionPair]: ...
 
 
-def default_include(node: NodeInstance) -> bool:
-    # Exclude brain + structures; include only meshes
-    if node.geom.kind != "mesh":
-        return False
-    if node.geom.key == "brain" or node.geom.key.startswith("structure:"):
-        return False
-    return True
+def default_include(node: NodeInstance, catalog: AssetCatalog) -> bool:
+    spec = catalog.get_spec(node.asset_key)
+    return spec.kind == "mesh" and bool(spec.caps & Capability.COLLIDABLE)
 
 
 @dataclass
@@ -89,15 +84,16 @@ class CollisionAdapter:
     backend: CollisionBackend
     scene: Scene
     assets: AssetCatalog
-    include: Callable[[NodeInstance], bool] = default_include
+    include: Callable[[NodeInstance, AssetCatalog], bool] = default_include
 
     # ---- lifecycle wiring ----
     def rebuild(self, plan: PlanningState) -> None:
+        resolver = self._make_resolver(plan)
         specs = [
             s
             for n in self.scene.nodes.values()
-            if self.include(n)
-            for s in [self._spec_for_node(n, plan)]
+            if self.include(n, self.assets)
+            for s in [self._spec_for_node(n, resolver)]
             if s
         ]
         self.backend.rebuild(specs)
@@ -105,16 +101,16 @@ class CollisionAdapter:
     def on_store_change(
         self, plan: PlanningState, changed_probe_names: List[str]
     ) -> None:
-        # Only probes move; map probe names -> scene nodes
+        resolver = self._make_resolver(plan)
         nodes: List[NodeInstance] = []
         for pname in changed_probe_names:
             nid = f"probe:{pname}"
             node = self.scene.nodes.get(nid)
-            if node and self.include(node):
+            if node and self.include(node, self.assets):
                 nodes.append(node)
         if not nodes:
             return
-        specs = [self._spec_for_node(n, plan) for n in nodes]
+        specs = [self._spec_for_node(n, resolver) for n in nodes]
         self.backend.sync([s for s in specs if s is not None])
 
     def remove_nodes(self, node_ids: Iterable[str]) -> None:
@@ -140,41 +136,27 @@ class CollisionAdapter:
             spec, enable_contacts=True, max_contacts=8
         )
 
-    # ---- domain → backend spec ----
+    # ---- internals ----
+    def _make_resolver(self, plan: PlanningState) -> PoseResolver:
+        return PoseResolver(
+            scene=self.scene,
+            plan=plan,
+            get_pivot_for_asset=lambda key: getattr(
+                self.assets.get_spec(key), "pivot_LPS", None
+            ),
+        )
+
     def _spec_for_node(
-        self, node: NodeInstance, plan: PlanningState
+        self, node: NodeInstance, resolver: PoseResolver
     ) -> Optional[ObjSpec]:
-        if node.geom.kind != "mesh":
+        geom = self.assets.get_geometry(node.asset_key)
+        if not isinstance(geom, MeshTransformable):
             return None
-        base = self._resolve_mesh(node.geom.key, self.assets)
-        bvh = _bvh_from_mesh(base, name=node.geom.key)  # unique geometry per node
-        R, t = self._pose_for_node(node, plan)
+        base = geom.raw
+        bvh = _bvh_from_mesh(base, name=node.asset_key)
+        R, t = resolver.world_rt_for_node(node)
         tf = _rt_to_transform(R, t, name=f"pose:{node.key}")
         return ObjSpec(node_id=node.key, geom=bvh, transform=tf)
-
-    def _pose_for_node(
-        self, node: NodeInstance, plan: PlanningState
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        if node.key.startswith("probe:"):
-            pname = node.key.split(":", 1)[1]
-            return plan.probes[pname].pose.chain().composed_transform
-        return np.eye(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
-
-    def _resolve_mesh(self, key: str, a: AssetCatalog) -> trimesh.Trimesh:
-        if key == "implant":
-            return a.implant_mesh.raw
-        if key == "headframe":
-            return a.headframe_mesh.raw
-        if key == "well":
-            return a.well_mesh.raw
-        if key == "cone":
-            return a.cone_mesh.raw
-        if key.startswith("hole:"):
-            return a.hole_models[int(key.split(":", 1)[1])].raw
-        if key.startswith("probe:"):
-            return a.probe_models[key.split(":", 1)[1]].raw  # TYPE, not name
-        # brain/structures are intentionally excluded by include()
-        raise KeyError(f"Unknown mesh key for collision: {key}")
 
 
 def objects_in_collision(collision_pairs: List[CollisionPair]) -> List[Tuple[str, str]]:

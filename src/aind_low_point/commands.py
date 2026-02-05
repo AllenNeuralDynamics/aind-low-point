@@ -123,7 +123,7 @@ PlanningCommand = Union[
 ]
 
 
-def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]:
+def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]:  # noqa: C901
     """
     Mutates PlanningState in place.
     Returns a list of probe names that should be re-resolved/re-rendered.
@@ -132,7 +132,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
 
     if isinstance(cmd, SetArcAngle):
         # clamp to limits (and apply any separation policy if you added it)
-        ap = ps.kinematics.set_arc(cmd.arc_id, cmd.ap_deg)
+        ps.kinematics.set_arc(cmd.arc_id, cmd.ap_deg)
         # any non-calibrated probe bound to this arc is affected
         for name, plan in ps.probes.items():
             if plan.arc_id == cmd.arc_id and plan.bind_ap_to_arc:
@@ -218,7 +218,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
             raise ValueError(
                 "SetProbeTarget: specify exactly one of target_key or target_point_RAS"
             )
-        plan.target_ref = cmd.target_key
+        plan.target_key = cmd.target_key
         plan.target_point_RAS = cmd.target_point_RAS
         changed.add(cmd.name)
         return sorted(changed)

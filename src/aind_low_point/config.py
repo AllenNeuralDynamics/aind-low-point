@@ -328,6 +328,25 @@ class BaseTemplateModel(GeometrySourceModel):
     chem_shift_ppm: Optional[float] = None
     chem_shift_policy: ChemMode = "auto"
 
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
+
 
 class AssetTemplateModel(BaseTemplateModel):
     """Defaults oriented to geometry assets."""
@@ -377,6 +396,11 @@ class BaseSpecModel(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
 
+    # Scene placement (auto-creates scene node if transform or scene_tags set)
+    transform: Optional["TransformRefModel"] = None
+    scene_tags: list[str] = Field(default_factory=list)
+    auto_scene: bool = True  # set False to suppress auto scene node generation
+
     # Explicit points (file)
     src: Optional[Path] = None
     loader: Optional[str] = None  # e.g., "numpy_points"
@@ -398,6 +422,25 @@ class BaseSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     chem_shift_ppm: Optional[float] = None
+
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
 
     @model_validator(mode="after")
     def _check_canon_choice(self):
@@ -431,6 +474,151 @@ class AssetSpecModel(BaseSpecModel):
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
 
+    @model_validator(mode="after")
+    def _check_source_modes(self):
+        has_src = self.src is not None
+        has_loader = self.loader is not None
+        has_resource = self.from_resource is not None
+        has_selector = self.selector is not None
+
+        if has_src ^ has_loader:
+            raise ValueError(
+                f"Asset '{self.key}' must provide both 'src' and 'loader', or neither."
+            )
+        if (has_src and has_loader) and (has_resource or has_selector):
+            raise ValueError(
+                f"Asset '{self.key}': Choose either "
+                "(src+loader) or (from_resource+selector), "
+                "not both."
+            )
+        if has_resource ^ has_selector:
+            raise ValueError(
+                f"Asset '{self.key}': When using "
+                "from_resource, you must also provide "
+                "a selector."
+            )
+        return self
+
+
+class BulkAssetSpecModel(BaseModel):
+    """Bulk asset declaration with multiple keys sharing the same configuration.
+
+    Supports placeholders in src:
+      - {name}: suffix after last ':' (e.g., 'structure:PL' → 'PL')
+      - {key}: full key (e.g., 'structure:PL')
+
+    Example::
+
+        - keys: [structure:PL, structure:MD, structure:CLA]
+          src: ${paths.structure_path}/${paths.mouse}-{name}-Mask.nrrd
+          templates: [structure]
+          transform: headframe_to_lps
+    """
+
+    keys: list[str] = Field(..., min_length=1)
+
+    # Same fields as AssetSpecModel (except key)
+    kind: Optional[Kind] = None
+    role: Optional[Role] = None
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+    # Scene placement
+    transform: Optional["TransformRefModel"] = None
+    scene_tags: list[str] = Field(default_factory=list)
+    auto_scene: bool = True
+
+    # Source (with placeholders)
+    src: Optional[str] = None  # string for placeholder support
+    loader: Optional[str] = None
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional[CanonicalizationDefModel] = None
+    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+
+    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
+
+    pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
+    bbox_hint: Optional[list[list[float]]] = Field(default=None)
+
+    chem_shift_policy: ChemMode = "auto"
+    chem_shift_ppm: Optional[float] = None
+
+    templates: list[str] = Field(default_factory=list)
+    from_resource: Optional[str] = None
+    selector: Optional[Selector] = None
+
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
+
+    def expand(self) -> list[AssetSpecModel]:
+        """Expand into individual AssetSpecModel instances."""
+        results = []
+        for key in self.keys:
+            # Extract name from key (e.g., "structure:PL" → "PL")
+            name = key.split(":")[-1] if ":" in key else key
+
+            # Substitute placeholders in src
+            src = None
+            if self.src is not None:
+                src_str = self.src.replace("{name}", name).replace("{key}", key)
+                src = Path(src_str)
+
+            results.append(
+                AssetSpecModel(
+                    key=key,
+                    kind=self.kind,
+                    role=self.role,
+                    material_ref=self.material_ref,
+                    material=self.material,
+                    metadata=self.metadata.copy(),
+                    tags=self.tags.copy(),
+                    transform=self.transform,
+                    scene_tags=self.scene_tags.copy(),
+                    auto_scene=self.auto_scene,
+                    src=src,
+                    loader=self.loader,
+                    loader_kwargs=self.loader_kwargs.copy(),
+                    canonicalization_ref=self.canonicalization_ref,
+                    canonicalization=self.canonicalization,
+                    canonicalization_override=self.canonicalization_override,
+                    caps=self.caps.copy(),
+                    collision=self.collision,
+                    pivot_LPS=self.pivot_LPS,
+                    bbox_hint=self.bbox_hint,
+                    chem_shift_policy=self.chem_shift_policy,
+                    chem_shift_ppm=self.chem_shift_ppm,
+                    templates=self.templates.copy(),
+                    from_resource=self.from_resource,
+                    selector=self.selector,
+                )
+            )
+        return results
+
+
+# Type alias for assets that can be either single or bulk
+AssetSpecUnion = Union[AssetSpecModel, BulkAssetSpecModel]
+
 
 class TargetSpecModel(BaseSpecModel):
     """Targets are points; explicit (src+loader) or derived (source_key+reducer)."""
@@ -456,6 +644,280 @@ class TargetSpecModel(BaseSpecModel):
     )
     uncertainty_mm: Optional[float] = None
 
+    @model_validator(mode="after")
+    def _check_target_source_and_caps(self):
+        explicit = self.src is not None and self.loader is not None
+        derived = self.source_key is not None
+        from_res = (self.from_resource is not None) and (self.selector is not None)
+        paths = sum([explicit, derived, from_res])
+        if paths != 1:
+            raise ValueError(
+                f"Target '{self.key}': provide exactly one of "
+                "(src+loader) | (source_key+reducer) | (from_resource+selector)"
+            )
+        if Capability.COLLIDABLE in self.caps:
+            raise ValueError(
+                f"Target '{self.key}': targets should not be collidable by default."
+            )
+        return self
+
+
+class RangeTargetSpecModel(BaseModel):
+    """Bulk target declaration using numeric ranges.
+
+    Supports placeholders in key_pattern and src:
+      - {n}: the current number in the range
+
+    Example::
+
+        - key_pattern: "target:hole:{n}"
+          range: [1, 13]
+          src: ${paths.hole_model_path}/Hole{n}.obj
+          templates: [hole]
+          transform: implant_to_lps
+    """
+
+    key_pattern: str  # e.g., "target:hole:{n}"
+    range: list[int] = Field(..., min_length=2, max_length=2)  # [start, end] inclusive
+
+    # Same fields as TargetSpecModel (except key)
+    kind: Kind = Kind.POINTS
+    role: Role = Role.TARGET
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+    # Scene placement
+    transform: Optional["TransformRefModel"] = None
+    scene_tags: list[str] = Field(default_factory=list)
+    auto_scene: bool = True
+
+    # Source (with placeholders)
+    src: Optional[str] = None  # string for placeholder support
+    loader: Optional[str] = None
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    source_key: Optional[str] = None  # also supports {n} placeholder
+
+    from_resource: Optional[str] = None
+    selector: Optional[Selector] = None
+
+    reducer: Optional[str] = None
+    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional[CanonicalizationDefModel] = None
+    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+
+    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
+
+    pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
+    bbox_hint: Optional[list[list[float]]] = Field(default=None)
+
+    chem_shift_policy: ChemMode = "auto"
+    chem_shift_ppm: Optional[float] = None
+
+    templates: list[str] = Field(default_factory=list)
+
+    approach_vector: Optional[list[float]] = Field(
+        default=None, min_length=3, max_length=3
+    )
+    uncertainty_mm: Optional[float] = None
+
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
+
+    def expand(self) -> list[TargetSpecModel]:
+        """Expand into individual TargetSpecModel instances."""
+        start, end = self.range
+        results = []
+        for n in range(start, end + 1):
+            n_str = str(n)
+            key = self.key_pattern.replace("{n}", n_str)
+
+            # Substitute placeholders in src and source_key
+            src = None
+            if self.src is not None:
+                src = Path(self.src.replace("{n}", n_str))
+
+            source_key = None
+            if self.source_key is not None:
+                source_key = self.source_key.replace("{n}", n_str)
+
+            results.append(
+                TargetSpecModel(
+                    key=key,
+                    kind=self.kind,
+                    role=self.role,
+                    material_ref=self.material_ref,
+                    material=self.material,
+                    metadata=self.metadata.copy(),
+                    tags=self.tags.copy(),
+                    transform=self.transform,
+                    scene_tags=self.scene_tags.copy(),
+                    auto_scene=self.auto_scene,
+                    src=src,
+                    loader=self.loader,
+                    loader_kwargs=self.loader_kwargs.copy(),
+                    source_key=source_key,
+                    from_resource=self.from_resource,
+                    selector=self.selector,
+                    reducer=self.reducer,
+                    reducer_kwargs=self.reducer_kwargs.copy(),
+                    canonicalization_ref=self.canonicalization_ref,
+                    canonicalization=self.canonicalization,
+                    canonicalization_override=self.canonicalization_override,
+                    caps=self.caps.copy(),
+                    collision=self.collision,
+                    pivot_LPS=self.pivot_LPS,
+                    bbox_hint=self.bbox_hint,
+                    chem_shift_policy=self.chem_shift_policy,
+                    chem_shift_ppm=self.chem_shift_ppm,
+                    templates=self.templates.copy(),
+                    approach_vector=self.approach_vector,
+                    uncertainty_mm=self.uncertainty_mm,
+                )
+            )
+        return results
+
+
+class DerivedTargetSpecModel(BaseModel):
+    """Bulk target declaration deriving targets from existing assets.
+
+    Creates targets that reference existing assets via source_key.
+
+    Example::
+
+        - derive_from: [structure:PL, structure:MD, structure:CLA]
+          key_prefix: "target:"
+          templates: [structure]
+          transform: headframe_to_lps
+    """
+
+    derive_from: list[str] = Field(..., min_length=1)  # asset keys to derive from
+    key_prefix: str = "target:"  # prepended to derive target key
+
+    # Same fields as TargetSpecModel (except key, source_key)
+    kind: Kind = Kind.POINTS
+    role: Role = Role.TARGET
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+    # Scene placement
+    transform: Optional["TransformRefModel"] = None
+    scene_tags: list[str] = Field(default_factory=list)
+    auto_scene: bool = True
+
+    from_resource: Optional[str] = None
+    selector: Optional[Selector] = None
+
+    reducer: Optional[str] = None
+    reducer_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional[CanonicalizationDefModel] = None
+    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+
+    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
+
+    pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
+    bbox_hint: Optional[list[list[float]]] = Field(default=None)
+
+    chem_shift_policy: ChemMode = "auto"
+    chem_shift_ppm: Optional[float] = None
+
+    templates: list[str] = Field(default_factory=list)
+
+    approach_vector: Optional[list[float]] = Field(
+        default=None, min_length=3, max_length=3
+    )
+    uncertainty_mm: Optional[float] = None
+
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
+
+    def expand(self) -> list[TargetSpecModel]:
+        """Expand into individual TargetSpecModel instances."""
+        results = []
+        for asset_key in self.derive_from:
+            # Extract suffix from asset key (e.g., "structure:PL" → "PL")
+            suffix = asset_key.split(":")[-1] if ":" in asset_key else asset_key
+            target_key = f"{self.key_prefix}{suffix}"
+
+            results.append(
+                TargetSpecModel(
+                    key=target_key,
+                    kind=self.kind,
+                    role=self.role,
+                    material_ref=self.material_ref,
+                    material=self.material,
+                    metadata=self.metadata.copy(),
+                    tags=self.tags.copy(),
+                    transform=self.transform,
+                    scene_tags=self.scene_tags.copy(),
+                    auto_scene=self.auto_scene,
+                    source_key=asset_key,  # derive from the asset
+                    from_resource=self.from_resource,
+                    selector=self.selector,
+                    reducer=self.reducer,
+                    reducer_kwargs=self.reducer_kwargs.copy(),
+                    canonicalization_ref=self.canonicalization_ref,
+                    canonicalization=self.canonicalization,
+                    canonicalization_override=self.canonicalization_override,
+                    caps=self.caps.copy(),
+                    collision=self.collision,
+                    pivot_LPS=self.pivot_LPS,
+                    bbox_hint=self.bbox_hint,
+                    chem_shift_policy=self.chem_shift_policy,
+                    chem_shift_ppm=self.chem_shift_ppm,
+                    templates=self.templates.copy(),
+                    approach_vector=self.approach_vector,
+                    uncertainty_mm=self.uncertainty_mm,
+                )
+            )
+        return results
+
+
+# Type alias for targets that can be single, range, or derived
+TargetSpecUnion = Union[TargetSpecModel, RangeTargetSpecModel, DerivedTargetSpecModel]
+
 
 # -----------------------------------------------------------------------------
 # Scene (WHERE: instances and bindings)
@@ -467,13 +929,13 @@ class SceneNodeModel(BaseModel):
     asset: str = Field(description="Key of an AssetSpec in catalog")
     tags: list[str] = Field(default_factory=list)
 
-    # Reference a named transform (from ConfigModel.transforms) or leave None for identity
+    # Reference a named transform (from ConfigModel.transforms) or None for identity
     transform: Optional[TransformRefModel] = None
 
-    # Optional domain binding for pose (use for probes): ties node to domain.probes[name]
+    # Optional domain binding for pose (probes): ties node to domain.probes[name]
     pose_source_probe: Optional[str] = Field(
         default=None,
-        description="If set, renderer should take pose from plan.probes[pose_source_probe].",
+        description="If set, renderer takes pose from plan.probes[pose_source_probe].",
     )
 
 
@@ -512,7 +974,21 @@ class ProbeDeclModel(BaseModel):
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
     )
 
-    calibrated: bool = False  # initial lock state; actual calibration affine comes from 'calibrations' map
+    # initial lock state; actual calibration affine comes from 'calibrations' map
+    calibrated: bool = False
+
+    # Auto scene node generation (creates "probe:{name}" node)
+    auto_scene: bool = True
+    scene_tags: list[str] = Field(default_factory=lambda: ["probe", "dynamic"])
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_target(cls, v):
+        if isinstance(v, dict) and "target" in v:
+            t = v["target"]
+            if isinstance(t, str):
+                v["target"] = {"kind": "catalog", "key": t}
+        return v
 
 
 class CalibrationRefModel(BaseModel):
@@ -577,7 +1053,7 @@ class CalibrationSourceModel(BaseModel):
 
 class CalibrationsModel(BaseModel):
     files: dict[str, CalibrationSourceModel] = Field(default_factory=dict)
-    # domain_probe_name → either {"cal_id": "...", "probe_code": "..."} OR "cal_id:probe_code"
+    # probe_name → {"cal_id": "...", "probe_code": "..."} OR "cal_id:probe_code"
     probe_to_ref: dict[str, Union[CalibrationRefModel, str]] = Field(
         default_factory=dict
     )
@@ -604,7 +1080,7 @@ class PlanningModel(BaseModel):
     )
     reticles: dict[str, CalibrationReticleModel] = Field(default_factory=dict)
     calibrations: CalibrationsModel = Field(default_factory=CalibrationsModel)
-    # Targets can live in the catalog (TargetSpecModel), or you can also allow simple inline targets here if desired.
+    # Targets can also live in the catalog (TargetSpecModel) or as inline targets.
 
 
 # -----------------------------------------------------------------------------
@@ -642,8 +1118,8 @@ class ConfigModel(BaseModel):
     # Catalog
     asset_templates: dict[str, AssetTemplateModel] = Field(default_factory=dict)
     target_templates: dict[str, TargetTemplateModel] = Field(default_factory=dict)
-    assets: list[AssetSpecModel] = Field(default_factory=list)
-    targets: list[TargetSpecModel] = Field(default_factory=list)
+    assets: list[AssetSpecUnion] = Field(default_factory=list)
+    targets: list[TargetSpecUnion] = Field(default_factory=list)
 
     # Scene
     scene: SceneModel = Field(default_factory=SceneModel)
@@ -658,8 +1134,26 @@ class ConfigModel(BaseModel):
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
-    def _xref_and_expand_templates(self):
+    def _xref_and_expand_templates(self):  # noqa: C901
         errors: list[str] = []
+
+        # ---------- Expand bulk specs first ----------
+        expanded_assets: list[AssetSpecModel] = []
+        for item in self.assets:
+            if isinstance(item, BulkAssetSpecModel):
+                expanded_assets.extend(item.expand())
+            else:
+                expanded_assets.append(item)
+        self.assets = expanded_assets
+
+        expanded_targets: list[TargetSpecModel] = []
+        for item in self.targets:
+            if isinstance(item, (RangeTargetSpecModel, DerivedTargetSpecModel)):
+                expanded_targets.extend(item.expand())
+            else:
+                expanded_targets.append(item)
+        self.targets = expanded_targets
+
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
@@ -684,20 +1178,18 @@ class ConfigModel(BaseModel):
             for tref in trefs:
                 if tref not in templates:
                     err(
-                        f"{where_prefix} '{_where_key(spec)}': template '{tref}' not found in templates"
+                        f"{where_prefix} '{_where_key(spec)}': "
+                        f"template '{tref}' not found"
                     )
 
         for a in self.assets:
             _check_template_ref(a, self.asset_templates, "asset")
         for t in self.targets:
             _check_template_ref(t, self.target_templates, "target")
-        print("about to apply templates")
         # Expand templates into concrete specs
         if self.asset_templates and self.assets:
-            print("Applying asset templates...")
             assets = []
             for a in self.assets:
-                print(f"  applying templates for asset '{a.key}'...")
                 assets.append(
                     apply_templates_generic(
                         merge_asset_template_model_dumps,
@@ -708,10 +1200,8 @@ class ConfigModel(BaseModel):
                 )
             self.assets = assets
         if self.target_templates and self.targets:
-            print("Applying target templates...")
             targets = []
             for t in self.targets:
-                print(f"  applying templates for target '{t.key}'...")
                 targets.append(
                     apply_templates_generic(
                         merge_target_template_model_dumps,
@@ -721,13 +1211,71 @@ class ConfigModel(BaseModel):
                     )
                 )
             self.targets = targets
-        print("Applied templates")
+
+        # ---------- Auto-generate scene nodes ----------
+        generated_nodes: list[SceneNodeModel] = []
+        explicit_keys = {n.key for n in self.scene.nodes}
+
+        # From assets with transform or scene_tags
+        for asset in self.assets:
+            if not asset.auto_scene:
+                continue
+            if asset.key in explicit_keys:
+                continue  # explicit node takes precedence
+            if asset.transform or asset.scene_tags:
+                generated_nodes.append(
+                    SceneNodeModel(
+                        key=asset.key,
+                        asset=asset.key,
+                        transform=asset.transform,
+                        tags=asset.scene_tags,
+                    )
+                )
+
+        # From targets with transform or scene_tags
+        for target in self.targets:
+            if not target.auto_scene:
+                continue
+            if target.key in explicit_keys:
+                continue
+            if target.transform or target.scene_tags:
+                generated_nodes.append(
+                    SceneNodeModel(
+                        key=target.key,
+                        asset=target.key,
+                        transform=target.transform,
+                        tags=target.scene_tags,
+                    )
+                )
+
+        # From plan.probes (auto-generate probe:{name} nodes)
+        for probe_name, probe_decl in self.plan.probes.items():
+            node_key = f"probe:{probe_name}"
+            if not probe_decl.auto_scene:
+                continue
+            if node_key in explicit_keys:
+                continue
+            asset_key = f"probe:{probe_decl.kind}"
+            generated_nodes.append(
+                SceneNodeModel(
+                    key=node_key,
+                    asset=asset_key,
+                    tags=probe_decl.scene_tags,
+                    pose_source_probe=probe_name,
+                )
+            )
+
+        # Prepend generated nodes (explicit nodes are already in self.scene.nodes)
+        if generated_nodes:
+            self.scene.nodes = generated_nodes + list(self.scene.nodes)
+
+        # Update node_keys after generation
+        node_keys = {n.key for n in self.scene.nodes}
+        node_idx_by_key = {n.key: i for i, n in enumerate(self.scene.nodes)}
 
         def _check_spec_kind(spec, where_prefix: str, allowable=None):
             kind = getattr(spec, "kind", None)
             if not kind:
-                # Dump spec
-                print(spec.model_dump())
                 err(f"{where_prefix} '{_where_key(spec)}': kind not set")
             if allowable and kind not in allowable:
                 err(f"{where_prefix} '{_where_key(spec)}': kind '{kind}' not allowed")
@@ -735,8 +1283,6 @@ class ConfigModel(BaseModel):
         def _check_spec_role(spec, where_prefix: str, allowable=None):
             role = getattr(spec, "role", None)
             if not role:
-                # Dump spec
-                print(spec.model_dump())
                 err(f"{where_prefix} '{_where_key(spec)}': role not set")
             if allowable and role not in allowable:
                 err(f"{where_prefix} '{_where_key(spec)}': role '{role}' not allowed")
@@ -770,15 +1316,14 @@ class ConfigModel(BaseModel):
                     "(src+loader) | (source_key+reducer) | (from_resource+selector)"
                 )
             if Capability.COLLIDABLE in spec.caps:
-                err(
-                    f"Target '{_where_key(spec)}': targets should not be collidable by default."
-                )
+                err(f"Target '{_where_key(spec)}': targets should not be collidable.")
 
         def _check_material_ref(spec, where_prefix: str):
             mref = getattr(spec, "material_ref", None)
             if mref and mref not in self.materials:
                 err(
-                    f"{where_prefix} '{_where_key(spec)}': material_ref '{mref}' not found in materials"
+                    f"{where_prefix} '{_where_key(spec)}': "
+                    f"material_ref '{mref}' not found"
                 )
 
         for a in self.assets:
@@ -788,19 +1333,21 @@ class ConfigModel(BaseModel):
             _check_asset_spec_src_loader(a)
         for t in self.targets:
             _check_material_ref(t, "target")
-            _check_spec_kind(t, "target", allowable=set(Kind.POINTS))
-            _check_spec_role(t, "target", allowable=set(Role.TARGET))
+            _check_spec_kind(t, "target", allowable={Kind.POINTS})
+            _check_spec_role(t, "target", allowable={Role.TARGET})
             _check_target_spec_single_source_and_caps(t)
 
         for name, tmpl in self.asset_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
                 err(
-                    f"asset_templates['{name}']: material_ref '{tmpl.material_ref}' not found"
+                    f"asset_templates['{name}']: "
+                    f"material_ref '{tmpl.material_ref}' not found"
                 )
         for name, tmpl in self.target_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
                 err(
-                    f"target_templates['{name}']: material_ref '{tmpl.material_ref}' not found"
+                    f"target_templates['{name}']: "
+                    f"material_ref '{tmpl.material_ref}' not found"
                 )
 
         def _check_transform_ref(
@@ -824,7 +1371,8 @@ class ConfigModel(BaseModel):
                 cdef = self.canonicalizations.get(cref)
                 if cdef is None:
                     err(
-                        f"{where_prefix} '{_where_key(spec)}': canonicalization_ref '{cref}' not found"
+                        f"{where_prefix} '{_where_key(spec)}': "
+                        f"canonicalization_ref '{cref}' not found"
                     )
                 else:
                     _check_canon_def(cdef, f"canonicalizations['{cref}']")
@@ -855,7 +1403,8 @@ class ConfigModel(BaseModel):
                 and n.pose_source_probe not in probe_names
             ):
                 err(
-                    f"scene.nodes['{n.key}'].pose_source_probe '{n.pose_source_probe}' not in plan.probes"
+                    f"scene.nodes['{n.key}'].pose_source_probe "
+                    f"'{n.pose_source_probe}' not in plan.probes"
                 )
 
         # ---------- targets ----------
@@ -883,13 +1432,15 @@ class ConfigModel(BaseModel):
             if p.target.kind == "catalog":
                 if target_key not in target_keys:
                     err(
-                        f"plan.probes['{pname}']: catalog target '{target_key}' not found in targets"
+                        f"plan.probes['{pname}']: catalog target "
+                        f"'{target_key}' not found"
                     )
                 seen_catalog_target_names.add(target_key)
             else:  # node
                 if target_key not in node_keys:
                     err(
-                        f"plan.probes['{pname}']: node target key '{target_key}' not found in scene.nodes"
+                        f"plan.probes['{pname}']: node target "
+                        f"'{target_key}' not in scene.nodes"
                     )
                 node_idx = node_idx_by_key.get(target_key)
                 target_ref = self.scene.nodes[node_idx].asset
@@ -904,24 +1455,28 @@ class ConfigModel(BaseModel):
         )
         if conflicting_names:
             err(
-                f"plan.probes: targets '{conflicting_names}' are ambiguous (found in both catalog and node targets)"
+                f"plan.probes: targets '{conflicting_names}' ambiguous "
+                "(in both catalog and node targets)"
             )
         # each calibration file must reference an existing reticle
         for cal_id, cal in cal_files.items():
             if cal.reticle not in reticle_names:
                 err(
-                    f"plan.calibrations.files['{cal_id}']: reticle '{cal.reticle}' not defined in plan.reticles"
+                    f"plan.calibrations.files['{cal_id}']: "
+                    f"reticle '{cal.reticle}' not in plan.reticles"
                 )
 
         # probe_to_ref must point to a valid probe and cal file id
         for probe_name, ref in self.plan.calibrations.probe_to_ref.items():
             if probe_name not in probe_names:
                 err(
-                    f"plan.calibrations.probe_to_ref: probe '{probe_name}' not in plan.probes"
+                    f"plan.calibrations.probe_to_ref: "
+                    f"probe '{probe_name}' not in plan.probes"
                 )
             if ref.cal_id not in cal_files:
                 err(
-                    f"plan.calibrations.probe_to_ref['{probe_name}']: cal_id '{ref.cal_id}' not in plan.calibrations.files"
+                    f"plan.calibrations.probe_to_ref['{probe_name}']: "
+                    f"cal_id '{ref.cal_id}' not in files"
                 )
 
         # ---------- canonicalization defs themselves ----------
@@ -929,10 +1484,11 @@ class ConfigModel(BaseModel):
             _check_transform_ref(
                 cdef.transform, f"canonicalizations['{cname}'].transform"
             )
-            # Require a transform (key OR inline) when the source space is FILE_NATIVE
+            # Require a transform (key OR inline) when source_space is FILE_NATIVE
             if cdef.source_space == "FILE_NATIVE" and cdef.transform is None:
                 errors.append(
-                    f"canonicalizations['{cname}']: source_space=FILE_NATIVE requires a transform (key or inline)"
+                    f"canonicalizations['{cname}']: FILE_NATIVE requires "
+                    "a transform (key or inline)"
                 )
 
         for seq, kind in (
@@ -952,15 +1508,16 @@ class ConfigModel(BaseModel):
                 # Exactly one must be true:
                 if named_space == has_tx:  # both True or both False
                     # Build a concise, actionable message:
+                    key = getattr(item, "key", "?")
                     if named_space and has_tx:
                         err(
-                            f"{kind} '{getattr(item, 'key', '?')}': choose either a named source_space "
-                            f"({eff.source_space}) or a canonicalization.transform, not both (XOR)."
+                            f"{kind} '{key}': use source_space "
+                            f"({eff.source_space}) OR transform, not both"
                         )
                     else:
                         err(
-                            f"{kind} '{getattr(item, 'key', '?')}': provide either a named source_space "
-                            f"(RAS/LPS/…) or a canonicalization.transform (for FILE_NATIVE), exactly one."
+                            f"{kind} '{key}': provide source_space "
+                            "(RAS/LPS/…) OR transform (for FILE_NATIVE)"
                         )
 
         # ---------- final ----------
@@ -971,7 +1528,7 @@ class ConfigModel(BaseModel):
         return self
 
 
-def _as_overlay(model: BaseModel | None) -> Dict[str, Any]:
+def _as_overlay(model: BaseModel | None) -> dict[str, Any]:
     return {} if model is None else model.model_dump(exclude_unset=True)
 
 
@@ -1050,7 +1607,7 @@ def _merge_asset_source_fields(
         raise ValueError("Asset: overlay specifies both file and resource source modes")
 
     if over_file:
-        # file mode wins; take overlay values if present, else fall back to base for the same mode
+        # file mode wins; overlay values take priority, else fall back to base
         out["src"] = over.get("src", None) or base.get("src", None)
         out["loader"] = over.get("loader", None) or base.get("loader", None)
         out["loader_kwargs"] = _merge_dict_shallow(
@@ -1157,7 +1714,7 @@ def apply_templates_generic(
     for name in template_names:
         t = registry.get(name)
         if t is None:
-            raise ValueError(f"asset '{spec.key}' references unknown template '{name}'")
+            continue  # already reported by _check_template_ref
         merged = mergefun(merged, _as_overlay(t))
 
     merged_tmpl = mergefun(merged, _as_overlay(spec))  # overlay spec onto templates
@@ -1300,28 +1857,28 @@ def merge_target_template_model_dumps(
     )
 
     # refs (replace-on-write)
-    out["material_ref"] = over.get("material_ref", None) or getattr(
-        base, "material_ref", None
+    out["material_ref"] = over.get("material_ref", None) or base.get(
+        "material_ref", None
     )
 
     # hints (replace-on-write)
-    out["pivot_LPS"] = over.get("pivot_LPS", None) or getattr(base, "pivot_LPS", None)
-    out["bbox_hint"] = over.get("bbox_hint", None) or getattr(base, "bbox_hint", None)
-    out["approach_vector"] = over.get("approach_vector", None) or getattr(
-        base, "approach_vector", None
+    out["pivot_LPS"] = over.get("pivot_LPS", None) or base.get("pivot_LPS", None)
+    out["bbox_hint"] = over.get("bbox_hint", None) or base.get("bbox_hint", None)
+    out["approach_vector"] = over.get("approach_vector", None) or base.get(
+        "approach_vector", None
     )
-    out["uncertainty_mm"] = over.get("uncertainty_mm", None) or getattr(
-        base, "uncertainty_mm", None
+    out["uncertainty_mm"] = over.get("uncertainty_mm", None) or base.get(
+        "uncertainty_mm", None
     )
 
     # chem-shift hints (targets rarely need it; still honor if present)
     out["chem_shift_ppm"] = (
         over.get("chem_shift_ppm", None)
-        if hasattr(over, "chem_shift_ppm")
+        if "chem_shift_ppm" in over
         else base.get("chem_shift_ppm", None)
     )
-    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or getattr(
-        base, "chem_shift_policy", None
+    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or base.get(
+        "chem_shift_policy", None
     )
 
     # source modes
