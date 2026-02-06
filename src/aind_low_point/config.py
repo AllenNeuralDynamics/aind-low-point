@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 from copy import deepcopy
 from pathlib import Path
 from typing import (
@@ -26,6 +27,81 @@ from pydantic import (
 
 from aind_low_point.common import Capability, Kind, Role
 from aind_low_point.orientation_codes import OrientationCode
+
+# -----------------------------------------------------------------------------
+# Extension-based inference for kind and loader
+# -----------------------------------------------------------------------------
+
+EXTENSION_DEFAULTS: dict[str, dict[str, str]] = {
+    ".obj": {"kind": "mesh", "loader": "trimesh"},
+    ".stl": {"kind": "mesh", "loader": "trimesh"},
+    ".ply": {"kind": "mesh", "loader": "trimesh"},
+    ".nrrd": {"kind": "mesh", "loader": "sitk_volume"},
+    ".nii": {"kind": "mesh", "loader": "sitk_volume"},
+    ".nii.gz": {"kind": "mesh", "loader": "sitk_volume"},
+    ".npy": {"kind": "points", "loader": "numpy_points"},
+}
+
+# -----------------------------------------------------------------------------
+# Role inference from key prefix
+# -----------------------------------------------------------------------------
+
+ROLE_PREFIX_DEFAULTS: list[tuple[str, Role]] = [
+    ("structure:", Role.ANATOMY),
+    ("brain", Role.ANATOMY),
+    ("target:", Role.TARGET),
+    ("landmark:", Role.LANDMARK),
+]
+
+
+def _infer_from_extension(spec: "AssetSpecModel | TargetSpecModel") -> None:
+    """Mutate spec to fill in kind/loader from src extension if not set."""
+    if spec.src is None:
+        return
+    src_str = str(spec.src)
+    # Check longer extensions first (e.g., .nii.gz before .nii)
+    for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
+        if src_str.endswith(ext):
+            defaults = EXTENSION_DEFAULTS[ext]
+            if spec.kind is None:
+                object.__setattr__(spec, "kind", Kind(defaults["kind"]))
+            if spec.loader is None:
+                object.__setattr__(spec, "loader", defaults["loader"])
+            break
+
+
+def _infer_role_from_key(spec: "AssetSpecModel | TargetSpecModel") -> None:
+    """Mutate spec to fill in role from key prefix if not set."""
+    if spec.role is not None or spec.key is None:
+        return
+    for prefix, role in ROLE_PREFIX_DEFAULTS:
+        if spec.key.startswith(prefix):
+            object.__setattr__(spec, "role", role)
+            return
+    object.__setattr__(spec, "role", Role.GEOMETRY)  # default
+
+
+def _find_matching_templates(key: str, templates: dict[str, Any]) -> list[str]:
+    """Return template names that match the key (glob patterns).
+
+    Exact matches have priority over glob patterns - if an exact match exists,
+    only that template is returned. Otherwise, multiple glob matches apply
+    in template dict order.
+    """
+    if key is None:
+        return []
+
+    matches: list[str] = []
+
+    for tname in templates:
+        if tname == key:
+            # Exact match has highest priority - return only this template
+            return [tname]
+        elif fnmatch.fnmatch(key, tname):
+            matches.append(tname)
+
+    return matches
+
 
 # Add FILE_NATIVE as a sentinel without mixing semantics
 SourceSpace: TypeAlias = OrientationCode | Literal["FILE_NATIVE"]
@@ -474,6 +550,27 @@ class AssetSpecModel(BaseSpecModel):
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_kind_loader_from_extension(cls, data: Any) -> Any:
+        """Infer kind and loader from src extension if not explicitly set."""
+        if not isinstance(data, dict):
+            return data
+        src = data.get("src")
+        if src is None:
+            return data
+        src_str = str(src)
+        # Check longer extensions first (e.g., .nii.gz before .nii)
+        for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
+            if src_str.endswith(ext):
+                defaults = EXTENSION_DEFAULTS[ext]
+                if data.get("kind") is None:
+                    data["kind"] = defaults["kind"]
+                if data.get("loader") is None:
+                    data["loader"] = defaults["loader"]
+                break
+        return data
+
     @model_validator(mode="after")
     def _check_source_modes(self):
         has_src = self.src is not None
@@ -643,6 +740,26 @@ class TargetSpecModel(BaseSpecModel):
         default=None, min_length=3, max_length=3
     )
     uncertainty_mm: Optional[float] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_loader_from_extension(cls, data: Any) -> Any:
+        """Infer loader from src extension if not explicitly set."""
+        if not isinstance(data, dict):
+            return data
+        src = data.get("src")
+        if src is None:
+            return data
+        src_str = str(src)
+        # Check longer extensions first (e.g., .nii.gz before .nii)
+        for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
+            if src_str.endswith(ext):
+                defaults = EXTENSION_DEFAULTS[ext]
+                # For targets, kind defaults to POINTS, so only infer loader
+                if data.get("loader") is None:
+                    data["loader"] = defaults["loader"]
+                break
+        return data
 
     @model_validator(mode="after")
     def _check_target_source_and_caps(self):
@@ -1154,6 +1271,19 @@ class ConfigModel(BaseModel):
                 expanded_targets.append(item)
         self.targets = expanded_targets
 
+        # ---------- Auto-match templates by key glob ----------
+        for asset in self.assets:
+            if not asset.templates:  # no explicit templates
+                auto = _find_matching_templates(asset.key, self.asset_templates)
+                if auto:
+                    object.__setattr__(asset, "templates", auto)
+
+        for target in self.targets:
+            if not target.templates:
+                auto = _find_matching_templates(target.key, self.target_templates)
+                if auto:
+                    object.__setattr__(target, "templates", auto)
+
         # ---------- sets for quick membership ----------
         asset_keys = {a.key for a in self.assets}
         target_keys = {t.key for t in self.targets}
@@ -1211,6 +1341,14 @@ class ConfigModel(BaseModel):
                     )
                 )
             self.targets = targets
+
+        # ---------- Infer kind/loader from extension and role from key ----------
+        for asset in self.assets:
+            _infer_from_extension(asset)
+            _infer_role_from_key(asset)
+        for target in self.targets:
+            _infer_from_extension(target)
+            _infer_role_from_key(target)
 
         # ---------- Auto-generate scene nodes ----------
         generated_nodes: list[SceneNodeModel] = []
@@ -1526,6 +1664,40 @@ class ConfigModel(BaseModel):
                 "Config cross-reference errors:\n  - " + "\n  - ".join(errors)
             )
         return self
+
+    def to_explicit_dict(self) -> dict[str, Any]:
+        """Export expanded config as a dict suitable for YAML serialization.
+
+        The output contains no bulk specs (they've been expanded), templates
+        have been applied, and auto-generated scene nodes are included.
+        The result can be re-loaded as a valid ConfigModel.
+
+        Returns
+        -------
+        dict
+            JSON-serializable dict (Path→str, Enum→value).
+        """
+        return self.model_dump(mode="json", exclude_defaults=False)
+
+
+def expand_config(config_data: dict[str, Any]) -> dict[str, Any]:
+    """Parse config, expand all bulk specs and auto-generation, return explicit dict.
+
+    This is a convenience function for the common pattern of loading a concise
+    config and exporting it to an explicit form for inspection or archival.
+
+    Parameters
+    ----------
+    config_data : dict
+        Raw config data (e.g., from YAML).
+
+    Returns
+    -------
+    dict
+        Fully expanded, explicit config that can be re-loaded.
+    """
+    config = ConfigModel.model_validate(config_data)
+    return config.to_explicit_dict()
 
 
 def _as_overlay(model: BaseModel | None) -> dict[str, Any]:

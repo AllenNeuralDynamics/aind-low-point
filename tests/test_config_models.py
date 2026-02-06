@@ -73,14 +73,14 @@ class TestAssetSpecModel:
 
     def test_asset_requires_both_src_and_loader(self):
         """Test that src and loader must both be provided or both be None."""
-        # Only src provided
+        # Only src provided with unknown extension (no inference)
         with pytest.raises(
             ValidationError, match="must provide both 'src' and 'loader'"
         ):
             AssetSpecModel(
                 key="test",
                 kind="mesh",
-                src="/path/to/file.obj",
+                src="/path/to/file.xyz",  # Unknown extension, no inference
                 # loader missing
             )
 

@@ -76,10 +76,11 @@ class TestModelLogicErrors:
 
     def test_asset_src_loader_mutual_requirement_error(self):
         """Test clear error when only one of src/loader provided."""
+        # Use unknown extension (.xyz) to avoid automatic inference
         with pytest.raises(
             ValidationError, match="must provide both 'src' and 'loader'"
         ):
-            AssetSpecModel(key="test", kind=Kind.MESH.value, src="/path/to/file.obj")
+            AssetSpecModel(key="test", kind=Kind.MESH.value, src="/path/to/file.xyz")
 
         with pytest.raises(
             ValidationError, match="must provide both 'src' and 'loader'"

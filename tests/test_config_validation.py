@@ -996,3 +996,783 @@ class TestAutoSceneNodeGeneration:
         config = ConfigModel.model_validate(config_data)
         probe_nodes = [n for n in config.scene.nodes if "probe" in n.key]
         assert len(probe_nodes) == 0
+
+
+class TestConfigExport:
+    """Test config export and round-trip."""
+
+    def test_to_explicit_dict_round_trip(self):
+        """Test that exported config can be re-loaded."""
+        from aind_low_point.common import Kind, Role
+
+        # Create a config with bulk specs and auto-generation
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "transforms": {"world": TransformFactory.transform_recipe()},
+                "assets": [
+                    # Bulk spec
+                    {
+                        "keys": ["mesh:A", "mesh:B"],
+                        "kind": Kind.MESH.value,
+                        "role": Role.ANATOMY.value,
+                        "loader": "trimesh",
+                        "src": "/path/{name}.obj",
+                    }
+                ],
+                "targets": [
+                    # Range spec
+                    {
+                        "key_pattern": "target:{n}",
+                        "range": [1, 2],
+                        "loader": "numpy_points",
+                        "src": "/targets/{n}.npy",
+                    }
+                ],
+            }
+        )
+
+        # Parse and expand
+        original = ConfigModel.model_validate(config_data)
+
+        # Export to explicit dict
+        exported = original.to_explicit_dict()
+
+        # Verify it's explicit (no bulk spec fields)
+        for asset in exported["assets"]:
+            assert "keys" not in asset  # bulk spec field gone
+            assert "key" in asset  # individual key present
+        for target in exported["targets"]:
+            assert "key_pattern" not in target  # range spec field gone
+            assert "range" not in target
+            assert "key" in target
+
+        # Round-trip: reload the exported config
+        reloaded = ConfigModel.model_validate(exported)
+
+        # Verify same content
+        assert len(reloaded.assets) == len(original.assets) == 2
+        assert len(reloaded.targets) == len(original.targets) == 2
+        assert {a.key for a in reloaded.assets} == {"mesh:A", "mesh:B"}
+        assert {t.key for t in reloaded.targets} == {"target:1", "target:2"}
+
+    def test_expand_config_function(self):
+        """Test the standalone expand_config function."""
+        from aind_low_point.config import expand_config
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "keys": ["a", "b", "c"],
+                        "kind": Kind.MESH.value,
+                        "role": Role.ANATOMY.value,
+                        "loader": "trimesh",
+                        "src": "/{key}.obj",
+                    }
+                ],
+            }
+        )
+
+        # Use the convenience function
+        explicit = expand_config(config_data)
+
+        # Verify expansion
+        assert len(explicit["assets"]) == 3
+        assert all("key" in a for a in explicit["assets"])
+        assert {a["key"] for a in explicit["assets"]} == {"a", "b", "c"}
+
+        # Verify it's JSON-serializable (no Path objects, etc.)
+        import json
+
+        json.dumps(explicit)  # Should not raise
+
+
+class TestExtensionInference:
+    """Test automatic inference of kind/loader from file extension."""
+
+    def test_obj_extension_infers_mesh_trimesh(self):
+        """Test .obj files infer mesh kind and trimesh loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "brain",
+                        "src": "/data/brain.obj",
+                        "role": "geometry",
+                        # kind and loader not specified
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "trimesh"
+
+    def test_stl_extension_infers_mesh_trimesh(self):
+        """Test .stl files infer mesh kind and trimesh loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "skull",
+                        "src": "/data/skull.stl",
+                        "role": "anatomy",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "trimesh"
+
+    def test_ply_extension_infers_mesh_trimesh(self):
+        """Test .ply files infer mesh kind and trimesh loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "surface",
+                        "src": "/data/surface.ply",
+                        "role": "geometry",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "trimesh"
+
+    def test_nrrd_extension_infers_mesh_sitk(self):
+        """Test .nrrd files infer mesh kind and sitk_volume loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "volume",
+                        "src": "/data/brain.nrrd",
+                        "role": "anatomy",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "sitk_volume"
+
+    def test_nii_extension_infers_mesh_sitk(self):
+        """Test .nii files infer mesh kind and sitk_volume loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "mri",
+                        "src": "/data/brain.nii",
+                        "role": "anatomy",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "sitk_volume"
+
+    def test_nii_gz_extension_infers_mesh_sitk(self):
+        """Test .nii.gz files infer mesh kind and sitk_volume loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "compressed_mri",
+                        "src": "/data/brain.nii.gz",
+                        "role": "anatomy",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "sitk_volume"
+
+    def test_npy_extension_infers_points_numpy(self):
+        """Test .npy files infer points kind and numpy_points loader."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "landmarks",
+                        "src": "/data/landmarks.npy",
+                        "role": "landmark",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.POINTS
+        assert config.assets[0].loader == "numpy_points"
+
+    def test_npy_target_extension_inference(self):
+        """Test .npy files work for targets too."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "targets": [
+                    {
+                        "key": "target1",
+                        "src": "/data/target.npy",
+                        # kind and loader not specified
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.targets[0].kind == Kind.POINTS
+        assert config.targets[0].loader == "numpy_points"
+
+    def test_explicit_kind_overrides_inference(self):
+        """Test explicit kind is not overwritten by inference."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "special",
+                        "src": "/data/data.npy",
+                        "kind": "lines",  # explicit override
+                        "role": "geometry",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].kind == Kind.LINES
+        # loader should still be inferred
+        assert config.assets[0].loader == "numpy_points"
+
+    def test_explicit_loader_overrides_inference(self):
+        """Test explicit loader is not overwritten by inference."""
+        from aind_low_point.common import Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "special",
+                        "src": "/data/brain.obj",
+                        "loader": "custom_loader",  # explicit override
+                        "role": "geometry",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # kind should still be inferred
+        assert config.assets[0].kind == Kind.MESH
+        assert config.assets[0].loader == "custom_loader"
+
+    def test_no_inference_without_src(self):
+        """Test no inference happens when src is not set."""
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "mesh1",
+                        "kind": Kind.MESH.value,
+                        "role": Role.ANATOMY.value,
+                        "src": "/m.obj",
+                        "loader": "trimesh",
+                    }
+                ],
+                "targets": [
+                    {
+                        "key": "derived",
+                        "source_key": "mesh1",
+                        # No src, so no inference
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Target should have default kind=POINTS, loader=None (derived mode)
+        assert config.targets[0].kind == Kind.POINTS
+        assert config.targets[0].loader is None
+
+
+class TestRoleInference:
+    """Test automatic inference of role from key prefix."""
+
+    def test_structure_prefix_infers_anatomy(self):
+        """Test structure: prefix infers anatomy role."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "kind": Kind.MESH.value,
+                        "loader": "trimesh",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].role == Role.ANATOMY
+
+    def test_brain_prefix_infers_anatomy(self):
+        """Test brain prefix infers anatomy role."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "brain_mesh",
+                        "src": "/data/brain.obj",
+                        "kind": Kind.MESH.value,
+                        "loader": "trimesh",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].role == Role.ANATOMY
+
+    def test_target_prefix_infers_target_role(self):
+        """Test target: prefix infers target role."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "mesh1",
+                        "kind": Kind.MESH.value,
+                        "role": Role.ANATOMY.value,
+                        "src": "/m.obj",
+                        "loader": "trimesh",
+                    }
+                ],
+                "targets": [
+                    {
+                        "key": "target:PL",
+                        "source_key": "mesh1",
+                        # No explicit role
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.targets[0].role == Role.TARGET
+
+    def test_landmark_prefix_infers_landmark_role(self):
+        """Test landmark: prefix infers landmark role."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "landmark:bregma",
+                        "src": "/data/bregma.npy",
+                        "kind": Kind.POINTS.value,
+                        "loader": "numpy_points",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].role == Role.LANDMARK
+
+    def test_no_prefix_defaults_to_geometry(self):
+        """Test keys without known prefix default to geometry role."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "custom_object",
+                        "src": "/data/obj.obj",
+                        "kind": Kind.MESH.value,
+                        "loader": "trimesh",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].role == Role.GEOMETRY
+
+    def test_explicit_role_overrides_inference(self):
+        """Test explicit role is not overwritten by inference."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "kind": Kind.MESH.value,
+                        "loader": "trimesh",
+                        "role": "geometry",  # explicit override
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].role == Role.GEOMETRY  # not ANATOMY
+
+
+class TestGlobTemplateMatching:
+    """Test automatic template matching by glob patterns."""
+
+    def test_glob_pattern_matches_assets(self):
+        """Test glob pattern templates auto-match assets."""
+        from aind_low_point.common import Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "structure:*": {
+                        "role": "anatomy",
+                        "kind": "mesh",
+                    }
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "loader": "trimesh",
+                        # No explicit templates
+                    },
+                    {
+                        "key": "structure:MD",
+                        "src": "/data/MD.obj",
+                        "loader": "trimesh",
+                    },
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Both should have matched the template and gotten role=anatomy
+        assert config.assets[0].role == Role.ANATOMY
+        assert config.assets[1].role == Role.ANATOMY
+
+    def test_glob_pattern_matches_targets(self):
+        """Test glob pattern templates auto-match targets."""
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "key": "mesh1",
+                        "kind": Kind.MESH.value,
+                        "role": Role.ANATOMY.value,
+                        "src": "/m.obj",
+                        "loader": "trimesh",
+                    }
+                ],
+                "target_templates": {
+                    "target:*": {
+                        "reducer": "centroid",
+                    }
+                },
+                "targets": [
+                    {
+                        "key": "target:A",
+                        "source_key": "mesh1",
+                        # No explicit templates
+                    },
+                    {
+                        "key": "target:B",
+                        "source_key": "mesh1",
+                    },
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Both should have matched the template
+        assert config.targets[0].reducer == "centroid"
+        assert config.targets[1].reducer == "centroid"
+
+    def test_explicit_templates_override_glob(self):
+        """Test explicit templates list overrides glob matching."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "structure:*": {
+                        "role": "anatomy",
+                        "kind": Kind.MESH.value,
+                    },
+                    "special": {
+                        "role": "landmark",
+                        "kind": Kind.MESH.value,
+                    },
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "loader": "trimesh",
+                        "templates": ["special"],  # explicit override
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Should use the explicit template, not glob match
+        assert config.assets[0].role == Role.LANDMARK
+
+    def test_exact_match_has_priority_over_glob(self):
+        """Test exact template name matches have priority over glob."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "structure:*": {
+                        "role": "geometry",  # glob pattern
+                        "kind": Kind.MESH.value,
+                    },
+                    "structure:PL": {
+                        "role": "anatomy",  # exact match
+                        "kind": Kind.MESH.value,
+                    },
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "loader": "trimesh",
+                        # No explicit templates - should auto-match
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Exact match should win
+        assert config.assets[0].role == Role.ANATOMY
+
+    def test_multiple_glob_matches_applied_in_order(self):
+        """Test multiple glob matches are applied in template dict order."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "*:*": {
+                        "role": "geometry",
+                        "kind": Kind.MESH.value,
+                        "tags": ["base"],
+                    },
+                    "structure:*": {
+                        "role": "anatomy",
+                        "tags": ["structure"],
+                    },
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "loader": "trimesh",
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Both globs match; templates applied left-to-right
+        # Final values: role from structure:* (anatomy), tags merged
+        assert config.assets[0].role == Role.ANATOMY
+        # Tags should be merged from both templates
+        assert "base" in config.assets[0].tags
+        assert "structure" in config.assets[0].tags
+
+    def test_no_match_when_no_glob_pattern_applies(self):
+        """Test no auto-match when no glob pattern applies."""
+        from aind_low_point.common import Role, Kind
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "other:*": {
+                        "role": "landmark",
+                        "kind": Kind.MESH.value,
+                    }
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "loader": "trimesh",
+                        "kind": Kind.MESH.value,
+                        # No explicit templates, pattern doesn't match
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        # Should use role inference (structure: -> anatomy), not the template
+        assert config.assets[0].role == Role.ANATOMY
+
+
+class TestCombinedInference:
+    """Test that all inference features work together."""
+
+    def test_minimal_config_with_all_inference(self):
+        """Test minimal config using all inference features."""
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "structure:*": {
+                        "caps": ["RENDERABLE"],
+                    }
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        # No kind, loader, role, or templates specified
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        asset = config.assets[0]
+
+        # All should be inferred:
+        assert asset.kind == Kind.MESH  # from .obj extension
+        assert asset.loader == "trimesh"  # from .obj extension
+        assert asset.role == Role.ANATOMY  # from structure: prefix
+        # Template was auto-matched by glob pattern
+        assert asset.templates == []  # templates list is cleared after expansion
+
+    def test_inference_after_bulk_expansion(self):
+        """Test inference works on expanded bulk specs."""
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "keys": ["structure:A", "structure:B"],
+                        "src": "/data/{name}.obj",
+                        # No kind, loader, role
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert len(config.assets) == 2
+        for asset in config.assets:
+            assert asset.kind == Kind.MESH
+            assert asset.loader == "trimesh"
+            assert asset.role == Role.ANATOMY
+
+    def test_inference_after_template_expansion(self):
+        """Test inference fills in after template expansion."""
+        from aind_low_point.common import Kind, Role
+
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "base": {
+                        "tags": ["imported"],
+                        # No kind, loader, role
+                    }
+                },
+                "assets": [
+                    {
+                        "key": "structure:PL",
+                        "src": "/data/PL.obj",
+                        "templates": ["base"],
+                        # kind, loader, role should be inferred after template
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        asset = config.assets[0]
+
+        assert asset.kind == Kind.MESH
+        assert asset.loader == "trimesh"
+        assert asset.role == Role.ANATOMY
+        assert "imported" in asset.tags

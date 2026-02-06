@@ -4,12 +4,32 @@
    contain the root `toctree` directive.
 
 
-Welcome to this repository's documentation!
-===========================================
+aind-low-point Documentation
+============================
+
+**aind-low-point** is a Python package for planning neuroscience experiments -
+"Pinpoint but in Python". Developed by Allen Institute for Neural Dynamics for
+probe placement planning and 3D visualization.
+
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: User Guide:
+
+   quickstart
+   configuration
+
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Developer Guide:
+
+   architecture
+
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference:
 
    modules
 
