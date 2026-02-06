@@ -75,6 +75,12 @@ class K3DBackend(RenderBackend):
             if hasattr(h, "visible"):
                 h.visible = bool(material.visible)
 
+    def has_node(self, node_id: str) -> bool:
+        return node_id in self._handles
+
+    def flush(self) -> None:
+        pass  # K3D auto-syncs via ipywidgets traits
+
     def remove(self, node_ids: Iterable[str]) -> None:
         for nid in node_ids:
             h = self._handles.pop(nid, None)

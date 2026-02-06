@@ -190,6 +190,8 @@ class RenderBackend(Protocol):
         material: ViewMaterial | None = None,
     ) -> None: ...
     def remove(self, node_ids: Iterable[str]) -> None: ...
+    def has_node(self, node_id: str) -> bool: ...
+    def flush(self) -> None: ...
 
 
 ## LRU of pose
@@ -256,6 +258,7 @@ class RendererAdapter:
         hot = coll.hot if coll else frozenset()
         for node in self.scene.nodes.values():
             self._upsert_node(node, resolver, node.key in hot)
+        self.backend.flush()
 
     def sync_nodes(
         self,
@@ -267,6 +270,7 @@ class RendererAdapter:
         hot = coll.hot if coll else frozenset()
         for node in nodes:
             self._upsert_node(node, resolver, node.key in hot)
+        self.backend.flush()
 
     def remove(self, node_ids: Iterable[str]) -> None:
         self.backend.remove(node_ids)
@@ -317,7 +321,7 @@ class RendererAdapter:
                 v = (base_mesh.vertices @ R.T) + t
                 f = base_mesh.faces
 
-            if node.key in getattr(self.backend, "_handles", {}):
+            if self.backend.has_node(node.key):
                 self.backend.update_mesh(
                     node.key, vertices=v, indices=None, material=vm
                 )
@@ -329,7 +333,7 @@ class RendererAdapter:
         elif isinstance(geom, PointsTransformable):
             pts = geom.transformed(R, t)
 
-            if node.key in getattr(self.backend, "_handles", {}):
+            if self.backend.has_node(node.key):
                 self.backend.update_points(node.key, positions=pts, material=vm)
             else:
                 self.backend.create_points(
