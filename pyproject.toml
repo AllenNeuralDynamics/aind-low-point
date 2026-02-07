@@ -47,7 +47,12 @@ docs = [
   "mkdocstrings[python]",
   "pymdown-extensions",
   "ruff",
+  "sphinx",
+  "furo",
 ]
+
+[tool.setuptools.package-data]
+"aind_low_point" = ["data/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

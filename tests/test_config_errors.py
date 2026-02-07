@@ -326,7 +326,7 @@ class TestMaterialReferenceErrors:
 
     def test_missing_material_ref_error(self):
         """Test clear error when material_ref not found."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_materials()
         config_data["assets"] = [
@@ -367,7 +367,7 @@ class TestMaterialReferenceErrors:
         config_data = ConfigFactory.config_with_materials()
         config_data["asset_templates"] = {
             "bad_template": TemplateFactory.asset_template(
-                name="bad_template", material_ref="nonexistent_material"
+                material_ref="nonexistent_material"
             )
         }
 
@@ -384,7 +384,7 @@ class TestTemplateReferenceErrors:
 
     def test_missing_asset_template_error(self):
         """Test error when asset references unknown template."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
@@ -420,7 +420,7 @@ class TestTemplateReferenceErrors:
 
     def test_multiple_template_errors_collected(self):
         """Test multiple template reference errors are collected."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
@@ -442,8 +442,8 @@ class TestTemplateSourceModeErrors:
 
     def test_asset_template_conflicting_source_modes(self):
         """Test error when asset template has conflicting source modes."""
-        from tests.config_factories import TemplateFactory, SelectorFactory
         from aind_low_point.config import AssetTemplateModel
+        from tests.config_factories import SelectorFactory, TemplateFactory
 
         # This should be caught during template merging, not model validation
         template_data = TemplateFactory.asset_template(
@@ -460,8 +460,8 @@ class TestTemplateSourceModeErrors:
 
     def test_target_template_multiple_source_modes(self):
         """Test target template with multiple source modes."""
-        from tests.config_factories import TemplateFactory
         from aind_low_point.config import TargetTemplateModel
+        from tests.config_factories import TemplateFactory
 
         # Individual template with multiple modes should work
         template_data = TemplateFactory.target_template(
@@ -481,7 +481,7 @@ class TestComplexErrorScenarios:
 
     def test_template_expansion_with_missing_material(self):
         """Test error when template expansion reveals missing material."""
-        from tests.config_factories import ConfigFactory, AssetFactory, TemplateFactory
+        from tests.config_factories import AssetFactory, ConfigFactory, TemplateFactory
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -489,7 +489,7 @@ class TestComplexErrorScenarios:
                 "materials": {"good_material": {"name": "good", "color": "#00FF00"}},
                 "asset_templates": {
                     "bad_template": TemplateFactory.asset_template(
-                        name="bad_template", material_ref="missing_material"
+                        material_ref="missing_material"
                     )
                 },
                 "assets": [
@@ -508,7 +508,7 @@ class TestComplexErrorScenarios:
 
     def test_multiple_error_types_collected(self):
         """Test that material and template errors are collected together."""
-        from tests.config_factories import ConfigFactory, AssetFactory, TargetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(

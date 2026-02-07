@@ -6,7 +6,7 @@ Calls store.dispatch() directly — PlanStore is the shared abstraction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pyvista as pv
 from pyvista.trame.ui import plotter_ui
@@ -15,6 +15,7 @@ from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import vuetify3
 
 from aind_low_point.assets import AssetCatalog
+from aind_low_point.ccf_overlay import CCFOverlayManager
 from aind_low_point.collisions import CollisionHandler
 from aind_low_point.commands import (
     AssignProbeArc,
@@ -36,6 +37,7 @@ class TrameController:
     collision_handler: CollisionHandler
     overlays_resolver: OverlayResolver
     couple_ml: bool = False
+    ccf_overlay: CCFOverlayManager | None = field(default=None)
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -73,6 +75,14 @@ class TrameController:
         state.spin = 0
 
         self._load_probe_state(state)
+
+        # CCF overlay state
+        if self.ccf_overlay is not None:
+            state.ccf_search_query = ""
+            state.ccf_search_results = []
+            state.ccf_selected_region = None
+            state.ccf_visible_regions = []
+            state.ccf_global_opacity = self.ccf_overlay.global_opacity
 
     def _wire_handlers(self, state) -> None:
         """Register trame reactive handlers."""
@@ -115,6 +125,46 @@ class TrameController:
         @state.change("arc")
         def on_arc_assign(**kwargs):
             self._on_arc_assign(state)
+
+        if self.ccf_overlay is not None:
+            self._wire_ccf_handlers(state, self.ccf_overlay)
+
+    def _wire_ccf_handlers(self, state, ccf: CCFOverlayManager) -> None:
+        """Register trame handlers for CCF overlay controls."""
+
+        @state.change("ccf_search_query")
+        def on_ccf_search(**kwargs):
+            q = state.ccf_search_query or ""
+            if not q:
+                state.ccf_search_results = []
+                return
+            state.ccf_search_results = ccf.ontology.autocomplete_items(q, limit=50)
+
+        @state.change("ccf_selected_region")
+        def on_ccf_select(**kwargs):
+            label_id = state.ccf_selected_region
+            if label_id is None:
+                return
+            ccf.show(label_id)
+            self._sync_ccf_visible(state)
+
+        @state.change("ccf_global_opacity")
+        def on_ccf_opacity(**kwargs):
+            ccf.set_global_opacity(float(state.ccf_global_opacity))
+
+    def _sync_ccf_visible(self, state) -> None:
+        """Sync trame state with currently visible CCF regions."""
+        if self.ccf_overlay is None:
+            return
+        state.ccf_visible_regions = [
+            {
+                "label_id": r.label_id,
+                "acronym": r.structure.acronym,
+                "name": r.structure.name,
+                "color": r.color,
+            }
+            for r in self.ccf_overlay.visible_regions()
+        ]
 
     def _on_ap_change(self, state) -> None:
         if not state.probe:
@@ -266,6 +316,34 @@ class TrameController:
                 click=on_set_target,
                 classes="mt-2",
             )
+
+            # CCF overlay controls
+            if self.ccf_overlay is not None:
+                self._build_ccf_controls()
+
+    def _build_ccf_controls(self) -> None:
+        """Build the CCF region overlay UI widgets."""
+        vuetify3.VDivider(classes="my-2")
+        vuetify3.VLabel("CCF Regions")
+        vuetify3.VAutocomplete(
+            v_model=("ccf_selected_region",),
+            items=("ccf_search_results", []),
+            label="Search brain region",
+            hide_details=True,
+            density="compact",
+            clearable=True,
+            classes="mt-1",
+            update_search=("ccf_search_query = $event"),
+        )
+        vuetify3.VSlider(
+            v_model=("ccf_global_opacity", 0.3),
+            min=0,
+            max=1,
+            step=0.05,
+            label="CCF opacity",
+            hide_details=True,
+            classes="mt-2",
+        )
 
     def _load_probe_state(self, state) -> None:
         """Sync trame state from the currently selected probe."""

@@ -372,7 +372,7 @@ class TestBaseTemplateModel:
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.base_template(
-            name="test_template", kind="mesh", role="geometry"
+            kind="mesh", role="geometry"
         )
         template = BaseTemplateModel(**template_data)
         assert template.kind == "mesh"
@@ -417,7 +417,7 @@ class TestAssetTemplateModel:
     def test_asset_template_with_resource(self):
         """Test asset template with resource selector."""
         from aind_low_point.config import AssetTemplateModel
-        from tests.config_factories import TemplateFactory, SelectorFactory
+        from tests.config_factories import SelectorFactory, TemplateFactory
 
         template_data = TemplateFactory.asset_template(
             from_resource="test_resource",

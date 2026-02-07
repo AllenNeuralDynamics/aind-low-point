@@ -306,8 +306,8 @@ class TestTemplateCoercion:
 
     def test_empty_templates_list_default(self):
         """Test templates defaults to empty list."""
-        from tests.config_factories import AssetFactory, TargetFactory
         from aind_low_point.config import AssetSpecModel, TargetSpecModel
+        from tests.config_factories import AssetFactory, TargetFactory
 
         asset_data = AssetFactory.mesh_asset()
         asset = AssetSpecModel(**asset_data)
@@ -319,8 +319,8 @@ class TestTemplateCoercion:
 
     def test_single_template_in_list(self):
         """Test single template in list works correctly."""
-        from tests.config_factories import TargetFactory
         from aind_low_point.config import TargetSpecModel
+        from tests.config_factories import TargetFactory
 
         target_data = TargetFactory.target_with_templates(templates=["single_template"])
         target = TargetSpecModel(**target_data)
@@ -332,8 +332,8 @@ class TestMaterialResolution:
 
     def test_material_ref_field_present(self):
         """Test material_ref field is preserved."""
-        from tests.config_factories import AssetFactory
         from aind_low_point.config import AssetSpecModel
+        from tests.config_factories import AssetFactory
 
         asset_data = AssetFactory.asset_with_material_ref(material_ref="test_material")
         asset = AssetSpecModel(**asset_data)
@@ -341,8 +341,8 @@ class TestMaterialResolution:
 
     def test_material_ref_with_inline_material_coexist(self):
         """Test material_ref and inline material can coexist."""
-        from tests.config_factories import AssetFactory, MaterialFactory
         from aind_low_point.config import AssetSpecModel
+        from tests.config_factories import AssetFactory, MaterialFactory
 
         asset_data = AssetFactory.asset_with_material_ref(
             material_ref="ref_material",
@@ -355,8 +355,8 @@ class TestMaterialResolution:
 
     def test_none_material_ref_allowed(self):
         """Test material_ref can be None."""
-        from tests.config_factories import AssetFactory
         from aind_low_point.config import AssetSpecModel
+        from tests.config_factories import AssetFactory
 
         asset_data = AssetFactory.mesh_asset(material_ref=None)
         asset = AssetSpecModel(**asset_data)
@@ -364,8 +364,8 @@ class TestMaterialResolution:
 
     def test_template_material_ref_preserved(self):
         """Test material_ref in templates is preserved."""
-        from tests.config_factories import TemplateFactory
         from aind_low_point.config import AssetTemplateModel
+        from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.asset_template(material_ref="template_material")
         template = AssetTemplateModel(**template_data)
@@ -377,8 +377,8 @@ class TestTemplateFieldCoercion:
 
     def test_template_optional_fields_coercion(self):
         """Test optional fields in templates work correctly."""
-        from tests.config_factories import TemplateFactory
         from aind_low_point.config import BaseTemplateModel
+        from tests.config_factories import TemplateFactory
 
         # Test with None values
         template_data = TemplateFactory.base_template(
@@ -391,8 +391,8 @@ class TestTemplateFieldCoercion:
 
     def test_asset_template_source_modes_coercion(self):
         """Test asset template source mode fields."""
-        from tests.config_factories import TemplateFactory, SelectorFactory
         from aind_low_point.config import AssetTemplateModel
+        from tests.config_factories import SelectorFactory, TemplateFactory
 
         # Test with resource mode
         template_data = TemplateFactory.asset_template(
@@ -409,8 +409,8 @@ class TestTemplateFieldCoercion:
 
     def test_target_template_source_modes_coercion(self):
         """Test target template source mode fields."""
-        from tests.config_factories import TemplateFactory
         from aind_low_point.config import TargetTemplateModel
+        from tests.config_factories import TemplateFactory
 
         # Test derived mode
         template_data = TemplateFactory.target_template_derived(

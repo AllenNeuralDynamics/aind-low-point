@@ -422,7 +422,7 @@ class TestMaterialReferenceValidation:
 
     def test_asset_material_ref_validation(self):
         """Test assets must reference existing materials."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_materials()
         config_data["assets"] = [
@@ -490,7 +490,7 @@ class TestTemplateReferenceValidation:
 
     def test_asset_template_references(self):
         """Test assets.templates must reference existing asset_templates."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
@@ -529,7 +529,7 @@ class TestTemplateReferenceValidation:
 
     def test_multiple_template_references(self):
         """Test validation of multiple template references."""
-        from tests.config_factories import ConfigFactory, AssetFactory
+        from tests.config_factories import AssetFactory, ConfigFactory
 
         config_data = ConfigFactory.config_with_templates()
         config_data["assets"] = [
@@ -563,7 +563,7 @@ class TestTemplateExpansionValidation:
 
     def test_expanded_assets_have_material_refs_validated(self):
         """Test that after template expansion, material_ref validation occurs."""
-        from tests.config_factories import ConfigFactory, AssetFactory, TemplateFactory
+        from tests.config_factories import AssetFactory, ConfigFactory, TemplateFactory
 
         config_data = ConfigFactory.config_with_materials()
         config_data.update(
@@ -1058,8 +1058,8 @@ class TestConfigExport:
 
     def test_expand_config_function(self):
         """Test the standalone expand_config function."""
-        from aind_low_point.config import expand_config
         from aind_low_point.common import Kind, Role
+        from aind_low_point.config import expand_config
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1345,7 +1345,7 @@ class TestRoleInference:
 
     def test_structure_prefix_infers_anatomy(self):
         """Test structure: prefix infers anatomy role."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1366,7 +1366,7 @@ class TestRoleInference:
 
     def test_brain_prefix_infers_anatomy(self):
         """Test brain prefix infers anatomy role."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1387,7 +1387,7 @@ class TestRoleInference:
 
     def test_target_prefix_infers_target_role(self):
         """Test target: prefix infers target role."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1416,7 +1416,7 @@ class TestRoleInference:
 
     def test_landmark_prefix_infers_landmark_role(self):
         """Test landmark: prefix infers landmark role."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1437,7 +1437,7 @@ class TestRoleInference:
 
     def test_no_prefix_defaults_to_geometry(self):
         """Test keys without known prefix default to geometry role."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1458,7 +1458,7 @@ class TestRoleInference:
 
     def test_explicit_role_overrides_inference(self):
         """Test explicit role is not overwritten by inference."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1558,7 +1558,7 @@ class TestGlobTemplateMatching:
 
     def test_explicit_templates_override_glob(self):
         """Test explicit templates list overrides glob matching."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1590,7 +1590,7 @@ class TestGlobTemplateMatching:
 
     def test_exact_match_has_priority_over_glob(self):
         """Test exact template name matches have priority over glob."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1622,7 +1622,7 @@ class TestGlobTemplateMatching:
 
     def test_multiple_glob_matches_applied_in_order(self):
         """Test multiple glob matches are applied in template dict order."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1658,7 +1658,7 @@ class TestGlobTemplateMatching:
 
     def test_no_match_when_no_glob_pattern_applies(self):
         """Test no auto-match when no glob pattern applies."""
-        from aind_low_point.common import Role, Kind
+        from aind_low_point.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(

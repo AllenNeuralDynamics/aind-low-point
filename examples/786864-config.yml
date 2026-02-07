@@ -1,0 +1,271 @@
+version: 1
+
+paths:
+  mouse: "786864"
+  base_path: "/mnt/vast/scratch"
+  annotations_path: "${.base_path}/ephys/persist/data/MRI/processed/${.mouse}"
+  headframe_annotations_path: "${.annotations_path}/${.mouse}_HeadframeHoles.seg.nrrd"
+  brain_mask_path: "${.annotations_path}/${.mouse}_auto_skull_strip.nrrd"
+  structure_path: "${.annotations_path}/Masks"
+  model_path: "${.base_path}/ephys/persist/data/MRI/HeadframeModels"
+  hole_model_path: "${.model_path}/HoleOBJs"
+
+
+imaging:
+  magnet_frequency_MHz: 599.0
+  chem_shift_ppm_default: 3.9
+  chem_shift_apply_by_role: [anatomy, target]
+  image_path: "${paths.annotations_path}/${paths.mouse}_100.nii.gz"
+
+transforms:
+  implant_to_lps:
+    sequence:
+      - kind: sitk_file
+        path: "${paths.annotations_path}/${paths.mouse}_implant_fit.h5"
+        inverted: true
+      - kind: sitk_file
+        path: "${paths.annotations_path}/com_plane.h5"
+        inverted: true
+  headframe_to_lps:
+    sequence:
+      - kind: sitk_file
+        path: "${paths.annotations_path}/com_plane.h5"
+        inverted: true
+
+resources:
+  - key: retro-targets
+    kind: points
+    src: "${paths.annotations_path}/${paths.mouse}_retro_targets.fcsv"
+    loader: read_slicer_fcsv
+    tags: ["target"]
+
+canonicalizations:
+  "obj-wavefront":
+    source_space: "ASR"
+
+materials:
+  structure:
+    color: "#88CCFF"
+    opacity: 0.1
+  structure_target:
+    color: "#FFCC88"
+    opacity: 0.5
+  implant:
+    color: "#FF00FF"
+    opacity: 0.7
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
+
+asset_templates:
+  hardware:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    canonicalization_ref: "obj-wavefront"
+    material: { color: "#E7DDFF", opacity: 1.0 }
+    caps: [renderable, collidable]
+    collision:
+      group: fixture
+      mask: [probe]
+  structure:
+    kind: mesh
+    role: anatomy
+    loader: trimesh
+    material_ref: structure
+    tags: [structure]
+    collision:
+      group: static
+      mask: []
+  probe:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    canonicalization_ref: "obj-wavefront"
+    material: { color: "#66DD66", opacity: 1.0 }  # FIX: was default_material
+    caps: [renderable, movable, collidable, selectable, savable]
+    collision:
+      group: probe
+      mask: [fixture]
+
+target_templates:
+  structure:
+    reducer: mesh_center_mass
+    material_ref: structure_target
+    tags: [structure, target]
+    collision:
+      group: static
+      mask: []
+  hole:
+    loader: trimesh
+    canonicalization_ref: "obj-wavefront"
+    reducer: mesh_centroid
+    material: { color: "#FF00FF", opacity: 0.5 }  # FIX: was missing #
+    tags: [hole]
+    chem_shift_policy: "off"
+    collision:
+      group: static
+      mask: []
+
+# ---------------------------------------------------------------------------
+# Assets  (transform + scene_tags → auto scene node generation)
+# ---------------------------------------------------------------------------
+
+assets:
+  - key: brain
+    src: "${paths.brain_mask_path}"
+    templates: [structure]
+    material: { color: "#EFC3CA", opacity: 0.1 }
+    transform: headframe_to_lps
+    scene_tags: [static]
+
+  # 7 structures → 1 bulk entry
+  - keys: [structure:PL, structure:MD, structure:CLA,
+           structure:CA1, structure:VM, structure:BLA, structure:RSP]
+    src: "${paths.structure_path}/${paths.mouse}-{name}-Mask.nrrd"
+    templates: [structure]
+    transform: headframe_to_lps
+    scene_tags: [static, structure]
+
+  - key: cone
+    src: "${paths.model_path}/0274-430-01.obj"
+    templates: [hardware]
+    scene_tags: [fixture, cone]
+
+  - key: well
+    src: ~  # TODO: add path
+    templates: [hardware]
+    scene_tags: [fixture, well]
+
+  - key: implant
+    src: "${paths.model_path}/0283-300-04.obj"
+    templates: [hardware]
+    material_ref: implant
+    transform: implant_to_lps
+    scene_tags: [fixture, implant]
+
+  # Probe meshes (no transform/scene_tags — nodes auto-generated from plan.probes)
+  - key: probe:2.1
+    src: "${paths.model_path}/dovetailtweezer_oneShank_centered_corrected.obj"
+    templates: [probe]
+
+  - key: "probe:2.1-alpha"
+    src: "${paths.model_path}/Centered_Newscale_2pt0.obj"
+    templates: [probe]
+
+  - key: probe:quadbase
+    src: "${paths.model_path}/Quadbase_customHolder_centeredOnShank0.obj"
+    templates: [probe]
+
+  - key: probe:2.4
+    src: "${paths.model_path}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
+    templates: [probe]
+
+  - key: probe:pipette
+    src: "${paths.model_path}/injection_pipette.obj"
+    templates: [probe]
+
+# ---------------------------------------------------------------------------
+# Targets  (transform + scene_tags → auto scene node generation)
+# ---------------------------------------------------------------------------
+
+targets:
+  # 13 holes → 1 range entry  (FIX: was using wrong field name 'path', now 'src')
+  - key_pattern: "target:hole:{n}"
+    range: [1, 13]
+    src: "${paths.hole_model_path}/Hole{n}.obj"
+    templates: [hole]
+    transform: implant_to_lps
+    scene_tags: [static, target, hole]
+
+  # 7 structure targets → 1 derived entry
+  - derive_from: [structure:PL, structure:MD, structure:CLA,
+                  structure:CA1, structure:VM, structure:BLA, structure:RSP]
+    key_prefix: "target:"
+    templates: [structure]
+    transform: headframe_to_lps
+    scene_tags: [static, target, brain]
+
+# ---------------------------------------------------------------------------
+# Scene  (empty — all nodes auto-generated from assets, targets, and probes)
+# ---------------------------------------------------------------------------
+
+# scene:
+#   nodes: []
+
+# ---------------------------------------------------------------------------
+# Plan
+# ---------------------------------------------------------------------------
+
+plan:
+  arcs:
+    a: 17
+    b: -8
+    c: -24
+    d: -42
+
+  # Probe nodes auto-generated as probe:{name} with asset probe:{kind}
+  probes:
+    PL:
+      kind: quadbase
+      arc: b
+      spin: 135
+      slider_ml: -30
+      target:
+        kind: node
+        key: target:hole:1
+
+    CLA:
+      kind: "2.1"
+      arc: d
+      spin: 0
+      slider_ml: -27
+      target:
+        kind: node
+        key: target:hole:12
+
+    MD:
+      kind: quadbase
+      arc: a
+      spin: -45
+      slider_ml: -10
+      target:
+        kind: node
+        key: target:hole:3
+
+    CA1:
+      kind: "2.1"
+      arc: c
+      spin: -180
+      slider_ml: 6
+      target:
+        kind: node
+        key: target:hole:10
+
+    VM:
+      kind: "2.1"
+      arc: c
+      spin: 0
+      slider_ml: -20
+      target:
+        kind: node
+        key: target:hole:6
+
+    BLA:
+      kind: "2.1"
+      arc: b
+      spin: 50
+      slider_ml: 27
+      target:
+        kind: node
+        key: target:hole:4
+
+    RSP:
+      kind: "2.1"
+      arc: c
+      spin: -100
+      slider_ml: 22
+      target:
+        kind: node
+        key: target:hole:5

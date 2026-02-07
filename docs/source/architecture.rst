@@ -4,11 +4,6 @@ Architecture Guide
 This guide describes the internal architecture of aind-low-point for developers
 who want to understand or extend the codebase.
 
-.. contents:: Table of Contents
-   :local:
-   :depth: 3
-
-
 High-Level Overview
 -------------------
 

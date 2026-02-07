@@ -107,7 +107,6 @@ class ConfigFactory:
                         material_ref="default_material"
                     ),
                     "transparent_mesh": TemplateFactory.asset_template(
-                        name="transparent_mesh",
                         material_ref="transparent_material",
                         kind=Kind.MESH.value,
                     ),
@@ -481,10 +480,10 @@ class TemplateFactory:
 
     @staticmethod
     def base_template(
-        name: str = "base_template", kind: str = None, role: str = None, **overrides
+        kind: str = None, role: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create base template specification."""
-        template = {"name": name}
+        template = {}
         if kind:
             template["kind"] = kind
         if role:
@@ -494,11 +493,10 @@ class TemplateFactory:
 
     @staticmethod
     def asset_template(
-        name: str = "asset_template", material_ref: str = None, **overrides
+        material_ref: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create asset template specification."""
         template = TemplateFactory.base_template(
-            name=name,
             kind=Kind.MESH.value,
             role=Role.GEOMETRY.value,
         )
@@ -509,11 +507,10 @@ class TemplateFactory:
 
     @staticmethod
     def target_template(
-        name: str = "target_template", material_ref: str = None, **overrides
+        material_ref: str = None, **overrides
     ) -> Dict[str, Any]:
         """Create target template specification."""
         template = TemplateFactory.base_template(
-            name=name,
             kind=Kind.POINTS.value,
             role=Role.TARGET.value,
         )
@@ -524,36 +521,33 @@ class TemplateFactory:
 
     @staticmethod
     def mesh_template_with_loader(
-        name: str = "mesh_template",
         src: str = "/template/mesh.obj",
         loader: str = "trimesh_loader",
         **overrides,
     ) -> Dict[str, Any]:
         """Create mesh template with source loader."""
         return TemplateFactory.asset_template(
-            name=name, src=Path(src), loader=loader, **overrides
+            src=Path(src), loader=loader, **overrides
         )
 
     @staticmethod
     def points_template_explicit(
-        name: str = "points_template",
         src: str = "/template/points.npy",
         loader: str = "numpy_points",
         **overrides,
     ) -> Dict[str, Any]:
         """Create points template with explicit source."""
         return TemplateFactory.target_template(
-            name=name, src=Path(src), loader=loader, **overrides
+            src=Path(src), loader=loader, **overrides
         )
 
     @staticmethod
     def target_template_derived(
-        name: str = "derived_template",
         source_key: str = "brain_mesh",
         reducer: str = "centroid",
         **overrides,
     ) -> Dict[str, Any]:
         """Create derived target template."""
         return TemplateFactory.target_template(
-            name=name, source_key=source_key, reducer=reducer, **overrides
+            source_key=source_key, reducer=reducer, **overrides
         )

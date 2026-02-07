@@ -21,6 +21,7 @@ from pydantic import (
     DirectoryPath,
     Field,
     FilePath,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -108,6 +109,8 @@ SourceSpace: TypeAlias = OrientationCode | Literal["FILE_NATIVE"]
 
 
 class ImagingModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     magnet_frequency_MHz: float
     chem_shift_ppm_default: float = 3.7
     chem_shift_apply_by_role: list[Role] = Field(default_factory=lambda: [Role.ANATOMY])
@@ -119,6 +122,8 @@ ChemMode = Literal["on", "off", "auto"]
 
 
 class MaterialModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = "default"
     color: str = Field("#C8C8C8", description="Hex #RRGGBB")
     opacity: float = 1.0
@@ -134,6 +139,8 @@ class MaterialModel(BaseModel):
 
 
 class CanonicalizationDefModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     source_space: SourceSpace
     scale_to_mm: float = 1.0
     transform: Optional[TransformRefModel] = None
@@ -141,6 +148,8 @@ class CanonicalizationDefModel(BaseModel):
 
 
 class CanonicalizationOverrideModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     # all optional: only supplied fields override the referenced def
     source_space: Optional[SourceSpace] = None
     scale_to_mm: Optional[float] = None
@@ -149,6 +158,8 @@ class CanonicalizationOverrideModel(BaseModel):
 
 
 class GeometrySourceModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     key: Optional[str] = None
     kind: Optional[Kind] = None
 
@@ -198,6 +209,8 @@ class ResourceModel(GeometrySourceModel):
 
 
 class SelectorBase(BaseModel):
+    model_config = {"extra": "forbid"}
+
     kind: Literal["name", "index", "path", "label"]
 
     def select(self, payload: Any) -> Any:
@@ -249,6 +262,8 @@ def select_from_resource(payload: Any, selector: Selector) -> Any:
 class CollisionPolicyModel(BaseModel):
     """Label-based policy; compile to bitmasks in loader."""
 
+    model_config = {"extra": "forbid"}
+
     group: Optional[str] = Field(
         default=None, description="e.g., STATIC, FIXTURE, PROBE"
     )
@@ -258,6 +273,8 @@ class CollisionPolicyModel(BaseModel):
 
 
 class _TxOpBase(BaseModel):
+    model_config = {"extra": "forbid"}
+
     invert: bool = False
 
 
@@ -300,6 +317,8 @@ TransformOp = Annotated[
 class TransformRecipeModel(BaseModel):
     """Sequence of ops; accepts a single op or a list and normalizes to list."""
 
+    model_config = {"extra": "forbid"}
+
     sequence: list[TransformOp] = Field(default_factory=list)
 
     # Allow top-level single-op form:
@@ -332,6 +351,8 @@ class TransformRecipeModel(BaseModel):
 
 # Optional: key-or-inline reference, with the same single-op convenience
 class TransformRefModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     key: Optional[str] = None
     inline: Optional[TransformRecipeModel] = None
 
@@ -462,6 +483,8 @@ class TargetTemplateModel(BaseTemplateModel):
 
 
 class BaseSpecModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     key: Optional[str] = None
     kind: Optional[Kind] = None
     role: Optional[Role] = None
@@ -611,6 +634,8 @@ class BulkAssetSpecModel(BaseModel):
           templates: [structure]
           transform: headframe_to_lps
     """
+
+    model_config = {"extra": "forbid"}
 
     keys: list[str] = Field(..., min_length=1)
 
@@ -794,6 +819,8 @@ class RangeTargetSpecModel(BaseModel):
           transform: implant_to_lps
     """
 
+    model_config = {"extra": "forbid"}
+
     key_pattern: str  # e.g., "target:hole:{n}"
     range: list[int] = Field(..., min_length=2, max_length=2)  # [start, end] inclusive
 
@@ -929,6 +956,8 @@ class DerivedTargetSpecModel(BaseModel):
           transform: headframe_to_lps
     """
 
+    model_config = {"extra": "forbid"}
+
     derive_from: list[str] = Field(..., min_length=1)  # asset keys to derive from
     key_prefix: str = "target:"  # prepended to derive target key
 
@@ -1042,6 +1071,8 @@ TargetSpecUnion = Union[TargetSpecModel, RangeTargetSpecModel, DerivedTargetSpec
 
 
 class SceneNodeModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     key: str
     asset: str = Field(description="Key of an AssetSpec in catalog")
     tags: list[str] = Field(default_factory=list)
@@ -1057,33 +1088,55 @@ class SceneNodeModel(BaseModel):
 
 
 class SceneModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     nodes: list[SceneNodeModel] = Field(default_factory=list)
+    _explicit_node_keys: set[str] = PrivateAttr(default_factory=set)
 
 
 # -----------------------------------------------------------------------------
 # Domain (mechanics: arcs, probes, calibrations, target declarations)
 # -----------------------------------------------------------------------------
 class CatalogTargetRefModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     kind: Literal["catalog"] = "catalog"
     key: str  # TargetSpecModel.key
 
 
 class NodeTargetRefModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     kind: Literal["node"] = "node"
     key: str  # SceneNodeModel.id / NodeInstance.id
 
 
+class InlineTargetRefModel(BaseModel):
+    """Ad-hoc target specified as a single RAS coordinate."""
+
+    model_config = {"extra": "forbid"}
+
+    kind: Literal["inline"] = "inline"
+    point_RAS: list[float] = Field(..., min_length=3, max_length=3)
+
+
 TargetRef = Annotated[
-    Union[CatalogTargetRefModel, NodeTargetRefModel],
+    Union[CatalogTargetRefModel, NodeTargetRefModel, InlineTargetRefModel],
     Field(discriminator="kind"),
 ]
 
 
 class ProbeDeclModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     kind: str
-    arc: str
+    arc: Optional[str] = None
     slider_ml: float = 0.0
     spin: float = 0.0
+
+    # Per-probe AP override. If None, AP comes from arc angle at load time.
+    ap_local: Optional[float] = None
+    bind_ap_to_arc: bool = True
 
     target: TargetRef
     past_target_mm: float = 0.0
@@ -1105,11 +1158,15 @@ class ProbeDeclModel(BaseModel):
             t = v["target"]
             if isinstance(t, str):
                 v["target"] = {"kind": "catalog", "key": t}
+            elif isinstance(t, (list, tuple)) and len(t) == 3:
+                v["target"] = {"kind": "inline", "point_RAS": list(t)}
         return v
 
 
 class CalibrationRefModel(BaseModel):
     """Reference a specific calibration entry inside a calibration file."""
+
+    model_config = {"extra": "forbid"}
 
     cal_id: str  # key into CalibrationsModel.files
     probe_code: str  # 5-digit code in the file (keep as str; accept ints)
@@ -1126,6 +1183,8 @@ class CalibrationRefModel(BaseModel):
 class CalibrationReticleModel(BaseModel):
     """Model for calibration reticle used in calibrations"""
 
+    model_config = {"extra": "forbid"}
+
     offset_RAS: list[float] = Field(default_factory=list, min_length=3, max_length=3)
     rotation_z: float = 0.0
 
@@ -1136,6 +1195,8 @@ class CalibrationSourceModel(BaseModel):
       - EITHER a single file (e.g., .xlsx). In this case NO reticle is allowed.
       - OR a directory for parallax. In this case a reticle IS REQUIRED.
     """
+
+    model_config = {"extra": "forbid"}
 
     file: Optional[FilePath] = Field(
         default=None, description="Path to a single calibration file (e.g., .xlsx)"
@@ -1169,6 +1230,8 @@ class CalibrationSourceModel(BaseModel):
 
 
 class CalibrationsModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     files: dict[str, CalibrationSourceModel] = Field(default_factory=dict)
     # probe_name → {"cal_id": "...", "probe_code": "..."} OR "cal_id:probe_code"
     probe_to_ref: dict[str, Union[CalibrationRefModel, str]] = Field(
@@ -1189,6 +1252,8 @@ class CalibrationsModel(BaseModel):
 
 
 class PlanningModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     arcs: dict[str, float] = Field(
         default_factory=dict, description="arc_id → AP angle (deg)"
     )
@@ -1215,6 +1280,8 @@ class PathsModel(BaseModel):
 
 
 class OptionsModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     color_map: str = "rainbow"
     remove_last_color: bool = True
 
@@ -1225,6 +1292,8 @@ class OptionsModel(BaseModel):
 
 
 class ConfigModel(BaseModel):
+    model_config = {"extra": "forbid"}
+
     version: int = 1
 
     paths: PathsModel = Field(default_factory=PathsModel)
@@ -1353,6 +1422,7 @@ class ConfigModel(BaseModel):
         # ---------- Auto-generate scene nodes ----------
         generated_nodes: list[SceneNodeModel] = []
         explicit_keys = {n.key for n in self.scene.nodes}
+        self.scene._explicit_node_keys = set(explicit_keys)
 
         # From assets with transform or scene_tags
         for asset in self.assets:
@@ -1564,10 +1634,14 @@ class ConfigModel(BaseModel):
         seen_catalog_target_names = set()
         seen_node_target_names = set()
         for pname, p in self.plan.probes.items():
-            if p.arc not in arc_keys:
+            if p.arc is not None and p.arc not in arc_keys:
                 err(f"plan.probes['{pname}']: arc '{p.arc}' not found in plan.arcs")
-            target_key = p.target.key
-            if p.target.kind == "catalog":
+            if p.bind_ap_to_arc and p.arc is None:
+                err(f"plan.probes['{pname}']: bind_ap_to_arc=True but arc is not set")
+            if p.target.kind == "inline":
+                pass  # self-contained RAS point, no xref needed
+            elif p.target.kind == "catalog":
+                target_key = p.target.key
                 if target_key not in target_keys:
                     err(
                         f"plan.probes['{pname}']: catalog target "
@@ -1575,6 +1649,7 @@ class ConfigModel(BaseModel):
                     )
                 seen_catalog_target_names.add(target_key)
             else:  # node
+                target_key = p.target.key
                 if target_key not in node_keys:
                     err(
                         f"plan.probes['{pname}']: node target "

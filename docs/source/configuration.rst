@@ -5,10 +5,6 @@ This guide covers the configuration system for aind-low-point. The configuration
 defines assets, targets, transforms, and planning parameters for probe placement
 experiments.
 
-.. contents:: Table of Contents
-   :local:
-   :depth: 3
-
 Overview
 --------
 
@@ -623,15 +619,15 @@ Override or define additional nodes:
 Node Fields
 ~~~~~~~~~~~
 
-==================== ============ ================================================
-Field                Required     Description
-==================== ============ ================================================
-``key``              Yes          Unique node identifier
-``asset``            Yes          Asset or target key from catalog
-``transform``        No           Transform reference
-``tags``             No           Arbitrary tags for filtering
-``pose_source_probe`` No          Link to planning probe for dynamic pose
-==================== ============ ================================================
+======================== ============ ================================================
+Field                    Required     Description
+======================== ============ ================================================
+``key``                  Yes          Unique node identifier
+``asset``                Yes          Asset or target key from catalog
+``transform``            No           Transform reference
+``tags``                 No           Arbitrary tags for filtering
+``pose_source_probe``    No           Link to planning probe for dynamic pose
+======================== ============ ================================================
 
 
 Planning
