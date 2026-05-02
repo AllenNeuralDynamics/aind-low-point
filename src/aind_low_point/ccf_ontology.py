@@ -24,12 +24,16 @@ class CCFStructure:
     parent_id: int | None
 
 
+_BUNDLED_ONTOLOGY: CCFOntology | None = None
+
+
 @dataclass
 class CCFOntology:
     """In-memory index over all Allen CCF structures."""
 
     structures: dict[int, CCFStructure]
     _search_index: list[tuple[str, int]] = field(default_factory=list, repr=False)
+    _acronym_index: dict[str, int] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         if not self._search_index:
@@ -37,13 +41,20 @@ class CCFOntology:
                 (f"{s.acronym} {s.name}".lower(), s.id)
                 for s in self.structures.values()
             ]
+        if not self._acronym_index:
+            self._acronym_index = {s.acronym: s.id for s in self.structures.values()}
 
     @classmethod
     def from_bundled(cls) -> CCFOntology:
-        """Load the ontology shipped inside the package."""
-        ref = resources.files("aind_low_point") / "data" / "allen_ccf_ontology.json"
-        with resources.as_file(ref) as p:
-            return cls.from_json(p)
+        """Load the ontology shipped inside the package (cached singleton)."""
+        global _BUNDLED_ONTOLOGY
+        if _BUNDLED_ONTOLOGY is None:
+            ref = (
+                resources.files("aind_low_point") / "data" / "allen_ccf_ontology.json"
+            )
+            with resources.as_file(ref) as p:
+                _BUNDLED_ONTOLOGY = cls.from_json(p)
+        return _BUNDLED_ONTOLOGY
 
     @classmethod
     def from_json(cls, path: str | Path) -> CCFOntology:
@@ -79,6 +90,11 @@ class CCFOntology:
     def get(self, label_id: int) -> CCFStructure | None:
         """Look up a structure by its integer label id."""
         return self.structures.get(label_id)
+
+    def find_by_acronym(self, acronym: str) -> CCFStructure | None:
+        """Exact-match (case-sensitive) lookup by acronym."""
+        sid = self._acronym_index.get(acronym)
+        return self.structures.get(sid) if sid is not None else None
 
     def autocomplete_items(self, query: str, limit: int = 50) -> list[dict]:
         """Return dicts suitable for a Vuetify VAutocomplete.

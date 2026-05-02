@@ -659,6 +659,140 @@ class TestBulkAssetSpec:
         assert str(config.assets[1].src).endswith("/skull.stl")
 
 
+class TestAtlasMeshPackSpec:
+    """Test AtlasMeshPackSpecModel expansion via the bundled CCF ontology."""
+
+    def test_atlas_pack_expansion(self):
+        """Each acronym becomes one AssetSpec with src=<dir>/<id>.obj."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp", "CA1"],
+                    }
+                ],
+            }
+        )
+
+        config = ConfigModel.model_validate(config_data)
+        assert len(config.assets) == 2
+
+        keys = {a.key for a in config.assets}
+        assert keys == {"atlas:VISp", "atlas:CA1"}
+
+        srcs = {str(a.src) for a in config.assets}
+        # CCF id for VISp is 385, for CA1 is 382
+        assert "/atlas/385.obj" in srcs
+        assert "/atlas/382.obj" in srcs
+
+        for a in config.assets:
+            assert a.kind.value == "mesh"
+            assert a.loader == "trimesh"
+            assert a.role.value == "anatomy"
+
+    def test_atlas_pack_custom_key_prefix(self):
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                        "key_prefix": "structure",
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].key == "structure:VISp"
+
+    def test_atlas_pack_custom_extension(self):
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                        "file_extension": ".stl",
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        assert str(config.assets[0].src) == "/atlas/385.stl"
+
+    def test_atlas_pack_unknown_acronym_rejected(self):
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp", "NOTAREGION"],
+                    }
+                ],
+            }
+        )
+        with pytest.raises(ValidationError) as excinfo:
+            ConfigModel.model_validate(config_data)
+        assert "NOTAREGION" in str(excinfo.value)
+
+    def test_atlas_pack_acronym_match_is_case_sensitive(self):
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["visp"],  # wrong case
+                    }
+                ],
+            }
+        )
+        with pytest.raises(ValidationError):
+            ConfigModel.model_validate(config_data)
+
+    def test_atlas_pack_with_template_inheritance(self):
+        """Templates apply to atlas-pack-expanded specs like any other."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "asset_templates": {
+                    "atlas-region": {
+                        "tags": ["atlas"],
+                    },
+                },
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                        "templates": ["atlas-region"],
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        assert "atlas" in config.assets[0].tags
+
+    def test_atlas_pack_empty_acronyms_rejected(self):
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": [],
+                    }
+                ],
+            }
+        )
+        with pytest.raises(ValidationError):
+            ConfigModel.model_validate(config_data)
+
+
 class TestRangeTargetSpec:
     """Test RangeTargetSpecModel expansion."""
 

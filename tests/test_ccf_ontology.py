@@ -131,3 +131,22 @@ class TestCCFOntologyFromBundled:
         visp = ont.get(385)
         assert visp is not None
         assert visp.acronym == "VISp"
+
+    def test_bundled_is_cached(self):
+        a = CCFOntology.from_bundled()
+        b = CCFOntology.from_bundled()
+        assert a is b
+
+
+class TestFindByAcronym:
+    def test_exact_match(self, ontology):
+        s = ontology.find_by_acronym("VISp")
+        assert s is not None
+        assert s.id == 385
+
+    def test_case_sensitive(self, ontology):
+        # "visp" lowercase should not match "VISp"
+        assert ontology.find_by_acronym("visp") is None
+
+    def test_unknown_acronym(self, ontology):
+        assert ontology.find_by_acronym("ZZZ") is None

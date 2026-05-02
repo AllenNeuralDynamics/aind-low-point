@@ -734,8 +734,125 @@ class BulkAssetSpecModel(BaseModel):
         return results
 
 
-# Type alias for assets that can be either single or bulk
-AssetSpecUnion = Union[AssetSpecModel, BulkAssetSpecModel]
+class AtlasMeshPackSpecModel(BaseModel):
+    """Bulk asset declaration for an atlas mesh pack keyed by region acronym.
+
+    Resolves CCF region acronyms via the bundled ontology and emits one
+    AssetSpecModel per acronym, with src pointing at
+    ``<atlas_dir>/<id><file_extension>``. The atlas itself is expected to
+    contain one mesh per CCF integer label (e.g. brainglobe's
+    ``allen_mouse_25um`` directory of ``<id>.obj`` files).
+
+    Example::
+
+        - atlas_dir: ${paths.atlas_dir}
+          acronyms: [VISp, MOs, CA1, BLA]
+          key_prefix: atlas
+          canonicalization_ref: atlas-template-lps
+          material_ref: structure
+    """
+
+    model_config = {"extra": "forbid"}
+
+    atlas_dir: Path
+    acronyms: list[str] = Field(..., min_length=1)
+    key_prefix: str = "atlas"
+    file_extension: str = ".obj"
+
+    # Same downstream fields as BulkAssetSpecModel (kind/loader forced in expand)
+    role: Optional[Role] = Role.ANATOMY
+    material_ref: Optional[str] = None
+    material: Optional[MaterialModel] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+    transform: Optional["TransformRefModel"] = None
+    scene_tags: list[str] = Field(default_factory=list)
+    auto_scene: bool = True
+
+    loader_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    canonicalization_ref: Optional[str] = None
+    canonicalization: Optional[CanonicalizationDefModel] = None
+    canonicalization_override: Optional[CanonicalizationOverrideModel] = None
+
+    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
+
+    pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
+    bbox_hint: Optional[list[list[float]]] = Field(default=None)
+
+    chem_shift_policy: ChemMode = "auto"
+    chem_shift_ppm: Optional[float] = None
+
+    templates: list[str] = Field(default_factory=list)
+
+    @field_validator("caps", mode="before")
+    @classmethod
+    def _coerce_caps(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        out = []
+        for item in v:
+            if isinstance(item, Capability):
+                out.append(item)
+            elif isinstance(item, str):
+                out.append(Capability[item.upper()])
+            elif isinstance(item, int):
+                out.append(Capability(item))
+            else:
+                out.append(item)
+        return out
+
+    @model_validator(mode="after")
+    def _validate_acronyms(self) -> "AtlasMeshPackSpecModel":
+        from aind_low_point.ccf_ontology import CCFOntology
+
+        ontology = CCFOntology.from_bundled()
+        unknown = [a for a in self.acronyms if ontology.find_by_acronym(a) is None]
+        if unknown:
+            raise ValueError(
+                f"Unknown CCF acronym(s): {unknown}. "
+                "Acronym match is case-sensitive; verify against the Allen CCF."
+            )
+        return self
+
+    def expand(self) -> list[AssetSpecModel]:
+        """Expand into individual AssetSpecModel instances, one per acronym."""
+        from aind_low_point.ccf_ontology import CCFOntology
+
+        ontology = CCFOntology.from_bundled()
+        results: list[AssetSpecModel] = []
+        for acronym in self.acronyms:
+            structure = ontology.find_by_acronym(acronym)
+            assert structure is not None  # validated in _validate_acronyms
+
+            key = f"{self.key_prefix}:{acronym}"
+            src = self.atlas_dir / f"{structure.id}{self.file_extension}"
+
+            overrides: dict[str, Any] = {
+                "key": key,
+                "src": src,
+                "kind": Kind.MESH,
+                "loader": "trimesh",
+                # Always forward role so the field default (Role.ANATOMY)
+                # survives into the expanded spec; user-supplied role wins
+                # because self.role reflects either the YAML or the default.
+                "role": self.role,
+            }
+            kwargs = _passthrough_kwargs(
+                self,
+                {"acronyms", "atlas_dir", "key_prefix", "file_extension"},
+                overrides,
+            )
+            results.append(AssetSpecModel(**kwargs))
+        return results
+
+
+# Type alias for assets: single, bulk-by-keys, or atlas-by-acronym
+AssetSpecUnion = Union[AssetSpecModel, BulkAssetSpecModel, AtlasMeshPackSpecModel]
 
 
 class TargetSpecModel(BaseSpecModel):
@@ -1272,7 +1389,7 @@ class ConfigModel(BaseModel):
         # ---------- Expand bulk specs first ----------
         expanded_assets: list[AssetSpecModel] = []
         for item in self.assets:
-            if isinstance(item, BulkAssetSpecModel):
+            if isinstance(item, (BulkAssetSpecModel, AtlasMeshPackSpecModel)):
                 expanded_assets.extend(item.expand())
             else:
                 expanded_assets.append(item)

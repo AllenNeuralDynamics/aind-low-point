@@ -32,13 +32,36 @@ options:         # OptionsModel
 |---|---|---|
 | `AssetSpecModel` | One `AssetSpec` (mesh/points) | File via `src + loader`, or resource via `from_resource + selector` |
 | `BulkAssetSpecModel` | List of `AssetSpec` | `keys: [...]`, optional `src` with `{name}` / `{key}` placeholders |
+| `AtlasMeshPackSpecModel` | List of `AssetSpec` (meshes) | `atlas_dir + acronyms: [...]`, resolves CCF acronyms via the bundled ontology to `<id>.obj` files |
 | `TargetSpecModel` | One `TargetSpec` (points) | File, derived from another asset, or inline points |
 | `RangeTargetSpecModel` | List of `TargetSpec` | `key_pattern + range`, e.g. `target:hole:{n}` for `n in 1..16` |
 | `DerivedTargetSpecModel` | List of `TargetSpec` | `derive_from: [asset_keys]`, applies same reducer to each |
 
-`BulkAssetSpecModel.expand()`, `Range...expand()`, and `Derived...expand()` all
-go through `_passthrough_kwargs(self, exclude, overrides)` — see the
-"Template merge" gotcha below.
+All bulk/expansion variants route through `_passthrough_kwargs(self, exclude,
+overrides)` — see the "Template merge" gotcha below.
+
+### `AtlasMeshPackSpecModel` specifics
+
+```yaml
+- atlas_dir: ${paths.atlas_dir}     # directory of <id>.obj files
+  acronyms: [VISp, MOs, CA1, BLA]   # CCF region acronyms (case-sensitive)
+  key_prefix: atlas                 # → "atlas:VISp", "atlas:MOs", …
+  file_extension: .obj              # default
+  canonicalization_ref: atlas-template-lps
+  material_ref: structure
+```
+
+- Acronym → CCF integer id resolves via `CCFOntology.from_bundled().find_by_acronym(...)`.
+  The bundled ontology is cached as a module-level singleton so repeated
+  expansions don't re-read the JSON.
+- Acronym validity is checked in a `model_validator(mode="after")` — unknown
+  acronyms produce a single `ValidationError` listing them all. Match is
+  case-sensitive: `"VISp"` works, `"visp"` does not.
+- `kind` and `loader` are forced to `mesh` / `trimesh` in `expand()` (an atlas
+  pack is by definition a directory of meshes).
+- `role` defaults to `Role.ANATOMY` (sensible for brain regions); user can
+  override at the pack level. Other fields (templates, material, transform,
+  scene_tags, caps, collision, …) behave the same as in `BulkAssetSpecModel`.
 
 ## Templates
 
