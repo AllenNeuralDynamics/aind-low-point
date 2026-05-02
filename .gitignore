@@ -149,3 +149,6 @@ CLAUDE.md
 
 # Saved trame config output
 examples/*_out.yml
+
+# Bundle archives (built by scripts/bundle_config.py)
+*.tar.zst
