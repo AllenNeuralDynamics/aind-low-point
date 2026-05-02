@@ -36,14 +36,14 @@ aind-low-point follows a layered architecture with clear separation between:
               ▼               ▼               ▼
     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
     │RendererAdapt │  │CollisionAdapt│  │  PlanStore   │
-    │   (K3D)      │  │   (FCL)      │  │  (Redux-ish) │
+    │ (K3D|PyVista)│  │   (FCL)      │  │  (Redux-ish) │
     └──────────────┘  └──────────────┘  └──────────────┘
               │               │               │
               └───────────────┼───────────────┘
                               ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │              ProbeWidgetController (UI)                      │
-    │         Sliders, keyboard, state dispatch                    │
+    │  Frontend  (ProbeWidgetController for Jupyter,               │
+    │             TrameController for the web app)                 │
     └─────────────────────────────────────────────────────────────┘
 
 
@@ -54,17 +54,25 @@ Module Organization
 
     src/aind_low_point/
     ├── common.py           # Shared enums (Kind, Role, Capability)
-    ├── config.py           # Pydantic models for YAML parsing
-    ├── core.py             # Transform primitives, geometry wrappers
+    ├── orientation_codes.py # OrientationCode StrEnum (48 RAS-style codes)
+    ├── core.py             # Transform primitives, geometry wrappers, Material
     ├── assets.py           # Runtime catalog specs (AssetSpec, TargetSpec)
     ├── scene.py            # Scene graph (NodeInstance, Scene)
-    ├── planning.py         # Probe kinematics (ProbePlan, ProbePose)
-    ├── build_runtime.py    # Config → RuntimeBundle factory
-    ├── rendering.py        # Rendering adapter (K3D integration)
-    ├── collisions.py       # Collision adapter (FCL integration)
-    ├── state_change.py     # Redux-style state store
+    ├── planning.py         # Probe kinematics (ProbePlan, ProbePose, PoseResolver)
     ├── commands.py         # Command pattern for state mutations
-    └── controllers.py      # UI controllers (Jupyter widgets)
+    ├── state_change.py     # PlanStore + AsyncLatestWorker
+    ├── config.py           # Pydantic models for YAML parsing + validation
+    ├── build_runtime.py    # Config → RuntimeBundle factory + loaders + save_plan_to_config
+    ├── rendering.py        # Renderer adapter + RenderBackend protocol + overlay system
+    ├── collisions.py       # Collision adapter + CollisionHandler (sync + async paths)
+    ├── k3d_backend.py      # K3D rendering backend (Jupyter)
+    ├── pyvista_backend.py  # PyVista rendering backend + DebouncedFlush (trame)
+    ├── fcl_backend.py      # FCL collision backend (per-pair callback, group/mask)
+    ├── controllers.py      # ProbeWidgetController (K3D + ipywidgets)
+    ├── trame_controller.py # TrameController (Vuetify3 + PyVista)
+    ├── app.py              # build_trame_app() factory
+    ├── ccf_ontology.py     # Allen CCF ontology (bundled JSON, search)
+    └── ccf_overlay.py      # CCFOverlayManager (lazy region meshes)
 
 
 Core Abstractions
@@ -500,7 +508,9 @@ Adapters connect the domain to external systems.
 RendererAdapter (``rendering.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Bridges domain objects to K3D visualization:
+Bridges domain objects to a render backend (K3D or PyVista). Pushes a 4×4
+``model_matrix`` per node so the renderer applies the transform on the GPU
+side; the underlying vertex buffers stay in canonical LPS layout:
 
 .. code-block:: python
 
@@ -607,59 +617,84 @@ Central state container with subscription:
             changed = apply_planning_command(self._state, cmd)
             self._notify(changed)
 
-DebouncedCoalescer
-~~~~~~~~~~~~~~~~~~
+AsyncLatestWorker
+~~~~~~~~~~~~~~~~~
 
-Coalesces rapid updates (e.g., slider drags):
+Runs an expensive subscriber (collision detection) off the main thread with
+latest-only semantics — rapid updates collapse into a single in-flight
+request:
 
 .. code-block:: python
 
-    class DebouncedCoalescer:
-        def __init__(self, sink: Subscriber, interval_ms: int = 16): ...
+    class AsyncLatestWorker:
+        def __init__(
+            self,
+            prepare: Callable[[PlanningState, List[str]], Any],
+            work: Callable[[Any], Any],
+            deliver: Callable[[Any], None],
+            post_to_main: Callable[[Callable[[], None]], None],
+        ) -> None: ...
 
-        def __call__(self, state: PlanningState, changed: List[str]) -> None:
-            # Buffers updates, flushes after interval
+        def __call__(self, plan: PlanningState, changed_ids: List[str]) -> None:
+            # main thread: capture latest state, kick worker if idle
             ...
+
+        def shutdown(self) -> None: ...
+
+``prepare`` runs on the main thread (so it can read PlanningState safely),
+``work`` runs on a dedicated worker thread (the FCL update + collision
+query), and ``deliver`` is posted back to the main thread via
+``post_to_main`` (typically ``asyncio.AbstractEventLoop.call_soon_threadsafe``
+under trame).
 
 Command Pattern (``commands.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Commands encapsulate state mutations:
+Commands encapsulate state mutations. They are frozen dataclasses; a single
+``Union`` (``PlanningCommand``) covers all of them:
 
 .. code-block:: python
 
-    @dataclass
-    class SetProbePlanPose:
+    @dataclass(frozen=True)
+    class SetProbeLocalAngles:
         name: str
-        ap: float
-        ml: float
-        spin: float
-        tip: np.ndarray
+        ap_local: Optional[float] = None
+        ml_local: Optional[float] = None
+        spin: Optional[float] = None
 
-    @dataclass
+    @dataclass(frozen=True)
     class SetArcAngle:
         arc_id: str
-        angle_deg: float
+        ap_deg: float
 
-    PlanningCommand = Union[SetProbePlanPose, SetArcAngle, ...]
+    @dataclass(frozen=True)
+    class SetProbePastTarget:
+        name: str
+        past_target_mm: float
+
+    PlanningCommand = Union[
+        SetProbeLocalAngles, SetProbeOffsetsRA, NudgeProbeOffsetsRA,
+        SetProbePastTarget, NudgeProbePastTarget, SetProbeTarget,
+        SetArcAngle, AssignProbeArc, BindProbeAPToArc, SetProbeCalibrated,
+    ]
 
     def apply_planning_command(
-        state: PlanningState,
-        cmd: PlanningCommand
+        state: PlanningState, cmd: PlanningCommand
     ) -> List[str]:
         # Mutate state, return list of affected probe names
         ...
 
 
-Controllers (``controllers.py``)
---------------------------------
+Frontends
+---------
 
-UI controllers for Jupyter notebooks.
+Two parallel UI implementations share all of the runtime above. Pick one
+based on the deployment target.
 
-ProbeWidgetController
-~~~~~~~~~~~~~~~~~~~~~
+Jupyter (``controllers.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Main interactive controller:
+``ProbeWidgetController`` — ipywidgets sliders + K3D plot for in-notebook use.
 
 .. code-block:: python
 
@@ -672,25 +707,30 @@ Main interactive controller:
         collision_handler: CollisionHandler
         overlays_resolver: OverlayResolver
 
-        # UI widgets
-        probe_dd: widgets.Dropdown
-        pos_ap_ras: widgets.FloatSlider
-        ap_tilt_deg: widgets.FloatSlider
-        ...
+Trame web app (``trame_controller.py`` + ``app.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-        def __post_init__(self):
-            self._build_widgets()
-            self._wire_events()
-            self._populate_initial()
+``TrameController`` — Vuetify3 layout with PyVista 3D view via
+``pyvista.trame.ui.plotter_ui``. Includes optional Save-YAML and CCF region
+overlay controls.
 
-**Event Flow**:
+``build_trame_app(cfg, *, ccf_volume=None, save_path=None) -> Server`` is the
+factory: wires runtime, store, render adapter, async collision worker,
+overlay state, debounced flush, optional CCF overlay manager, and returns a
+ready-to-``server.start()`` trame server.
 
-1. User moves slider → ``_apply_xyz_live()``
-2. Controller dispatches command → ``store.dispatch(SetProbePlanPose(...))``
-3. Store applies command, notifies subscribers
-4. RendererAdapter updates probe visualization
-5. CollisionAdapter recomputes collisions
-6. OverlayResolver highlights colliding nodes
+Event flow (both frontends)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. User moves slider → controller handler
+2. Controller dispatches a command → ``store.dispatch(SetProbeLocalAngles(...))``
+3. Store applies command, notifies subscribers synchronously
+4. ``RenderHandler`` (sync) → ``RendererAdapter`` updates the model_matrix
+   on changed nodes
+5. ``AsyncLatestWorker`` (off-thread) wraps ``CollisionHandler``
+   prepare/work/deliver — recomputes collisions and posts overlay updates
+   back to the main thread
+6. ``OverlayResolver`` folds collision overlays into the next render pass
 
 
 Data Flow Summary
