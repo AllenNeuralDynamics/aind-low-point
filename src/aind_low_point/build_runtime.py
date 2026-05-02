@@ -191,10 +191,9 @@ def load_geometry(src: Union[str, Path], loader: str, **kwargs) -> GeometryOut:
                 f"{', '.join(sorted(_GEOMETRY_LOADER_REGISTRY)) or '(none)'}"
             )
         )
-    return fn(Path(src), **kwargs)
+    return fn(str(src), **kwargs)
 
 
-@register_loader
 def trimesh_from_sitk_mask(mask: sitk.Image) -> trimesh.Trimesh:
     """Convert a SimpleITK mask image to a trimesh."""
     structure_mesh = mask_to_trimesh(mask)
@@ -204,9 +203,16 @@ def trimesh_from_sitk_mask(mask: sitk.Image) -> trimesh.Trimesh:
 
 
 @register_loader
-def load_trimesh_lps(path: Path, src_coordinate_system: str = "ASR") -> trimesh.Trimesh:
-    """Load a trimesh from a SimpleITK image file."""
-    mesh = trimesh.load(str(path))
+def sitk_volume(path: str) -> trimesh.Trimesh:
+    """Read a SimpleITK volume file (.nrrd, .nii, .nii.gz) and mesh it."""
+    mask = sitk.ReadImage(path)
+    return trimesh_from_sitk_mask(mask)
+
+
+@register_loader
+def load_trimesh_lps(path: str, src_coordinate_system: str = "ASR") -> trimesh.Trimesh:
+    """Load a trimesh from a file and convert to LPS."""
+    mesh = trimesh.load(path)
     vertices_lps = convert_coordinate_system(
         mesh.vertices, src_coordinate_system, "LPS"
     )
@@ -215,7 +221,33 @@ def load_trimesh_lps(path: Path, src_coordinate_system: str = "ASR") -> trimesh.
 
 
 register_loader_fn(read_slicer_fcsv)
-register_loader_fn(trimesh.load, "trimesh")
+
+
+@register_loader("trimesh")
+def _load_trimesh(path: str) -> trimesh.Trimesh:
+    return trimesh.load(path, force="mesh")
+
+
+@register_loader
+def csv_points(
+    path: str, max_points: int | None = None
+) -> NDArray[np.float64]:
+    """Load an (N,3) point cloud from a CSV with x, y, z columns.
+
+    Parameters
+    ----------
+    max_points
+        If set, randomly subsample to this many points.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(path, index_col=0)
+    pts = df[["x", "y", "z"]].to_numpy(dtype=np.float64)
+    pts = pts[np.isfinite(pts).all(axis=1)]
+    if max_points is not None and len(pts) > max_points:
+        idx = np.random.default_rng().choice(len(pts), max_points, replace=False)
+        pts = pts[idx]
+    return pts
 
 SourceGeo = Union[trimesh.Trimesh, NDArray[np.float64]]
 ReduceOut = NDArray[np.float64]  # usually (3,) single point; could be (N,3)
@@ -418,6 +450,7 @@ def _material_from_model(m: MaterialModel) -> Material:
         opacity=m.opacity,
         wireframe=m.wireframe,
         visible=m.visible,
+        point_size=m.point_size,
     )
 
 
@@ -426,8 +459,14 @@ def resolve_material_for_spec(
     registry: dict[str, MaterialModel],  # config.materials
 ) -> "Material":
     base = registry.get(spec_like.material_ref) if spec_like.material_ref else None
-    merged = _merge_dict_shallow(base, spec_like.material)
-    mm = merged or MaterialModel()  # fallback default
+    base_d = base.model_dump(exclude_unset=True) if base else None
+    over_d = (
+        spec_like.material.model_dump(exclude_unset=True)
+        if spec_like.material
+        else None
+    )
+    merged = _merge_dict_shallow(base_d, over_d)
+    mm = MaterialModel(**(merged or {}))
     return _material_from_model(mm)
 
 
@@ -631,41 +670,50 @@ def _load_geo(
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime],
 ) -> Optional[GeometryOut]:
-    if spec.src and spec.loader:
-        loader_kwargs = spec.loader_kwargs or {}
-        geo = load_geometry(Path(spec.src), loader=spec.loader, **loader_kwargs)
-        if isinstance(geo, dict):
-            if canon:
-                canon_geo = _apply_canonicalization_mesh(
-                    geo,
-                    canon.source_space,
-                    canon.scale_to_mm,
-                    canon.transform_file_to_canonical,
-                )
-            else:
-                canon_geo = geo
-            if _should_apply_chem(spec, chem):
-                chem_point_transform = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
-                shifted_vertices = chem_point_transform.apply_to(canon_geo.vertices)
-                canon_geo = trimesh.Trimesh(
-                    vertices=shifted_vertices, faces=canon_geo.faces, process=False
-                )
-        else:
-            if canon:
-                canon_geo = _apply_canonicalization_points(
-                    geo,
-                    canon.source_space,
-                    canon.scale_to_mm,
-                    canon.transform_file_to_canonical,
-                )
-            else:
-                canon_geo = geo
-            if _should_apply_chem(spec, chem):
-                chem_point_transform = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
-                canon_geo = chem_point_transform.apply_to(canon_geo)
-    else:
-        canon_geo = None
-    return canon_geo
+    if not (spec.src and spec.loader):
+        return None
+
+    loader_kwargs = spec.loader_kwargs or {}
+    geo = load_geometry(Path(spec.src), loader=spec.loader, **loader_kwargs)
+
+    if isinstance(geo, trimesh.Trimesh):
+        if canon:
+            geo = _apply_canonicalization_mesh(
+                geo,
+                canon.source_space,
+                canon.scale_to_mm,
+                canon.transform_file_to_canonical,
+            )
+        if _should_apply_chem(spec, chem):
+            tf = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
+            shifted = tf.apply_to(geo.vertices)
+            geo = trimesh.Trimesh(
+                vertices=shifted, faces=geo.faces, process=False
+            )
+        return geo
+
+    if isinstance(geo, np.ndarray):
+        if canon:
+            geo = _apply_canonicalization_points(
+                geo,
+                canon.source_space,
+                canon.scale_to_mm,
+                canon.transform_file_to_canonical,
+            )
+        if _should_apply_chem(spec, chem):
+            tf = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
+            geo = tf.apply_to(geo)
+        return geo
+
+    if isinstance(geo, dict):
+        # Named point collection (e.g. fcsv). Already in LPS; skip
+        # canonicalization. Chem shift still governed by config policy.
+        if _should_apply_chem(spec, chem):
+            tf = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
+            geo = {k: tf.apply_to(v) for k, v in geo.items()}
+        return geo
+
+    raise TypeError(f"Unexpected geometry type from loader: {type(geo)}")
 
 
 # --- asset builder -----------------------------------------------------------
@@ -756,8 +804,6 @@ def build_target_spec(
 
     spec = TargetSpec(
         **base_kwargs,
-        kind="points",  # targets are points in runtime
-        role=Role.TARGET,
         source_path=Path(t.src) if t.src else None,
         loader=t.loader,
         source_key=t.source_key,
@@ -821,7 +867,13 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
         base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, cfg.materials)
         tspec, pts = build_target_spec(
-            t, runtime_assets, base_kwargs, chem, maybe_cannon, _REDUCER_REGISTRY
+            t,
+            runtime_assets,
+            base_kwargs,
+            chem,
+            maybe_cannon,
+            _REDUCER_REGISTRY,
+            resource_registry=runtime_resources,
         )
         runtime_targets[tspec.key] = tspec
         target_index[tspec.key] = pts
@@ -832,7 +884,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     scene = Scene()
     for n in cfg.scene.nodes:
         asset_key = n.asset
-        if asset_key not in runtime_assets:
+        if asset_key not in runtime_assets and asset_key not in runtime_targets:
             raise KeyError(
                 f"Scene node '{n.key}' references unknown asset '{asset_key}'"
             )
