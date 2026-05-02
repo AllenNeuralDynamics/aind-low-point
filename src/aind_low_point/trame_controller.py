@@ -21,6 +21,7 @@ from aind_low_point.collisions import CollisionHandler
 from aind_low_point.commands import (
     AssignProbeArc,
     SetArcAngle,
+    SetProbePastTarget,
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
     SetProbeTarget,
@@ -72,6 +73,7 @@ class TrameController:
 
         state.offset_r = 0.0
         state.offset_a = 0.0
+        state.depth = 0.0
         state.ap_tilt = 0.0
         state.ml_tilt = 0.0
         state.spin = 0
@@ -116,6 +118,17 @@ class TrameController:
             if not state.probe:
                 return
             self._on_ml_change(state, state.probe, float(state.ml_tilt))
+
+        @state.change("depth")
+        def on_depth(**kwargs):
+            if not state.probe:
+                return
+            self.store.dispatch(
+                SetProbePastTarget(
+                    name=state.probe,
+                    past_target_mm=float(state.depth),
+                )
+            )
 
         @state.change("spin")
         def on_spin(**kwargs):
@@ -219,6 +232,10 @@ class TrameController:
             self.store.dispatch(
                 SetProbeTarget(name=state.probe, target_key=state.target)
             )
+            self.store.dispatch(
+                SetProbePastTarget(name=state.probe, past_target_mm=0.0)
+            )
+            state.depth = 0.0
 
         with SinglePageLayout(server) as layout:
             layout.title.set_text("Probe Planner")
@@ -251,6 +268,7 @@ class TrameController:
             vuetify3.VDivider(classes="my-2")
             self._slider_row("offset_r", "R (mm)", -7.5, 7.5, 0.05)
             self._slider_row("offset_a", "A (mm)", -7.5, 7.5, 0.05)
+            self._slider_row("depth", "Depth (mm)", -10, 10, 0.1)
             vuetify3.VDivider(classes="my-2")
             self._slider_row("ap_tilt", "AP tilt (°)", -60, 60, 0.5)
             self._slider_row("ml_tilt", "ML tilt (°)", -60, 60, 0.5)
@@ -269,6 +287,15 @@ class TrameController:
                 click=on_set_target,
                 classes="mt-2",
             )
+            vuetify3.VDivider(classes="my-2")
+            if self.on_save is not None:
+                vuetify3.VBtn(
+                    "Save YAML",
+                    color="success",
+                    click=self.on_save,
+                    classes="mt-2",
+                    block=True,
+                )
 
             # CCF overlay controls
             if self.ccf_overlay is not None:
@@ -338,6 +365,7 @@ class TrameController:
         r_mm, a_mm = plan.offsets_RA
         state.offset_r = float(r_mm)
         state.offset_a = float(a_mm)
+        state.depth = float(plan.past_target_mm)
 
         if plan.arc_id and plan.bind_ap_to_arc:
             state.ap_tilt = float(

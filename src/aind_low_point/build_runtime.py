@@ -912,6 +912,12 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
             )
         )
 
+    # 5b) Resolve ALL target positions through scene transforms
+    for key in list(runtime_targets):
+        transformed = resolve_base_geometry(catalog, scene, key)
+        if transformed is not None:
+            target_index[key] = transformed.raw
+
     # 6) kinematics, calibrations, plans (build PlanningState)
     kinematics = Kinematics(arc_angles=dict(cfg.plan.arcs))
     calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)

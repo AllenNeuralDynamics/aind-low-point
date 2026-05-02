@@ -34,6 +34,7 @@ def build_trame_app(
     cfg: ConfigModel,
     *,
     ccf_volume: Path | None = None,
+    save_path: Path | None = None,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
 
@@ -114,6 +115,19 @@ def build_trame_app(
 
         ccf_overlay = CCFOverlayManager(plotter=pl, volume_path=ccf_volume)
 
+    on_save = None
+    if save_path is not None:
+        from aind_low_point.build_runtime import save_plan_to_config
+
+        def on_save():
+            updated = save_plan_to_config(store.state, cfg)
+            import yaml
+
+            data = updated.model_dump(mode="json")
+            with open(save_path, "w") as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            print(f"Saved plan to {save_path}")
+
     controller = TrameController(
         store=store,
         assets=catalog,
@@ -122,6 +136,7 @@ def build_trame_app(
         collision_handler=coll_handler,
         overlays_resolver=overlay_resolver,
         ccf_overlay=ccf_overlay,
+        on_save=on_save,
     )
 
     server = controller.build_app()
