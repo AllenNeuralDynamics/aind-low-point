@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
@@ -9,6 +10,34 @@ import numpy as np
 import pyvista as pv
 
 from aind_low_point.rendering import ViewMaterial
+
+
+class DebouncedFlush:
+    """Debounce a flush callback on the running asyncio event loop.
+
+    Each call cancels any pending timer and schedules a new one.
+    Only the last call within *delay_s* actually fires.
+    Falls back to immediate invocation outside an asyncio context.
+    """
+
+    def __init__(self, callback: Callable[[], None], delay_s: float = 0.1) -> None:
+        self._callback = callback
+        self._delay = delay_s
+        self._handle: asyncio.TimerHandle | None = None
+
+    def __call__(self) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._callback()
+            return
+        if self._handle is not None:
+            self._handle.cancel()
+        self._handle = loop.call_later(self._delay, self._fire)
+
+    def _fire(self) -> None:
+        self._handle = None
+        self._callback()
 
 
 def _int_to_hex(color_int: int) -> str:
@@ -40,6 +69,7 @@ class PyVistaBackend:
         vertices: np.ndarray,
         indices: np.ndarray,
         material: ViewMaterial,
+        model_matrix: np.ndarray | None = None,
     ) -> None:
         mesh = pv.PolyData(vertices, _faces_to_pyvista(indices))
         actor = self.plotter.add_mesh(
@@ -49,6 +79,8 @@ class PyVistaBackend:
             opacity=material.opacity,
             show_edges=material.wireframe,
         )
+        if model_matrix is not None:
+            actor.user_matrix = model_matrix
         self._actors[node_id] = actor
         self._kinds[node_id] = "mesh"
 
@@ -59,10 +91,13 @@ class PyVistaBackend:
         vertices: np.ndarray | None = None,
         indices: np.ndarray | None = None,
         material: ViewMaterial | None = None,
+        model_matrix: np.ndarray | None = None,
     ) -> None:
         actor = self._actors.get(node_id)
         if actor is None or self._kinds.get(node_id) != "mesh":
             return
+        if model_matrix is not None:
+            actor.user_matrix = model_matrix
         if vertices is not None:
             pd = actor.mapper.dataset
             pd.points = vertices
@@ -80,14 +115,18 @@ class PyVistaBackend:
         positions: np.ndarray,
         material: ViewMaterial,
         point_size: float = 1.0,
+        model_matrix: np.ndarray | None = None,
     ) -> None:
         cloud = pv.PolyData(positions)
         actor = self.plotter.add_points(
             cloud,
             name=name,
             color=_int_to_hex(material.color),
+            opacity=material.opacity,
             point_size=point_size,
         )
+        if model_matrix is not None:
+            actor.user_matrix = model_matrix
         self._actors[node_id] = actor
         self._kinds[node_id] = "points"
 
@@ -97,10 +136,13 @@ class PyVistaBackend:
         *,
         positions: np.ndarray | None = None,
         material: ViewMaterial | None = None,
+        model_matrix: np.ndarray | None = None,
     ) -> None:
         actor = self._actors.get(node_id)
         if actor is None or self._kinds.get(node_id) != "points":
             return
+        if model_matrix is not None:
+            actor.user_matrix = model_matrix
         if positions is not None:
             pd = actor.mapper.dataset
             pd.points = positions

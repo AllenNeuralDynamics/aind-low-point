@@ -20,7 +20,9 @@ class K3DBackend(RenderBackend):
     _handles: dict[str, Any] = field(default_factory=dict)
     _kinds: dict[str, str] = field(default_factory=dict)  # 'mesh'|'points'
 
-    def create_mesh(self, node_id, *, name, vertices, indices, material):
+    def create_mesh(
+        self, node_id, *, name, vertices, indices, material, model_matrix=None
+    ):
         h = k3d.mesh(
             vertices.astype(float),
             indices.astype(np.uint32),
@@ -29,16 +31,22 @@ class K3DBackend(RenderBackend):
             opacity=float(material.opacity),
             wireframe=bool(material.wireframe),
         )
+        if model_matrix is not None:
+            h.model_matrix = model_matrix.astype(np.float32)
         if hasattr(h, "visible"):
             h.visible = bool(material.visible)
         self.plot += h
         self._handles[node_id] = h
         self._kinds[node_id] = "mesh"
 
-    def update_mesh(self, node_id, *, vertices=None, indices=None, material=None):
+    def update_mesh(
+        self, node_id, *, vertices=None, indices=None, material=None, model_matrix=None
+    ):
         h = self._handles.get(node_id)
         if h is None or self._kinds.get(node_id) != "mesh":
             return
+        if model_matrix is not None:
+            h.model_matrix = model_matrix.astype(np.float32)
         if vertices is not None:
             h.vertices = vertices.astype(float)
         if indices is not None:
@@ -51,23 +59,31 @@ class K3DBackend(RenderBackend):
             if hasattr(h, "visible"):
                 h.visible = bool(material.visible)
 
-    def create_points(self, node_id, *, name, positions, material, point_size=1.0):
+    def create_points(
+        self, node_id, *, name, positions, material, point_size=1.0, model_matrix=None
+    ):
         h = k3d.points(
             positions=positions.astype(float),
             name=name,
             color=int(material.color),
             point_size=float(point_size),
         )
+        if model_matrix is not None:
+            h.model_matrix = model_matrix.astype(np.float32)
         if hasattr(h, "visible"):
             h.visible = bool(material.visible)
         self.plot += h
         self._handles[node_id] = h
         self._kinds[node_id] = "points"
 
-    def update_points(self, node_id, *, positions=None, material=None):
+    def update_points(
+        self, node_id, *, positions=None, material=None, model_matrix=None
+    ):
         h = self._handles.get(node_id)
         if h is None or self._kinds.get(node_id) != "points":
             return
+        if model_matrix is not None:
+            h.model_matrix = model_matrix.astype(np.float32)
         if positions is not None:
             h.positions = positions.astype(float)
         if material is not None:

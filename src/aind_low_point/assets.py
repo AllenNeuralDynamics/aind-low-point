@@ -56,7 +56,7 @@ class AssetSpec(BaseSpec):
     # SOURCE (how to load the asset)
     source_path: Optional[Path] = None
     loader: Optional[str] = (
-        None  # name of a registered loader (e.g. "trimesh", "trimesh_from_sitk_mask")
+        None  # name of a registered loader (e.g. "trimesh", "sitk_volume")
     )
 
     # CANONICAL GEOMETRY (post-load, guaranteed in canonical LPS mm)

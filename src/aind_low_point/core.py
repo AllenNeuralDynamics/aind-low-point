@@ -202,3 +202,4 @@ class Material:
     opacity: float = 1.0
     wireframe: bool = False
     visible: bool = True
+    point_size: float = 5.0

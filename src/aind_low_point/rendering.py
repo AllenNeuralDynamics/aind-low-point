@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import (
     Callable,
@@ -12,11 +11,9 @@ from typing import (
     Optional,
     Protocol,
     Set,
-    Tuple,
 )
 
 import numpy as np
-import trimesh
 from aind_mri_utils.plots import hex_string_to_int
 
 from aind_low_point.assets import AssetCatalog
@@ -36,6 +33,7 @@ class ViewMaterial:
     opacity: float
     wireframe: bool
     visible: bool
+    point_size: float = 5.0
 
 
 BlendMode = Literal["replace", "multiply", "screen", "alpha_over"]
@@ -112,6 +110,7 @@ def material_to_view(m: Material) -> ViewMaterial:
         opacity=float(m.opacity),
         wireframe=bool(m.wireframe),
         visible=bool(m.visible),
+        point_size=float(m.point_size),
     )
 
 
@@ -131,6 +130,7 @@ class OverlayResolver:
                 opacity=base_vm.opacity,
                 wireframe=base_vm.wireframe,
                 visible=base_vm.visible,
+                point_size=base_vm.point_size,
             )
         # default alpha-over on color only
         new_color = _blend_over(base_vm.color, spec.color, spec.alpha)
@@ -139,6 +139,7 @@ class OverlayResolver:
             opacity=base_vm.opacity,
             wireframe=base_vm.wireframe,
             visible=base_vm.visible,
+            point_size=base_vm.point_size,
         )
 
 
@@ -164,6 +165,7 @@ class RenderBackend(Protocol):
         vertices: np.ndarray,
         indices: np.ndarray,
         material: ViewMaterial,
+        model_matrix: np.ndarray | None = None,
     ) -> None: ...
     def update_mesh(
         self,
@@ -172,6 +174,7 @@ class RenderBackend(Protocol):
         vertices: np.ndarray | None = None,
         indices: np.ndarray | None = None,
         material: ViewMaterial | None = None,
+        model_matrix: np.ndarray | None = None,
     ) -> None: ...
     def create_points(
         self,
@@ -181,6 +184,7 @@ class RenderBackend(Protocol):
         positions: np.ndarray,
         material: ViewMaterial,
         point_size: float = 1.0,
+        model_matrix: np.ndarray | None = None,
     ) -> None: ...
     def update_points(
         self,
@@ -188,60 +192,19 @@ class RenderBackend(Protocol):
         *,
         positions: np.ndarray | None = None,
         material: ViewMaterial | None = None,
+        model_matrix: np.ndarray | None = None,
     ) -> None: ...
     def remove(self, node_ids: Iterable[str]) -> None: ...
     def has_node(self, node_id: str) -> bool: ...
     def flush(self) -> None: ...
 
 
-## LRU of pose
-# ---- pose signature ----
-def _pose_signature(R: np.ndarray, t: np.ndarray, *, tol: float = 1e-6) -> bytes:
-    qR = np.round(R / tol).astype(np.int64).ravel()
-    qt = np.round(t / tol).astype(np.int64).ravel()
-    return b"v1|" + qR.tobytes() + b"|" + qt.tobytes()
-
-
-Key = Tuple[str, bytes]  # (mesh_id, pose_sig)
-
-
-# ---- cache entry ----
-@dataclass(slots=True)
-class _CacheEntry:
-    vertices: np.ndarray  # (N,3) float64
-    faces: np.ndarray  # (M,3) int32/64 (passed through; backend re-casts as needed)
-
-
-# ---- LRU cache of transformed vertices ----
-class _TransformCache:
-    def __init__(self, maxsize: int = 256):
-        self.maxsize = int(maxsize)
-        self._od: "OrderedDict[Key, _CacheEntry]" = OrderedDict()
-
-    def get_or_compute(
-        self, mesh_id: str, base: trimesh.Trimesh, R: np.ndarray, t: np.ndarray
-    ) -> _CacheEntry:
-        key = (mesh_id, _pose_signature(R, t))
-        hit = self._od.get(key)
-        if hit is not None:
-            self._od.move_to_end(key)
-            return hit
-        # transform
-        v = (base.vertices @ R.T) + t
-        entry = _CacheEntry(vertices=v.astype(np.float64, copy=False), faces=base.faces)
-        self._od[key] = entry
-        if len(self._od) > self.maxsize:
-            self._od.popitem(last=False)
-        return entry
-
-    def clear(self) -> None:
-        self._od.clear()
-
-    def invalidate_mesh(self, mesh_id: str) -> None:
-        """Drop all cache entries derived from a mesh key (e.g. topology changed)."""
-        to_del = [k for k in self._od.keys() if k[0] == mesh_id]
-        for k in to_del:
-            self._od.pop(k, None)
+def _rt_to_matrix(R: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """Build a 4x4 homogeneous affine matrix from rotation R and translation t."""
+    M = np.eye(4)
+    M[:3, :3] = R
+    M[:3, 3] = t
+    return M
 
 
 @dataclass
@@ -249,7 +212,6 @@ class RendererAdapter:
     backend: RenderBackend
     scene: Scene
     assets: AssetCatalog
-    cache: _TransformCache = _TransformCache(maxsize=256)
     overlays: OverlayResolver | None = None
 
     # ----- public API -----
@@ -272,12 +234,25 @@ class RendererAdapter:
             self._upsert_node(node, resolver, node.key in hot)
         self.backend.flush()
 
+    def repaint_materials(self, node_ids: Iterable[str]) -> None:
+        """Update only materials/overlays for given nodes. No pose recompute."""
+        for nid in node_ids:
+            node = self.scene.nodes.get(nid)
+            if not node or not node.enabled:
+                continue
+            mat = self._resolve_material(node)
+            base_vm = material_to_view(mat)
+            vm = self.overlays.apply(nid, base_vm) if self.overlays else base_vm
+            if self.backend.has_node(nid):
+                geom = self.assets.get_geometry(node.asset_key)
+                if isinstance(geom, MeshTransformable):
+                    self.backend.update_mesh(nid, material=vm)
+                elif isinstance(geom, PointsTransformable):
+                    self.backend.update_points(nid, material=vm)
+        self.backend.flush()
+
     def remove(self, node_ids: Iterable[str]) -> None:
         self.backend.remove(node_ids)
-
-    def invalidate_mesh_key(self, mesh_key: str) -> None:
-        """Call this if a base mesh topology changes (forces re-transform)."""
-        self.cache.invalidate_mesh(mesh_key)
 
     # ----- internals -----
     def _make_resolver(self, plan: PlanningState) -> PoseResolver:
@@ -309,39 +284,38 @@ class RendererAdapter:
         # Geometry + pose via generic catalog
         geom = self.assets.get_geometry(node.asset_key)
         R, t = resolver.world_rt_for_node(node)
+        M = _rt_to_matrix(R, t)
 
         if isinstance(geom, MeshTransformable):
-            base_mesh = geom.raw  # trimesh.Trimesh
-
-            # LRU cache for dynamic probe meshes
-            if node.extras.get("pose_source_probe"):
-                entry = self.cache.get_or_compute(node.asset_key, base_mesh, R, t)
-                v, f = entry.vertices, entry.faces
-            else:
-                v = (base_mesh.vertices @ R.T) + t
-                f = base_mesh.faces
+            base_mesh = geom.raw
 
             if self.backend.has_node(node.key):
                 self.backend.update_mesh(
-                    node.key, vertices=v, indices=None, material=vm
+                    node.key, material=vm, model_matrix=M
                 )
             else:
                 self.backend.create_mesh(
-                    node.key, name=node.key, vertices=v, indices=f, material=vm
+                    node.key,
+                    name=node.key,
+                    vertices=base_mesh.vertices,
+                    indices=base_mesh.faces,
+                    material=vm,
+                    model_matrix=M,
                 )
 
         elif isinstance(geom, PointsTransformable):
-            pts = geom.transformed(R, t)
-
             if self.backend.has_node(node.key):
-                self.backend.update_points(node.key, positions=pts, material=vm)
+                self.backend.update_points(
+                    node.key, material=vm, model_matrix=M
+                )
             else:
                 self.backend.create_points(
                     node.key,
                     name=node.key,
-                    positions=pts,
+                    positions=geom.raw,
                     material=vm,
-                    point_size=0.5,
+                    point_size=vm.point_size,
+                    model_matrix=M,
                 )
 
         else:
@@ -383,11 +357,8 @@ def on_collisions_changed_lambda(
             )
             overlays_state.set_for_source(list(state.hot), spec)
 
-        # repaint only nodes whose hot/cold status flipped
-        nodes = [scene.nodes[nid] for nid in flips if nid in scene.nodes]
-        if nodes:
-            renderer_adapter.sync_nodes(
-                plan, nodes
-            )  # adapter reads overlays internally
+        # repaint only nodes whose hot/cold status flipped (material-only, no pose)
+        if flips:
+            renderer_adapter.repaint_materials(flips)
 
     return _on_collisions_changed

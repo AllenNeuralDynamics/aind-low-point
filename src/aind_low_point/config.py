@@ -129,6 +129,7 @@ class MaterialModel(BaseModel):
     opacity: float = 1.0
     wireframe: bool = False
     visible: bool = True
+    point_size: float = 5.0
 
     @field_validator("opacity")
     @classmethod
