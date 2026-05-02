@@ -163,6 +163,7 @@ class GeometrySourceModel(BaseModel):
 
     key: Optional[str] = None
     kind: Optional[Kind] = None
+    role: Optional[Role] = None
 
     # Explicit points (file)
     src: Optional[Path] = None
@@ -195,6 +196,8 @@ class ResourceModel(GeometrySourceModel):
     - dict[str|int, trimesh.Trimesh] for labelmaps
     - GLTF scene graph keyed by node paths, etc.
     """
+
+    tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_fields(self):
@@ -1251,6 +1254,15 @@ class ConfigModel(BaseModel):
     transforms: dict[str, TransformRecipeModel] = Field(default_factory=dict)
     canonicalizations: dict[str, CanonicalizationDefModel] = Field(default_factory=dict)
     options: OptionsModel = Field(default_factory=OptionsModel)
+
+    @classmethod
+    def from_yaml(cls, path: "str | Path") -> "ConfigModel":
+        """Load a ConfigModel from a YAML file with OmegaConf interpolation."""
+        from omegaconf import OmegaConf
+
+        raw = OmegaConf.load(path)
+        resolved = OmegaConf.to_container(raw, resolve=True)
+        return cls.model_validate(resolved)
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
