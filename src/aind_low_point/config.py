@@ -621,6 +621,27 @@ class AssetSpecModel(BaseSpecModel):
         return self
 
 
+def _passthrough_kwargs(
+    bulk_model: BaseModel,
+    exclude: set[str],
+    overrides: dict[str, Any],
+) -> dict[str, Any]:
+    """Build kwargs for an expanded child model from a bulk/range model.
+
+    Only forwards fields that were explicitly set in the YAML (via
+    ``model_fields_set``), plus any *overrides*.  Fields that used their
+    default value are **not** forwarded, so that template merging can
+    later fill them in without being clobbered.
+    """
+    from copy import deepcopy
+
+    kwargs: dict[str, Any] = {}
+    for name in bulk_model.model_fields_set - exclude:
+        kwargs[name] = deepcopy(getattr(bulk_model, name))
+    kwargs.update(overrides)
+    return kwargs
+
+
 class BulkAssetSpecModel(BaseModel):
     """Bulk asset declaration with multiple keys sharing the same configuration.
 
@@ -698,44 +719,15 @@ class BulkAssetSpecModel(BaseModel):
         """Expand into individual AssetSpecModel instances."""
         results = []
         for key in self.keys:
-            # Extract name from key (e.g., "structure:PL" → "PL")
             name = key.split(":")[-1] if ":" in key else key
-
-            # Substitute placeholders in src
             src = None
             if self.src is not None:
-                src_str = self.src.replace("{name}", name).replace("{key}", key)
-                src = Path(src_str)
-
-            results.append(
-                AssetSpecModel(
-                    key=key,
-                    kind=self.kind,
-                    role=self.role,
-                    material_ref=self.material_ref,
-                    material=self.material,
-                    metadata=self.metadata.copy(),
-                    tags=self.tags.copy(),
-                    transform=self.transform,
-                    scene_tags=self.scene_tags.copy(),
-                    auto_scene=self.auto_scene,
-                    src=src,
-                    loader=self.loader,
-                    loader_kwargs=self.loader_kwargs.copy(),
-                    canonicalization_ref=self.canonicalization_ref,
-                    canonicalization=self.canonicalization,
-                    canonicalization_override=self.canonicalization_override,
-                    caps=self.caps.copy(),
-                    collision=self.collision,
-                    pivot_LPS=self.pivot_LPS,
-                    bbox_hint=self.bbox_hint,
-                    chem_shift_policy=self.chem_shift_policy,
-                    chem_shift_ppm=self.chem_shift_ppm,
-                    templates=self.templates.copy(),
-                    from_resource=self.from_resource,
-                    selector=self.selector,
-                )
-            )
+                src = Path(self.src.replace("{name}", name).replace("{key}", key))
+            overrides: dict[str, Any] = {"key": key}
+            if src is not None:
+                overrides["src"] = src
+            kwargs = _passthrough_kwargs(self, {"keys"}, overrides)
+            results.append(AssetSpecModel(**kwargs))
         return results
 
 
@@ -896,50 +888,17 @@ class RangeTargetSpecModel(BaseModel):
         results = []
         for n in range(start, end + 1):
             n_str = str(n)
-            key = self.key_pattern.replace("{n}", n_str)
-
-            # Substitute placeholders in src and source_key
-            src = None
+            overrides: dict[str, Any] = {
+                "key": self.key_pattern.replace("{n}", n_str),
+            }
             if self.src is not None:
-                src = Path(self.src.replace("{n}", n_str))
-
-            source_key = None
+                overrides["src"] = Path(self.src.replace("{n}", n_str))
             if self.source_key is not None:
-                source_key = self.source_key.replace("{n}", n_str)
-
-            results.append(
-                TargetSpecModel(
-                    key=key,
-                    kind=self.kind,
-                    role=self.role,
-                    material_ref=self.material_ref,
-                    material=self.material,
-                    metadata=self.metadata.copy(),
-                    tags=self.tags.copy(),
-                    transform=self.transform,
-                    scene_tags=self.scene_tags.copy(),
-                    auto_scene=self.auto_scene,
-                    src=src,
-                    loader=self.loader,
-                    loader_kwargs=self.loader_kwargs.copy(),
-                    source_key=source_key,
-                    from_resource=self.from_resource,
-                    selector=self.selector,
-                    reducer=self.reducer,
-                    reducer_kwargs=self.reducer_kwargs.copy(),
-                    canonicalization_ref=self.canonicalization_ref,
-                    canonicalization=self.canonicalization,
-                    canonicalization_override=self.canonicalization_override,
-                    caps=self.caps.copy(),
-                    collision=self.collision,
-                    pivot_LPS=self.pivot_LPS,
-                    bbox_hint=self.bbox_hint,
-                    chem_shift_policy=self.chem_shift_policy,
-                    chem_shift_ppm=self.chem_shift_ppm,
-                    templates=self.templates.copy(),
-                    approach_vector=self.approach_vector,
-                    uncertainty_mm=self.uncertainty_mm,
-                )
+                overrides["source_key"] = self.source_key.replace("{n}", n_str)
+            kwargs = _passthrough_kwargs(
+                self, {"key_pattern", "range"}, overrides
+            )
+            results.append(TargetSpecModel(**kwargs)
             )
         return results
 
@@ -1024,41 +983,15 @@ class DerivedTargetSpecModel(BaseModel):
         """Expand into individual TargetSpecModel instances."""
         results = []
         for asset_key in self.derive_from:
-            # Extract suffix from asset key (e.g., "structure:PL" → "PL")
             suffix = asset_key.split(":")[-1] if ":" in asset_key else asset_key
-            target_key = f"{self.key_prefix}{suffix}"
-
-            results.append(
-                TargetSpecModel(
-                    key=target_key,
-                    kind=self.kind,
-                    role=self.role,
-                    material_ref=self.material_ref,
-                    material=self.material,
-                    metadata=self.metadata.copy(),
-                    tags=self.tags.copy(),
-                    transform=self.transform,
-                    scene_tags=self.scene_tags.copy(),
-                    auto_scene=self.auto_scene,
-                    source_key=asset_key,  # derive from the asset
-                    from_resource=self.from_resource,
-                    selector=self.selector,
-                    reducer=self.reducer,
-                    reducer_kwargs=self.reducer_kwargs.copy(),
-                    canonicalization_ref=self.canonicalization_ref,
-                    canonicalization=self.canonicalization,
-                    canonicalization_override=self.canonicalization_override,
-                    caps=self.caps.copy(),
-                    collision=self.collision,
-                    pivot_LPS=self.pivot_LPS,
-                    bbox_hint=self.bbox_hint,
-                    chem_shift_policy=self.chem_shift_policy,
-                    chem_shift_ppm=self.chem_shift_ppm,
-                    templates=self.templates.copy(),
-                    approach_vector=self.approach_vector,
-                    uncertainty_mm=self.uncertainty_mm,
-                )
+            overrides: dict[str, Any] = {
+                "key": f"{self.key_prefix}{suffix}",
+                "source_key": asset_key,
+            }
+            kwargs = _passthrough_kwargs(
+                self, {"derive_from", "key_prefix"}, overrides
             )
+            results.append(TargetSpecModel(**kwargs))
         return results
 
 
@@ -1796,18 +1729,13 @@ def _union_list(a: Optional[list[Any]], b: Optional[list[Any]]) -> Optional[list
 def _merge_dict_shallow(
     a: Optional[dict[str, Any]], b: Optional[dict[str, Any]]
 ) -> Optional[dict[str, Any]]:
-    if not a and b:
-        return
-    if not b:
-        return a
-    if not a:
+    if a is None and b is None:
+        return None
+    if a is None:
         return b
-    out: dict[str, Any] = {}
-    if a:
-        out.update(a)
-    if b:
-        out.update(b)
-    return out
+    if b is None:
+        return a
+    return {**a, **b}
 
 
 def _merge_collision(
@@ -2020,6 +1948,10 @@ def _merge_target_source_fields(
         out["loader_kwargs"] = _merge_dict_shallow(
             base.get("loader_kwargs", None), over.get("loader_kwargs", None)
         )
+        out["reducer"] = over.get("reducer", None) or base.get("reducer", None)
+        out["reducer_kwargs"] = _merge_dict_shallow(
+            base.get("reducer_kwargs", None), over.get("reducer_kwargs", None)
+        )
         # clear others
         out.update(
             {
@@ -2032,6 +1964,10 @@ def _merge_target_source_fields(
     elif mode == "derived":
         out["source_key"] = over.get("source_key", None) or getattr(
             base, "source_key", None
+        )
+        out["reducer"] = over.get("reducer", None) or base.get("reducer", None)
+        out["reducer_kwargs"] = _merge_dict_shallow(
+            base.get("reducer_kwargs", None), over.get("reducer_kwargs", None)
         )
         # clear others
         out.update(
