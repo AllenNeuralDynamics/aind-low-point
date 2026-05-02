@@ -7,6 +7,7 @@ Calls store.dispatch() directly — PlanStore is the shared abstraction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 import pyvista as pv
 from pyvista.trame.ui import plotter_ui
@@ -38,6 +39,7 @@ class TrameController:
     overlays_resolver: OverlayResolver
     couple_ml: bool = False
     ccf_overlay: CCFOverlayManager | None = field(default=None)
+    on_save: Callable[[], None] | None = None
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -105,21 +107,22 @@ class TrameController:
 
         @state.change("ap_tilt")
         def on_ap(**kwargs):
-            self._on_ap_change(state)
+            if not state.probe:
+                return
+            self._on_ap_change(state, state.probe, float(state.ap_tilt))
 
         @state.change("ml_tilt")
         def on_ml(**kwargs):
-            self._on_ml_change(state)
+            if not state.probe:
+                return
+            self._on_ml_change(state, state.probe, float(state.ml_tilt))
 
         @state.change("spin")
         def on_spin(**kwargs):
             if not state.probe:
                 return
             self.store.dispatch(
-                SetProbeLocalAngles(
-                    name=state.probe,
-                    spin=float(state.spin),
-                )
+                SetProbeLocalAngles(name=state.probe, spin=float(state.spin))
             )
 
         @state.change("arc")
@@ -166,44 +169,29 @@ class TrameController:
             for r in self.ccf_overlay.visible_regions()
         ]
 
-    def _on_ap_change(self, state) -> None:
-        if not state.probe:
-            return
-        plan = self.store.state.probes.get(state.probe)
+    def _on_ap_change(self, state, probe: str, ap: float) -> None:
+        plan = self.store.state.probes.get(probe)
         if plan and plan.arc_id and plan.bind_ap_to_arc:
-            self.store.dispatch(
-                SetArcAngle(
-                    arc_id=plan.arc_id,
-                    ap_deg=float(state.ap_tilt),
-                )
-            )
+            self.store.dispatch(SetArcAngle(arc_id=plan.arc_id, ap_deg=ap))
         else:
-            self.store.dispatch(
-                SetProbeLocalAngles(
-                    name=state.probe,
-                    ap_local=float(state.ap_tilt),
-                )
-            )
+            self.store.dispatch(SetProbeLocalAngles(name=probe, ap_local=ap))
 
-    def _on_ml_change(self, state) -> None:
-        if not state.probe:
-            return
-        plan = self.store.state.probes.get(state.probe)
+    def _on_ml_change(self, state, probe: str, ml: float) -> None:
+        plan = self.store.state.probes.get(probe)
         if not plan:
             return
-        if plan.calibrated and state.probe in self.store.state.calibrations:
+        if plan.calibrated and probe in self.store.state.calibrations:
             state.ml_tilt = float(plan.ml_local)
             return
-        new_ml = float(state.ml_tilt)
         if self.couple_ml:
             arc_id = plan.arc_id
             for name, other in self.store.state.probes.items():
                 if other.calibrated and name in self.store.state.calibrations:
                     continue
                 if other.arc_id == arc_id:
-                    self.store.dispatch(SetProbeLocalAngles(name=name, ml_local=new_ml))
+                    self.store.dispatch(SetProbeLocalAngles(name=name, ml_local=ml))
         else:
-            self.store.dispatch(SetProbeLocalAngles(name=state.probe, ml_local=new_ml))
+            self.store.dispatch(SetProbeLocalAngles(name=probe, ml_local=ml))
 
     def _on_arc_assign(self, state) -> None:
         if not state.probe or not state.arc:
@@ -261,47 +249,12 @@ class TrameController:
                 density="compact",
             )
             vuetify3.VDivider(classes="my-2")
-            vuetify3.VSlider(
-                v_model=("offset_r", 0),
-                min=-5,
-                max=5,
-                step=0.05,
-                label="R (mm)",
-                hide_details=True,
-            )
-            vuetify3.VSlider(
-                v_model=("offset_a", 0),
-                min=-5,
-                max=5,
-                step=0.05,
-                label="A (mm)",
-                hide_details=True,
-            )
+            self._slider_row("offset_r", "R (mm)", -7.5, 7.5, 0.05)
+            self._slider_row("offset_a", "A (mm)", -7.5, 7.5, 0.05)
             vuetify3.VDivider(classes="my-2")
-            vuetify3.VSlider(
-                v_model=("ap_tilt", 0),
-                min=-60,
-                max=60,
-                step=0.5,
-                label="AP tilt (\u00b0)",
-                hide_details=True,
-            )
-            vuetify3.VSlider(
-                v_model=("ml_tilt", 0),
-                min=-60,
-                max=60,
-                step=0.5,
-                label="ML tilt (\u00b0)",
-                hide_details=True,
-            )
-            vuetify3.VSlider(
-                v_model=("spin", 0),
-                min=-180,
-                max=180,
-                step=1,
-                label="Spin (\u00b0)",
-                hide_details=True,
-            )
+            self._slider_row("ap_tilt", "AP tilt (°)", -60, 60, 0.5)
+            self._slider_row("ml_tilt", "ML tilt (°)", -60, 60, 0.5)
+            self._slider_row("spin", "Spin (°)", -180, 180, 1)
             vuetify3.VDivider(classes="my-2")
             vuetify3.VSelect(
                 v_model=("target",),
@@ -320,6 +273,35 @@ class TrameController:
             # CCF overlay controls
             if self.ccf_overlay is not None:
                 self._build_ccf_controls()
+
+    def _slider_row(
+        self,
+        model: str,
+        label: str,
+        min_val: float,
+        max_val: float,
+        step: float,
+    ) -> None:
+        """Slider + editable number field bound to the same state variable."""
+        with vuetify3.VRow(align="center", no_gutters=True, dense=True):
+            with vuetify3.VCol():
+                vuetify3.VSlider(
+                    v_model=(model, 0),
+                    min=min_val,
+                    max=max_val,
+                    step=step,
+                    label=label,
+                    hide_details=True,
+                )
+            with vuetify3.VCol(cols="auto"):
+                vuetify3.VTextField(
+                    v_model=(model, 0),
+                    type="number",
+                    step=step,
+                    density="compact",
+                    hide_details=True,
+                    style="width:80px",
+                )
 
     def _build_ccf_controls(self) -> None:
         """Build the CCF region overlay UI widgets."""
@@ -369,3 +351,5 @@ class TrameController:
 
         if plan.arc_id:
             state.arc = plan.arc_id
+        if plan.target_key:
+            state.target = plan.target_key

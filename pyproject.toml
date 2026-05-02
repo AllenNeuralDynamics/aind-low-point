@@ -27,8 +27,13 @@ dependencies = [
   "pydantic>=2,<3",
   "pynrrd>=1,<2",
   "python-fcl>=0.7,<0.8",
+  "pyvista>=0.46.5",
   "SimpleITK>=2,<3",
+  "trame>=3.12.0",
+  "trame-vtk>=2.11.3",
+  "trame-vuetify>=3.2.1",
   "trimesh[recommend]>=4,<5",
+  "vtk>=9.5.2",
 ]
 
 [project.urls]

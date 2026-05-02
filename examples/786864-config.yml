@@ -32,16 +32,13 @@ transforms:
         path: "${paths.annotations_path}/com_plane.h5"
         inverted: true
 
-resources:
-  - key: retro-targets
-    kind: points
-    src: "${paths.annotations_path}/${paths.mouse}_retro_targets.fcsv"
-    loader: read_slicer_fcsv
-    tags: ["target"]
+resources: []
 
 canonicalizations:
   "obj-wavefront":
     source_space: "ASR"
+  "probe-mesh":
+    source_space: "LSA"
 
 materials:
   structure:
@@ -82,12 +79,12 @@ asset_templates:
     kind: mesh
     role: geometry
     loader: trimesh
-    canonicalization_ref: "obj-wavefront"
+    canonicalization_ref: "probe-mesh"
     material: { color: "#66DD66", opacity: 1.0 }  # FIX: was default_material
     caps: [renderable, movable, collidable, selectable, savable]
     collision:
       group: probe
-      mask: [fixture]
+      mask: [fixture, probe]
 
 target_templates:
   structure:
@@ -128,13 +125,19 @@ assets:
     transform: headframe_to_lps
     scene_tags: [static, structure]
 
+  - key: headframe
+    src: "${paths.model_path}/TenRunHeadframe.obj"
+    templates: [hardware]
+    material: { color: "#E7DDFF", opacity: 1.0 }
+    scene_tags: [static, fixture, headframe]
+
   - key: cone
     src: "${paths.model_path}/0274-430-01.obj"
     templates: [hardware]
     scene_tags: [fixture, cone]
 
   - key: well
-    src: ~  # TODO: add path
+    src: "${paths.model_path}/WHC_Well/0274-400-07_X02.obj"
     templates: [hardware]
     scene_tags: [fixture, well]
 
@@ -144,6 +147,17 @@ assets:
     material_ref: implant
     transform: implant_to_lps
     scene_tags: [fixture, implant]
+
+  - key: retro-targets
+    kind: points
+    src: "${paths.annotations_path}/OldRabiesTracing/${paths.mouse}_rabies_pts_from_698928_LPS.csv"
+    loader: csv_points
+    role: anatomy
+    tags: [retro-target]
+    transform: headframe_to_lps
+    scene_tags: [static]
+    material: { color: "#FF4444", opacity: 0.6, point_size: 3.0 }
+    caps: [renderable]
 
   # Probe meshes (no transform/scene_tags — nodes auto-generated from plan.probes)
   - key: probe:2.1
@@ -212,15 +226,17 @@ plan:
       arc: b
       spin: 135
       slider_ml: -30
+      past_target_mm: 0.5
       target:
         kind: node
-        key: target:hole:1
+        key: target:PL
 
     CLA:
       kind: "2.1"
       arc: d
       spin: 0
       slider_ml: -27
+      past_target_mm: 6.0
       target:
         kind: node
         key: target:hole:12
@@ -230,42 +246,47 @@ plan:
       arc: a
       spin: -45
       slider_ml: -10
+      past_target_mm: 1.5
       target:
         kind: node
-        key: target:hole:3
+        key: target:MD
 
     CA1:
       kind: "2.1"
       arc: c
       spin: -180
       slider_ml: 6
+      past_target_mm: 1.2
       target:
         kind: node
-        key: target:hole:10
+        key: target:CA1
 
     VM:
       kind: "2.1"
       arc: c
       spin: 0
       slider_ml: -20
+      past_target_mm: 0.5
       target:
         kind: node
-        key: target:hole:6
+        key: target:VM
 
     BLA:
       kind: "2.1"
       arc: b
       spin: 50
       slider_ml: 27
+      past_target_mm: 1.0
       target:
         kind: node
-        key: target:hole:4
+        key: target:BLA
 
     RSP:
       kind: "2.1"
       arc: c
       spin: -100
       slider_ml: 22
+      past_target_mm: 2.0
       target:
         kind: node
-        key: target:hole:5
+        key: target:RSP
