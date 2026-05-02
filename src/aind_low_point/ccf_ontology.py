@@ -34,6 +34,7 @@ class CCFOntology:
     structures: dict[int, CCFStructure]
     _search_index: list[tuple[str, int]] = field(default_factory=list, repr=False)
     _acronym_index: dict[str, int] = field(default_factory=dict, repr=False)
+    _children_map: dict[int, list[int]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         if not self._search_index:
@@ -43,6 +44,12 @@ class CCFOntology:
             ]
         if not self._acronym_index:
             self._acronym_index = {s.acronym: s.id for s in self.structures.values()}
+        if not self._children_map:
+            cm: dict[int, list[int]] = {}
+            for s in self.structures.values():
+                if s.parent_id is not None:
+                    cm.setdefault(s.parent_id, []).append(s.id)
+            self._children_map = cm
 
     @classmethod
     def from_bundled(cls) -> CCFOntology:
@@ -95,6 +102,38 @@ class CCFOntology:
         """Exact-match (case-sensitive) lookup by acronym."""
         sid = self._acronym_index.get(acronym)
         return self.structures.get(sid) if sid is not None else None
+
+    def descendants_of(
+        self, acronym: str, *, include_self: bool = False
+    ) -> list[CCFStructure]:
+        """All descendants of the structure with the given acronym.
+
+        Walks the parent-id tree breadth-first. Order within the result is
+        roughly top-down (closer ancestors before their descendants) but is
+        not part of the public contract.
+
+        Returns ``[]`` if the acronym is unknown.
+        """
+        root = self.find_by_acronym(acronym)
+        if root is None:
+            return []
+
+        result: list[CCFStructure] = [root] if include_self else []
+        queue: list[int] = [root.id]
+        seen: set[int] = {root.id}
+        while queue:
+            next_queue: list[int] = []
+            for parent_id in queue:
+                for child_id in self._children_map.get(parent_id, []):
+                    if child_id in seen:
+                        continue
+                    seen.add(child_id)
+                    child = self.structures.get(child_id)
+                    if child is not None:
+                        result.append(child)
+                        next_queue.append(child_id)
+            queue = next_queue
+        return result
 
     def autocomplete_items(self, query: str, limit: int = 50) -> list[dict]:
         """Return dicts suitable for a Vuetify VAutocomplete.

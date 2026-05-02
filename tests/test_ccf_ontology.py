@@ -150,3 +150,39 @@ class TestFindByAcronym:
 
     def test_unknown_acronym(self, ontology):
         assert ontology.find_by_acronym("ZZZ") is None
+
+
+class TestDescendantsOf:
+    def test_descendants_of_root(self, ontology):
+        # root → grey → {VISp, MO, CA1}
+        ids = {s.id for s in ontology.descendants_of("root")}
+        assert ids == {8, 385, 500, 993}
+
+    def test_descendants_of_intermediate(self, ontology):
+        # grey → {VISp, MO, CA1} (no further nesting in fixture)
+        ids = {s.id for s in ontology.descendants_of("grey")}
+        assert ids == {385, 500, 993}
+
+    def test_descendants_of_leaf(self, ontology):
+        assert ontology.descendants_of("VISp") == []
+
+    def test_descendants_of_unknown(self, ontology):
+        assert ontology.descendants_of("ZZZ") == []
+
+    def test_descendants_include_self(self, ontology):
+        ids = {s.id for s in ontology.descendants_of("grey", include_self=True)}
+        assert ids == {8, 385, 500, 993}
+
+    def test_descendants_of_leaf_include_self(self, ontology):
+        result = ontology.descendants_of("VISp", include_self=True)
+        assert len(result) == 1
+        assert result[0].id == 385
+
+    def test_descendants_bfs_order(self, ontology):
+        # Closer ancestors should appear before their descendants. Direct
+        # children of root come before grandchildren.
+        result = ontology.descendants_of("root")
+        ids_in_order = [s.id for s in result]
+        # 'grey' (id=8) is a direct child of root; the rest are grandchildren.
+        assert ids_in_order[0] == 8
+        assert set(ids_in_order[1:]) == {385, 500, 993}
