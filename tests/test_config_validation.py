@@ -777,6 +777,83 @@ class TestAtlasMeshPackSpec:
         config = ConfigModel.model_validate(config_data)
         assert "atlas" in config.assets[0].tags
 
+    def test_atlas_pack_use_ccf_color(self):
+        """Each expanded asset gets the CCF region's bundled color_hex."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp", "CA1"],
+                        "use_ccf_color": True,
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        by_key = {a.key: a for a in config.assets}
+        # CCF id 385 (VISp) bundled color is #08858C; CA1 (993) is #7ED04B
+        assert by_key["atlas:VISp"].material is not None
+        assert by_key["atlas:VISp"].material.color == "#08858C"
+        assert by_key["atlas:CA1"].material is not None
+        assert by_key["atlas:CA1"].material.color == "#7ED04B"
+
+    def test_atlas_pack_use_ccf_color_preserves_other_material_fields(self):
+        """opacity / point_size from pack material flow through; CCF only sets color."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                        "use_ccf_color": True,
+                        "material": {"opacity": 0.25},
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        mat = config.assets[0].material
+        assert mat is not None
+        assert mat.color == "#08858C"
+        assert mat.opacity == 0.25
+
+    def test_atlas_pack_explicit_color_beats_ccf_color(self):
+        """If pack material includes color, that overrides the CCF color."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                        "use_ccf_color": True,
+                        "material": {"color": "#FF00FF"},
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].material.color == "#FF00FF"
+
+    def test_atlas_pack_use_ccf_color_default_false(self):
+        """Default behaviour unchanged: no per-asset material when flag absent."""
+        config_data = ConfigFactory.minimal_config()
+        config_data.update(
+            {
+                "assets": [
+                    {
+                        "atlas_dir": "/atlas",
+                        "acronyms": ["VISp"],
+                    }
+                ],
+            }
+        )
+        config = ConfigModel.model_validate(config_data)
+        assert config.assets[0].material is None
+
     def test_atlas_pack_empty_acronyms_rejected(self):
         config_data = ConfigFactory.minimal_config()
         config_data.update(

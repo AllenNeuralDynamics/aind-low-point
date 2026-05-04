@@ -86,7 +86,8 @@ assets:
     acronyms: [ACB, GPe, SNr, VTA, SI, PL, ORB, SUB, BLA, MD, PVT, LHA]
     key_prefix: "structure"
     canonicalization_ref: "identity-lps"
-    material_ref: structure
+    material_ref: structure   # provides opacity etc.; color overridden per region
+    use_ccf_color: true       # each region rendered in its bundled CCF color
     role: anatomy
     tags: [structure]
     scene_tags: [static, structure]

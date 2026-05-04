@@ -758,6 +758,13 @@ class AtlasMeshPackSpecModel(BaseModel):
     acronyms: list[str] = Field(..., min_length=1)
     key_prefix: str = "atlas"
     file_extension: str = ".obj"
+    # When True, colour each expanded asset by the CCF region's bundled
+    # color_hex. Overrides ``material.color`` for the expanded specs only;
+    # other material fields (opacity, point_size, …) flow through from
+    # ``material_ref`` / ``material`` as usual. If the user explicitly
+    # sets a color in ``material:`` on the pack, that wins (explicit beats
+    # implicit).
+    use_ccf_color: bool = False
 
     # Same downstream fields as BulkAssetSpecModel (kind/loader forced in expand)
     role: Optional[Role] = Role.ANATOMY
@@ -842,9 +849,28 @@ class AtlasMeshPackSpecModel(BaseModel):
                 # because self.role reflects either the YAML or the default.
                 "role": self.role,
             }
+            if self.use_ccf_color:
+                # Build a per-region material that injects the CCF color.
+                # Start from the pack's material (if any) so opacity etc.
+                # carry through; only fill in color when the user didn't
+                # set it explicitly.
+                base_material = (
+                    self.material.model_dump(exclude_unset=True)
+                    if self.material is not None
+                    else {}
+                )
+                if "color" not in base_material:
+                    base_material["color"] = structure.color_hex
+                overrides["material"] = MaterialModel(**base_material)
             kwargs = _passthrough_kwargs(
                 self,
-                {"acronyms", "atlas_dir", "key_prefix", "file_extension"},
+                {
+                    "acronyms",
+                    "atlas_dir",
+                    "key_prefix",
+                    "file_extension",
+                    "use_ccf_color",
+                },
                 overrides,
             )
             results.append(AssetSpecModel(**kwargs))

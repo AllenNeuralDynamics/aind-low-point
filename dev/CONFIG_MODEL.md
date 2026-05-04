@@ -47,6 +47,7 @@ overrides)` — see the "Template merge" gotcha below.
   acronyms: [VISp, MOs, CA1, BLA]   # CCF region acronyms (case-sensitive)
   key_prefix: atlas                 # → "atlas:VISp", "atlas:MOs", …
   file_extension: .obj              # default
+  use_ccf_color: false              # default; set true to colour by CCF
   canonicalization_ref: atlas-template-lps
   material_ref: structure
 ```
@@ -62,6 +63,11 @@ overrides)` — see the "Template merge" gotcha below.
 - `role` defaults to `Role.ANATOMY` (sensible for brain regions); user can
   override at the pack level. Other fields (templates, material, transform,
   scene_tags, caps, collision, …) behave the same as in `BulkAssetSpecModel`.
+- `use_ccf_color: true` injects a per-region inline `material` with the CCF
+  region's bundled `color_hex`. Other material fields (opacity, point_size,
+  …) flow through from `material_ref` / pack-level `material` as usual. If
+  the user explicitly sets `material.color` on the pack, that wins (explicit
+  > implicit).
 
 ## Templates
 
