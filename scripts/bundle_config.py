@@ -214,7 +214,8 @@ def main() -> int:
 
         # 4. README so the recipient knows what to do.
         configs_block = "\n".join(f"├── {name}" for name in config_filenames)
-        run_block = "\n".join(
+        primary_cfg = config_filenames[0]
+        run_examples = "\n".join(
             f"BUNDLE_DIR=$(pwd)/{bundle_name} \\\n"
             f"    uv run --python 3.13 python examples/launch_trame_config.py "
             f"{bundle_name}/{name}"
@@ -223,28 +224,89 @@ def main() -> int:
         (bundle_root / "README.md").write_text(
             f"""# {bundle_name}
 
-Self-contained aind-low-point planning asset pack.
+A self-contained aind-low-point planning asset pack: every mesh, mask, and
+transform referenced by the bundled config(s) is included under `data/`,
+with paths rewritten to a single `${{paths.bundle}}` indirection so the
+config travels with the data.
 
-## Layout
+## What's inside
 
 ```
 {bundle_name}/
-├── README.md
+├── README.md         (this file)
 {configs_block}
-└── data/             (all referenced assets, original absolute paths preserved)
+└── data/             (every referenced asset; original absolute paths preserved)
 ```
 
-## Run any of the included configs
+## Prerequisites
+
+1. **Python 3.13** — `python-fcl` does not ship 3.14 wheels. The launcher uses
+   `uv run --python 3.13 …`, which will fetch 3.13 if it isn't installed.
+2. **uv** — <https://docs.astral.sh/uv/>. Install with `curl -LsSf
+   https://astral.sh/uv/install.sh | sh` or your distro's package manager.
+3. **aind-low-point** — clone the repo and install in editable mode:
+   ```bash
+   git clone git@github.com:AllenNeuralDynamics/aind-low-point.git
+   cd aind-low-point
+   uv sync --python 3.13
+   ```
+
+## Get started
 
 ```bash
-# After: tar -xf {bundle_name}.tar.zst -C /some/dir
-cd /some/dir
+# 1. Extract the pack anywhere
+tar -xf {bundle_name}.tar.zst -C ~/data
 
-{run_block}
+# 2. Launch the trame web app from your aind-low-point checkout. Set
+#    BUNDLE_DIR (the configs default to it via OmegaConf) or edit
+#    paths.bundle in the YAML to the absolute extracted path.
+cd ~/aind-low-point   # or wherever you cloned the repo
+{run_examples}
 ```
 
-Or edit one of the configs in `{bundle_name}/` and replace the
-`paths.bundle` line with the absolute extracted path.
+The launcher prints a URL (default <http://localhost:8080/index.html>);
+open it in any browser. Stop the server with Ctrl-C.
+
+## Quick UI tour
+
+- **Probe / Arc / Probe type / Target** drop-downs — pick which probe you're
+  editing, which arc it's bound to, which mesh to render it as, and which
+  catalog target it aims at.
+- **R / A / Depth** sliders — translate the probe entry point in mm; depth
+  pushes the tip past the target along the probe axis.
+- **AP tilt / ML tilt / Spin** sliders — angles in degrees. AP is shared
+  across probes on the same arc when bound; ML and spin are per-probe.
+- **Set target** — apply the dropdown selection; resets depth to zero.
+- **Save YAML** (if launched with `--save`) — writes the current plan to
+  the path you passed.
+- **CCF region search / opacity** (if launched with `--ccf-volume <path>`)
+  — toggle individual brain regions on/off in the 3D view.
+
+Probes that aim at a CCF-derived target are coloured to match the Allen
+region colour automatically; probe meshes can be swapped on the fly via
+the Probe type dropdown.
+
+## Editing the config
+
+Each config has a `paths.bundle` line at the very top. By default it
+reads `${{oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}}`, so
+you can either:
+
+1. set `BUNDLE_DIR` in the launching shell (recommended), or
+2. replace the placeholder with the absolute extracted path.
+
+Everything else under `paths:` is interpolated relative to that single
+indirection.
+
+## Optional: regenerate this pack
+
+```bash
+uv run --python 3.13 python scripts/bundle_config.py \\
+    examples/{primary_cfg} \\
+    --output {bundle_name}.tar.zst
+```
+
+(Pass multiple configs to union their asset sets in a single bundle.)
 """
         )
 
