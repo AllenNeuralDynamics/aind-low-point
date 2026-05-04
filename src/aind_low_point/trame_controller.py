@@ -16,18 +16,42 @@ from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import vuetify3
 
 from aind_low_point.assets import AssetCatalog
+from aind_low_point.ccf_ontology import CCFOntology
 from aind_low_point.ccf_overlay import CCFOverlayManager
 from aind_low_point.collisions import CollisionHandler
 from aind_low_point.commands import (
     AssignProbeArc,
     SetArcAngle,
+    SetProbeKind,
     SetProbePastTarget,
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
     SetProbeTarget,
 )
+from aind_low_point.core import Material
 from aind_low_point.rendering import OverlayResolver, RendererAdapter
 from aind_low_point.state_change import PlanStore
+
+
+def _ccf_color_for_target(
+    catalog: AssetCatalog, target_key: str | None
+) -> str | None:
+    """Return the CCF color_hex for *target_key* if its source asset
+    carries CCF metadata (set by AtlasMeshPackSpecModel.expand). Returns
+    None for targets that aren't derived from a CCF region."""
+    if target_key is None:
+        return None
+    target_spec = catalog.targets.get(target_key)
+    if target_spec is None or target_spec.source_key is None:
+        return None
+    source_spec = catalog.assets.get(target_spec.source_key)
+    if source_spec is None:
+        return None
+    acronym = source_spec.metadata.get("ccf_acronym")
+    if not acronym:
+        return None
+    structure = CCFOntology.from_bundled().find_by_acronym(acronym)
+    return structure.color_hex if structure else None
 
 
 @dataclass
@@ -63,6 +87,14 @@ class TrameController:
         probe_names = sorted(self.store.state.probes.keys())
         arc_ids = sorted(self.store.state.kinematics.arc_angles.keys())
         target_names = sorted(self.assets.targets.keys())
+        # Available probe kinds from the catalog (everything keyed
+        # "probe:<kind>"). The kind value stored in plan.probes is just
+        # "<kind>"; the renderer looks the asset up as "probe:<kind>".
+        probe_kinds = sorted(
+            k.split(":", 1)[1]
+            for k in self.assets.assets
+            if k.startswith("probe:")
+        )
 
         state.probes = probe_names
         state.probe = probe_names[0] if probe_names else None
@@ -70,6 +102,8 @@ class TrameController:
         state.arc = arc_ids[0] if arc_ids else None
         state.targets = target_names
         state.target = target_names[0] if target_names else None
+        state.probe_kinds = probe_kinds
+        state.probe_kind = ""  # populated by _load_probe_state
 
         state.offset_r = 0.0
         state.offset_a = 0.0
@@ -79,6 +113,11 @@ class TrameController:
         state.spin = 0
 
         self._load_probe_state(state)
+        # Initial CCF-based colouring for every probe whose target is a
+        # CCF-derived region.
+        for name in probe_names:
+            self._apply_target_based_color(name)
+        self.render_adapter.backend.flush()
 
         # CCF overlay state
         if self.ccf_overlay is not None:
@@ -141,6 +180,12 @@ class TrameController:
         @state.change("arc")
         def on_arc_assign(**kwargs):
             self._on_arc_assign(state)
+
+        @state.change("probe_kind")
+        def on_kind_change(**kwargs):
+            if not state.probe or not state.probe_kind:
+                return
+            self._on_probe_kind_change(state.probe, str(state.probe_kind))
 
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
@@ -222,6 +267,78 @@ class TrameController:
         new_angle = float(self.store.state.kinematics.arc_angles.get(state.arc, 0.0))
         state.ap_tilt = new_angle
 
+    def _apply_target_based_color(self, probe_name: str) -> None:
+        """Set ``probe:<name>`` node's material_override to the CCF color of
+        its current target (no-op if the target isn't CCF-derived)."""
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None or plan.target_key is None:
+            return
+        color = _ccf_color_for_target(self.assets, plan.target_key)
+        if color is None:
+            return
+        nid = f"probe:{probe_name}"
+        node = self.render_adapter.scene.nodes.get(nid)
+        if node is None:
+            return
+        # Inherit other material fields (opacity, point_size, …) from the
+        # current override or the asset's default material.
+        base = node.material_override
+        if base is None:
+            base = self.assets.get_spec(node.asset_key).default_material
+        node.material_override = Material(
+            name=base.name,
+            color_hex_str=color,
+            opacity=base.opacity,
+            wireframe=base.wireframe,
+            visible=base.visible,
+            point_size=base.point_size,
+        )
+        self.render_adapter.repaint_materials([nid])
+
+    def _on_probe_kind_change(self, probe_name: str, new_kind: str) -> None:
+        """Swap the probe's mesh by changing its ``kind``.
+
+        Updates the scene node's ``asset_key`` to the new ``probe:<kind>``,
+        drops the renderer / collision handles for the old mesh, dispatches
+        SetProbeKind to update the planning state (which fires RenderHandler
+        to re-create the renderer node), and re-registers the collision
+        object with the new BVH.
+        """
+        new_asset_key = f"probe:{new_kind}"
+        if new_asset_key not in self.assets.assets:
+            return  # unknown probe type — defensive
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None or plan.kind == new_kind:
+            return
+        nid = f"probe:{probe_name}"
+        scene = self.render_adapter.scene
+        node = scene.nodes.get(nid)
+        if node is None:
+            return
+
+        # Mutate scene node so the renderer / collision adapter see the
+        # new geometry on their next pass.
+        node.asset_key = new_asset_key
+
+        # Drop existing handles so they get recreated with the new mesh.
+        self.render_adapter.backend.remove([nid])
+        self.collision_handler.adapter.remove_nodes([nid])
+
+        # Update planning state — fires RenderHandler which calls
+        # sync_nodes → _upsert_node → has_node=False → create_mesh with the
+        # new geometry.
+        self.store.dispatch(SetProbeKind(name=probe_name, kind=new_kind))
+
+        # Re-register collision object with the new BVH (sync handles
+        # missing-node case by creating).
+        self.collision_handler.adapter.on_store_change(
+            self.store.state, [probe_name]
+        )
+
+        # Re-apply target-based colour to the new node.
+        self._apply_target_based_color(probe_name)
+        self.render_adapter.backend.flush()
+
     def _build_layout(self, server, ctrl) -> None:
         """Build the Vuetify3 + PyVista layout."""
 
@@ -236,6 +353,8 @@ class TrameController:
                 SetProbePastTarget(name=state.probe, past_target_mm=0.0)
             )
             state.depth = 0.0
+            # Re-colour the probe to match the new target's CCF region.
+            self._apply_target_based_color(state.probe)
 
         with SinglePageLayout(server) as layout:
             layout.title.set_text("Probe Planner")
@@ -262,6 +381,13 @@ class TrameController:
                 v_model=("arc",),
                 items=("arcs",),
                 label="Arc",
+                hide_details=True,
+                density="compact",
+            )
+            vuetify3.VSelect(
+                v_model=("probe_kind",),
+                items=("probe_kinds",),
+                label="Probe type",
                 hide_details=True,
                 density="compact",
             )
@@ -381,3 +507,4 @@ class TrameController:
             state.arc = plan.arc_id
         if plan.target_key:
             state.target = plan.target_key
+        state.probe_kind = plan.kind

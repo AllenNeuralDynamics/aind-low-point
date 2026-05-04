@@ -839,6 +839,12 @@ class AtlasMeshPackSpecModel(BaseModel):
             key = f"{self.key_prefix}:{acronym}"
             src = self.atlas_dir / f"{structure.id}{self.file_extension}"
 
+            # Carry CCF identity in the spec metadata so downstream code
+            # (e.g. probe-recolouring by target) can recover the region
+            # without having to parse the asset key.
+            base_metadata = dict(self.metadata)
+            base_metadata.setdefault("ccf_id", structure.id)
+            base_metadata.setdefault("ccf_acronym", structure.acronym)
             overrides: dict[str, Any] = {
                 "key": key,
                 "src": src,
@@ -848,6 +854,7 @@ class AtlasMeshPackSpecModel(BaseModel):
                 # survives into the expanded spec; user-supplied role wins
                 # because self.role reflects either the YAML or the default.
                 "role": self.role,
+                "metadata": base_metadata,
             }
             if self.use_ccf_color:
                 # Build a per-region material that injects the CCF color.

@@ -109,6 +109,20 @@ class SetProbeCalibrated:
     calibrated: bool
 
 
+@dataclass(frozen=True)
+class SetProbeKind:
+    """Switch a probe's mesh by changing its ``kind``.
+
+    The runtime probe asset is looked up as ``probe:<kind>`` in the
+    catalog. The TrameController is responsible for swapping the scene
+    node's ``asset_key`` and re-creating the renderer / collision
+    handles to match — this command only touches the planning state.
+    """
+
+    name: str
+    kind: str
+
+
 PlanningCommand = Union[
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
@@ -120,6 +134,7 @@ PlanningCommand = Union[
     AssignProbeArc,
     BindProbeAPToArc,
     SetProbeCalibrated,
+    SetProbeKind,
 ]
 
 
@@ -208,6 +223,12 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
     if isinstance(cmd, NudgeProbePastTarget):
         plan = ps.probes[cmd.name]
         plan.past_target_mm = float(plan.past_target_mm + cmd.d_mm)
+        changed.add(cmd.name)
+        return sorted(changed)
+
+    if isinstance(cmd, SetProbeKind):
+        plan = ps.probes[cmd.name]
+        plan.kind = str(cmd.kind)
         changed.add(cmd.name)
         return sorted(changed)
 
