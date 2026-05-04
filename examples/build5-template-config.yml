@@ -142,9 +142,11 @@ assets:
     templates: [probe]
 
 targets:
-  # One target per loaded brain region, derived as the region's center of
-  # mass. Selectable in the trame UI.
-  - derive_from:
+  # Per-hemisphere centroids of each CCF region — bilateral structures
+  # otherwise collapse onto the midline. The hemisphere_center_mass
+  # reducer slices the mesh at x=0 (LPS-L axis: positive = animal's
+  # left) and returns the volumetric centre of the kept half.
+  - derive_from: &ccf_structure_keys
       - "structure:ACB"
       - "structure:GPe"
       - "structure:SNr"
@@ -157,7 +159,15 @@ targets:
       - "structure:MD"
       - "structure:PVT"
       - "structure:LHA"
-    key_prefix: "target:"
+    key_prefix: "target:L:"
+    reducer: hemisphere_center_mass
+    reducer_kwargs: { hemisphere: left }
+    templates: [structure]
+
+  - derive_from: *ccf_structure_keys
+    key_prefix: "target:R:"
+    reducer: hemisphere_center_mass
+    reducer_kwargs: { hemisphere: right }
     templates: [structure]
 
 scene:
@@ -178,7 +188,7 @@ plan:
       slider_ml: -10
       target:
         kind: catalog
-        key: "target:ACB"
+        key: "target:L:ACB"
     P2_SNr_VTA:           # alternates between SNr and VTA — flip in UI
       kind: "2.4"
       arc: a
@@ -186,7 +196,7 @@ plan:
       slider_ml: 10
       target:
         kind: catalog
-        key: "target:SNr"
+        key: "target:L:SNr"
     P3_GPe:
       kind: "2.4"
       arc: b
@@ -194,7 +204,7 @@ plan:
       slider_ml: -10
       target:
         kind: catalog
-        key: "target:GPe"
+        key: "target:L:GPe"
     P4_flex:              # any of the 12 regions; default BLA
       kind: "2.4"
       arc: b
@@ -202,5 +212,5 @@ plan:
       slider_ml: 10
       target:
         kind: catalog
-        key: "target:BLA"
+        key: "target:L:BLA"
 

@@ -298,6 +298,61 @@ def mesh_centroid(source: SourceGeo, **_) -> ReduceOut:
     raise TypeError(f"Unsupported source type: {type(source)}")
 
 
+@register_reducer
+def hemisphere_center_mass(
+    source: SourceGeo,
+    *,
+    hemisphere: str = "left",
+    plane: float = 0.0,
+    **_,
+) -> ReduceOut:
+    """Volumetric centre of mass of one LPS hemisphere of the source mesh.
+
+    In LPS the L axis points to the patient's left, so vertices with
+    ``x > plane`` are in the LEFT hemisphere; ``x < plane`` is the right.
+    The mesh is sliced at ``x = plane`` (capped) and the resulting
+    half-mesh's ``center_mass`` returned. Falls back to a vertex-mean of
+    the requested side if slicing fails or yields an empty mesh.
+
+    Parameters
+    ----------
+    hemisphere
+        ``"left"`` / ``"l"`` or ``"right"`` / ``"r"``.
+    plane
+        Sagittal split plane in LPS mm (default 0 = midline).
+    """
+    hemi = hemisphere.lower()
+    if hemi in {"left", "l"}:
+        sign = 1.0
+    elif hemi in {"right", "r"}:
+        sign = -1.0
+    else:
+        raise ValueError(
+            f"hemisphere must be 'left' or 'right', got {hemisphere!r}"
+        )
+
+    if isinstance(source, trimesh.Trimesh):
+        half = None
+        try:
+            half = source.slice_plane(
+                plane_origin=[float(plane), 0.0, 0.0],
+                plane_normal=[sign, 0.0, 0.0],
+                cap=True,
+            )
+        except Exception:
+            half = None
+        if half is not None and len(half.vertices) > 0 and not half.is_empty:
+            return np.asarray(half.center_mass, dtype=np.float64)
+        verts = np.asarray(source.vertices, dtype=np.float64)
+    else:
+        verts = np.asarray(source, dtype=np.float64)
+
+    mask = (verts[:, 0] - plane) * sign > 0
+    if not mask.any():
+        return verts.mean(axis=0)
+    return verts[mask].mean(axis=0)
+
+
 @dataclass(frozen=True)
 class CanonicalizationRuntime:
     source_space: SourceSpace = OrientationCode.LPS  # e.g. "LPS", "RAS", "ASR"
