@@ -68,6 +68,17 @@ target_templates:
       mask: []
 
 assets:
+  # Whole-brain outline (skull-stripped MRI mask, already in template-LPS).
+  # Rendered very transparent for spatial context only — non-collidable.
+  - key: brain
+    src: "${paths.template_dir}/CK-GL-T1-template-100-mask.nii.gz"
+    loader: sitk_volume
+    role: anatomy
+    canonicalization_ref: "identity-lps"
+    material: { color: "#FFFFFF", opacity: 0.05 }
+    caps: [renderable]
+    scene_tags: [static, brain]
+
   # CCF region meshes from the brainglobe build5 directory. Already in
   # template-LPS mm so canonicalization is identity. Resolved by acronym
   # via the bundled CCF ontology.
