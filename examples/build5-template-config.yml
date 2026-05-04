@@ -129,12 +129,16 @@ assets:
   - key: headframe
     src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2/0160-100-57-_Dual Hemisphere Headframe V2.obj"
     templates: [hardware]
-    canonicalization_ref: "obj-asr-meters"   # assumed ASR; flip to identity-lps-meters etc. if wrong
+    canonicalization_ref: "obj-als-meters"
     scene_tags: [static, headframe]
 
-  # Probe meshes (Newscale 2.1 in LSA, from AIND's shared HeadframeModels).
+  # Probe meshes (Newscale, LSA convention, from AIND's shared HeadframeModels).
   - key: probe:2.1
     src: "${paths.probe_models_dir}/dovetailtweezer_oneShank_centered_corrected.obj"
+    templates: [probe]
+
+  - key: probe:2.4
+    src: "${paths.probe_models_dir}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
 targets:
