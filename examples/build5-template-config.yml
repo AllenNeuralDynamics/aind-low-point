@@ -1,0 +1,178 @@
+version: 1
+
+# Template-space planning config (build5 MRI template).
+# Brain regions are pulled from the brainglobe atlas already warped into
+# template-LPS mm; hardware fixtures live in their native frames and are
+# canonicalized per-asset. No chem-shift correction — geometry is
+# authoritative; we are not estimating positions from an MRI scan.
+
+paths:
+  template_dir: "/mnt/Data/MRI/templates/AIND-MRI-T1-template-47-brain-mirror-2026-04-13"
+  atlas_dir: "${.template_dir}/brainglobe_meshes_in_build5"
+  hardware_dir: "/home/galen.lynch/Downloads"
+  probe_models_dir: "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels"
+
+# (no `imaging:` block — chem-shift correction is N/A in template space)
+
+canonicalizations:
+  identity-lps:
+    source_space: "LPS"
+    scale_to_mm: 1.0
+  obj-asr:
+    source_space: "ASR"
+  obj-als:
+    source_space: "ALS"
+  probe-mesh:
+    source_space: "LSA"
+
+materials:
+  structure:
+    color: "#88CCFF"
+    opacity: 0.12
+  structure_target:
+    color: "#FFCC88"
+    opacity: 0.6
+    point_size: 6.0
+  fixture:
+    color: "#E7DDFF"
+    opacity: 0.7
+
+asset_templates:
+  hardware:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    material_ref: fixture
+    caps: [renderable, collidable]
+    collision:
+      group: fixture
+      mask: [probe]
+  probe:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    canonicalization_ref: "probe-mesh"
+    material: { color: "#66DD66", opacity: 1.0 }
+    caps: [renderable, movable, collidable, selectable, savable]
+    collision:
+      group: probe
+      mask: [fixture, probe]
+
+target_templates:
+  structure:
+    reducer: mesh_center_mass
+    material_ref: structure_target
+    tags: [structure, target]
+    collision:
+      group: static
+      mask: []
+
+assets:
+  # CCF region meshes from the brainglobe build5 directory. Already in
+  # template-LPS mm so canonicalization is identity. Resolved by acronym
+  # via the bundled CCF ontology.
+  - atlas_dir: "${paths.atlas_dir}"
+    acronyms: [ACB, GPe, SNr, VTA, SI, PL, ORB, SUB, BLA, MD, PVT, LHA]
+    key_prefix: "structure"
+    canonicalization_ref: "identity-lps"
+    material_ref: structure
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    collision:
+      group: static
+      mask: []
+
+  # Hardware fixtures — each in its own native frame.
+  - key: implant
+    src: "${paths.hardware_dir}/0274-P-001.obj"
+    templates: [hardware]
+    canonicalization_ref: "obj-asr"
+    scene_tags: [fixture, implant]
+
+  - key: well
+    src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well/0160-075-01-_DHC HF Well.obj"
+    templates: [hardware]
+    canonicalization_ref: "obj-als"
+    scene_tags: [fixture, well]
+
+  - key: probe-guard
+    src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard/0304-P-004-_DHC HF Probeguard.obj"
+    templates: [hardware]
+    canonicalization_ref: "identity-lps"
+    scene_tags: [fixture, probe-guard]
+
+  - key: headframe
+    src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2/0160-100-57-_Dual Hemisphere Headframe V2.obj"
+    templates: [hardware]
+    canonicalization_ref: "obj-asr"  # assumed; override if mesh ships in a different frame
+    scene_tags: [static, headframe]
+
+  # Probe meshes (Newscale 2.1 in LSA, from AIND's shared HeadframeModels).
+  - key: probe:2.1
+    src: "${paths.probe_models_dir}/dovetailtweezer_oneShank_centered_corrected.obj"
+    templates: [probe]
+
+targets:
+  # One target per loaded brain region, derived as the region's center of
+  # mass. Selectable in the trame UI.
+  - derive_from:
+      - "structure:ACB"
+      - "structure:GPe"
+      - "structure:SNr"
+      - "structure:VTA"
+      - "structure:SI"
+      - "structure:PL"
+      - "structure:ORB"
+      - "structure:SUB"
+      - "structure:BLA"
+      - "structure:MD"
+      - "structure:PVT"
+      - "structure:LHA"
+    key_prefix: "target:"
+    templates: [structure]
+
+scene:
+  nodes: []   # all auto-scened from auto_scene: true on assets / probes
+
+plan:
+  arcs:
+    a: 0.0
+    b: 0.0
+
+  # Four probes per insertion — pick which four by retargeting in the UI.
+  # Defaults below spread across hemispheres / depths; adjust as needed.
+  probes:
+    P1:
+      kind: "2.1"
+      arc: a
+      spin: 0
+      slider_ml: -10
+      target:
+        kind: catalog
+        key: "target:ACB"
+    P2:
+      kind: "2.1"
+      arc: a
+      spin: 0
+      slider_ml: 10
+      target:
+        kind: catalog
+        key: "target:BLA"
+    P3:
+      kind: "2.1"
+      arc: b
+      spin: 0
+      slider_ml: -10
+      target:
+        kind: catalog
+        key: "target:MD"
+    P4:
+      kind: "2.1"
+      arc: b
+      spin: 0
+      slider_ml: 10
+      target:
+        kind: catalog
+        key: "target:LHA"
+
