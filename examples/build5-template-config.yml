@@ -22,6 +22,18 @@ canonicalizations:
     source_space: "ASR"
   obj-als:
     source_space: "ALS"
+  # Meter-unit variants: Onshape STEP→OBJ exports default to metres, so
+  # most hardware OBJs in /Downloads need scale_to_mm: 1000. The implant
+  # mesh happens to already be in mm — keep it on plain "obj-asr".
+  obj-asr-meters:
+    source_space: "ASR"
+    scale_to_mm: 1000.0
+  obj-als-meters:
+    source_space: "ALS"
+    scale_to_mm: 1000.0
+  identity-lps-meters:
+    source_space: "LPS"
+    scale_to_mm: 1000.0
   probe-mesh:
     source_space: "LSA"
 
@@ -105,19 +117,19 @@ assets:
   - key: well
     src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well/0160-075-01-_DHC HF Well.obj"
     templates: [hardware]
-    canonicalization_ref: "obj-als"
+    canonicalization_ref: "obj-als-meters"
     scene_tags: [fixture, well]
 
   - key: probe-guard
     src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard/0304-P-004-_DHC HF Probeguard.obj"
     templates: [hardware]
-    canonicalization_ref: "identity-lps"
+    canonicalization_ref: "identity-lps-meters"
     scene_tags: [fixture, probe-guard]
 
   - key: headframe
     src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2/0160-100-57-_Dual Hemisphere Headframe V2.obj"
     templates: [hardware]
-    canonicalization_ref: "obj-asr"  # assumed; override if mesh ships in a different frame
+    canonicalization_ref: "obj-asr-meters"   # assumed ASR; flip to identity-lps-meters etc. if wrong
     scene_tags: [static, headframe]
 
   # Probe meshes (Newscale 2.1 in LSA, from AIND's shared HeadframeModels).
