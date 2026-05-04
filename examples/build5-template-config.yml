@@ -168,39 +168,39 @@ plan:
     a: 0.0
     b: 0.0
 
-  # Four probes per insertion — pick which four by retargeting in the UI.
-  # Defaults below spread across hemispheres / depths; adjust as needed.
+  # Four NP 2.0 four-shank probes per insertion. Three are dedicated to
+  # specific regions; the fourth is flex (defaults to BLA, retarget in UI).
   probes:
-    P1:
-      kind: "2.1"
+    P1_ACB:
+      kind: "2.4"
       arc: a
       spin: 0
       slider_ml: -10
       target:
         kind: catalog
         key: "target:ACB"
-    P2:
-      kind: "2.1"
+    P2_SNr_VTA:           # alternates between SNr and VTA — flip in UI
+      kind: "2.4"
       arc: a
       spin: 0
       slider_ml: 10
       target:
         kind: catalog
-        key: "target:BLA"
-    P3:
-      kind: "2.1"
+        key: "target:SNr"
+    P3_GPe:
+      kind: "2.4"
       arc: b
       spin: 0
       slider_ml: -10
       target:
         kind: catalog
-        key: "target:MD"
-    P4:
-      kind: "2.1"
+        key: "target:GPe"
+    P4_flex:              # any of the 12 regions; default BLA
+      kind: "2.4"
       arc: b
       spin: 0
       slider_ml: 10
       target:
         kind: catalog
-        key: "target:LHA"
+        key: "target:BLA"
 
