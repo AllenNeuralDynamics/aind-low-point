@@ -1,22 +1,34 @@
-"""Bundle a config file with all referenced assets into a portable tar.zst.
+"""Bundle one or more config files with all referenced assets into a
+portable tar.zst.
 
-Walks the (OmegaConf-resolved) config to find every referenced file path,
-copies them into a staging directory keyed off their common prefix,
-rewrites the config so that all path references go through a single
-``${paths.bundle}`` indirection, and tars/compresses the result.
+Walks every (validated) ConfigModel to find every referenced file path,
+copies them into a staging directory keyed off the original absolute
+paths, rewrites each config so that all path references go through a
+single ``${paths.bundle}`` indirection, and tars/compresses the result.
 
-The receiving end:
+When multiple configs are passed, the file set is the **union**
+(deduplicated) so the bundle stays small even with shared assets.
+Each rewritten config is written into the bundle root with a filename
+derived from the source.
+
+Receiving end:
 
     tar -xf <bundle>.tar.zst -C /some/dir
-    # edit <bundle>/config.yml: set paths.bundle to the extracted directory,
-    # OR launch with the BUNDLE_DIR env var (config defaults to it):
-    BUNDLE_DIR=/some/dir/<bundle> uv run --python 3.13 \
+    # edit one of the configs in <bundle>/, set paths.bundle to the
+    # extracted dir, OR launch with the BUNDLE_DIR env var
+    BUNDLE_DIR=/some/dir/<bundle> uv run --python 3.13 \\
         python examples/launch_trame_config.py /some/dir/<bundle>/config.yml
 
 Usage:
-    uv run --python 3.13 python scripts/bundle_config.py \
-        examples/786864-config.yml \
+    # single config
+    uv run --python 3.13 python scripts/bundle_config.py \\
+        examples/786864-config.yml \\
         --output 786864-bundle.tar.zst
+
+    # multiple configs, unioned asset set
+    uv run --python 3.13 python scripts/bundle_config.py \\
+        examples/build5-template-config.yml examples/786864-config.yml \\
+        --output build5-asset-pack.tar.zst
 """
 
 from __future__ import annotations
@@ -69,7 +81,12 @@ def deep_rewrite_absolute_paths(obj, replacement_prefix: str):
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("config", type=Path, help="Source YAML config")
+    p.add_argument(
+        "config",
+        type=Path,
+        nargs="+",
+        help="One or more YAML config files; asset sets are unioned.",
+    )
     p.add_argument(
         "--output",
         "-o",
@@ -93,9 +110,10 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    if not args.config.is_file():
-        print(f"Config not found: {args.config}", file=sys.stderr)
-        return 1
+    for cp in args.config:
+        if not cp.is_file():
+            print(f"Config not found: {cp}", file=sys.stderr)
+            return 1
 
     bundle_name = args.bundle_name
     if bundle_name is None:
@@ -106,30 +124,37 @@ def main() -> int:
                 break
         bundle_name = stem
 
-    # 1. Run the full validation pipeline so bulk / range / atlas-pack
-    #    specs are expanded into concrete per-asset srcs (the raw YAML
-    #    has placeholders like {n} or {name} that only resolve here).
-    cfg = ConfigModel.from_yaml(args.config)
-    cfg_dump = cfg.model_dump(mode="python")
+    # 1. Validate every config so bulk / range / atlas-pack specs are
+    #    expanded into concrete per-asset srcs, then union the file sets.
     files: set[Path] = set()
-    collect_existing_file_paths(cfg_dump, files)
+    missing: set[str] = set()
+    cfg_dumps: dict[Path, dict] = {}
+    for cp in args.config:
+        print(f"Loading {cp}")
+        cfg = ConfigModel.from_yaml(cp)
+        dump = cfg.model_dump(mode="python")
+        cfg_dumps[cp] = dump
+        per_cfg: set[Path] = set()
+        collect_existing_file_paths(dump, per_cfg)
+        files |= per_cfg
+        # also note any concrete absolute paths that don't exist
+        walk: list = [dump]
+        while walk:
+            node = walk.pop()
+            if isinstance(node, dict):
+                walk.extend(node.values())
+            elif isinstance(node, (list, tuple)):
+                walk.extend(node)
+            elif isinstance(node, (str, Path)):
+                s = str(node)
+                if s.startswith("/") and not Path(s).exists():
+                    missing.add(s)
+        print(f"  {len(per_cfg)} files referenced")
+
     if not files:
-        print("No existing file references found in config.", file=sys.stderr)
+        print("No existing file references found.", file=sys.stderr)
         return 2
 
-    # Sanity check for any concrete path that didn't resolve to a real file
-    missing: set[str] = set()
-    walk: list = [cfg_dump]
-    while walk:
-        node = walk.pop()
-        if isinstance(node, dict):
-            walk.extend(node.values())
-        elif isinstance(node, (list, tuple)):
-            walk.extend(node)
-        elif isinstance(node, (str, Path)):
-            s = str(node)
-            if s.startswith("/") and not Path(s).exists():
-                missing.add(s)
     if missing:
         print("WARNING: some referenced paths do not exist on this machine:")
         for m in sorted(missing):
@@ -137,7 +162,7 @@ def main() -> int:
         print("They will be skipped from the bundle.")
 
     sorted_files = sorted(files)
-    print(f"Found {len(sorted_files)} files")
+    print(f"Union: {len(sorted_files)} files across {len(args.config)} config(s)")
 
     # 2. Stage the bundle in a temp directory. Mirror each file's full
     #    original path under ``<bundle>/data/`` so rewriting absolute
@@ -166,53 +191,60 @@ def main() -> int:
             total_bytes += dst.stat().st_size
         print(f"Copied {len(sorted_files)} files, {total_bytes / 1e6:.1f} MB raw")
 
-        # 3. Rewrite the config: every absolute path becomes
+        # 3. Rewrite each source config: every absolute path becomes
         #    ``${paths.bundle}/data<original_absolute_path>``.
-        with args.config.open() as f:
-            raw = yaml.safe_load(f)
-
         replacement = "${paths.bundle}/data"
-        rewritten = deep_rewrite_absolute_paths(raw, replacement)
-
-        # Inject paths.bundle with an env-var fallback so the receiving end can
-        # either set BUNDLE_DIR or edit this single line.
-        existing_paths = rewritten.get("paths", {}) or {}
-        new_paths = {
-            "bundle": "${oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}",
-            **existing_paths,
-        }
-        rewritten["paths"] = new_paths
-
-        config_out = bundle_root / "config.yml"
-        with config_out.open("w") as f:
-            yaml.safe_dump(rewritten, f, default_flow_style=False, sort_keys=False)
+        config_filenames: list[str] = []
+        for cp in args.config:
+            with cp.open() as f:
+                raw = yaml.safe_load(f)
+            rewritten = deep_rewrite_absolute_paths(raw, replacement)
+            existing_paths = rewritten.get("paths", {}) or {}
+            new_paths = {
+                "bundle": "${oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}",
+                **existing_paths,
+            }
+            rewritten["paths"] = new_paths
+            out_name = cp.name
+            with (bundle_root / out_name).open("w") as f:
+                yaml.safe_dump(
+                    rewritten, f, default_flow_style=False, sort_keys=False
+                )
+            config_filenames.append(out_name)
 
         # 4. README so the recipient knows what to do.
+        configs_block = "\n".join(f"├── {name}" for name in config_filenames)
+        run_block = "\n".join(
+            f"BUNDLE_DIR=$(pwd)/{bundle_name} \\\n"
+            f"    uv run --python 3.13 python examples/launch_trame_config.py "
+            f"{bundle_name}/{name}"
+            for name in config_filenames
+        )
         (bundle_root / "README.md").write_text(
             f"""# {bundle_name}
 
-Self-contained aind-low-point planning bundle.
+Self-contained aind-low-point planning asset pack.
 
 ## Layout
 
 ```
 {bundle_name}/
-├── README.md         (this file)
-├── config.yml        (paths rewritten to ${{paths.bundle}}/data/...)
-└── data/             (all referenced assets, original tree preserved)
+├── README.md
+{configs_block}
+└── data/             (all referenced assets, original absolute paths preserved)
 ```
 
-## Run
+## Run any of the included configs
 
 ```bash
 # After: tar -xf {bundle_name}.tar.zst -C /some/dir
 cd /some/dir
-BUNDLE_DIR=$(pwd)/{bundle_name} \\
-    uv run --python 3.13 python -m aind_low_point.app {bundle_name}/config.yml
+
+{run_block}
 ```
 
-Or edit `{bundle_name}/config.yml` and replace the `paths.bundle` line
-with the absolute extracted path.
+Or edit one of the configs in `{bundle_name}/` and replace the
+`paths.bundle` line with the absolute extracted path.
 """
         )
 

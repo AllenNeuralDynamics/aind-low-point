@@ -141,6 +141,10 @@ assets:
     src: "${paths.probe_models_dir}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
+  - key: probe:quadbase
+    src: "${paths.probe_models_dir}/Quadbase_customHolder_centeredOnShank0.obj"
+    templates: [probe]
+
 targets:
   # Per-hemisphere centroids of each CCF region — bilateral structures
   # otherwise collapse onto the midline. The hemisphere_center_mass
