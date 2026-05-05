@@ -65,12 +65,27 @@ Probe→hole assignment is **not specified by the user** — the optimizer picks
 
 ### Inner (continuous)
 
-Variables per probe (5 each, K probes total):
-- `ap_local, ml_local, spin` — angles, in degrees, respecting arc coupling
-  if `bind_ap_to_arc=True`.
-- `entry_offset_(R, A)` — 2D offset within the assigned hole, mm. Bounded by
-  the hole radius minus the shaft radius.
-- `past_target_mm` — how far past the target centroid the tip extends.
+Variables (`num_arcs + 4 × K_probes` total):
+- **per-arc** `ap` — one AP angle per arc id (probes with
+  ``bind_ap_to_arc=True`` inherit it; this is the rig's structural
+  coupling baked into the data model). For 2 arcs × 7 probes that's
+  ``2 + 28 = 30`` vars rather than ``5 × 7 = 35``.
+- **per-probe** `ml_local, spin` — angles in degrees.
+- **per-probe** `entry_offset_(R, A)` — 2D offset within the assigned
+  hole, mm. Bounded by the hole radius minus the shaft radius.
+- **per-probe** `past_target_mm` — how far past the target centroid
+  the tip extends.
+
+Hard pairwise constraints (rig hardware):
+- ``|ap_arc_i − ap_arc_j| ≥ 16°`` between arc pairs (default
+  ``min_arc_ap_separation_deg`` on ``PoseLimits``).
+- ``|ml_local_i − ml_local_j| ≥ 16°`` between any two probes on the
+  *same* arc (default ``min_within_arc_ml_separation_deg``).
+
+These are SLSQP-friendly inequality constraints and become
+hard-feasibility filters for CMA-ES. ``planning.kinematic_violations``
+already implements the check; the optimizer should re-use it rather
+than reimplement.
 
 Stages:
 1. **CMA-ES** (`cma` library): population-based, derivative-free, handles

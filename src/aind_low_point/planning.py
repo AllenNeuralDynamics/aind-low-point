@@ -72,6 +72,12 @@ class PoseLimits:
     x_mm: Optional[JointRange] = None
     y_mm: Optional[JointRange] = None
     z_mm: Optional[JointRange] = None
+    # Hardware angular-exclusion: AP between any two arcs and ML between
+    # any two probes on the same arc must each differ by at least this
+    # many degrees, otherwise the manipulators / arc structure can't be
+    # set up that way physically. Default matches the AIND rig (16°).
+    min_arc_ap_separation_deg: float = 16.0
+    min_within_arc_ml_separation_deg: float = 16.0
 
     def clamp_angles(
         self, ap: float, ml: float, spin: float
@@ -135,6 +141,53 @@ class Kinematics:
     def is_axis_coupled(self, axis_name: str) -> bool:
         """UI can call this to gray controls; mechanics layer just declares policy."""
         return axis_name in self.coupled_axes
+
+
+def kinematic_violations(
+    state: "PlanningState",
+) -> dict[str, set[tuple[str, ...]]]:
+    """Detect probes that violate the rig's pairwise angular separation
+    requirements.
+
+    Returns a dict with two keys:
+    ``"arc_ap"`` — set of (arc_a, arc_b) pairs whose AP angles are <
+    ``min_arc_ap_separation_deg`` apart (every probe on either arc is
+    affected).
+    ``"within_arc_ml"`` — set of (probe_a, probe_b) pairs on the same arc
+    whose effective ML angles are < ``min_within_arc_ml_separation_deg``
+    apart.
+
+    Sorted within each tuple so e.g. (a, b) and (b, a) hash the same.
+    """
+    limits = state.kinematics.limits
+    ap_thr = float(limits.min_arc_ap_separation_deg)
+    ml_thr = float(limits.min_within_arc_ml_separation_deg)
+
+    arc_violations: set[tuple[str, ...]] = set()
+    arcs = sorted(state.kinematics.arc_angles.keys())
+    for i, a in enumerate(arcs):
+        for b in arcs[i + 1:]:
+            if abs(state.kinematics.arc_angles[a]
+                   - state.kinematics.arc_angles[b]) < ap_thr:
+                arc_violations.add(tuple(sorted((a, b))))
+
+    by_arc: dict[str, list[str]] = {}
+    for name, plan in state.probes.items():
+        if plan.arc_id is None:
+            continue
+        by_arc.setdefault(plan.arc_id, []).append(name)
+
+    ml_violations: set[tuple[str, ...]] = set()
+    for arc_id, members in by_arc.items():
+        members.sort()
+        for i, a in enumerate(members):
+            ml_a = state.probes[a].ml_local
+            for b in members[i + 1:]:
+                ml_b = state.probes[b].ml_local
+                if abs(ml_a - ml_b) < ml_thr:
+                    ml_violations.add(tuple(sorted((a, b))))
+
+    return {"arc_ap": arc_violations, "within_arc_ml": ml_violations}
 
 
 @dataclass(slots=True)

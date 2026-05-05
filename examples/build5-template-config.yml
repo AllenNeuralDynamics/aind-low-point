@@ -168,8 +168,11 @@ scene:
 
 plan:
   arcs:
-    a: 0.0
-    b: 0.0
+    # Hardware constraint: arcs must be ≥16° apart in AP. The default
+    # spread keeps the starting plan kinematically valid; retune in the
+    # GUI as needed.
+    a: -20.0
+    b: 20.0
 
   # Four NP 2.0 four-shank probes per insertion. Three are dedicated to
   # specific regions; the fourth is flex (defaults to BLA, retarget in UI).

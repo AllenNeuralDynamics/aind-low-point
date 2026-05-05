@@ -33,7 +33,7 @@ from aind_low_point.commands import (
     SetProbeTarget,
 )
 from aind_low_point.core import Material
-from aind_low_point.planning import ProbePose
+from aind_low_point.planning import ProbePose, kinematic_violations
 from aind_low_point.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_low_point.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_low_point.state_change import PlanStore
@@ -48,6 +48,16 @@ OVERINSERTION_OVERLAY = OverlaySpec(
     alpha=0.7,
     source="overinsertion",
     priority=25,
+)
+# Kinematic-violation overlay: pairs of probes whose AP arcs are <16°
+# apart, or pairs of probes on the same arc with ML <16° apart, can't
+# physically be set up on the rig. Lower priority than over-insertion
+# (the geometry is recoverable by retargeting; this isn't).
+KINEMATIC_OVERLAY = OverlaySpec(
+    color=0xFFD400,  # amber yellow
+    alpha=0.7,
+    source="kinematic",
+    priority=20,
 )
 
 
@@ -107,9 +117,11 @@ class TrameController:
     # the first time a probe is checked for over-insertion. Independent
     # of pose, so this only depends on the asset's mesh.
     _shank_tips_cache: dict = field(default_factory=dict, repr=False)
-    # Set of node ids currently flagged as over-inserted. Used to detect
-    # transitions so we only repaint probes whose status flipped.
+    # Sets of node ids currently flagged by each warning overlay. Used
+    # to detect transitions so we only repaint probes whose status
+    # actually flipped.
     _prev_overinserted: set = field(default_factory=set, repr=False)
+    _prev_kinematic: set = field(default_factory=set, repr=False)
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -155,6 +167,7 @@ class TrameController:
             state.probe_tip_str = "—"
             state.probe_depth_str = "—"
             state.probe_overinsertion_str = "—"
+            state.probe_kinematic_str = "—"
 
             # Visibility / opacity per asset group. Initial values are taken
             # from each group's first node so the UI matches what's drawn.
@@ -207,10 +220,11 @@ class TrameController:
         # dispatch involving the currently-selected probe.
         self._readout_state = state  # captured for the closure
         self.store.subscribe(self._on_plan_change_for_readouts)
-        # Run an initial over-insertion pass for every probe so the
-        # overlay reflects the loaded plan from the moment the GUI
-        # comes up (rather than waiting for the first dispatch).
+        # Run an initial over-insertion + kinematic pass for every probe
+        # so the overlays reflect the loaded plan from the moment the
+        # GUI comes up (rather than waiting for the first dispatch).
         self._refresh_overinsertion_overlay(list(probe_names))
+        self._refresh_kinematic_overlay()
 
         # CCF overlay state
         if self.ccf_overlay is not None:
@@ -526,10 +540,57 @@ class TrameController:
 
     def _refresh_readouts(self, state, probe_name: str) -> None:
         tip_str, depth_str, overins_str = self._compute_probe_readouts(probe_name)
+        kin_str = self._kinematic_status_for_probe(probe_name)
         with state:
             state.probe_tip_str = tip_str
             state.probe_depth_str = depth_str
             state.probe_overinsertion_str = overins_str
+            state.probe_kinematic_str = kin_str
+
+    def _kinematic_status_for_probe(self, probe_name: str) -> str:
+        """Per-probe textual readout: 'OK' / '⚠ ML vs X[, Y]; AP-arc vs Z'."""
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None:
+            return "—"
+        viols = kinematic_violations(self.store.state)
+        ml_clashes: set[str] = set()
+        for a, b in viols["within_arc_ml"]:
+            if probe_name in (a, b):
+                ml_clashes.add(b if a == probe_name else a)
+        arc_clashes: set[str] = set()
+        if plan.arc_id is not None:
+            for a, b in viols["arc_ap"]:
+                if plan.arc_id in (a, b):
+                    arc_clashes.add(b if a == plan.arc_id else a)
+        if not ml_clashes and not arc_clashes:
+            return "OK"
+        msgs: list[str] = []
+        if ml_clashes:
+            msgs.append(f"ML vs {','.join(sorted(ml_clashes))}")
+        if arc_clashes:
+            msgs.append(f"AP-arc vs {','.join(sorted(arc_clashes))}")
+        return "⚠ " + "; ".join(msgs)
+
+    def _refresh_kinematic_overlay(self) -> None:
+        """Recompute kinematic violations and update the shared overlay
+        state. Repaints only probes whose membership flipped."""
+        viols = kinematic_violations(self.store.state)
+        affected: set[str] = set()
+        for arc_a, arc_b in viols["arc_ap"]:
+            for name, plan in self.store.state.probes.items():
+                if plan.arc_id in (arc_a, arc_b):
+                    affected.add(f"probe:{name}")
+        for a, b in viols["within_arc_ml"]:
+            affected.add(f"probe:{a}")
+            affected.add(f"probe:{b}")
+        flips = list(self._prev_kinematic ^ affected)
+        self._prev_kinematic = affected
+        overlays_state = self.overlays_resolver.overlays
+        overlays_state.clear_source("kinematic")
+        if affected:
+            overlays_state.set_for_source(list(affected), KINEMATIC_OVERLAY)
+        if flips:
+            self.render_adapter.repaint_materials(flips)
 
     def _refresh_overinsertion_overlay(self, changed_ids) -> None:
         """For every probe in *changed_ids*, recompute over-insertion and
@@ -568,14 +629,15 @@ class TrameController:
         self.render_adapter.repaint_materials(flips)
 
     def _on_plan_change_for_readouts(self, plan, changed_ids) -> None:
-        """PlanStore subscriber: refresh readouts + over-insertion
-        overlays when probe poses change. The overlay update covers all
-        changed probes (an arc change can move several at once); the
+        """PlanStore subscriber: refresh readouts + over-insertion +
+        kinematic overlays when probe poses change. The overlay updates
+        cover all probes (an arc change can ripple across several); the
         textual readout only tracks the active probe shown in the UI."""
         state = getattr(self, "_readout_state", None)
         if state is None:
             return
         self._refresh_overinsertion_overlay(changed_ids)
+        self._refresh_kinematic_overlay()
         if state.probe and state.probe in changed_ids:
             self._refresh_readouts(state, state.probe)
 
@@ -790,6 +852,11 @@ class TrameController:
                 vuetify3.VLabel("Over-inserted")
             with vuetify3.VCol():
                 vuetify3.VLabel("{{ probe_overinsertion_str }}")
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Kinematic")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ probe_kinematic_str }}")
 
     def _build_display_controls(self) -> None:
         """Per-group visibility toggles + opacity sliders for the major
