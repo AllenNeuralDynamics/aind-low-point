@@ -91,15 +91,11 @@ def hemisphere_center_mass(
         )
 
     if isinstance(source, trimesh.Trimesh):
-        half = None
-        try:
-            half = source.slice_plane(
-                plane_origin=[float(plane), 0.0, 0.0],
-                plane_normal=[sign, 0.0, 0.0],
-                cap=True,
-            )
-        except Exception:
-            half = None
+        half = source.slice_plane(
+            plane_origin=[float(plane), 0.0, 0.0],
+            plane_normal=[sign, 0.0, 0.0],
+            cap=True,
+        )
         if half is not None and len(half.vertices) > 0 and not half.is_empty:
             return np.asarray(half.center_mass, dtype=np.float64)
         verts = np.asarray(source.vertices, dtype=np.float64)

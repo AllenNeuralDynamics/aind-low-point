@@ -1445,8 +1445,6 @@ class ConfigModel(BaseModel):
         # expansion, so a single AtlasMeshPack can drive both the asset
         # roster and the derived targets without duplicating the
         # acronym list.
-        import fnmatch as _fnmatch
-
         asset_keys = [a.key for a in self.assets]
         for item in self.targets:
             if not isinstance(item, DerivedTargetSpecModel):
@@ -1455,7 +1453,7 @@ class ConfigModel(BaseModel):
                 continue
             pattern = item.derive_from
             matched = sorted(
-                k for k in asset_keys if _fnmatch.fnmatch(k, pattern)
+                k for k in asset_keys if fnmatch.fnmatch(k, pattern)
             )
             if not matched:
                 errors.append(

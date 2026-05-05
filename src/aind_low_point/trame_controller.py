@@ -16,6 +16,8 @@ from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import vuetify3
 
 import numpy as np
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
+from aind_mri_utils.arc_angles import arc_angles_to_affine
 
 from aind_low_point.assets import AssetCatalog
 from aind_low_point.ccf_ontology import CCFOntology
@@ -31,7 +33,9 @@ from aind_low_point.commands import (
     SetProbeTarget,
 )
 from aind_low_point.core import Material
+from aind_low_point.planning import ProbePose
 from aind_low_point.rendering import OverlayResolver, RendererAdapter
+from aind_low_point.runtime import _depth_along_probe_axis
 from aind_low_point.state_change import PlanStore
 
 
@@ -111,46 +115,65 @@ class TrameController:
             if k.startswith("probe:")
         )
 
-        state.probes = probe_names
-        state.probe = probe_names[0] if probe_names else None
-        state.arcs = arc_ids
-        state.arc = arc_ids[0] if arc_ids else None
-        state.targets = target_names
-        state.target = target_names[0] if target_names else None
-        state.probe_kinds = probe_kinds
-        state.probe_kind = ""  # populated by _load_probe_state
+        with state:
+            state.probes = probe_names
+            state.probe = probe_names[0] if probe_names else None
+            state.arcs = arc_ids
+            state.arc = arc_ids[0] if arc_ids else None
+            state.targets = target_names
+            state.target = target_names[0] if target_names else None
+            state.probe_kinds = probe_kinds
+            state.probe_kind = ""  # populated by _load_probe_state
 
-        # Read-only geometric readouts for the currently selected probe.
-        state.probe_tip_str = "—"
-        state.probe_depth_str = "—"
+            # Read-only geometric readouts for the currently selected probe.
+            state.probe_tip_str = "—"
+            state.probe_depth_str = "—"
 
-        # Visibility / opacity per asset group. Initial values are taken
-        # from each group's first node so the UI matches what's drawn.
-        for skey, _label, tags in VISIBILITY_GROUPS:
-            members = self._nodes_with_any_tag(tags)
-            if not members:
-                setattr(state, f"{skey}_visible", True)
-                setattr(state, f"{skey}_opacity", 1.0)
-                continue
-            first = members[0]
-            base_mat = first.material_override or self.assets.get_spec(
-                first.asset_key
-            ).default_material
-            setattr(state, f"{skey}_visible", bool(base_mat.visible))
-            setattr(state, f"{skey}_opacity", float(base_mat.opacity))
+            # Visibility / opacity per asset group. Initial values are taken
+            # from each group's first node so the UI matches what's drawn.
+            for skey, _label, tags in VISIBILITY_GROUPS:
+                members = self._nodes_with_any_tag(tags)
+                if not members:
+                    setattr(state, f"{skey}_visible", True)
+                    setattr(state, f"{skey}_opacity", 1.0)
+                    continue
+                first = members[0]
+                base_mat = first.material_override or self.assets.get_spec(
+                    first.asset_key
+                ).default_material
+                setattr(state, f"{skey}_visible", bool(base_mat.visible))
+                setattr(state, f"{skey}_opacity", float(base_mat.opacity))
 
-        state.offset_r = 0.0
-        state.offset_a = 0.0
-        state.depth = 0.0
-        state.ap_tilt = 0.0
-        state.ml_tilt = 0.0
-        state.spin = 0
+            state.offset_r = 0.0
+            state.offset_a = 0.0
+            state.depth = 0.0
+            state.ap_tilt = 0.0
+            state.ml_tilt = 0.0
+            state.spin = 0
 
         self._load_probe_state(state)
         # Initial CCF-based colouring for every probe whose target is a
-        # CCF-derived region.
+        # CCF-derived region. Collect all affected node IDs and issue a
+        # single repaint_materials call instead of one per probe.
+        colored_nids: list[str] = []
         for name in probe_names:
-            self._apply_target_based_color(name)
+            plan = self.store.state.probes.get(name)
+            if plan is None or plan.target_key is None:
+                continue
+            color = _ccf_color_for_target(self.assets, plan.target_key)
+            if color is None:
+                continue
+            nid = f"probe:{name}"
+            node = self.render_adapter.scene.nodes.get(nid)
+            if node is None:
+                continue
+            base = node.material_override
+            if base is None:
+                base = self.assets.get_spec(node.asset_key).default_material
+            node.material_override = base.replace(color_hex_str=color)
+            colored_nids.append(nid)
+        if colored_nids:
+            self.render_adapter.repaint_materials(colored_nids)
         self.render_adapter.backend.flush()
 
         # Subscribe to the plan store so the readouts update on every
@@ -335,14 +358,12 @@ class TrameController:
             base = node.material_override
             if base is None:
                 base = self.assets.get_spec(node.asset_key).default_material
-            node.material_override = Material(
-                name=base.name,
-                color_hex_str=base.color_hex_str,
-                opacity=base.opacity if opacity is None else float(opacity),
-                wireframe=base.wireframe,
-                visible=base.visible if visible is None else bool(visible),
-                point_size=base.point_size,
-            )
+            overrides = {}
+            if opacity is not None:
+                overrides["opacity"] = float(opacity)
+            if visible is not None:
+                overrides["visible"] = bool(visible)
+            node.material_override = base.replace(**overrides)
             affected.append(nid)
         if affected:
             self.render_adapter.repaint_materials(affected)
@@ -380,14 +401,6 @@ class TrameController:
         no brain-mesh asset is available or the probe hasn't entered
         the brain).
         """
-        from aind_anatomical_utils.coordinate_systems import (
-            convert_coordinate_system,
-        )
-        from aind_mri_utils.arc_angles import arc_angles_to_affine
-
-        from aind_low_point.build_runtime import _depth_along_probe_axis
-        from aind_low_point.planning import ProbePose
-
         plan = self.store.state.probes.get(probe_name)
         if plan is None:
             return "—", "—"
@@ -410,8 +423,9 @@ class TrameController:
 
     def _refresh_readouts(self, state, probe_name: str) -> None:
         tip_str, depth_str = self._compute_probe_readouts(probe_name)
-        state.probe_tip_str = tip_str
-        state.probe_depth_str = depth_str
+        with state:
+            state.probe_tip_str = tip_str
+            state.probe_depth_str = depth_str
 
     def _on_plan_change_for_readouts(self, plan, changed_ids) -> None:
         """PlanStore subscriber: refresh readouts when the active
@@ -440,14 +454,7 @@ class TrameController:
         base = node.material_override
         if base is None:
             base = self.assets.get_spec(node.asset_key).default_material
-        node.material_override = Material(
-            name=base.name,
-            color_hex_str=color,
-            opacity=base.opacity,
-            wireframe=base.wireframe,
-            visible=base.visible,
-            point_size=base.point_size,
-        )
+        node.material_override = base.replace(color_hex_str=color)
         self.render_adapter.repaint_materials([nid])
 
     def _on_probe_kind_change(self, probe_name: str, new_kind: str) -> None:
@@ -693,23 +700,21 @@ class TrameController:
             return
 
         r_mm, a_mm = plan.offsets_RA
-        state.offset_r = float(r_mm)
-        state.offset_a = float(a_mm)
-        state.depth = float(plan.past_target_mm)
-
-        if plan.arc_id and plan.bind_ap_to_arc:
-            state.ap_tilt = float(
-                self.store.state.kinematics.arc_angles.get(plan.arc_id, 0.0)
-            )
-        else:
-            state.ap_tilt = float(plan.ap_local)
-
-        state.ml_tilt = float(plan.ml_local)
-        state.spin = int(round(float(plan.spin)))
-
-        if plan.arc_id:
-            state.arc = plan.arc_id
-        if plan.target_key:
-            state.target = plan.target_key
-        state.probe_kind = plan.kind
+        ap_tilt = (
+            float(self.store.state.kinematics.arc_angles.get(plan.arc_id, 0.0))
+            if plan.arc_id and plan.bind_ap_to_arc
+            else float(plan.ap_local)
+        )
+        with state:
+            state.offset_r = float(r_mm)
+            state.offset_a = float(a_mm)
+            state.depth = float(plan.past_target_mm)
+            state.ap_tilt = ap_tilt
+            state.ml_tilt = float(plan.ml_local)
+            state.spin = int(round(float(plan.spin)))
+            if plan.arc_id:
+                state.arc = plan.arc_id
+            if plan.target_key:
+                state.target = plan.target_key
+            state.probe_kind = plan.kind
         self._refresh_readouts(state, state.probe)
