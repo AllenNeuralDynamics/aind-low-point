@@ -146,29 +146,18 @@ assets:
     templates: [probe]
 
 targets:
-  # Per-hemisphere centroids of each CCF region — bilateral structures
-  # otherwise collapse onto the midline. The hemisphere_center_mass
-  # reducer slices the mesh at x=0 (LPS-L axis: positive = animal's
-  # left) and returns the volumetric centre of the kept half.
-  - derive_from: &ccf_structure_keys
-      - "structure:ACB"
-      - "structure:GPe"
-      - "structure:SNr"
-      - "structure:VTA"
-      - "structure:SI"
-      - "structure:PL"
-      - "structure:ORB"
-      - "structure:SUB"
-      - "structure:BLA"
-      - "structure:MD"
-      - "structure:PVT"
-      - "structure:LHA"
+  # Per-hemisphere centroids of every CCF region in the catalog. Using
+  # ``derive_from_pattern`` means the atlas pack's ``acronyms:`` list
+  # above is the single source of truth — to add or remove a region,
+  # edit one place. The pattern is resolved against asset keys after
+  # the atlas pack expands.
+  - derive_from: "structure:*"
     key_prefix: "target:L:"
     reducer: hemisphere_center_mass
     reducer_kwargs: { hemisphere: left }
     templates: [structure]
 
-  - derive_from: *ccf_structure_keys
+  - derive_from: "structure:*"
     key_prefix: "target:R:"
     reducer: hemisphere_center_mass
     reducer_kwargs: { hemisphere: right }

@@ -1059,19 +1059,31 @@ class RangeTargetSpecModel(BaseModel):
 class DerivedTargetSpecModel(BaseModel):
     """Bulk target declaration deriving targets from existing assets.
 
-    Creates targets that reference existing assets via source_key.
+    ``derive_from`` accepts either an explicit list of asset keys or a
+    single fnmatch-style glob string (resolved against the catalog
+    AFTER bulk-asset expansion). The glob form lets a single source of
+    truth — e.g. an AtlasMeshPack's ``acronyms:`` list — drive both
+    assets and targets without manual duplication.
 
     Example::
 
+        # Explicit:
         - derive_from: [structure:PL, structure:MD, structure:CLA]
           key_prefix: "target:"
           templates: [structure]
-          transform: headframe_to_lps
+
+        # Glob — matches whatever assets exist after expansion:
+        - derive_from: "structure:*"
+          key_prefix: "target:"
+          templates: [structure]
     """
 
     model_config = {"extra": "forbid"}
 
-    derive_from: list[str] = Field(..., min_length=1)  # asset keys to derive from
+    # Either an explicit list of asset keys or a single fnmatch pattern
+    # string. Pattern strings are resolved against the (already-expanded)
+    # asset list during ConfigModel validation.
+    derive_from: Union[list[str], str] = Field(..., min_length=1)
     key_prefix: str = "target:"  # prepended to derive target key
 
     # Same fields as TargetSpecModel (except key, source_key)
@@ -1428,9 +1440,40 @@ class ConfigModel(BaseModel):
                 expanded_assets.append(item)
         self.assets = expanded_assets
 
+        # Resolve any string-form ``derive_from`` (fnmatch glob) entries
+        # against the now-expanded asset list before we run target
+        # expansion, so a single AtlasMeshPack can drive both the asset
+        # roster and the derived targets without duplicating the
+        # acronym list.
+        import fnmatch as _fnmatch
+
+        asset_keys = [a.key for a in self.assets]
+        for item in self.targets:
+            if not isinstance(item, DerivedTargetSpecModel):
+                continue
+            if not isinstance(item.derive_from, str):
+                continue
+            pattern = item.derive_from
+            matched = sorted(
+                k for k in asset_keys if _fnmatch.fnmatch(k, pattern)
+            )
+            if not matched:
+                errors.append(
+                    f"derive_target glob '{pattern}' "
+                    "matched no assets after expansion"
+                )
+                item.derive_from = []
+                continue
+            item.derive_from = matched
+
         expanded_targets: list[TargetSpecModel] = []
         for item in self.targets:
             if isinstance(item, (RangeTargetSpecModel, DerivedTargetSpecModel)):
+                if (
+                    isinstance(item, DerivedTargetSpecModel)
+                    and not item.derive_from
+                ):
+                    continue  # glob match was empty; already reported
                 expanded_targets.extend(item.expand())
             else:
                 expanded_targets.append(item)
