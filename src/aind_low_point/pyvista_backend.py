@@ -81,6 +81,7 @@ class PyVistaBackend:
         )
         if model_matrix is not None:
             actor.user_matrix = model_matrix
+        actor.visibility = bool(material.visible)
         self._actors[node_id] = actor
         self._kinds[node_id] = "mesh"
 
@@ -106,6 +107,7 @@ class PyVistaBackend:
             prop = actor.prop
             prop.color = _int_to_hex(material.color)
             prop.opacity = material.opacity
+            actor.visibility = bool(material.visible)
 
     def create_points(
         self,
@@ -127,6 +129,7 @@ class PyVistaBackend:
         )
         if model_matrix is not None:
             actor.user_matrix = model_matrix
+        actor.visibility = bool(material.visible)
         self._actors[node_id] = actor
         self._kinds[node_id] = "points"
 
@@ -149,6 +152,8 @@ class PyVistaBackend:
             pd.Modified()
         if material is not None:
             actor.prop.color = _int_to_hex(material.color)
+            actor.prop.opacity = material.opacity
+            actor.visibility = bool(material.visible)
 
     def remove(self, node_ids: Iterable[str]) -> None:
         for nid in node_ids:

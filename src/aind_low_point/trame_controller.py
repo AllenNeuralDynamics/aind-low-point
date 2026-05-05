@@ -33,6 +33,18 @@ from aind_low_point.rendering import OverlayResolver, RendererAdapter
 from aind_low_point.state_change import PlanStore
 
 
+# Predefined visibility / opacity groups exposed in the UI. Each group is
+# matched against a NodeInstance's ``tags`` set: a node is "in" the group
+# if any of its tags appears here. Probes are excluded — they are the
+# planning subjects and always visible.
+VISIBILITY_GROUPS: list[tuple[str, str, set[str]]] = [
+    # (state-key, display label, tags-that-match)
+    ("brain", "Brain outline", {"brain"}),
+    ("structures", "CCF regions", {"structure"}),
+    ("fixtures", "Hardware (fixtures)", {"fixture", "headframe"}),
+]
+
+
 def _ccf_color_for_target(
     catalog: AssetCatalog, target_key: str | None
 ) -> str | None:
@@ -104,6 +116,21 @@ class TrameController:
         state.target = target_names[0] if target_names else None
         state.probe_kinds = probe_kinds
         state.probe_kind = ""  # populated by _load_probe_state
+
+        # Visibility / opacity per asset group. Initial values are taken
+        # from each group's first node so the UI matches what's drawn.
+        for skey, _label, tags in VISIBILITY_GROUPS:
+            members = self._nodes_with_any_tag(tags)
+            if not members:
+                setattr(state, f"{skey}_visible", True)
+                setattr(state, f"{skey}_opacity", 1.0)
+                continue
+            first = members[0]
+            base_mat = first.material_override or self.assets.get_spec(
+                first.asset_key
+            ).default_material
+            setattr(state, f"{skey}_visible", bool(base_mat.visible))
+            setattr(state, f"{skey}_opacity", float(base_mat.opacity))
 
         state.offset_r = 0.0
         state.offset_a = 0.0
@@ -187,6 +214,9 @@ class TrameController:
                 return
             self._on_probe_kind_change(state.probe, str(state.probe_kind))
 
+        for skey, _label, tags in VISIBILITY_GROUPS:
+            self._wire_visibility_handlers(state, skey, tags)
+
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
 
@@ -266,6 +296,67 @@ class TrameController:
         )
         new_angle = float(self.store.state.kinematics.arc_angles.get(state.arc, 0.0))
         state.ap_tilt = new_angle
+
+    def _nodes_with_any_tag(self, tags: set[str]):
+        """Scene nodes whose tag set intersects *tags* (used by visibility groups)."""
+        return [
+            n
+            for n in self.render_adapter.scene.nodes.values()
+            if n.tags & tags
+        ]
+
+    def _apply_material_to_nodes(
+        self,
+        node_ids,
+        *,
+        opacity: float | None = None,
+        visible: bool | None = None,
+    ) -> None:
+        """Mutate ``material_override`` on a set of nodes, preserving every
+        field except the ones explicitly overridden. Issues a single
+        ``repaint_materials`` call for the affected nodes."""
+        affected: list[str] = []
+        for nid in node_ids:
+            node = self.render_adapter.scene.nodes.get(nid)
+            if node is None:
+                continue
+            base = node.material_override
+            if base is None:
+                base = self.assets.get_spec(node.asset_key).default_material
+            node.material_override = Material(
+                name=base.name,
+                color_hex_str=base.color_hex_str,
+                opacity=base.opacity if opacity is None else float(opacity),
+                wireframe=base.wireframe,
+                visible=base.visible if visible is None else bool(visible),
+                point_size=base.point_size,
+            )
+            affected.append(nid)
+        if affected:
+            self.render_adapter.repaint_materials(affected)
+
+    def _wire_visibility_handlers(self, state, skey: str, tags: set[str]) -> None:
+        """Register reactive handlers for the (skey)_visible and
+        (skey)_opacity state variables — applies changes to every scene
+        node whose tags intersect *tags*."""
+        vis_var = f"{skey}_visible"
+        op_var = f"{skey}_opacity"
+
+        @state.change(vis_var)
+        def _on_visible(**_):
+            members = self._nodes_with_any_tag(tags)
+            self._apply_material_to_nodes(
+                [n.key for n in members],
+                visible=bool(getattr(state, vis_var)),
+            )
+
+        @state.change(op_var)
+        def _on_opacity(**_):
+            members = self._nodes_with_any_tag(tags)
+            self._apply_material_to_nodes(
+                [n.key for n in members],
+                opacity=float(getattr(state, op_var)),
+            )
 
     def _apply_target_based_color(self, probe_name: str) -> None:
         """Set ``probe:<name>`` node's material_override to the CCF color of
@@ -414,6 +505,8 @@ class TrameController:
                 classes="mt-2",
             )
             vuetify3.VDivider(classes="my-2")
+            self._build_display_controls()
+            vuetify3.VDivider(classes="my-2")
             if self.on_save is not None:
                 vuetify3.VBtn(
                     "Save YAML",
@@ -455,6 +548,30 @@ class TrameController:
                     hide_details=True,
                     style="width:80px",
                 )
+
+    def _build_display_controls(self) -> None:
+        """Per-group visibility toggles + opacity sliders for the major
+        asset categories. Probes are always visible."""
+        vuetify3.VLabel("Display")
+        for skey, label, _tags in VISIBILITY_GROUPS:
+            with vuetify3.VRow(align="center", no_gutters=True, dense=True):
+                with vuetify3.VCol(cols="auto"):
+                    vuetify3.VSwitch(
+                        v_model=(f"{skey}_visible",),
+                        label=label,
+                        hide_details=True,
+                        density="compact",
+                        inset=True,
+                    )
+                with vuetify3.VCol():
+                    vuetify3.VSlider(
+                        v_model=(f"{skey}_opacity",),
+                        min=0.0,
+                        max=1.0,
+                        step=0.05,
+                        hide_details=True,
+                        density="compact",
+                    )
 
     def _build_ccf_controls(self) -> None:
         """Build the CCF region overlay UI widgets."""
