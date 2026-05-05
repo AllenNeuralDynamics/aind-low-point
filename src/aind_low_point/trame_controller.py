@@ -43,11 +43,18 @@ from aind_low_point.state_change import PlanStore
 # matched against a NodeInstance's ``tags`` set: a node is "in" the group
 # if any of its tags appears here. Probes are excluded — they are the
 # planning subjects and always visible.
-VISIBILITY_GROUPS: list[tuple[str, str, set[str]]] = [
-    # (state-key, display label, tags-that-match)
-    ("brain", "Brain outline", {"brain"}),
-    ("structures", "CCF regions", {"structure"}),
-    ("fixtures", "Hardware (fixtures)", {"fixture", "headframe"}),
+VISIBILITY_GROUPS: list[tuple[str, str, set[str], set[str]]] = [
+    # (state-key, display label, tags-to-include, tags-to-exclude).
+    # Groups are independent — a node ends up in every group whose
+    # include set intersects its tags AND whose exclude set doesn't.
+    # The exclude column is what keeps the implant slider distinct
+    # from the rest of the fixtures (the implant has both "implant"
+    # and "fixture" tags, so excluding "implant" from the broader
+    # group is how we split it out without renaming any tags).
+    ("brain", "Brain outline", {"brain"}, set()),
+    ("structures", "CCF regions", {"structure"}, set()),
+    ("implant", "Implant", {"implant"}, set()),
+    ("fixtures", "Other fixtures", {"fixture", "headframe"}, {"implant"}),
 ]
 
 
@@ -131,8 +138,8 @@ class TrameController:
 
             # Visibility / opacity per asset group. Initial values are taken
             # from each group's first node so the UI matches what's drawn.
-            for skey, _label, tags in VISIBILITY_GROUPS:
-                members = self._nodes_with_any_tag(tags)
+            for skey, _label, include, exclude in VISIBILITY_GROUPS:
+                members = self._nodes_with_any_tag(include, exclude)
                 if not members:
                     setattr(state, f"{skey}_visible", True)
                     setattr(state, f"{skey}_opacity", 1.0)
@@ -249,8 +256,8 @@ class TrameController:
                 return
             self._on_probe_kind_change(state.probe, str(state.probe_kind))
 
-        for skey, _label, tags in VISIBILITY_GROUPS:
-            self._wire_visibility_handlers(state, skey, tags)
+        for skey, _label, include, exclude in VISIBILITY_GROUPS:
+            self._wire_visibility_handlers(state, skey, include, exclude)
 
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
@@ -332,12 +339,17 @@ class TrameController:
         new_angle = float(self.store.state.kinematics.arc_angles.get(state.arc, 0.0))
         state.ap_tilt = new_angle
 
-    def _nodes_with_any_tag(self, tags: set[str]):
-        """Scene nodes whose tag set intersects *tags* (used by visibility groups)."""
+    def _nodes_with_any_tag(
+        self,
+        include: set[str],
+        exclude: set[str] = frozenset(),
+    ):
+        """Scene nodes whose tag set intersects *include* and is disjoint
+        from *exclude* (used by visibility groups)."""
         return [
             n
             for n in self.render_adapter.scene.nodes.values()
-            if n.tags & tags
+            if (n.tags & include) and not (n.tags & exclude)
         ]
 
     def _apply_material_to_nodes(
@@ -368,16 +380,18 @@ class TrameController:
         if affected:
             self.render_adapter.repaint_materials(affected)
 
-    def _wire_visibility_handlers(self, state, skey: str, tags: set[str]) -> None:
+    def _wire_visibility_handlers(
+        self, state, skey: str, include: set[str], exclude: set[str]
+    ) -> None:
         """Register reactive handlers for the (skey)_visible and
         (skey)_opacity state variables — applies changes to every scene
-        node whose tags intersect *tags*."""
+        node whose tags intersect *include* and don't touch *exclude*."""
         vis_var = f"{skey}_visible"
         op_var = f"{skey}_opacity"
 
         @state.change(vis_var)
         def _on_visible(**_):
-            members = self._nodes_with_any_tag(tags)
+            members = self._nodes_with_any_tag(include, exclude)
             self._apply_material_to_nodes(
                 [n.key for n in members],
                 visible=bool(getattr(state, vis_var)),
@@ -385,7 +399,7 @@ class TrameController:
 
         @state.change(op_var)
         def _on_opacity(**_):
-            members = self._nodes_with_any_tag(tags)
+            members = self._nodes_with_any_tag(include, exclude)
             self._apply_material_to_nodes(
                 [n.key for n in members],
                 opacity=float(getattr(state, op_var)),
@@ -647,7 +661,7 @@ class TrameController:
         """Per-group visibility toggles + opacity sliders for the major
         asset categories. Probes are always visible."""
         vuetify3.VLabel("Display")
-        for skey, label, _tags in VISIBILITY_GROUPS:
+        for skey, label, _include, _exclude in VISIBILITY_GROUPS:
             with vuetify3.VRow(align="center", no_gutters=True, dense=True):
                 with vuetify3.VCol(cols="auto"):
                     vuetify3.VSwitch(
