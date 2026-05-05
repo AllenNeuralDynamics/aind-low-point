@@ -34,9 +34,21 @@ from aind_low_point.commands import (
 )
 from aind_low_point.core import Material
 from aind_low_point.planning import ProbePose
-from aind_low_point.rendering import OverlayResolver, RendererAdapter
-from aind_low_point.runtime import _depth_along_probe_axis
+from aind_low_point.rendering import OverlayResolver, OverlaySpec, RendererAdapter
+from aind_low_point.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_low_point.state_change import PlanStore
+
+
+# Overlay colour + priority for over-insertion warnings. Collisions are
+# at priority 30, so they still win when both overlays apply to the same
+# probe (a colliding probe will appear collision-red even if
+# additionally over-inserted).
+OVERINSERTION_OVERLAY = OverlaySpec(
+    color=0xFF8800,  # orange
+    alpha=0.7,
+    source="overinsertion",
+    priority=25,
+)
 
 
 # Predefined visibility / opacity groups exposed in the UI. Each group is
@@ -91,6 +103,13 @@ class TrameController:
     ccf_overlay: CCFOverlayManager | None = field(default=None)
     on_save: Callable[[], None] | None = None
     on_export_plan: Callable[[], None] | None = None
+    # Per-probe-asset shank tip positions in local mm — populated lazily
+    # the first time a probe is checked for over-insertion. Independent
+    # of pose, so this only depends on the asset's mesh.
+    _shank_tips_cache: dict = field(default_factory=dict, repr=False)
+    # Set of node ids currently flagged as over-inserted. Used to detect
+    # transitions so we only repaint probes whose status flipped.
+    _prev_overinserted: set = field(default_factory=set, repr=False)
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -135,6 +154,7 @@ class TrameController:
             # Read-only geometric readouts for the currently selected probe.
             state.probe_tip_str = "—"
             state.probe_depth_str = "—"
+            state.probe_overinsertion_str = "—"
 
             # Visibility / opacity per asset group. Initial values are taken
             # from each group's first node so the UI matches what's drawn.
@@ -187,6 +207,10 @@ class TrameController:
         # dispatch involving the currently-selected probe.
         self._readout_state = state  # captured for the closure
         self.store.subscribe(self._on_plan_change_for_readouts)
+        # Run an initial over-insertion pass for every probe so the
+        # overlay reflects the loaded plan from the moment the GUI
+        # comes up (rather than waiting for the first dispatch).
+        self._refresh_overinsertion_overlay(list(probe_names))
 
         # CCF overlay state
         if self.ccf_overlay is not None:
@@ -407,47 +431,152 @@ class TrameController:
 
     def _compute_probe_readouts(
         self, probe_name: str
-    ) -> tuple[str, str]:
-        """Return ``(tip_RAS_str, depth_str)`` for the named probe.
+    ) -> tuple[str, str, str]:
+        """Return ``(tip_RAS_str, depth_str, overinsertion_str)`` for the
+        named probe — pre-formatted for direct display.
 
-        Both come back pre-formatted for direct display (``"x.xx, y.yy,
-        z.zz mm"`` for the tip, ``"d.dd mm"`` for depth or ``"—"`` when
-        no brain-mesh asset is available or the probe hasn't entered
-        the brain).
+        ``overinsertion_str`` is ``"⚠ <n>/<N> shanks"`` if any shank tip
+        has 2+ brain-surface intersections along the +probe-z ray (the
+        tip has gone through to the back side of the brain), ``"OK"``
+        if all shanks have ≤1 intersection, or ``"—"`` when no brain
+        mesh is loaded.
         """
         plan = self.store.state.probes.get(probe_name)
         if plan is None:
-            return "—", "—"
+            return "—", "—", "—"
         pose = ProbePose.from_planning_state(self.store.state, probe_name)
         tip_lps = np.asarray(pose.tip, dtype=np.float64)
         tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
         tip_str = f"{tip_ras[0]:+.2f}, {tip_ras[1]:+.2f}, {tip_ras[2]:+.2f} mm"
 
         depth_str = "—"
+        overins_str = "—"
         brain_spec = self.assets.assets.get("brain")
         if brain_spec is not None and brain_spec.mesh is not None:
             R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
-            depth = _depth_along_probe_axis(
-                tip_lps, probe_axis, brain_spec.mesh.raw
-            )
+            brain_mesh = brain_spec.mesh.raw
+            depth = _depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
             if depth is not None:
                 depth_str = f"{depth:.2f} mm"
-        return tip_str, depth_str
+            n_over, n_total = self._count_overinserted_shanks(
+                probe_name, pose, R, brain_mesh
+            )
+            if n_total == 0:
+                overins_str = "—"
+            elif n_over == 0:
+                overins_str = "OK"
+            else:
+                overins_str = f"⚠ {n_over}/{n_total} shanks"
+        return tip_str, depth_str, overins_str
+
+    def _shank_tips_local(self, asset_key: str) -> np.ndarray:
+        """Lazy per-asset shank-tip detection cache. Logs the count once
+        on first access so a mis-detection on an exotic mesh is visible
+        immediately."""
+        if asset_key in self._shank_tips_cache:
+            return self._shank_tips_cache[asset_key]
+        spec = self.assets.assets.get(asset_key)
+        if spec is None or spec.mesh is None:
+            tips = np.zeros((1, 3), dtype=np.float64)
+        else:
+            tips = detect_shank_tips_local(spec.mesh.raw)
+        self._shank_tips_cache[asset_key] = tips
+        print(f"  {asset_key}: detected {len(tips)} shank tip(s)")
+        return tips
+
+    def _count_overinserted_shanks(
+        self,
+        probe_name: str,
+        pose: ProbePose,
+        R: np.ndarray,
+        brain_mesh,
+    ) -> tuple[int, int]:
+        """Return ``(n_overinserted, n_total)`` — how many of the probe's
+        shanks have 2+ brain-surface intersections along the +probe-z
+        ray vs the total shank count.
+
+        ``probe:X`` scene node's ``asset_key`` determines which probe
+        mesh (and therefore which shank pattern) we're checking.
+        """
+        nid = f"probe:{probe_name}"
+        node = self.render_adapter.scene.nodes.get(nid)
+        if node is None:
+            return 0, 0
+        local_tips = self._shank_tips_local(node.asset_key)
+        if len(local_tips) == 0:
+            return 0, 0
+        # local → world: world_tip = R @ local_tip + pose.tip. The probe
+        # mesh's local origin is at shank-0's tip (canonical "centeredOn"
+        # naming), and pose.tip is the world position of that origin.
+        world_tips = local_tips @ R.T + np.asarray(pose.tip, dtype=np.float64)
+        probe_axis = R @ np.array([0.0, 0.0, 1.0])
+        n_over = 0
+        for tip_w in world_tips:
+            try:
+                locs, _, _ = brain_mesh.ray.intersects_location(
+                    ray_origins=tip_w[None, :],
+                    ray_directions=probe_axis[None, :],
+                )
+            except Exception:
+                continue
+            if len(locs) >= 2:
+                n_over += 1
+        return n_over, len(local_tips)
 
     def _refresh_readouts(self, state, probe_name: str) -> None:
-        tip_str, depth_str = self._compute_probe_readouts(probe_name)
+        tip_str, depth_str, overins_str = self._compute_probe_readouts(probe_name)
         with state:
             state.probe_tip_str = tip_str
             state.probe_depth_str = depth_str
+            state.probe_overinsertion_str = overins_str
+
+    def _refresh_overinsertion_overlay(self, changed_ids) -> None:
+        """For every probe in *changed_ids*, recompute over-insertion and
+        update the shared overlay state. Repaints only the probes whose
+        over-insertion status flipped."""
+        brain_spec = self.assets.assets.get("brain")
+        if brain_spec is None or brain_spec.mesh is None:
+            return
+        brain_mesh = brain_spec.mesh.raw
+        flips: list[str] = []
+        for probe_name in changed_ids:
+            if probe_name not in self.store.state.probes:
+                continue
+            pose = ProbePose.from_planning_state(self.store.state, probe_name)
+            R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+            n_over, n_total = self._count_overinserted_shanks(
+                probe_name, pose, R, brain_mesh
+            )
+            nid = f"probe:{probe_name}"
+            was = nid in self._prev_overinserted
+            is_now = n_over > 0 and n_total > 0
+            if is_now and not was:
+                self._prev_overinserted.add(nid)
+                flips.append(nid)
+            elif was and not is_now:
+                self._prev_overinserted.discard(nid)
+                flips.append(nid)
+        if not flips:
+            return
+        overlays_state = self.overlays_resolver.overlays
+        overlays_state.clear_source("overinsertion")
+        if self._prev_overinserted:
+            overlays_state.set_for_source(
+                list(self._prev_overinserted), OVERINSERTION_OVERLAY
+            )
+        self.render_adapter.repaint_materials(flips)
 
     def _on_plan_change_for_readouts(self, plan, changed_ids) -> None:
-        """PlanStore subscriber: refresh readouts when the active
-        probe's plan changes (or when an arc change affects it)."""
+        """PlanStore subscriber: refresh readouts + over-insertion
+        overlays when probe poses change. The overlay update covers all
+        changed probes (an arc change can move several at once); the
+        textual readout only tracks the active probe shown in the UI."""
         state = getattr(self, "_readout_state", None)
-        if state is None or not state.probe:
+        if state is None:
             return
-        if state.probe in changed_ids:
+        self._refresh_overinsertion_overlay(changed_ids)
+        if state.probe and state.probe in changed_ids:
             self._refresh_readouts(state, state.probe)
 
     def _apply_target_based_color(self, probe_name: str) -> None:
@@ -656,6 +785,11 @@ class TrameController:
                 vuetify3.VLabel("Depth (brain)")
             with vuetify3.VCol():
                 vuetify3.VLabel("{{ probe_depth_str }}")
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Over-inserted")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ probe_overinsertion_str }}")
 
     def _build_display_controls(self) -> None:
         """Per-group visibility toggles + opacity sliders for the major

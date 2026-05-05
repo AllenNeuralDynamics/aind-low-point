@@ -69,6 +69,7 @@ from aind_low_point.runtime.loaders import (
     sitk_volume,
     trimesh_from_sitk_mask,
 )
+from aind_low_point.runtime.shanks import detect_shank_tips_local
 from aind_low_point.runtime.reducers import (
     _REDUCER_REGISTRY,
     ReduceOut,
@@ -113,6 +114,8 @@ __all__ = [
     "register_loader_fn",
     "sitk_volume",
     "trimesh_from_sitk_mask",
+    # shanks
+    "detect_shank_tips_local",
     # reducers
     "ReduceOut",
     "SourceGeo",
