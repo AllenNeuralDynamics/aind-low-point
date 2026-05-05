@@ -13,7 +13,7 @@ import pyvista as pv
 from pyvista.trame.ui import plotter_ui
 from trame.app import get_server
 from trame.ui.vuetify3 import SinglePageLayout
-from trame.widgets import vuetify3
+from trame.widgets import client, vuetify3
 
 import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
@@ -65,6 +65,54 @@ KINEMATIC_OVERLAY = OverlaySpec(
 # matched against a NodeInstance's ``tags`` set: a node is "in" the group
 # if any of its tags appears here. Probes are excluded — they are the
 # planning subjects and always visible.
+# Gaming-style keyboard shortcuts. Mirrors the K3D controller's
+# convention (WASD = R/A offsets, IJKL = tilts, UO = spin) and adds
+# RF for depth + Tab/Shift+Tab to cycle probes + ? for help. Modifier
+# multipliers match the K3D controller too: Shift = coarse 10×, Ctrl
+# = fine 0.2×.
+KB_ACTIONS: list[tuple[str, str, str]] = [
+    # (key, action_id, display label)
+    ("w", "a_inc", "+A offset"),
+    ("s", "a_dec", "−A offset"),
+    ("a", "r_dec", "−R offset"),
+    ("d", "r_inc", "+R offset"),
+    ("ArrowUp", "a_inc", "+A offset"),
+    ("ArrowDown", "a_dec", "−A offset"),
+    ("ArrowLeft", "r_dec", "−R offset"),
+    ("ArrowRight", "r_inc", "+R offset"),
+    ("r", "depth_inc", "Deeper (+depth)"),
+    ("f", "depth_dec", "Shallower (−depth)"),
+    ("i", "ap_inc", "AP tilt up"),
+    ("k", "ap_dec", "AP tilt down"),
+    ("j", "ml_dec", "ML tilt left"),
+    ("l", "ml_inc", "ML tilt right"),
+    ("u", "spin_dec", "Spin −"),
+    ("o", "spin_inc", "Spin +"),
+    ("Tab", "next_probe", "Next probe"),
+    ("1", "speed_slow", "Slow speed"),
+    ("2", "speed_normal", "Normal speed"),
+    ("3", "speed_fast", "Fast speed"),
+    ("?", "help", "Toggle help"),
+]
+# Persistent speed-mode multipliers. Stack with Shift/Ctrl one-shot
+# multipliers (Shift = ×10 coarse, Ctrl = ×0.2 fine), so the effective
+# step is base × mode × modifier.
+KB_SPEED_MULTIPLIER: dict[str, float] = {
+    "slow": 0.5,
+    "normal": 1.0,
+    "fast": 5.0,
+}
+KB_SPEED_LABEL: dict[str, str] = {
+    "slow": "Slow",
+    "normal": "Normal",
+    "fast": "Fast",
+}
+# Deduplicate keys for the JS-side fan-out (Tab and ArrowKeys need
+# preventDefault; we send the lowercase key + modifier flags, the
+# server picks the action.)
+KB_KEYS_TO_INTERCEPT = sorted({k for k, *_ in KB_ACTIONS})
+
+
 VISIBILITY_GROUPS: list[tuple[str, str, set[str], set[str]]] = [
     # (state-key, display label, tags-to-include, tags-to-exclude).
     # Groups are independent — a node ends up in every group whose
@@ -113,6 +161,12 @@ class TrameController:
     ccf_overlay: CCFOverlayManager | None = field(default=None)
     on_save: Callable[[], None] | None = None
     on_export_plan: Callable[[], None] | None = None
+    # Per-key step sizes for keyboard shortcuts (multiplied by Shift=10×
+    # for coarse, Ctrl=0.2× for fine — matches the K3D controller).
+    kb_step_offset_mm: float = 0.05
+    kb_step_depth_mm: float = 0.1
+    kb_step_tilt_deg: float = 0.5
+    kb_step_spin_deg: float = 1.0
     # Per-probe-asset shank tip positions in local mm — populated lazily
     # the first time a probe is checked for over-insertion. Independent
     # of pose, so this only depends on the asset's mesh.
@@ -162,6 +216,14 @@ class TrameController:
             state.target = target_names[0] if target_names else None
             state.probe_kinds = probe_kinds
             state.probe_kind = ""  # populated by _load_probe_state
+
+            # Keyboard fan-out:
+            # ``state.kb_event`` is set by the JS keydown listener to a
+            # fresh dict on every keypress; the server-side change
+            # handler reads (key, shift, ctrl) and dispatches.
+            state.kb_event = {"key": "", "shift": False, "ctrl": False, "t": 0}
+            state.kb_help_open = False
+            state.kb_speed = "normal"  # slow / normal / fast — see KB_SPEED_MULTIPLIER
 
             # Read-only geometric readouts for the currently selected probe.
             state.probe_tip_str = "—"
@@ -296,6 +358,13 @@ class TrameController:
 
         for skey, _label, include, exclude in VISIBILITY_GROUPS:
             self._wire_visibility_handlers(state, skey, include, exclude)
+
+        @state.change("kb_event")
+        def _on_kb(**_):
+            ev = state.kb_event or {}
+            key = ev.get("key") or ""
+            if key:
+                self._handle_kb(key, bool(ev.get("shift")), bool(ev.get("ctrl")))
 
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
@@ -547,6 +616,77 @@ class TrameController:
             state.probe_overinsertion_str = overins_str
             state.probe_kinematic_str = kin_str
 
+    def _handle_kb(self, key: str, shift: bool, ctrl: bool) -> None:
+        """Dispatch a single keyboard shortcut. Step sizes are multiplied
+        by 10× when Shift is held (coarse) and 0.2× when Ctrl is held
+        (fine), matching the K3D controller's convention."""
+        # Find the action for this key. We look up case-insensitively
+        # for letter keys but exact-match for special keys (Tab, ?).
+        match = next(
+            (a for k, a, _ in KB_ACTIONS if k == key or k == key.lower()),
+            None,
+        )
+        if match is None:
+            return
+
+        # Mode/help/probe-cycle actions don't depend on step sizes.
+        state = self._readout_state
+        if match == "help":
+            state.kb_help_open = not state.kb_help_open
+            return
+        if match in ("speed_slow", "speed_normal", "speed_fast"):
+            state.kb_speed = match.split("_", 1)[1]
+            return
+        if match == "next_probe":
+            probes = sorted(self.store.state.probes.keys())
+            if not probes:
+                return
+            cur = state.probe or probes[0]
+            try:
+                idx = probes.index(cur)
+            except ValueError:
+                idx = 0
+            step = -1 if shift else 1
+            state.probe = probes[(idx + step) % len(probes)]
+            return
+
+        if not state.probe:
+            return
+
+        # Modifier mul stacks on top of the persistent speed-mode mul.
+        mode_mul = KB_SPEED_MULTIPLIER.get(state.kb_speed or "normal", 1.0)
+        modifier_mul = 10.0 if shift else 0.2 if ctrl else 1.0
+        mul = mode_mul * modifier_mul
+        doff = self.kb_step_offset_mm * mul
+        ddep = self.kb_step_depth_mm * mul
+        dtilt = self.kb_step_tilt_deg * mul
+        dspin = self.kb_step_spin_deg * mul
+
+        # Sliders are bound by name to state. Mutate the trame state
+        # variable; the existing @state.change handlers fire and
+        # dispatch the underlying command. Means we don't reach into
+        # the store directly and stay consistent with slider-driven
+        # edits.
+        deltas = {
+            "a_inc": ("offset_a", +doff),
+            "a_dec": ("offset_a", -doff),
+            "r_inc": ("offset_r", +doff),
+            "r_dec": ("offset_r", -doff),
+            "depth_inc": ("depth", +ddep),
+            "depth_dec": ("depth", -ddep),
+            "ap_inc": ("ap_tilt", +dtilt),
+            "ap_dec": ("ap_tilt", -dtilt),
+            "ml_inc": ("ml_tilt", +dtilt),
+            "ml_dec": ("ml_tilt", -dtilt),
+            "spin_inc": ("spin", +dspin),
+            "spin_dec": ("spin", -dspin),
+        }
+        var, delta = deltas.get(match, (None, 0.0))
+        if var is None:
+            return
+        cur = float(getattr(state, var) or 0.0)
+        setattr(state, var, cur + delta)
+
     def _kinematic_status_for_probe(self, probe_name: str) -> str:
         """Per-probe textual readout: 'OK' / '⚠ ML vs X[, Y]; AP-arc vs Z'."""
         plan = self.store.state.probes.get(probe_name)
@@ -702,6 +842,17 @@ class TrameController:
             self.store.state, [probe_name]
         )
 
+        # Re-run collision detection now that the BVH for this probe is
+        # the new mesh — without this, collision overlay still reflects
+        # the OLD geometry until the user moves something. Same for the
+        # over-insertion + kinematic overlays (the over-insertion check
+        # depends on the new mesh's shank tips). __call__ runs the sync
+        # path, fires on_state_changed, and the existing collision
+        # callback updates the overlay state for any flips.
+        self.collision_handler(self.store.state, [probe_name])
+        self._refresh_overinsertion_overlay([probe_name])
+        self._refresh_kinematic_overlay()
+
         # Re-apply target-based colour to the new node.
         self._apply_target_based_color(probe_name)
         self.render_adapter.backend.flush()
@@ -726,6 +877,35 @@ class TrameController:
         with SinglePageLayout(server) as layout:
             layout.title.set_text("Probe Planner")
 
+            # Install a window-level keydown listener once on mount.
+            # We can't bind to SinglePageLayout's root with v-on:keydown
+            # (focus has to be on a focusable element for that to fire),
+            # so we attach to the document. The listener skips events
+            # whose target is an INPUT/TEXTAREA so the user can still
+            # type into search fields. Each captured keypress sets the
+            # ``kb_event`` state to a fresh dict — server-side
+            # ``state.change("kb_event")`` then dispatches the action.
+            kb_keys_json = ",".join(
+                f'"{k}"' for k in KB_KEYS_TO_INTERCEPT
+            )
+            client.ClientTriggers(
+                mounted=(
+                    "window._aind_kb || (function(){"
+                    "window._aind_kb = true;"
+                    "const trapped = new Set([" + kb_keys_json + "]);"
+                    "document.addEventListener('keydown', function(e){"
+                    "  const tag = e.target && e.target.tagName;"
+                    "  if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;"
+                    "  if (!trapped.has(e.key) && !trapped.has(e.key.toLowerCase())) return;"
+                    "  trame.state.state.kb_event = {"
+                    "    key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, t: Date.now()"
+                    "  };"
+                    "  e.preventDefault();"
+                    "}, true);"
+                    "})();"
+                )
+            )
+
             with layout.content:
                 with vuetify3.VContainer(fluid=True, classes="fill-height"):
                     with vuetify3.VRow(classes="fill-height"):
@@ -733,6 +913,9 @@ class TrameController:
                         with vuetify3.VCol(cols=9, classes="fill-height"):
                             view = plotter_ui(self.plotter, mode="client")
                             ctrl.view_update = view.update
+
+            # Help dialog — bound to state.kb_help_open (toggled by '?').
+            self._build_kb_help_dialog()
 
     def _build_controls(self, on_set_target) -> None:
         """Build the left-column control widgets."""
@@ -782,6 +965,8 @@ class TrameController:
             )
             vuetify3.VDivider(classes="my-2")
             self._build_readouts()
+            vuetify3.VDivider(classes="my-2")
+            self._build_kb_speed_controls()
             vuetify3.VDivider(classes="my-2")
             self._build_display_controls()
             vuetify3.VDivider(classes="my-2")
@@ -880,6 +1065,61 @@ class TrameController:
                         step=0.05,
                         hide_details=True,
                         density="compact",
+                    )
+
+    def _build_kb_speed_controls(self) -> None:
+        """Speed-mode toggle for keyboard increments (1/2/3 hotkeys also
+        switch this). Multiplies the base step; stacks with Shift/Ctrl
+        modifiers."""
+        with vuetify3.VRow(no_gutters=True, dense=True, align="center"):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Speed")
+            with vuetify3.VCol():
+                vuetify3.VBtnToggle(
+                    v_model=("kb_speed",),
+                    mandatory=True,
+                    density="compact",
+                    divided=True,
+                    children=None,
+                    hide_details=True,
+                ).add_children([
+                    vuetify3.VBtn("Slow", value="slow", size="small"),
+                    vuetify3.VBtn("Norm", value="normal", size="small"),
+                    vuetify3.VBtn("Fast", value="fast", size="small"),
+                ])
+
+    def _build_kb_help_dialog(self) -> None:
+        """Modal that lists the keyboard shortcuts. Toggle with '?'."""
+        # Drop duplicate action ids (e.g. arrow-key aliases of WASD).
+        seen_actions: set[str] = set()
+        rows: list[tuple[str, str]] = []
+        for key, action_id, label in KB_ACTIONS:
+            if action_id in seen_actions:
+                continue
+            seen_actions.add(action_id)
+            rows.append((key, label))
+        rows.append(("Shift + key", "10× step (coarse, stacks with mode)"))
+        rows.append(("Ctrl + key", "0.2× step (fine, stacks with mode)"))
+
+        with vuetify3.VDialog(
+            v_model=("kb_help_open",), max_width="480"
+        ):
+            with vuetify3.VCard():
+                vuetify3.VCardTitle("Keyboard shortcuts")
+                with vuetify3.VCardText():
+                    with vuetify3.VList(density="compact"):
+                        for key, label in rows:
+                            with vuetify3.VListItem():
+                                with vuetify3.VRow(no_gutters=True, align="center"):
+                                    with vuetify3.VCol(cols="3"):
+                                        vuetify3.VKbd(key)
+                                    with vuetify3.VCol():
+                                        vuetify3.VListItemTitle(label)
+                with vuetify3.VCardActions():
+                    vuetify3.VBtn(
+                        "Close",
+                        color="primary",
+                        click="kb_help_open = false",
                     )
 
     def _build_ccf_controls(self) -> None:
