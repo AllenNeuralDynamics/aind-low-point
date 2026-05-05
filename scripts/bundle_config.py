@@ -63,19 +63,109 @@ def collect_existing_file_paths(obj, out: set[Path]) -> None:
                 out.add(p.resolve())
 
 
-def deep_rewrite_absolute_paths(obj, replacement_prefix: str):
-    """Replace every value that looks like an absolute path with
-    ``replacement_prefix + <full_original_path>``. Mirrors the original
-    filesystem layout under the replacement prefix, so any chain of
-    interpolations in the source YAML continues to work after rewriting
-    (we don't need to find a common ancestor)."""
+def _resolve_paths_block(raw_paths: dict) -> dict[str, str]:
+    """Resolve OmegaConf interpolation in just the ``paths`` block."""
+    from omegaconf import OmegaConf
+
+    oc = OmegaConf.create({"paths": raw_paths})
+    return OmegaConf.to_container(oc, resolve=True)["paths"]
+
+
+def _named_roots_from_paths(
+    raw_paths: dict,
+) -> list[tuple[str, Path]]:
+    """Return ``(key, abs_path)`` for every ``paths.*`` entry whose
+    resolved value is an absolute path on disk. Sorted by path length
+    descending so longest-prefix matching falls out naturally when
+    multiple roots overlap (e.g. ``atlas_dir`` is a child of
+    ``template_dir``)."""
+    resolved = _resolve_paths_block(raw_paths)
+    roots: list[tuple[str, Path]] = []
+    for key, val in resolved.items():
+        if isinstance(val, str) and val.startswith("/"):
+            roots.append((key, Path(val)))
+    roots.sort(key=lambda kv: len(str(kv[1])), reverse=True)
+    return roots
+
+
+def _bundle_path_for(
+    abs_path: Path,
+    named_roots: list[tuple[str, Path]],
+    namespace: str | None,
+    misc_used: dict[str, int],
+) -> str:
+    """Compute a clean ``data/...`` bundle path for *abs_path*.
+
+    Files that fall under a named ``paths.*`` root are mirrored relative
+    to that root under ``data/<key>/`` (and ``data/<namespace>/<key>/``
+    if a namespace is set). Files outside every root land in
+    ``data/_misc/`` with a counter suffix on collisions — no machine
+    paths leak into the bundle.
+    """
+    prefix = "data" if namespace is None else f"data/{namespace}"
+    for key, root_path in named_roots:
+        try:
+            rel = abs_path.relative_to(root_path)
+        except ValueError:
+            continue
+        return f"{prefix}/{key}/{rel}"
+    base = abs_path.name
+    counter = misc_used.get(base, 0)
+    if counter:
+        stem, dot, ext = base.rpartition(".")
+        base = f"{stem}_{counter}.{ext}" if dot else f"{base}_{counter}"
+    misc_used[abs_path.name] = counter + 1
+    return f"{prefix}/_misc/{base}"
+
+
+def _rewrite_paths_block(
+    raw_paths: dict,
+    namespace: str | None,
+) -> dict:
+    """Rewrite a ``paths.*`` block so each absolute-path entry points at
+    its bundle subdirectory and ``bundle`` is injected at the top.
+
+    Interpolation chains whose resolved value happens to be an absolute
+    path (e.g. ``atlas_dir: ${.template_dir}/...``) are also flattened
+    to a direct ``${paths.bundle}/data/<key>`` literal — we don't try
+    to preserve chain semantics because the bundle layout already gives
+    each named root its own clean directory.
+    """
+    resolved = _resolve_paths_block(raw_paths)
+    prefix = "data" if namespace is None else f"data/{namespace}"
+    new_paths: dict = {
+        "bundle": "${oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}",
+    }
+    for key, val in raw_paths.items():
+        rval = resolved.get(key)
+        if isinstance(rval, str) and rval.startswith("/"):
+            new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}"
+        else:
+            new_paths[key] = val
+    return new_paths
+
+
+def _rewrite_inline_paths(
+    obj,
+    file_to_bundle_rel: dict[Path, str],
+):
+    """Walk *obj* and replace any leaf string that's an absolute path of
+    a bundled file with ``${paths.bundle}/<bundle_rel>``.
+
+    The common case (every file is referenced via ``${paths.foo}/...``
+    interpolation) needs no rewriting here because the ``paths.*`` block
+    rewrite already handles it. This is the fall-through for inline
+    absolute paths — they get sent to ``data/_misc/`` and the YAML's
+    pointer is updated to match.
+    """
     if isinstance(obj, dict):
-        return {k: deep_rewrite_absolute_paths(v, replacement_prefix) for k, v in obj.items()}
+        return {k: _rewrite_inline_paths(v, file_to_bundle_rel) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [deep_rewrite_absolute_paths(v, replacement_prefix) for v in obj]
+        return [_rewrite_inline_paths(v, file_to_bundle_rel) for v in obj]
     if isinstance(obj, str) and obj.startswith("/"):
-        # Strip leading '/' so we don't double up on the replacement prefix.
-        return f"{replacement_prefix}{obj}"
+        rel = file_to_bundle_rel.get(Path(obj).resolve())
+        if rel is not None:
+            return f"${{paths.bundle}}/{rel}"
     return obj
 
 
@@ -164,52 +254,87 @@ def main() -> int:
     sorted_files = sorted(files)
     print(f"Union: {len(sorted_files)} files across {len(args.config)} config(s)")
 
-    # 2. Stage the bundle in a temp directory. Mirror each file's full
-    #    original path under ``<bundle>/data/`` so rewriting absolute
-    #    paths is just a string-prefix concat — no common-ancestor logic
-    #    needed (which can't span entries shallower than the deepest
-    #    bundled path, like ``base_path: /mnt/vast/scratch``).
+    # 2. For each config, build its named-root list (paths.* entries
+    #    whose resolved values are absolute paths) and pick a namespace
+    #    only when there are multiple configs sharing the bundle.
+    cfg_to_roots: dict[Path, list[tuple[str, Path]]] = {}
+    cfg_to_raw: dict[Path, dict] = {}
+    cfg_to_namespace: dict[Path, str | None] = {}
+    multi = len(args.config) > 1
+    for cp in args.config:
+        with cp.open() as f:
+            raw = yaml.safe_load(f)
+        cfg_to_raw[cp] = raw
+        cfg_to_roots[cp] = _named_roots_from_paths(raw.get("paths", {}) or {})
+        cfg_to_namespace[cp] = cp.stem if multi else None
+
+    # 3. Decide bundle-relative target for every file. Use the longest
+    #    matching named root from any config; fall back to ``_misc``.
+    file_to_bundle_rel: dict[Path, str] = {}
+    misc_used: dict[str, int] = {}
+    # Aggregate roots across all configs (longest path wins). For multi
+    # config setups we also need to know which namespace the root came
+    # from; track that alongside.
+    flat_roots: list[tuple[str, Path, str | None]] = []
+    for cp, roots in cfg_to_roots.items():
+        ns = cfg_to_namespace[cp]
+        for key, root_path in roots:
+            flat_roots.append((key, root_path, ns))
+    flat_roots.sort(key=lambda t: len(str(t[1])), reverse=True)
+
+    for abs_path in sorted_files:
+        matched = False
+        for key, root_path, ns in flat_roots:
+            try:
+                rel = abs_path.relative_to(root_path)
+            except ValueError:
+                continue
+            prefix = "data" if ns is None else f"data/{ns}"
+            file_to_bundle_rel[abs_path] = f"{prefix}/{key}/{rel}"
+            matched = True
+            break
+        if not matched:
+            base = abs_path.name
+            counter = misc_used.get(base, 0)
+            slug = base
+            if counter:
+                stem, dot, ext = base.rpartition(".")
+                slug = f"{stem}_{counter}.{ext}" if dot else f"{base}_{counter}"
+            misc_used[base] = counter + 1
+            file_to_bundle_rel[abs_path] = f"data/_misc/{slug}"
+
+    # 4. Stage in temp dir, copy files into their clean bundle paths.
     with tempfile.TemporaryDirectory(prefix="bundle-") as tmp:
         tmpdir = Path(tmp)
         bundle_root = tmpdir / bundle_name
-        bundle_data = bundle_root / "data"
-        bundle_data.mkdir(parents=True)
+        bundle_root.mkdir()
 
         total_bytes = 0
-        for src in sorted_files:
-            # src is absolute; strip leading "/" and re-anchor under data/.
-            rel = Path(*src.parts[1:])
-            dst = bundle_data / rel
+        for abs_path, bundle_rel in sorted(file_to_bundle_rel.items()):
+            dst = bundle_root / bundle_rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            # Use copyfile (data only) + explicit chmod so the copy is
-            # readable by anyone who extracts the bundle. shutil.copy2
-            # preserves the source perms verbatim but drops ACLs, which
-            # leaves files mode 0000 when the source relied on an ACL
-            # (common on shared scratch filesystems).
-            shutil.copyfile(src, dst)
+            # copyfile + chmod 0o644 so the copy is readable on the
+            # other side. shutil.copy2 preserves the source perms which
+            # break when the source uses ACLs (common on scratch FSs).
+            shutil.copyfile(abs_path, dst)
             os.chmod(dst, 0o644)
             total_bytes += dst.stat().st_size
         print(f"Copied {len(sorted_files)} files, {total_bytes / 1e6:.1f} MB raw")
 
-        # 3. Rewrite each source config: every absolute path becomes
-        #    ``${paths.bundle}/data<original_absolute_path>``.
-        replacement = "${paths.bundle}/data"
+        # 5. Rewrite each source config so every absolute path goes
+        #    through ``${paths.bundle}/data/<key>/`` rather than mirroring
+        #    the original filesystem layout.
         config_filenames: list[str] = []
         for cp in args.config:
-            with cp.open() as f:
-                raw = yaml.safe_load(f)
-            rewritten = deep_rewrite_absolute_paths(raw, replacement)
-            existing_paths = rewritten.get("paths", {}) or {}
-            new_paths = {
-                "bundle": "${oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}",
-                **existing_paths,
-            }
-            rewritten["paths"] = new_paths
+            raw = cfg_to_raw[cp]
+            ns = cfg_to_namespace[cp]
+            raw["paths"] = _rewrite_paths_block(raw.get("paths", {}) or {}, ns)
+            for k in list(raw.keys()):
+                if k != "paths":
+                    raw[k] = _rewrite_inline_paths(raw[k], file_to_bundle_rel)
             out_name = cp.name
             with (bundle_root / out_name).open("w") as f:
-                yaml.safe_dump(
-                    rewritten, f, default_flow_style=False, sort_keys=False
-                )
+                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False)
             config_filenames.append(out_name)
 
         # 4. README so the recipient knows what to do.
