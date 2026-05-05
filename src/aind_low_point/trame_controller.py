@@ -15,6 +15,8 @@ from trame.app import get_server
 from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import vuetify3
 
+import numpy as np
+
 from aind_low_point.assets import AssetCatalog
 from aind_low_point.ccf_ontology import CCFOntology
 from aind_low_point.ccf_overlay import CCFOverlayManager
@@ -77,6 +79,7 @@ class TrameController:
     couple_ml: bool = False
     ccf_overlay: CCFOverlayManager | None = field(default=None)
     on_save: Callable[[], None] | None = None
+    on_export_plan: Callable[[], None] | None = None
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -117,6 +120,10 @@ class TrameController:
         state.probe_kinds = probe_kinds
         state.probe_kind = ""  # populated by _load_probe_state
 
+        # Read-only geometric readouts for the currently selected probe.
+        state.probe_tip_str = "—"
+        state.probe_depth_str = "—"
+
         # Visibility / opacity per asset group. Initial values are taken
         # from each group's first node so the UI matches what's drawn.
         for skey, _label, tags in VISIBILITY_GROUPS:
@@ -145,6 +152,11 @@ class TrameController:
         for name in probe_names:
             self._apply_target_based_color(name)
         self.render_adapter.backend.flush()
+
+        # Subscribe to the plan store so the readouts update on every
+        # dispatch involving the currently-selected probe.
+        self._readout_state = state  # captured for the closure
+        self.store.subscribe(self._on_plan_change_for_readouts)
 
         # CCF overlay state
         if self.ccf_overlay is not None:
@@ -358,6 +370,58 @@ class TrameController:
                 opacity=float(getattr(state, op_var)),
             )
 
+    def _compute_probe_readouts(
+        self, probe_name: str
+    ) -> tuple[str, str]:
+        """Return ``(tip_RAS_str, depth_str)`` for the named probe.
+
+        Both come back pre-formatted for direct display (``"x.xx, y.yy,
+        z.zz mm"`` for the tip, ``"d.dd mm"`` for depth or ``"—"`` when
+        no brain-mesh asset is available or the probe hasn't entered
+        the brain).
+        """
+        from aind_anatomical_utils.coordinate_systems import (
+            convert_coordinate_system,
+        )
+        from aind_mri_utils.arc_angles import arc_angles_to_affine
+
+        from aind_low_point.build_runtime import _depth_along_probe_axis
+        from aind_low_point.planning import ProbePose
+
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None:
+            return "—", "—"
+        pose = ProbePose.from_planning_state(self.store.state, probe_name)
+        tip_lps = np.asarray(pose.tip, dtype=np.float64)
+        tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
+        tip_str = f"{tip_ras[0]:+.2f}, {tip_ras[1]:+.2f}, {tip_ras[2]:+.2f} mm"
+
+        depth_str = "—"
+        brain_spec = self.assets.assets.get("brain")
+        if brain_spec is not None and brain_spec.mesh is not None:
+            R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+            probe_axis = R @ np.array([0.0, 0.0, 1.0])
+            depth = _depth_along_probe_axis(
+                tip_lps, probe_axis, brain_spec.mesh.raw
+            )
+            if depth is not None:
+                depth_str = f"{depth:.2f} mm"
+        return tip_str, depth_str
+
+    def _refresh_readouts(self, state, probe_name: str) -> None:
+        tip_str, depth_str = self._compute_probe_readouts(probe_name)
+        state.probe_tip_str = tip_str
+        state.probe_depth_str = depth_str
+
+    def _on_plan_change_for_readouts(self, plan, changed_ids) -> None:
+        """PlanStore subscriber: refresh readouts when the active
+        probe's plan changes (or when an arc change affects it)."""
+        state = getattr(self, "_readout_state", None)
+        if state is None or not state.probe:
+            return
+        if state.probe in changed_ids:
+            self._refresh_readouts(state, state.probe)
+
     def _apply_target_based_color(self, probe_name: str) -> None:
         """Set ``probe:<name>`` node's material_override to the CCF color of
         its current target (no-op if the target isn't CCF-derived)."""
@@ -505,6 +569,8 @@ class TrameController:
                 classes="mt-2",
             )
             vuetify3.VDivider(classes="my-2")
+            self._build_readouts()
+            vuetify3.VDivider(classes="my-2")
             self._build_display_controls()
             vuetify3.VDivider(classes="my-2")
             if self.on_save is not None:
@@ -512,6 +578,14 @@ class TrameController:
                     "Save YAML",
                     color="success",
                     click=self.on_save,
+                    classes="mt-2",
+                    block=True,
+                )
+            if self.on_export_plan is not None:
+                vuetify3.VBtn(
+                    "Export plan",
+                    color="primary",
+                    click=self.on_export_plan,
                     classes="mt-2",
                     block=True,
                 )
@@ -548,6 +622,19 @@ class TrameController:
                     hide_details=True,
                     style="width:80px",
                 )
+
+    def _build_readouts(self) -> None:
+        """Read-only geometric summary for the currently selected probe."""
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Tip (RAS)")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ probe_tip_str }}")
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Depth (brain)")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ probe_depth_str }}")
 
     def _build_display_controls(self) -> None:
         """Per-group visibility toggles + opacity sliders for the major
@@ -625,3 +712,4 @@ class TrameController:
         if plan.target_key:
             state.target = plan.target_key
         state.probe_kind = plan.kind
+        self._refresh_readouts(state, state.probe)

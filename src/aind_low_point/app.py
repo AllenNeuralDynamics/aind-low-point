@@ -35,6 +35,8 @@ def build_trame_app(
     *,
     ccf_volume: Path | None = None,
     save_path: Path | None = None,
+    export_plan_path: Path | None = None,
+    source_config_path: Path | None = None,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
 
@@ -128,6 +130,26 @@ def build_trame_app(
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
             print(f"Saved plan to {save_path}")
 
+    on_export_plan = None
+    if export_plan_path is not None:
+        from aind_low_point.build_runtime import export_plan_geometry
+
+        src_str = (
+            str(source_config_path) if source_config_path is not None else None
+        )
+
+        def on_export_plan():
+            import yaml
+
+            payload = export_plan_geometry(
+                store.state, catalog, source_config=src_str
+            )
+            with open(export_plan_path, "w") as f:
+                yaml.safe_dump(
+                    payload, f, default_flow_style=False, sort_keys=False
+                )
+            print(f"Exported plan geometry to {export_plan_path}")
+
     controller = TrameController(
         store=store,
         assets=catalog,
@@ -137,6 +159,7 @@ def build_trame_app(
         overlays_resolver=overlay_resolver,
         ccf_overlay=ccf_overlay,
         on_save=on_save,
+        on_export_plan=on_export_plan,
     )
 
     server = controller.build_app()

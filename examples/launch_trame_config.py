@@ -31,6 +31,16 @@ def main():
         default=None,
         help="Path to save updated YAML config (default: <config>_out.yml)",
     )
+    parser.add_argument(
+        "--export-plan",
+        type=Path,
+        default=None,
+        help=(
+            "Path for the 'Export plan' button — slim per-probe "
+            "geometric summary, NOT a full config (default: "
+            "<config>_plan.yml)"
+        ),
+    )
     args = parser.parse_args()
 
     config_path: Path = args.config
@@ -42,11 +52,19 @@ def main():
     if save_path is None:
         save_path = config_path.with_stem(config_path.stem + "_out")
 
+    export_plan_path = args.export_plan
+    if export_plan_path is None:
+        export_plan_path = config_path.with_stem(config_path.stem + "_plan")
+
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
 
     cfg = ConfigModel.from_yaml(config_path)
     server = build_trame_app(
-        cfg, ccf_volume=args.ccf_volume, save_path=save_path
+        cfg,
+        ccf_volume=args.ccf_volume,
+        save_path=save_path,
+        export_plan_path=export_plan_path,
+        source_config_path=config_path,
     )
 
     print(f"Loaded config: {config_path}")
