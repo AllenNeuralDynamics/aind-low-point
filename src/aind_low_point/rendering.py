@@ -256,12 +256,12 @@ class RendererAdapter:
 
     # ----- internals -----
     def _make_resolver(self, plan: PlanningState) -> PoseResolver:
+        # ``catalog`` flows through to ProbePose so each probe's
+        # ``pivot_LPS`` shows up in pose.tip. Pivot is baked once
+        # there; the legacy ``get_pivot_for_asset`` wrap stays at its
+        # no-op default to avoid double-application.
         return PoseResolver(
-            scene=self.scene,
-            plan=plan,
-            get_pivot_for_asset=lambda key: getattr(
-                self.assets.get_spec(key), "pivot_LPS", None
-            ),
+            scene=self.scene, plan=plan, catalog=self.assets
         )
 
     def _resolve_material(self, node: NodeInstance) -> Material:

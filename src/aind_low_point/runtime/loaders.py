@@ -113,3 +113,68 @@ def csv_points(
         idx = np.random.default_rng().choice(len(pts), max_points, replace=False)
         pts = pts[idx]
     return pts
+
+
+@register_loader
+def ccf_annotation_region(
+    path: str,
+    *,
+    acronym: str | None = None,
+    label_id: int | None = None,
+    include_descendants: bool = True,
+) -> trimesh.Trimesh:
+    """Mesh a single CCF region out of a label-mapped annotation volume.
+
+    The volume at ``path`` must be a NIFTI/NRRD where each voxel's
+    intensity is its CCF structure id (e.g. ``ccf_annotation_in_subject.nii.gz``
+    produced by the AIND ANTs registration pipeline — already warped
+    into subject space). Specify the structure either by ``acronym``
+    (looked up in the bundled CCF ontology) or by ``label_id``
+    directly.
+
+    ``include_descendants=True`` (default) includes voxels labelled
+    with any descendant structure of ``acronym`` — typical, since the
+    annotation volume's voxels are tagged with leaf-level region IDs
+    rather than the parent acronym a user normally types.
+
+    Returns the surface mesh of the (binary) thresholded mask, in the
+    annotation volume's native frame.
+    """
+    if acronym is None and label_id is None:
+        raise ValueError(
+            "ccf_annotation_region: must specify acronym or label_id"
+        )
+
+    ids: set[int] = set()
+    if acronym is not None:
+        from aind_low_point.ccf_ontology import CCFOntology
+
+        ontology = CCFOntology.from_bundled()
+        if include_descendants:
+            descendants = ontology.descendants_of(acronym, include_self=True)
+            if not descendants:
+                raise KeyError(
+                    f"CCF acronym {acronym!r} not in bundled ontology"
+                )
+            ids.update(s.id for s in descendants)
+        else:
+            structure = ontology.find_by_acronym(acronym)
+            if structure is None:
+                raise KeyError(
+                    f"CCF acronym {acronym!r} not in bundled ontology"
+                )
+            ids.add(structure.id)
+    if label_id is not None:
+        ids.add(int(label_id))
+
+    annotation = sitk.ReadImage(path)
+    arr = sitk.GetArrayFromImage(annotation)
+    mask = np.isin(arr, list(ids)).astype(np.uint8)
+    if not mask.any():
+        raise ValueError(
+            f"ccf_annotation_region: no voxels matched ids={sorted(ids)} "
+            f"in {path}"
+        )
+    mask_img = sitk.GetImageFromArray(mask)
+    mask_img.CopyInformation(annotation)
+    return trimesh_from_sitk_mask(mask_img)

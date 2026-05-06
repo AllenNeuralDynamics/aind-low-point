@@ -33,6 +33,10 @@ from aind_low_point.commands import (
     SetProbeTarget,
 )
 from aind_low_point.core import Material
+from aind_low_point.optimization.recording import (
+    RECORDING_GEOMETRY,
+    get_recording_geometry,
+)
 from aind_low_point.planning import ProbePose, kinematic_violations
 from aind_low_point.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_low_point.runtime import _depth_along_probe_axis, detect_shank_tips_local
@@ -126,6 +130,21 @@ VISIBILITY_GROUPS: list[tuple[str, str, set[str], set[str]]] = [
     ("implant", "Implant", {"implant"}, set()),
     ("fixtures", "Other fixtures", {"fixture", "headframe"}, {"implant"}),
 ]
+
+
+def _as_float(value) -> float | None:
+    """Coerce a trame state value to float, or None if blank/invalid.
+
+    VTextField companions on numeric sliders briefly hold ``""`` while
+    the user is editing; ``float("")`` raises. Handlers should skip
+    dispatch on None and wait for the next change event.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ccf_color_for_target(
@@ -253,6 +272,11 @@ class TrameController:
             state.ml_tilt = 0.0
             state.spin = 0
 
+        # Centering is built into the kinematic chain: any probe with
+        # ``past_target_mm = 0`` and ``offsets_RA = (0, 0)`` already has
+        # the recording-array center on the target. No init-time fix-up
+        # needed.
+
         self._load_probe_state(state)
         # Initial CCF-based colouring for every probe whose target is a
         # CCF-derived region. Collect all affected node IDs and issue a
@@ -307,43 +331,52 @@ class TrameController:
         def on_offsets(**kwargs):
             if not state.probe:
                 return
+            r = _as_float(state.offset_r)
+            a = _as_float(state.offset_a)
+            if r is None or a is None:
+                return
             self.store.dispatch(
-                SetProbeOffsetsRA(
-                    name=state.probe,
-                    R_mm=float(state.offset_r),
-                    A_mm=float(state.offset_a),
-                )
+                SetProbeOffsetsRA(name=state.probe, R_mm=r, A_mm=a)
             )
 
         @state.change("ap_tilt")
         def on_ap(**kwargs):
             if not state.probe:
                 return
-            self._on_ap_change(state, state.probe, float(state.ap_tilt))
+            ap = _as_float(state.ap_tilt)
+            if ap is None:
+                return
+            self._on_ap_change(state, state.probe, ap)
 
         @state.change("ml_tilt")
         def on_ml(**kwargs):
             if not state.probe:
                 return
-            self._on_ml_change(state, state.probe, float(state.ml_tilt))
+            ml = _as_float(state.ml_tilt)
+            if ml is None:
+                return
+            self._on_ml_change(state, state.probe, ml)
 
         @state.change("depth")
         def on_depth(**kwargs):
             if not state.probe:
                 return
+            depth = _as_float(state.depth)
+            if depth is None:
+                return
             self.store.dispatch(
-                SetProbePastTarget(
-                    name=state.probe,
-                    past_target_mm=float(state.depth),
-                )
+                SetProbePastTarget(name=state.probe, past_target_mm=depth)
             )
 
         @state.change("spin")
         def on_spin(**kwargs):
             if not state.probe:
                 return
+            spin = _as_float(state.spin)
+            if spin is None:
+                return
             self.store.dispatch(
-                SetProbeLocalAngles(name=state.probe, spin=float(state.spin))
+                SetProbeLocalAngles(name=state.probe, spin=spin)
             )
 
         @state.change("arc")
@@ -390,7 +423,10 @@ class TrameController:
 
         @state.change("ccf_global_opacity")
         def on_ccf_opacity(**kwargs):
-            ccf.set_global_opacity(float(state.ccf_global_opacity))
+            opacity = _as_float(state.ccf_global_opacity)
+            if opacity is None:
+                return
+            ccf.set_global_opacity(opacity)
 
     def _sync_ccf_visible(self, state) -> None:
         """Sync trame state with currently visible CCF regions."""
@@ -527,7 +563,9 @@ class TrameController:
         plan = self.store.state.probes.get(probe_name)
         if plan is None:
             return "—", "—", "—"
-        pose = ProbePose.from_planning_state(self.store.state, probe_name)
+        pose = ProbePose.from_planning_state(
+            self.store.state, probe_name, catalog=self.assets
+        )
         tip_lps = np.asarray(pose.tip, dtype=np.float64)
         tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
         tip_str = f"{tip_ras[0]:+.2f}, {tip_ras[1]:+.2f}, {tip_ras[2]:+.2f} mm"
@@ -567,6 +605,15 @@ class TrameController:
         self._shank_tips_cache[asset_key] = tips
         print(f"  {asset_key}: detected {len(tips)} shank tip(s)")
         return tips
+
+    # Note: ``_compute_target_centered_pose`` and the init-time
+    # centering helper used to live here. Both are obsolete after the
+    # pivot redesign — ``ProbePose.from_planning_state`` now subtracts
+    # ``R @ recording_center_local`` from ``tip``, so any
+    # ``(past_target_mm=0, offsets_RA=(0, 0))`` pose automatically
+    # places the recording-array center on the target. Setting a target
+    # is just a target dispatch followed by a state reset of those
+    # variables — no manual offset/depth math needed.
 
     def _count_overinserted_shanks(
         self,
@@ -744,7 +791,9 @@ class TrameController:
         for probe_name in changed_ids:
             if probe_name not in self.store.state.probes:
                 continue
-            pose = ProbePose.from_planning_state(self.store.state, probe_name)
+            pose = ProbePose.from_planning_state(
+                self.store.state, probe_name, catalog=self.assets
+            )
             R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
             n_over, n_total = self._count_overinserted_shanks(
                 probe_name, pose, R, brain_mesh
@@ -867,11 +916,18 @@ class TrameController:
             self.store.dispatch(
                 SetProbeTarget(name=state.probe, target_key=state.target)
             )
+            # Reset depth/offsets to defaults so the kinematic chain's
+            # auto-centering takes over (recording-array center lands
+            # on the target). The user can dial deviations afterwards.
             self.store.dispatch(
                 SetProbePastTarget(name=state.probe, past_target_mm=0.0)
             )
+            self.store.dispatch(
+                SetProbeOffsetsRA(name=state.probe, R_mm=0.0, A_mm=0.0)
+            )
             state.depth = 0.0
-            # Re-colour the probe to match the new target's CCF region.
+            state.offset_r = 0.0
+            state.offset_a = 0.0
             self._apply_target_based_color(state.probe)
 
         with SinglePageLayout(server) as layout:
@@ -882,26 +938,44 @@ class TrameController:
             # (focus has to be on a focusable element for that to fire),
             # so we attach to the document. The listener skips events
             # whose target is an INPUT/TEXTAREA so the user can still
-            # type into search fields. Each captured keypress sets the
-            # ``kb_event`` state to a fresh dict — server-side
-            # ``state.change("kb_event")`` then dispatches the action.
-            kb_keys_json = ",".join(
-                f'"{k}"' for k in KB_KEYS_TO_INTERCEPT
-            )
+            # type into search fields. Each captured keypress writes a
+            # fresh dict to the ``kb_event`` server state via
+            # ``trame.state.set(...)``; the ``state.change("kb_event")``
+            # handler then dispatches the action. NB: this string lands
+            # inside a double-quoted HTML attribute, so every literal
+            # inside the JS must use single quotes — embedded ``"``
+            # would terminate the attribute and break Vue templating.
+            # NB: Vue 3's template compiler does not expose ``document``
+            # as a global to v-on inline handlers (it resolves to
+            # ``undefined``), but ``window`` is reachable via its proxy
+            # context. Route DOM access through ``window.document``.
+            #
+            # Sentinel name is bumped (``_aind_kb_listener_v2``) so that
+            # any stale ``window._aind_kb = true`` left over from a
+            # previous broken attempt in the same browser session does
+            # not block re-installation. Also wrapped in try/catch so
+            # the next failure is loud in the browser console rather
+            # than silently leaving the keyboard inert.
+            kb_keys_js = ",".join(f"'{k}'" for k in KB_KEYS_TO_INTERCEPT)
             client.ClientTriggers(
                 mounted=(
-                    "window._aind_kb || (function(){"
-                    "window._aind_kb = true;"
-                    "const trapped = new Set([" + kb_keys_json + "]);"
-                    "document.addEventListener('keydown', function(e){"
-                    "  const tag = e.target && e.target.tagName;"
-                    "  if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;"
-                    "  if (!trapped.has(e.key) && !trapped.has(e.key.toLowerCase())) return;"
-                    "  trame.state.state.kb_event = {"
-                    "    key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, t: Date.now()"
-                    "  };"
-                    "  e.preventDefault();"
-                    "}, true);"
+                    "(function(){"
+                    "if (window._aind_kb_listener_v2) return;"
+                    "try {"
+                    "  const trapped = new Set([" + kb_keys_js + "]);"
+                    "  window.document.addEventListener('keydown', function(e){"
+                    "    const tag = e.target && e.target.tagName;"
+                    "    if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;"
+                    "    if (!trapped.has(e.key) && !trapped.has(e.key.toLowerCase())) return;"
+                    "    trame.state.set('kb_event', {"
+                    "      key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, t: Date.now()"
+                    "    });"
+                    "    e.preventDefault();"
+                    "  }, true);"
+                    "  window._aind_kb_listener_v2 = true;"
+                    "} catch (err) {"
+                    "  window.console && window.console.error('aind keyboard listener install failed:', err);"
+                    "}"
                     "})();"
                 )
             )

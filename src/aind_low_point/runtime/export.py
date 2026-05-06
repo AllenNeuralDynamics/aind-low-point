@@ -143,7 +143,7 @@ def export_plan_geometry(
 
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():
-        pose = ProbePose.from_planning_state(plan_state, name)
+        pose = ProbePose.from_planning_state(plan_state, name, catalog=catalog)
         tip_lps = np.asarray(pose.tip, dtype=np.float64)
         tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
 

@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Optional,
     Set,
+    TYPE_CHECKING,
     Tuple,
 )
 from warnings import warn
@@ -26,6 +27,9 @@ from aind_low_point.core import (
     TransformedPoints,
 )
 from aind_low_point.scene import NodeInstance, Scene
+
+if TYPE_CHECKING:
+    from aind_low_point.assets import AssetCatalog
 
 
 # Plan for probe location
@@ -277,6 +281,7 @@ class ProbePose:
         probe_name: str,
         *,
         assets_targets_fallback: Optional[dict[str, TransformedPoints]] = None,
+        catalog: Optional["AssetCatalog"] = None,
     ) -> ProbePose:
         """
         Resolve a live pose from PlanningState (no mutations).
@@ -286,6 +291,31 @@ class ProbePose:
         - Spin is always the per-probe plan spin.
         - Target is taken from planning.target_index (or assets fallback) +
         offsets_RA.
+
+        ``ProbePose.tip`` continues to mean **the world position of the
+        position-bearing shank's tip** (= world position of the probe's
+        local origin in canonical convention) — used by readouts like
+        Tip-RAS, ``_count_overinserted_shanks``, the FCL collision
+        adapter, and the renderer.
+
+        The kinematic *pivot* — the world point that lands at
+        ``adjusted_target + R @ [0, 0, -past_target_mm]`` — is now the
+        **center of the recording array**, not the position shank's
+        tip. This means ``past_target_mm = 0`` puts the recording bank
+        exactly on the target (rather than the tip on the target, which
+        recorded *above* the target). The position shank's tip is
+        ``recording_center_local`` mm deeper along the shaft, which is
+        what we want.
+
+        Mathematically: ``pose.tip = adjusted_target + R @ [0, 0,
+        -past_target_mm] - R @ pivot_local``. The pivot comes from the
+        per-asset ``AssetSpec.pivot_LPS`` (canonical-local frame, set
+        at runtime build from the actual canonicalized mesh) when a
+        ``catalog`` is provided. Without a catalog, falls back to the
+        kind-keyed ``recording_center_local_for_kind`` (assumes shank
+        layout from ``RECORDING_GEOMETRY``; mostly fine for
+        single-shank probes, off-by-row-direction for multi-shank
+        without catalog access — pass the catalog).
         """
         plan = ps.probes[probe_name]
 
@@ -302,12 +332,30 @@ class ProbePose:
         off_LPS = convert_coordinate_system(off_RAS, "RAS", "LPS")
         adjusted_target = tgt_LPS + off_LPS
 
-        # --- tip from depth and orientation ---
+        # --- pivot lookup ---
+        pivot_local: Optional[np.ndarray] = None
+        if catalog is not None:
+            asset_key = f"probe:{plan.kind}"
+            spec = catalog.assets.get(asset_key)
+            if spec is not None and spec.pivot_LPS is not None:
+                pivot_local = np.asarray(spec.pivot_LPS, dtype=np.float64)
+        if pivot_local is None:
+            # Kind-keyed fallback. Local import keeps planning →
+            # optimization an optional dependency.
+            from aind_low_point.optimization.recording import (
+                recording_center_local_for_kind,
+            )
+
+            pivot_local = recording_center_local_for_kind(plan.kind)
+
+        # --- tip from depth, orientation, and pivot ---
         R_probe = arc_angles_to_affine(ap_deg, ml_deg, spin_deg)
         insertion_vec = R_probe @ np.array(
             [0.0, 0.0, -float(plan.past_target_mm)], dtype=np.float64
         )
-        tip = adjusted_target + insertion_vec
+        # Subtract R @ pivot_local so the recording-array center (not
+        # the position shank's tip) lands at adjusted_target + insertion_vec.
+        tip = adjusted_target + insertion_vec - R_probe @ pivot_local
         tip = ps.kinematics.clamp_xyz(tip)
 
         return cls(ap=ap_deg, ml=ml_deg, spin=spin_deg, tip=tip)
@@ -328,9 +376,21 @@ GetPivotFn = Callable[[str], Optional[np.ndarray]]
 class PoseResolver:
     scene: Scene
     plan: PlanningState
+    # Optional catalog reference. When provided, ``_probe_chain`` passes
+    # it to ``ProbePose.from_planning_state`` so the pose construction
+    # picks up each probe asset's ``pivot_LPS`` directly. Strongly
+    # recommended for callers (rendering / collisions) — without it
+    # multi-shank probes fall back to the kind-keyed approximation.
+    catalog: Optional["AssetCatalog"] = None
+    # Legacy callback hook. Kept for backward compatibility but should
+    # be left at the default ``None``-returning function: pivot is now
+    # baked into ``ProbePose.tip`` via the ``catalog`` route, and
+    # double-wrapping here would shift the probe twice. Non-probe
+    # assets that need an asset-level pivot can still use this; for
+    # probe assets pass ``catalog`` instead.
     get_pivot_for_asset: GetPivotFn = (
         lambda _key: None
-    )  # default: rotate around asset origin
+    )
 
     # ---- final world transform = base ∘ dynamic ----
     def world_chain_for_node(self, node: "NodeInstance") -> TransformChain:
@@ -343,7 +403,9 @@ class PoseResolver:
 
     # ---- dynamic pose for a probe (no scene knowledge) ----
     def _probe_chain(self, probe_name: str) -> TransformChain:
-        pose = ProbePose.from_planning_state(self.plan, probe_name)
+        pose = ProbePose.from_planning_state(
+            self.plan, probe_name, catalog=self.catalog
+        )
         return pose.chain()
 
     # ---- dynamic transform for a scene node (may be identity) ----
@@ -355,7 +417,10 @@ class PoseResolver:
         dyn = self._probe_chain(probe_name)
 
         # If the asset needs rotation about a local pivot (e.g., tip),
-        # wrap the dynamic pose with +pivot / -pivot translations
+        # wrap the dynamic pose with +pivot / -pivot translations.
+        # Probe pivots come through ``catalog`` and are already baked
+        # into ``ProbePose.tip``; this path is now only used by other
+        # asset types that opt in via ``get_pivot_for_asset``.
         pivot = self.get_pivot_for_asset(node.asset_key)
         if pivot is not None:
             T_p = AffineTransform(

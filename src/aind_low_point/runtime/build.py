@@ -205,6 +205,42 @@ def _load_geo(
 # --- asset builder ------------------------------------------------------------
 
 
+def _default_probe_pivot_local(
+    a: AssetSpecModel,
+    geo: GeometryOut,
+) -> Optional[np.ndarray]:
+    """Auto-derive ``pivot_LPS`` for a probe asset: ``(centroid_x, centroid_y,
+    active_center_mm)`` where the centroid is computed from the canonicalized
+    mesh's shank tips (any direction) and ``active_center_mm`` is looked up
+    from :data:`RECORDING_GEOMETRY` for the kind suffix.
+
+    Returns ``None`` if the asset is not a probe, the kind isn't registered,
+    or the mesh has no detectable shank tips.
+    """
+    from aind_low_point.optimization.recording import RECORDING_GEOMETRY
+    from aind_low_point.runtime.shanks import detect_shank_tips_local
+
+    if not isinstance(a.key, str) or not a.key.startswith("probe:"):
+        return None
+    if not isinstance(geo, trimesh.Trimesh):
+        return None
+    kind = a.key.split(":", 1)[1]
+    geom = RECORDING_GEOMETRY.get(kind)
+    if geom is None:
+        return None
+    tips = detect_shank_tips_local(geo)
+    if tips.shape[0] == 0:
+        return None
+    return np.array(
+        [
+            float(tips[:, 0].mean()),
+            float(tips[:, 1].mean()),
+            float(geom.active_center_mm),
+        ],
+        dtype=np.float64,
+    )
+
+
 def build_asset_spec(
     a: AssetSpecModel,
     base_kwargs: dict[str, Any],
@@ -225,6 +261,15 @@ def build_asset_spec(
         pts_tf = PointsTransformable(geo)
     elif a.kind == Kind.LINES:
         raise NotImplementedError("kind='lines' not implemented in loader")
+
+    # Auto-compute kinematic pivot for probe assets (unless the user
+    # set ``pivot_LPS`` explicitly in config). Pivot lives in the
+    # canonicalized local frame; per-frame planning poses then place
+    # this point at the user-selected target.
+    if base_kwargs.get("pivot_LPS") is None:
+        default_pivot = _default_probe_pivot_local(a, geo)
+        if default_pivot is not None:
+            base_kwargs = {**base_kwargs, "pivot_LPS": default_pivot}
 
     return AssetSpec(
         **base_kwargs,
