@@ -292,6 +292,7 @@ def optimize(
     cma_generations: int = 100,
     cma_sigma: float = 5.0,
     slsqp_max_iter: int = 100,
+    min_arc_ap_sep_deg: float = 16.0,
     verbose: bool = False,
 ) -> OptimizationResult | None:
     """Run the three-level optimizer.
@@ -343,6 +344,7 @@ def optimize(
             max_num_arcs=max_num_arcs,
             min_num_arcs=min_num_arcs,
             k=k_arcs,
+            min_arc_ap_sep_deg=min_arc_ap_sep_deg,
             arc_count_penalty_deg2=arc_count_penalty_deg2,
         )
         if not arc_assignments:

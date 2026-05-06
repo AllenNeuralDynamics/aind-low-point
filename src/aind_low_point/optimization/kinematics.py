@@ -117,15 +117,16 @@ def pose_at_hole_best_fit(
 
     - The probe's local +z direction maps to ``-hole.axis`` in world
       (the shaft enters down the bore from the top).
-    - The probe's local +x direction (the shank-row direction in NP 2.0
-      canonicalization) maps to the slot's major axis.
+    - The probe's local +y direction (the shank-row direction in the
+      AIND canonicalization: shank 1 tip at origin, other shanks at
+      +y at 250 µm pitch) maps to the slot's major axis.
     - ``pose_tip_world`` is the bottom section's center — the bore's
       deepest extent and the natural reference point for "probe enters
       the brain here."
 
     The orthonormal frame is constructed via cross products to ensure
     right-handedness; if ``slot_major`` and ``-axis`` are not exactly
-    perpendicular (rounding, axis fit error), the second axis basis is
+    perpendicular (rounding, axis fit error), the third axis basis is
     re-orthonormalized.
     """
     axis = np.asarray(hole.axis, dtype=np.float64)
@@ -133,21 +134,21 @@ def pose_at_hole_best_fit(
     slot_major = hole.slot_major_dir()
 
     z_col = -axis                    # local +z → world -axis (shaft-down)
-    x_col = slot_major               # local +x → world slot major
-    y_col = np.cross(z_col, x_col)
-    y_col_norm = float(np.linalg.norm(y_col))
-    if y_col_norm < 1e-12:
+    y_col = slot_major               # local +y → world slot major (shank row)
+    x_col = np.cross(y_col, z_col)
+    x_col_norm = float(np.linalg.norm(x_col))
+    if x_col_norm < 1e-12:
         # Pathological: slot_major parallel to axis. Pick any perpendicular.
         helper = np.array([1.0, 0.0, 0.0])
         if abs(np.dot(helper, axis)) > 0.9:
             helper = np.array([0.0, 1.0, 0.0])
-        y_col = np.cross(z_col, helper)
-        y_col = y_col / np.linalg.norm(y_col)
+        x_col = np.cross(helper, z_col)
+        x_col = x_col / np.linalg.norm(x_col)
     else:
-        y_col = y_col / y_col_norm
-    # Re-orthonormalize x against (y, z) for numerical robustness.
-    x_col = np.cross(y_col, z_col)
-    x_col = x_col / np.linalg.norm(x_col)
+        x_col = x_col / x_col_norm
+    # Re-orthonormalize y against (x, z) for numerical robustness.
+    y_col = np.cross(z_col, x_col)
+    y_col = y_col / np.linalg.norm(y_col)
     R = np.column_stack([x_col, y_col, z_col])
 
     pose_tip = np.asarray(hole.sections[-1].center, dtype=np.float64).copy()
