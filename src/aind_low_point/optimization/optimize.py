@@ -234,9 +234,15 @@ def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
     for _ in range(ctx.layout.num_probes):
         bounds.append((-30.0, +30.0))   # ml_local deg
         bounds.append((-180.0, +180.0)) # spin deg
-        bounds.append((-2.0, +2.0))     # off_R mm (within slot)
-        bounds.append((-2.0, +2.0))     # off_A mm
-        bounds.append((-5.0, +15.0))    # past_target_mm
+        # Lateral offsets must stay within the slot's half-extent so
+        # the probe physically fits through the bore. Bounding to
+        # ±0.5 mm keeps the threading constraint inside the optimizer's
+        # feasible basin.
+        bounds.append((-0.5, +0.5))     # off_R mm
+        bounds.append((-0.5, +0.5))     # off_A mm
+        # past_target_mm: typical probe insertion is 2-5 mm into brain;
+        # ±3 mm covers a centered recording bank with margin.
+        bounds.append((-3.0, +3.0))     # past_target_mm
     return bounds
 
 

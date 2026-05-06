@@ -19,6 +19,7 @@ version = "0.1.0"
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.10,<2",
+  "cma>=4.4.4",
   "ipyevents>=2,<3",
   "k3d>=2,<3",
   "mapbox-earcut>=2.0.0",
