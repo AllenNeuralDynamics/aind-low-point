@@ -148,6 +148,14 @@ def main():
                    help="Top-K arc assignments per hole assignment")
     p.add_argument("--no-cma", action="store_true",
                    help="Skip CMA-ES global stage; SLSQP polish only")
+    p.add_argument(
+        "--cma-stage-multipliers",
+        type=str,
+        default="0.1,1.0,10.0",
+        help="Comma-separated feasibility-penalty multipliers per CMA stage. "
+             "Empty string disables homotopy and runs single-stage. "
+             "Default '0.1,1.0,10.0' = 3 stages from soft to hard.",
+    )
     p.add_argument("--min-arc-ap-sep-deg", type=float, default=16.0,
                    help="Min AP separation between arc centroids (rig limit)")
     p.add_argument("--verbose", action="store_true", help="Verbose log")
@@ -178,6 +186,11 @@ def main():
 
     print(f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
           f"k_holes={args.k_holes}, k_arcs={args.k_arcs})...")
+    stage_mults_str = args.cma_stage_multipliers.strip()
+    if stage_mults_str:
+        stage_mults = tuple(float(x) for x in stage_mults_str.split(","))
+    else:
+        stage_mults = ()
     result = optimize(
         probes,
         holes,
@@ -187,6 +200,7 @@ def main():
         k_arcs=args.k_arcs,
         min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
         use_cma=not args.no_cma,
+        cma_stage_multipliers=stage_mults,
         verbose=args.verbose,
     )
     if result is None:

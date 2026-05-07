@@ -220,6 +220,88 @@ def _try_cma_es(
     return np.asarray(es.result.xbest, dtype=np.float64)
 
 
+def _scale_weights(w: ObjectiveWeights, mult: float) -> ObjectiveWeights:
+    """Return a new :class:`ObjectiveWeights` with feasibility-penalty
+    lambdas multiplied by ``mult``. Coverage / margin terms unchanged."""
+    return ObjectiveWeights(
+        lambda_threading=w.lambda_threading * mult,
+        lambda_clearance=w.lambda_clearance * mult,
+        lambda_kinematic=w.lambda_kinematic * mult,
+        lambda_margin=w.lambda_margin,
+        margin_softmin_beta=w.margin_softmin_beta,
+        safety_clearance_mm=w.safety_clearance_mm,
+    )
+
+
+def _ctx_with_weights(ctx: OptimizerContext, w: ObjectiveWeights) -> OptimizerContext:
+    """Return a copy of ``ctx`` with replaced ``weights``."""
+    return OptimizerContext(
+        layout=ctx.layout,
+        probes=ctx.probes,
+        arc_for_probe=ctx.arc_for_probe,
+        weights=w,
+        shaft_length_mm=ctx.shaft_length_mm,
+        shank_radius_mm=ctx.shank_radius_mm,
+        headstage_base_along_shaft_mm=ctx.headstage_base_along_shaft_mm,
+        headstage_length_mm=ctx.headstage_length_mm,
+        headstage_radius_mm=ctx.headstage_radius_mm,
+        min_arc_ap_sep_deg=ctx.min_arc_ap_sep_deg,
+        min_within_arc_ml_sep_deg=ctx.min_within_arc_ml_sep_deg,
+        coverage_n_samples=ctx.coverage_n_samples,
+    )
+
+
+def _multistage_cma_es(
+    ctx: OptimizerContext,
+    x0: NDArray,
+    *,
+    population: int,
+    total_generations: int,
+    sigma: float,
+    stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
+) -> NDArray | None:
+    """Run CMA-ES in stages with a homotopy schedule on the feasibility
+    penalties. Each stage scales ``lambda_threading``, ``lambda_clearance``,
+    and ``lambda_kinematic`` by the corresponding multiplier, warm-starting
+    from the previous stage's best ``x``.
+
+    Early stages (low multiplier) let CMA-ES explore — the search space
+    is smoother and coverage / global geometry can dominate. Late stages
+    (high multiplier) clamp down on threading / kinematic violations,
+    forcing the optimizer to find genuinely feasible solutions.
+
+    Generations are split evenly across stages.
+    """
+    try:
+        import cma  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    n_stages = len(stage_multipliers)
+    gens_per_stage = max(1, total_generations // n_stages)
+    sigma_per_stage = sigma
+    x = np.asarray(x0, dtype=np.float64).copy()
+    for mult in stage_multipliers:
+        stage_ctx = _ctx_with_weights(ctx, _scale_weights(ctx.weights, mult))
+        es = cma.CMAEvolutionStrategy(
+            x.tolist(),
+            sigma_per_stage,
+            {
+                "popsize": population,
+                "maxiter": gens_per_stage,
+                "verbose": -9,
+            },
+        )
+        es.optimize(
+            lambda v: scalar_objective(np.asarray(v, dtype=np.float64), stage_ctx)
+        )
+        x = np.asarray(es.result.xbest, dtype=np.float64)
+        # Tighten sigma between stages so later stages refine rather
+        # than re-explore. Keep enough room for non-trivial moves
+        # since the penalty landscape is also changing.
+        sigma_per_stage = max(sigma_per_stage * 0.5, 0.5)
+    return x
+
+
 def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
     """Conservative box bounds for SLSQP, by variable role.
 
@@ -297,6 +379,7 @@ def optimize(
     cma_population: int = 30,
     cma_generations: int = 100,
     cma_sigma: float = 5.0,
+    cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
     slsqp_max_iter: int = 100,
     min_arc_ap_sep_deg: float = 16.0,
     verbose: bool = False,
@@ -372,12 +455,21 @@ def optimize(
 
             x = x0
             if use_cma:
-                x_cma = _try_cma_es(
-                    ctx, x,
-                    population=cma_population,
-                    generations=cma_generations,
-                    sigma=cma_sigma,
-                )
+                if cma_stage_multipliers:
+                    x_cma = _multistage_cma_es(
+                        ctx, x,
+                        population=cma_population,
+                        total_generations=cma_generations,
+                        sigma=cma_sigma,
+                        stage_multipliers=cma_stage_multipliers,
+                    )
+                else:
+                    x_cma = _try_cma_es(
+                        ctx, x,
+                        population=cma_population,
+                        generations=cma_generations,
+                        sigma=cma_sigma,
+                    )
                 if x_cma is not None:
                     x = x_cma
             x_opt, breakdown_opt = _slsqp_polish(
