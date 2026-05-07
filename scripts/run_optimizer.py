@@ -155,6 +155,19 @@ def main():
              "inequality constraints during the polish step.",
     )
     p.add_argument(
+        "--no-two-stage-inner",
+        action="store_true",
+        help="Skip the Stage-A feasibility solve before the constrained "
+             "SLSQP polish. Stage A minimises Σ ReLU(g_j(x))² to land "
+             "near the feasibility tube; default is enabled.",
+    )
+    p.add_argument(
+        "--feasibility-max-iter",
+        type=int,
+        default=80,
+        help="Max SLSQP iterations for the Stage-A feasibility solve.",
+    )
+    p.add_argument(
         "--cma-stage-multipliers",
         type=str,
         default="0.1,1.0,10.0",
@@ -208,6 +221,8 @@ def main():
         use_cma=not args.no_cma,
         cma_stage_multipliers=stage_mults,
         slsqp_constrained=not args.slsqp_soft,
+        two_stage_inner=not args.no_two_stage_inner,
+        feasibility_max_iter=args.feasibility_max_iter,
         verbose=args.verbose,
     )
     if result is None:

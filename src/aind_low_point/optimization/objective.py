@@ -507,6 +507,31 @@ def coverage_objective(x: NDArray, ctx: OptimizerContext) -> float:
     return -evaluate_constraints(x, ctx).coverage_total
 
 
+def feasibility_violation_squared(x: NDArray, ctx: OptimizerContext) -> float:
+    """``Σ max(0, -slack)²`` across all constraint groups at ``x``.
+
+    Treats threading, clearance, arc-AP separation, and intra-arc ML
+    separation slacks symmetrically — zero at feasibility, smooth on
+    the violating side. Used as the Stage-A scalar in the two-stage
+    inner solve: minimising it drives the optimizer to (or close to)
+    the feasibility tube before Stage B optimises coverage subject to
+    hard constraints.
+    """
+    cv = evaluate_constraints(x, ctx)
+    total = 0.0
+    for arr in (
+        cv.threading,
+        cv.clearance,
+        cv.arc_ap_separation,
+        cv.intra_arc_ml_separation,
+    ):
+        arr = np.asarray(arr, dtype=np.float64)
+        if arr.size > 0:
+            excess = np.maximum(0.0, -arr)
+            total += float(np.sum(excess * excess))
+    return total
+
+
 def make_objective(ctx: OptimizerContext) -> Callable[[NDArray], float]:
     """Bind ``ctx`` and return ``J(x) -> float`` for the optimizer."""
     def J(x: NDArray) -> float:

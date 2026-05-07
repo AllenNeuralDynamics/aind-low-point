@@ -59,18 +59,22 @@ which is the right behaviour.
    distances, oval distances, Gaussian density are all closed-form.
    JAX through `objective.py` would unblock `trust-constr`.
 
-### Inner-loop structure (target)
+### Inner-loop structure (current)
 
 ```
-warm-start x0   (multi-start: hole-axis aligned + a few perturbations)
+warm-start x0   (single start so far: hole-axis aligned)
      │
      ▼
-[Stage A] feasibility solve:   minimise Σ ReLU(g_j(x))²
-     │   - or augmented-Lagrangian with slacks
-     │   - cheap, even from infeasible starts
+multi-stage CMA-ES   (homotopy on feasibility multipliers; ✅ done)
+     │
      ▼
-[Stage B] coverage polish:     minimise -coverage(x)  s.t. g_j(x) ≤ 0
-     │   - SLSQP with ineq constraints (current)
+[Stage A] feasibility solve:   minimise Σ ReLU(-slack_j)²       ✅ done
+     │   - SLSQP with bounds only (not constraints), feasibility
+     │     scalar as objective
+     │   - cheap, monotone decrease in violation² when it works
+     ▼
+[Stage B] coverage polish:     minimise -coverage(x)  s.t. g_j ≥ 0   ✅ done
+     │   - SLSQP with ineq constraints
      │   - trust-constr once gradients land
      ▼
 report breakdown {coverage, max violation, sum violation²}
@@ -128,6 +132,15 @@ Gaussian; reporting uses both.
   `_slsqp_polish_constrained` passes them as scipy `ineq` constraints
   with objective = `-coverage_total`. Default; `--slsqp-soft` falls
   back to legacy penalties.
+- **Two-stage inner solve** — Stage A minimises
+  `feasibility_violation_squared(x)` (`Σ ReLU(-slack_j)²` across all
+  four constraint groups) starting from the CMA-ES warm-start; Stage
+  B is the existing `_slsqp_polish_constrained`. Default on with
+  `slsqp_constrained=True`; `--no-two-stage-inner` disables. Empirical
+  win on 836656 / 7 probes: total cost 1.70 M → 0.86 M (−50%);
+  threading 519 K → 101 K (−81%); coverage 0.72 → 3.88 (5×). Also
+  steers the inner loop into a better arc-assignment basin than the
+  single-stage path picks.
 - End-to-end runner (`scripts/run_optimizer.py`) that loads YAML
   config, applies `implant_to_lps` to extracted holes, writes an
   optimized config back.
@@ -136,30 +149,31 @@ Gaussian; reporting uses both.
 
 In recommended order; estimates assume one focused session each.
 
-1. **Two-stage inner solve (feasibility-first → coverage-second).**
-   ~1 hr. Stage A: minimise sum of squared violations from the warm
-   start. Stage B: SLSQP-with-ineq from the (near-)feasible point.
-   Today's single-stage SLSQP can wander out of feasibility if the
-   warm start is barely inside; staging fixes this.
-2. **Multi-pose LSAP feasibility score.** ~1 hr. For each (probe,
+1. **Multi-pose LSAP feasibility score.** ~1 hr. For each (probe,
    hole) pair, sample a small bank of candidate poses and aggregate.
    Replace the binary `max_g > 0` hard reject with the aggregate
    score. Cheap; helps when probe targets are clustered and the
    single best-fit pose isn't quite feasible but a neighbour is.
-3. **Lexicographic ranking + top-K plan reporting.** ~30 min. Track
+   Also: 4 of 5 hole assignments on 836656 currently die at "no
+   feasible arc assignment" — that's the *arc partitioner's* hard
+   filter, not LSAP, but the same idea (relax binary feasibility
+   gates) applies.
+2. **Lexicographic ranking + top-K plan reporting.** ~30 min. Track
    feasibility metrics per (hole, arc) combination instead of just
    `min(cost)`. Emit the table from the Reporting section above.
-4. **JAX autodiff for objective + constraints.** ~half day. Swap
+3. **JAX autodiff for objective + constraints.** ~half day. Swap
    `np → jnp` in `objective.py`, `geometry.py`, `density.py`,
-   `kinematics.py`. Returns `coverage_grad`, `g_jac`. Unblocks (5).
-5. **Switch to `trust-constr`** once gradients land. ~1 day.
+   `kinematics.py`. Returns `coverage_grad`, `g_jac`. Unblocks (4).
+4. **Switch to `trust-constr`** once gradients land. ~1 day.
    Interior-point SQP scales better than SLSQP for ~120 constraints
-   and respects the constraint geometry more directly.
-6. **Cheap arc-feasibility surrogate** before the full inner solve.
+   and respects the constraint geometry more directly. With Stage A
+   and Stage B both as `trust-constr`, the inner loop becomes
+   genuinely interior-point throughout.
+5. **Cheap arc-feasibility surrogate** before the full inner solve.
    ~1 day. Per arc-partition candidate, run a fast continuous solve
    on AP/ML only with simplified shaft-line geometry. Drop obviously
    over-constrained partitions before the full inner loop runs.
-7. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
+6. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
    alongside the Gaussian-density coverage scalar. Display only.
 
 ### Open questions
@@ -175,15 +189,23 @@ In recommended order; estimates assume one focused session each.
 
 ### Diagnostic baseline (836656, 7 probes)
 
+(Single-run snapshots — CMA-ES is stochastic, so absolute numbers
+move ~10-30% run-to-run; relative deltas are the signal.)
+
 - Pre-homotopy single-stage CMA-ES + penalty SLSQP: cost **7.6 M**
   (kin 23 M, thread 25 M).
 - Multi-stage CMA-ES homotopy + penalty SLSQP: cost **4.5 M**
   (thread 2.3 M, kin 2.2 M).
 - Multi-stage CMA-ES + coverage-aware LSAP + constrained SLSQP: cost
   **3.5 M** (thread 2.0 M, kin 1.5 M).
+- ⚠️ Re-measured baseline (same code as above, fresh run, 2026-05-07):
+  cost **1.7 M** (cov 0.7, thread 519 K, clear 15 K, kin 1.17 M).
+- **Add Stage A (two-stage inner solve), 2026-05-07:** cost
+  **0.86 M** (cov 3.88, thread 101 K, clear 10 K, kin 746 K).
 - Visually: probes pass through *roughly* the right bores but with
-  bodies clipping the implant. Goal is **fully feasible** plan; the
-  remaining penalty mass is exactly what stage A is for.
+  bodies still clipping the implant. Goal is **fully feasible** plan;
+  remaining penalty mass is mostly the rig-kinematic ML/AP
+  separation constraints squeezing 4 probes onto one arc.
 
 ### Files (where things live)
 

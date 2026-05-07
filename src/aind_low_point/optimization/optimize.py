@@ -52,6 +52,7 @@ from aind_low_point.optimization.objective import (
     coverage_objective,
     evaluate_constraints,
     evaluate_objective,
+    feasibility_violation_squared,
     scalar_objective,
 )
 from aind_low_point.optimization.recording import (
@@ -359,6 +360,37 @@ def _slsqp_polish(
     return x_opt, evaluate_objective(x_opt, ctx)
 
 
+def _feasibility_solve(
+    ctx: OptimizerContext, x0: NDArray, *, max_iter: int
+) -> tuple[NDArray, float]:
+    """Stage A of the two-stage inner solve.
+
+    Minimises ``feasibility_violation_squared`` (sum of squared
+    constraint violations across threading, clearance, AP sep, and
+    intra-arc ML sep) starting from ``x0``. SLSQP with bounds only —
+    no ``ineq`` constraints, since the *objective* is the violation.
+
+    Returns ``(x, violation²)``. Even if the result isn't strictly
+    feasible (``violation² > 0``), it's the point that minimises
+    distance from the feasibility tube — a much better warm start for
+    Stage B's coverage polish than the raw CMA-ES output, which can
+    sit deep inside an infeasible region.
+    """
+    bounds = _default_bounds(ctx)
+
+    def fn(v):
+        return feasibility_violation_squared(np.asarray(v, dtype=np.float64), ctx)
+
+    result = minimize(
+        fn,
+        np.asarray(x0, dtype=np.float64),
+        method="SLSQP",
+        bounds=bounds,
+        options={"maxiter": max_iter, "ftol": 1e-9, "disp": False},
+    )
+    return np.asarray(result.x, dtype=np.float64), float(result.fun)
+
+
 def _slsqp_polish_constrained(
     ctx: OptimizerContext, x0: NDArray, *, max_iter: int
 ) -> tuple[NDArray, ObjectiveBreakdown]:
@@ -430,6 +462,8 @@ def optimize(
     cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
     slsqp_max_iter: int = 100,
     slsqp_constrained: bool = True,
+    two_stage_inner: bool = True,
+    feasibility_max_iter: int = 80,
     min_arc_ap_sep_deg: float = 16.0,
     verbose: bool = False,
 ) -> OptimizationResult | None:
@@ -523,6 +557,18 @@ def optimize(
                     )
                 if x_cma is not None:
                     x = x_cma
+            if slsqp_constrained and two_stage_inner:
+                v_pre = feasibility_violation_squared(x, ctx)
+                x_feas, v_feas = _feasibility_solve(
+                    ctx, x, max_iter=feasibility_max_iter
+                )
+                if v_feas <= v_pre:
+                    x = x_feas
+                if verbose:
+                    print(
+                        f"    feasibility stage: violation² "
+                        f"{v_pre:.4g} → {v_feas:.4g}"
+                    )
             if slsqp_constrained:
                 x_opt, breakdown_opt = _slsqp_polish_constrained(
                     ctx, x, max_iter=slsqp_max_iter
