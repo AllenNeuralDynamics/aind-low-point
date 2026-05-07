@@ -141,6 +141,216 @@ def static_threading_max_g(
     return float(max(gs)) if gs else 0.0
 
 
+def _rotation_about_axis(axis: NDArray, angle_rad: float) -> NDArray:
+    """3×3 rotation matrix about ``axis`` (unit) by ``angle_rad``
+    (Rodrigues). Axis assumed already normalised by the caller."""
+    K = np.array([
+        [0.0, -axis[2], axis[1]],
+        [axis[2], 0.0, -axis[0]],
+        [-axis[1], axis[0], 0.0],
+    ])
+    return (
+        np.eye(3)
+        + np.sin(angle_rad) * K
+        + (1.0 - np.cos(angle_rad)) * (K @ K)
+    )
+
+
+def _rotate_to(from_dir: NDArray, to_dir: NDArray) -> NDArray:
+    """Smallest rotation matrix taking ``from_dir`` to ``to_dir``
+    (both unit). Identity if they're already (anti-)parallel."""
+    f = np.asarray(from_dir, dtype=np.float64)
+    t = np.asarray(to_dir, dtype=np.float64)
+    cos = float(np.clip(np.dot(f, t), -1.0, 1.0))
+    if cos > 1.0 - 1e-12:
+        return np.eye(3)
+    if cos < -1.0 + 1e-12:
+        # 180° flip; pick any axis perpendicular to f.
+        helper = np.array([1.0, 0.0, 0.0])
+        if abs(np.dot(helper, f)) > 0.9:
+            helper = np.array([0.0, 1.0, 0.0])
+        ax = np.cross(f, helper)
+        ax /= np.linalg.norm(ax)
+        return _rotation_about_axis(ax, np.pi)
+    ax = np.cross(f, t)
+    ax /= np.linalg.norm(ax)
+    return _rotation_about_axis(ax, float(np.arccos(cos)))
+
+
+def _build_pose_bank(
+    probe: AssignmentProbe,
+    hole: Hole,
+    *,
+    tilt_deg: float = 2.0,
+) -> list[tuple[NDArray, NDArray]]:
+    """Construct the candidate-pose bank for LSAP feasibility scoring.
+
+    The bank samples the *target-aim continuum* — the inner loop's
+    actual optimum is somewhere between the slot-axis-aligned best-fit
+    and the target-aligned pose — plus small AP/ML wobbles around the
+    halfway pose, in the rig's natural axes:
+
+    1. Slot-aligned best-fit (``pose_at_hole_best_fit``).
+    2. Target-aligned (shaft along ``target − slot_center``).
+    3. Halfway slerp between them.
+    4. Halfway ± ``tilt_deg`` around world ``+x_LPS`` (rig AP axis).
+    5. Halfway ± ``tilt_deg`` around world ``+y_LPS`` (rig ML axis).
+
+    All poses translate ``pose_tip`` so the shank-row centroid lands
+    at the slot bottom centre.
+
+    Spin±90° (row across slot minor) is omitted: for the multi-shank
+    AIND probes the row span (~0.75 mm) exceeds the slot minor (~0.7
+    mm) by construction, so that orientation is trivially infeasible
+    and adds no signal. Depth perturbations along the bore axis are
+    also omitted: for straight bores aligned with the shaft, depth
+    shifts the intersection along the shaft but leaves the projected
+    ``(u, v)`` unchanged, so they don't relax max_g.
+    """
+    R_base, pose_tip = pose_at_hole_best_fit(hole)
+    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(
+        axis=0
+    )
+    pose_tip = pose_tip - R_base @ centroid_local
+
+    bore_dir = -np.asarray(hole.axis, dtype=np.float64)
+    bore_dir /= np.linalg.norm(bore_dir)
+    to_target = (
+        np.asarray(probe.target_LPS, dtype=np.float64)
+        - np.asarray(hole.sections[-1].center, dtype=np.float64)
+    )
+    n = float(np.linalg.norm(to_target))
+    target_dir = to_target / n if n >= 1e-9 else bore_dir
+
+    R_target = _rotate_to(bore_dir, target_dir) @ R_base
+
+    cos = float(np.clip(np.dot(bore_dir, target_dir), -1.0, 1.0))
+    angle_half = 0.5 * float(np.arccos(cos))
+    ax_half = np.cross(bore_dir, target_dir)
+    ax_norm = float(np.linalg.norm(ax_half))
+    if angle_half < 1e-9 or ax_norm < 1e-12:
+        R_half = R_base.copy()
+    else:
+        R_half = _rotation_about_axis(ax_half / ax_norm, angle_half) @ R_base
+
+    poses: list[tuple[NDArray, NDArray]] = [
+        (R_base, pose_tip),
+        (R_target, pose_tip),
+        (R_half, pose_tip),
+    ]
+
+    tilt_rad = float(np.deg2rad(tilt_deg))
+    e_x = np.array([1.0, 0.0, 0.0])  # AP-rotation axis (LPS +x)
+    e_y = np.array([0.0, 1.0, 0.0])  # ML-rotation axis (LPS +y)
+    for sign in (+1.0, -1.0):
+        for axis in (e_x, e_y):
+            poses.append((_rotation_about_axis(axis, sign * tilt_rad) @ R_half, pose_tip))
+    return poses
+
+
+@dataclass(frozen=True)
+class MultiPoseScore:
+    """Aggregates over the multi-pose bank for a single (probe, hole) pair.
+
+    All three are taken across the bank — feasibility over poses is a
+    "best-of" question (``min`` violations, ``max`` coverage):
+
+    - ``min_violation_sq``: ``min_m Σ_j ReLU(g_j(x_m))²``. This is the
+      Stage-A scalar from the inner loop, evaluated at each candidate
+      pose. Zero ⇒ at least one bank pose is fully feasible.
+    - ``min_max_g``: ``min_m max_j g_j(x_m)``. Single-pose worst-section
+      reading at the most-feasible pose; tiebreaker among feasible
+      pairs (more-negative = more clearance).
+    - ``max_coverage``: ``max_m coverage(x_m)`` — coverage at the
+      best-coverage pose (``static_coverage`` is the slot-aligned one,
+      but a target-aimed pose can score higher for off-bore targets).
+    """
+
+    min_violation_sq: float
+    min_max_g: float
+    max_coverage: float
+
+
+def multi_pose_threading_max_g(
+    probe: AssignmentProbe,
+    hole: Hole,
+    *,
+    shaft_length_mm: float = 10.0,
+    shank_radius_mm: float = 0.05,
+    tilt_deg: float = 2.0,
+) -> float:
+    """Backwards-compatible scalar — returns ``MultiPoseScore.min_max_g``."""
+    return multi_pose_evaluate(
+        probe, hole,
+        shaft_length_mm=shaft_length_mm,
+        shank_radius_mm=shank_radius_mm,
+        tilt_deg=tilt_deg,
+    ).min_max_g
+
+
+def multi_pose_evaluate(
+    probe: AssignmentProbe,
+    hole: Hole,
+    *,
+    shaft_length_mm: float = 10.0,
+    shank_radius_mm: float = 0.05,
+    tilt_deg: float = 2.0,
+    coverage_n_samples: int = 41,
+) -> MultiPoseScore:
+    """Evaluate the (probe, hole) pair over the multi-pose bank.
+
+    Builds the 7-pose bank from :func:`_build_pose_bank`, computes the
+    threading-constraint vector and coverage at each, and returns the
+    best-of-bank aggregates as a :class:`MultiPoseScore`. Used by
+    :func:`build_cost_matrix` to set both the soft cost contribution
+    and the (relaxed) hard-reject criterion.
+    """
+    poses = _build_pose_bank(probe, hole, tilt_deg=tilt_deg)
+
+    try:
+        geom = get_recording_geometry(probe.kind)
+    except Exception:
+        geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
+    density_fn = gaussian_density(probe.target_LPS, sigma_mm=probe.density_sigma_mm)
+
+    min_vio_sq = float("inf")
+    min_max_g = float("inf")
+    max_cov = 0.0
+    for R, tp in poses:
+        capsules = shank_capsules_from_pose(
+            R, tp, probe.shank_tips_local,
+            shaft_length_mm=shaft_length_mm,
+            shank_radius_mm=shank_radius_mm,
+        )
+        if not capsules:
+            continue
+        gs = np.array(
+            [
+                shaft_section_oval_value(cap, sec)
+                for cap in capsules
+                for sec in hole.sections
+            ],
+            dtype=np.float64,
+        )
+        if gs.size > 0:
+            vio = float(np.sum(np.maximum(0.0, gs) ** 2))
+            min_vio_sq = min(min_vio_sq, vio)
+            min_max_g = min(min_max_g, float(np.max(gs)))
+        if len(capsules) == geom.n_shanks:
+            cov = coverage(density_fn, capsules, geom, n_samples=coverage_n_samples)
+            max_cov = max(max_cov, float(cov))
+
+    if min_vio_sq == float("inf"):
+        min_vio_sq = 0.0
+    if min_max_g == float("inf"):
+        min_max_g = 0.0
+    return MultiPoseScore(
+        min_violation_sq=min_vio_sq,
+        min_max_g=min_max_g,
+        max_coverage=max_cov,
+    )
+
+
 def pairwise_interference_penalty(
     probes: list[AssignmentProbe],
     holes: list[Hole],
@@ -198,9 +408,18 @@ class CostWeights:
     """Weights for the LSAP cost components."""
 
     alpha_target_angle: float = 1.0      # primary
-    beta_clearance: float = 0.3          # tiebreaker
+    beta_clearance: float = 0.3          # tiebreaker (more-negative max_g better)
     gamma_interference: float = 0.5      # soft pairwise penalty
     delta_coverage: float = 5.0          # subtract (= maximise) coverage
+    eta_violation: float = 2.0           # ``min_m Σ ReLU(g)²`` term — soft
+                                          # feasibility cost; only a hint, the
+                                          # hard reject below is the gate
+    violation_reject_threshold: float = 1.0
+    """Pairs whose ``min_m Σ ReLU(g_j)²`` exceeds this are hard rejected
+    (i.e. *every* sampled pose is so badly infeasible that no nearby
+    inner-loop solve will recover). 1.0 corresponds roughly to one
+    section-shank entry with ``g ≈ 1`` (~one full oval-radius worth of
+    overlap) — anything more is hopeless. Set lower for stricter LSAP."""
     forbid_cost: float = 1.0e9           # used in place of +∞
 
 
@@ -261,26 +480,38 @@ def build_cost_matrix(
     if K == 0 or N == 0:
         return np.zeros((K, N), dtype=np.float64)
 
-    # Target-line angle (radians) and static clearance per pair.
+    # Target-line angle, multi-pose feasibility/clearance/coverage.
+    # Per (probe, hole), evaluate the 7-pose bank (slot-aligned + target-
+    # aligned + halfway + ±AP/ML wobbles) and aggregate:
+    #   - min_violation_sq: best-of-bank Σ ReLU(g_j)² — feasibility
+    #   - min_max_g:        best-of-bank max(g_j)    — clearance signal
+    #   - max_coverage:     best-of-bank coverage    — coverage bonus
     angle_mat = np.zeros((K, N), dtype=np.float64)
     max_g_mat = np.zeros((K, N), dtype=np.float64)
+    violation_mat = np.zeros((K, N), dtype=np.float64)
     coverage_mat = np.zeros((K, N), dtype=np.float64)
     for i, probe in enumerate(probes):
         for j, hole in enumerate(holes):
             angle_mat[i, j] = angle_to_target_rad(probe.target_LPS, hole)
-            max_g_mat[i, j] = static_threading_max_g(probe, hole)
-            coverage_mat[i, j] = static_coverage(probe, hole)
+            score = multi_pose_evaluate(probe, hole)
+            max_g_mat[i, j] = score.min_max_g
+            violation_mat[i, j] = score.min_violation_sq
+            coverage_mat[i, j] = score.max_coverage
 
     interference_mat = pairwise_interference_penalty(probes, holes)
 
     cost = (
         weights.alpha_target_angle * angle_mat
         + weights.beta_clearance * max_g_mat
+        + weights.eta_violation * violation_mat
         + weights.gamma_interference * interference_mat
         - weights.delta_coverage * coverage_mat
     )
-    # Hard reject infeasible pairs.
-    cost[max_g_mat > 0.0] = weights.forbid_cost
+    # Hard reject only when every sampled pose is so badly infeasible
+    # that no nearby inner-loop solve will recover. Marginal "just
+    # barely outside the slot" pairs survive — the inner loop's
+    # two-stage solve can pull them inside.
+    cost[violation_mat > weights.violation_reject_threshold] = weights.forbid_cost
     return cost
 
 
