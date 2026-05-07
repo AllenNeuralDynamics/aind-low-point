@@ -197,8 +197,16 @@ def build_probes(
 
         ap_deg = float(row["ap_angle"])
         ml_deg = float(row["ml_angle"])
-        spin_deg = float(row["spin"])
-        R = arc_angles_to_affine(ap_deg, ml_deg, spin_deg)
+        # Use the *adjusted* spin (CSV spin + 180°) when computing the
+        # rotation that the runtime will see — the centroid-shift
+        # vector lives in the probe's local frame, so it has to be
+        # rotated by the same R the runtime uses; otherwise the
+        # 180° spin offset induces a 180° rotation around z that
+        # doesn't cancel and shows up as a row-span (~0.75 mm)
+        # offset on multi-shank probes.
+        raw_spin_deg = float(row["spin"])
+        spin_for_R = ((raw_spin_deg + 180.0) + 180.0) % 360.0 - 180.0
+        R = arc_angles_to_affine(ap_deg, ml_deg, spin_for_R)
         n_shanks = N_SHANKS_BY_KIND.get(kind, 1)
         centroid_y = (n_shanks - 1) * SHANK_PITCH_MM / 2.0
         n_centered = OLD_CENTERED_SHANK_INDEX.get(row["probe_type"], 0)
