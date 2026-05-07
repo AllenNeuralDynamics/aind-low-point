@@ -1,6 +1,207 @@
-# Probe Placement Optimizer (planned)
+# Probe Placement Optimizer
 
-Status: **inner-loop primitives landing now. Outer driver still deferred.**
+> The top two sections track active iteration; the rest of the document
+> is the deeper design reference. Update **Strategy & Ideas** when the
+> overall framing of the problem shifts; update **Status & TODO** every
+> time work lands or a new task is queued.
+
+## Strategy & Ideas
+
+This is a **mixed-integer nonlinear constrained optimization** problem.
+For fixed discrete choices (probe→hole, probe→arc) the continuous
+sub-problem is
+
+```
+maximise  coverage(x)
+s.t.      g_thread(x)        ≤ 0     (~84 entries for K=7)
+          g_clearance(x)     ≤ 0     (~21 entries)
+          g_kinematic(x)     ≤ 0     (~6 + per-partition entries)
+          x_min ≤ x ≤ x_max
+```
+
+with `x ∈ ℝ^{n_arcs + 5K}` (37 dims for K=7, n_arcs=2). The feasible
+region is a **thin, nonconvex set** because the implant bores form
+narrow geometric tunnels. Coverage is smooth (Gaussian density over
+samples on the recording bank); the constraints are piecewise-smooth
+with kinks at the oval boundaries / capsule contact points.
+
+The conceptual shift that makes this tractable:
+
+> Treat this as a **feasibility problem with a secondary smooth
+> coverage objective**, *not* as a single weighted-penalty objective.
+
+When threading and kinematics are folded into the objective as
+penalties, the optimizer trades small physical violations for marginal
+coverage gains and lands outside the feasibility tube. With hard
+inequality constraints the optimizer can only move *within* the tube,
+which is the right behaviour.
+
+### Operating principles
+
+1. **Discrete first, continuous second** — outer (probe→hole), middle
+   (probe→arc), then the inner continuous solve.
+2. **Feasibility before coverage** in the inner loop — stage A drives
+   constraint violations to zero; stage B optimises coverage subject to
+   those constraints.
+3. **Hard constraints, not penalties** — once the formulation has a
+   good warm start, scipy's `SLSQP` (or `trust-constr` with gradients)
+   should see explicit `ineq` constraint vectors.
+4. **Soft pre-screening, hard post-check** — the LSAP cost is allowed
+   to be a soft surrogate, but the inner loop's feasibility check is
+   strict. Don't let LSAP's static-pose hard reject (`max_g > 0` at one
+   pose) cull pairs that *could* be made feasible with a small AP/ML
+   tweak.
+5. **Lexicographic ranking** — final plans ranked by feasibility first
+   (max constraint violation, then sum), coverage second. Surface the
+   top 3–5 to the user; report infeasibility certificates when nothing
+   works.
+6. **Gradients are available analytically** — rotations, capsule
+   distances, oval distances, Gaussian density are all closed-form.
+   JAX through `objective.py` would unblock `trust-constr`.
+
+### Inner-loop structure (target)
+
+```
+warm-start x0   (multi-start: hole-axis aligned + a few perturbations)
+     │
+     ▼
+[Stage A] feasibility solve:   minimise Σ ReLU(g_j(x))²
+     │   - or augmented-Lagrangian with slacks
+     │   - cheap, even from infeasible starts
+     ▼
+[Stage B] coverage polish:     minimise -coverage(x)  s.t. g_j(x) ≤ 0
+     │   - SLSQP with ineq constraints (current)
+     │   - trust-constr once gradients land
+     ▼
+report breakdown {coverage, max violation, sum violation²}
+```
+
+CMA-ES is a **multi-start generator**, not the main solver. Once the
+basin is found, gradient-based SQP / interior-point dominates.
+
+### LSAP refinements
+
+Replace the brittle `static_threading_max_g > 0` hard reject with a
+**local feasibility score** sampled across a small bank of candidate
+poses (hole-axis + ±AP/ML perturbations + spin alignments). Hard-reject
+only when *all* sampled poses are badly infeasible. Coverage and
+threading enter the LSAP cost together.
+
+### Reporting
+
+Final report is a table:
+
+| Plan | Feasible? | max thread violation | min headstage clearance | min AP sep | coverage |
+|---|---|---|---|---|---|
+| 1 | yes | 0.000 | 0.24 | 16.8° | 3.10 |
+| 2 | yes | 0.000 | 0.18 | 17.2° | 2.90 |
+| 3 | no  | 0.21 | 0.30 | 16.5° | 3.40 |
+
+A high-coverage but infeasible plan is *worse* than a slightly lower-
+coverage feasible one — never pretend otherwise.
+
+For per-probe interpretability, add a probability-style summary
+(e.g. `1 - Π_q (1 − p_q)` over active sites) on top of the raw
+Gaussian-density coverage scalar. Optimisation still uses the smooth
+Gaussian; reporting uses both.
+
+## Status & TODO
+
+### Done
+
+- Three-level driver (`optimize.py`): outer LSAP+Murty, middle brute-
+  force partition, inner CMA-ES → SLSQP.
+- Discrete layers: `hole_assignment.py` (LSAP+Murty), `arc_assignment.py`
+  (capacity + 16° AP-sep filtered partitions).
+- Pose primitives: `kinematics.pose_from_optimizer_vars`,
+  `pose_at_hole_best_fit`, capsule-from-pose.
+- Geometry primitives: capsule-section threading distance, capsule-
+  capsule distance, oval fit.
+- Coverage objective: Gaussian density + Simpson integration along the
+  active range.
+- **Multi-stage CMA-ES homotopy** — feasibility-penalty multipliers
+  ramp `(0.1, 1.0, 10.0)` across stages, sigma halves between stages.
+- **Coverage in LSAP cost** — `static_coverage(probe, hole)` evaluated
+  at the geometric best-fit pose; subtracted with `delta_coverage=5.0`.
+- **Native SLSQP inequality constraints** — `evaluate_constraints`
+  returns slack vectors (threading, clearance, AP sep, ML sep);
+  `_slsqp_polish_constrained` passes them as scipy `ineq` constraints
+  with objective = `-coverage_total`. Default; `--slsqp-soft` falls
+  back to legacy penalties.
+- End-to-end runner (`scripts/run_optimizer.py`) that loads YAML
+  config, applies `implant_to_lps` to extracted holes, writes an
+  optimized config back.
+
+### Active / next
+
+In recommended order; estimates assume one focused session each.
+
+1. **Two-stage inner solve (feasibility-first → coverage-second).**
+   ~1 hr. Stage A: minimise sum of squared violations from the warm
+   start. Stage B: SLSQP-with-ineq from the (near-)feasible point.
+   Today's single-stage SLSQP can wander out of feasibility if the
+   warm start is barely inside; staging fixes this.
+2. **Multi-pose LSAP feasibility score.** ~1 hr. For each (probe,
+   hole) pair, sample a small bank of candidate poses and aggregate.
+   Replace the binary `max_g > 0` hard reject with the aggregate
+   score. Cheap; helps when probe targets are clustered and the
+   single best-fit pose isn't quite feasible but a neighbour is.
+3. **Lexicographic ranking + top-K plan reporting.** ~30 min. Track
+   feasibility metrics per (hole, arc) combination instead of just
+   `min(cost)`. Emit the table from the Reporting section above.
+4. **JAX autodiff for objective + constraints.** ~half day. Swap
+   `np → jnp` in `objective.py`, `geometry.py`, `density.py`,
+   `kinematics.py`. Returns `coverage_grad`, `g_jac`. Unblocks (5).
+5. **Switch to `trust-constr`** once gradients land. ~1 day.
+   Interior-point SQP scales better than SLSQP for ~120 constraints
+   and respects the constraint geometry more directly.
+6. **Cheap arc-feasibility surrogate** before the full inner solve.
+   ~1 day. Per arc-partition candidate, run a fast continuous solve
+   on AP/ML only with simplified shaft-line geometry. Drop obviously
+   over-constrained partitions before the full inner loop runs.
+7. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
+   alongside the Gaussian-density coverage scalar. Display only.
+
+### Open questions
+
+- Is the rig's 16° within-arc ML separation a hard mechanical constraint,
+  or a heuristic? If softer, more 7-probe plans become feasible.
+- Should we expose top-K candidates (Pareto over coverage vs
+  feasibility margin) instead of a single best?
+- Is the Gaussian-density σ (default 0.5 mm) the right shape for "I
+  want this voxel recorded"? A smoother kernel might match user
+  intent better; a harder kernel makes coverage closer to a binary
+  hit metric.
+
+### Diagnostic baseline (836656, 7 probes)
+
+- Pre-homotopy single-stage CMA-ES + penalty SLSQP: cost **7.6 M**
+  (kin 23 M, thread 25 M).
+- Multi-stage CMA-ES homotopy + penalty SLSQP: cost **4.5 M**
+  (thread 2.3 M, kin 2.2 M).
+- Multi-stage CMA-ES + coverage-aware LSAP + constrained SLSQP: cost
+  **3.5 M** (thread 2.0 M, kin 1.5 M).
+- Visually: probes pass through *roughly* the right bores but with
+  bodies clipping the implant. Goal is **fully feasible** plan; the
+  remaining penalty mass is exactly what stage A is for.
+
+### Files (where things live)
+
+| Path | Purpose |
+|---|---|
+| `src/aind_low_point/optimization/optimize.py` | 3-level driver, CMA-ES wrappers, multi-stage homotopy, two SLSQP polishes |
+| `src/aind_low_point/optimization/objective.py` | `evaluate_objective`, `evaluate_constraints`, `coverage_objective`, `ObjectiveWeights`, `ProbeContext`, layout |
+| `src/aind_low_point/optimization/hole_assignment.py` | `AssignmentProbe`, `CostWeights`, `static_coverage`, LSAP + Murty |
+| `src/aind_low_point/optimization/arc_assignment.py` | `solve_top_k_arc_assignments` (probe→arc) |
+| `src/aind_low_point/optimization/kinematics.py` | `pose_from_optimizer_vars`, `pose_at_hole_best_fit`, capsule constructors |
+| `src/aind_low_point/optimization/geometry.py` | `Capsule`, `HoleSection`, `shaft_section_oval_value`, `capsule_capsule_dist` |
+| `src/aind_low_point/optimization/density.py` | Gaussian density, Simpson integration |
+| `src/aind_low_point/optimization/holes.py` | `Hole`, YAML loader |
+| `src/aind_low_point/optimization/recording.py` | `RECORDING_GEOMETRY` per kind |
+| `scripts/run_optimizer.py` | CLI: config + holes YAML → optimized config |
+| `tests/test_optimization_*.py` | Unit tests per module |
+
+---
 
 ## Glossary (acronyms used below)
 
