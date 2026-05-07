@@ -10,13 +10,13 @@
 #   c: -43.0°  (CSV ap_arc_id=3.0)
 #
 # Per-probe notes (hole assignment + depth conversion):
-#   MD: hole 3  (probe_type=quadbase3, old_dpt=1.700 → past_target_mm=0.068)
-#   BLA: hole 4  (probe_type=quadbase_dovetail0, old_dpt=0.500 → past_target_mm=-1.133)
-#   PL: hole 1  (probe_type=quadbase0, old_dpt=0.700 → past_target_mm=-0.932)
-#   VM: hole 6  (probe_type=2.1, old_dpt=0.100 → past_target_mm=-1.532)
-#   RSP: hole 5  (probe_type=2.1, old_dpt=2.000 → past_target_mm=0.367)
-#   CA1: hole 10  (probe_type=2.1, old_dpt=1.000 → past_target_mm=-0.632)
-#   CLA: hole 12  (probe_type=2.1, old_dpt=0.600 → past_target_mm=-1.032)
+#   MD: hole 3  (probe_type=quadbase3, old_dpt=1.700 → past_target_mm=0.068, shift_LPS=[-0.231, 0.273, 0.113])
+#   BLA: hole 4  (probe_type=quadbase_dovetail0, old_dpt=0.500 → past_target_mm=-1.133, shift_LPS=[0.0, -0.369, 0.065])
+#   PL: hole 1  (probe_type=quadbase0, old_dpt=0.700 → past_target_mm=-0.932, shift_LPS=[-0.245, 0.267, 0.097])
+#   VM: hole 6  (probe_type=2.1, old_dpt=0.100 → past_target_mm=-1.532, shift_LPS=[0.0, 0.0, 0.0])
+#   RSP: hole 5  (probe_type=2.1, old_dpt=2.000 → past_target_mm=0.367, shift_LPS=[0.0, 0.0, 0.0])
+#   CA1: hole 10  (probe_type=2.1, old_dpt=1.000 → past_target_mm=-0.632, shift_LPS=[0.0, 0.0, 0.0])
+#   CLA: hole 12  (probe_type=2.1, old_dpt=0.600 → past_target_mm=-1.032, shift_LPS=[0.0, 0.0, 0.0])
 #
 # Past-target depths converted from tip-past-target (old)
 # to recording-center-past-target (new) by subtracting the
@@ -400,9 +400,9 @@ plan:
       target:
         kind: inline
         point_RAS:
-        - -0.4792
-        - -0.4335
-        - -3.2575
+        - -0.2483
+        - -0.7064
+        - -3.1442
     BLA:
       kind: quadbase
       arc: b
@@ -416,8 +416,8 @@ plan:
         kind: inline
         point_RAS:
         - -3.1213
-        - -1.4293
-        - -5.0133
+        - -1.06
+        - -4.9482
     PL:
       kind: quadbase
       arc: b
@@ -430,9 +430,9 @@ plan:
       target:
         kind: inline
         point_RAS:
-        - -0.1498
-        - 2.1703
-        - -2.0588
+        - 0.0953
+        - 1.9034
+        - -1.9622
     VM:
       kind: '2.1'
       arc: c

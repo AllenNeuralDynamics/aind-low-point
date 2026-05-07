@@ -27,6 +27,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 
@@ -47,6 +48,40 @@ KIND_MAP: dict[str, str] = {
     "quadbase_dovetail2": "quadbase",
     "quadbase_dovetail3": "quadbase",
 }
+
+
+# Index of the shank that the OLD CSV producer's probe model had at its
+# local origin. The reference script (LoadTransform_PlanPointInsertion_*)
+# loads ``Quadbase_centeredOnShank{N}.obj`` per variant and places that
+# OBJ's local origin (= shank-N tip) at ``ideal_pt``. Our system
+# normalises every variant to a single canonical "quadbase" mesh
+# (shank-1 at origin, others at +y at 250 µm pitch) and places the
+# *recording-array centre* at the inline target. To put the same
+# physical shank that the CSV intended at ``ideal_pt``, we shift the
+# target by ``R @ (0, centroid_y − N·pitch, 0)`` in LPS.
+OLD_CENTERED_SHANK_INDEX: dict[str, int] = {
+    "2.1": 0,  # single shank
+    "2.4": 0,
+    "quadbase": 0,  # default
+    "quadbase0": 0,
+    "quadbase1": 1,
+    "quadbase2": 2,
+    "quadbase3": 3,
+    "quadbase_dovetail0": 0,
+    "quadbase_dovetail1": 1,
+    "quadbase_dovetail2": 2,
+    "quadbase_dovetail3": 3,
+}
+
+
+# Number of shanks per kind (after KIND_MAP normalisation), used to
+# compute the canonical row centroid ``(N_shanks − 1)·pitch/2``.
+N_SHANKS_BY_KIND: dict[str, int] = {
+    "2.1": 1,
+    "2.4": 4,
+    "quadbase": 4,
+}
+SHANK_PITCH_MM = 0.25  # AIND probes use 250 µm shank-row pitch.
 
 
 # Default recording-array center along the shaft (mm) per kind. Matches
@@ -148,13 +183,50 @@ def build_probes(
         active_z = ACTIVE_CENTER_MM.get(kind, 0.0)
         past_target_mm = round(old_dpt - active_z, 4)
 
-        # Pivot is now baked into ProbePose via ``AssetSpec.pivot_LPS``
-        # (computed from the canonicalized mesh's actual shank-tip
-        # centroid + active-z). Setting ``target_point_RAS = ideal_pt``
-        # places the recording-array center at the CSV's intended
-        # point — multi-shank probes straddle this point per the
-        # canonical row direction (+y for AIND); no centroid-shift
-        # compensation needed.
+        # Centroid shift: the CSV's reference script puts shank-N of a
+        # variant-specific OBJ at ``ideal_pt`` (where N is the index in
+        # the OBJ filename, ``Quadbase_centeredOnShank{N}.obj``). Our
+        # canonical mesh always has shank-0 at the local origin (others
+        # at +y) and we place the recording-array centre at the inline
+        # target. Shift the target by ``R @ (0, centroid_y − N·pitch, 0)``
+        # in LPS so the same physical shank lands on ``ideal_pt``.
+        from aind_anatomical_utils.coordinate_systems import (
+            convert_coordinate_system,
+        )
+        from aind_mri_utils.arc_angles import arc_angles_to_affine
+
+        ap_deg = float(row["ap_angle"])
+        ml_deg = float(row["ml_angle"])
+        spin_deg = float(row["spin"])
+        R = arc_angles_to_affine(ap_deg, ml_deg, spin_deg)
+        n_shanks = N_SHANKS_BY_KIND.get(kind, 1)
+        centroid_y = (n_shanks - 1) * SHANK_PITCH_MM / 2.0
+        n_centered = OLD_CENTERED_SHANK_INDEX.get(row["probe_type"], 0)
+        shift_local = np.array(
+            [0.0, centroid_y - n_centered * SHANK_PITCH_MM, 0.0],
+            dtype=np.float64,
+        )
+        shift_lps = R @ shift_local
+
+        ideal_lps = convert_coordinate_system(
+            np.array(
+                [
+                    [
+                        float(row["ideal_pt_R"]),
+                        float(row["ideal_pt_A"]),
+                        float(row["ideal_pt_S"]),
+                    ]
+                ],
+                dtype=np.float64,
+            ),
+            "RAS",
+            "LPS",
+        ).ravel()
+        target_lps = ideal_lps + shift_lps
+        target_ras = convert_coordinate_system(
+            target_lps.reshape(1, 3), "LPS", "RAS"
+        ).ravel()
+
         n = seen_structures[structure]
         seen_structures[structure] += 1
         probe_name = structure if n == 0 else f"{structure}_{n + 1}"
@@ -162,16 +234,17 @@ def build_probes(
         hole_notes.append(
             f"#   {probe_name}: hole {hole_id}  "
             f"(probe_type={row['probe_type']}, "
-            f"old_dpt={old_dpt:.3f} → past_target_mm={past_target_mm:.3f})"
+            f"old_dpt={old_dpt:.3f} → past_target_mm={past_target_mm:.3f}, "
+            f"shift_LPS={shift_lps.round(3).tolist()})"
         )
 
         if target_mode == "inline":
             target_ref = {
                 "kind": "inline",
                 "point_RAS": [
-                    round(float(row["ideal_pt_R"]), 4),
-                    round(float(row["ideal_pt_A"]), 4),
-                    round(float(row["ideal_pt_S"]), 4),
+                    round(float(target_ras[0]), 4),
+                    round(float(target_ras[1]), 4),
+                    round(float(target_ras[2]), 4),
                 ],
             }
             offsets_RA = [0.0, 0.0]
