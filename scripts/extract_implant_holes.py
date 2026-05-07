@@ -413,64 +413,87 @@ def extract_holes(
     return holes
 
 
+# Reference (LPS_x, LPS_y) per diagram-id for the 14-hole `0283-300-04`
+# implant. Positions are taken from the canonicalized mesh (post-LPS
+# conversion in main()) of the production OBJ file. Each new mesh
+# extraction is matched to these by nearest-unused-hole in (x, y).
+#
+# Layout summary:
+#   0          — apex (small alignment hole)
+#   1..5       — right column, single sub-column, anterior → posterior
+#   6, 7       — centre column, right sub-col, anterior → posterior
+#   8, 9       — centre column, mid sub-col,   anterior → posterior
+#   10         — centre column, left sub-col   (single hole)
+#   11..13     — left column, single sub-column, anterior → posterior
+#
+# A pure column-and-AP sort doesn't capture the centre column's three
+# sub-columns (mfr ordering enumerates each sub-column right→left, then
+# anterior→posterior within), so we use the explicit reference table.
+_DIAGRAM_REFERENCE_POSITIONS_LPS_XY: tuple[tuple[float, float], ...] = (
+    (1.84, -2.93),  # 0  — apex
+    (1.05, -2.76),  # 1  — right column, most anterior
+    (1.20, -1.89),  # 2
+    (1.26, -0.50),  # 3
+    (0.75, +1.92),  # 4
+    (0.83, +3.32),  # 5  — right column, most posterior
+    (1.98, +1.68),  # 6  — centre right sub-col, anterior
+    (2.10, +3.94),  # 7  — centre right sub-col, posterior
+    (2.54, +0.73),  # 8  — centre mid sub-col, anterior
+    (2.53, +2.71),  # 9  — centre mid sub-col, posterior
+    (2.96, +3.95),  # 10 — centre left sub-col
+    (3.02, -0.90),  # 11 — left column, most anterior
+    (3.68, +0.71),  # 12
+    (4.08, +2.67),  # 13 — left column, most posterior
+)
+
+
 def _assign_diagram_ids(holes: list[Hole]) -> list[Hole]:
     """Re-assign hole IDs in the manufacturer's diagram convention.
 
-    Specific to the 14-hole `0283-300-04.obj` implant geometry: one
-    small "apex" hole plus 13 slot-shaped bores arranged in three
-    columns (right, centre, left) of (5, 5, 3) holes. The diagram
-    numbering is::
+    Specific to the 14-hole ``0283-300-04.obj`` implant. Each extracted
+    hole is matched to its expected position in
+    :data:`_DIAGRAM_REFERENCE_POSITIONS_LPS_XY` by nearest unused
+    centroid in the canonicalized LPS ``(x, y)`` plane (depth ``z`` is
+    ignored — the implant face is roughly a 2-D layout).
 
-        - 0       — apex (the small hole at the anterior tip)
-        - 1..5    — right column, anterior → posterior
-        - 6..10   — centre column, anterior → posterior
-        - 11..13  — left column, anterior → posterior
+    Returns a list of ``Hole`` objects re-ordered so list-index ==
+    diagram-id. If the hole count isn't 14, returns ``holes`` unchanged
+    (the diagram-numbering step is a no-op for non-standard implants).
 
-    Identification:
-    - Apex: hole with the smallest oval semi-major axis (its slot is
-      essentially circular — the small "alignment" hole).
-    - Right / centre / left: by ascending implant-local x (LPS →
-      ``+x = Left``, so smallest x sits on the mouse's right).
-    - Anterior → posterior within each column: by ascending y
-      (LPS → ``+y = Posterior``, smallest y is most anterior).
-
-    Returns a list of new ``Hole`` objects with re-assigned ``id``
-    fields. If the hole count isn't 14 (or apex detection fails),
-    returns ``holes`` unchanged so the diagram-numbering step is a
-    no-op for non-standard implants.
+    Robust to small mesh variations: an extracted hole gets the closest
+    unused diagram-id, so per-mouse mesh refits with sub-mm jitter
+    still produce stable IDs as long as the layout is geometrically
+    intact.
     """
-    if len(holes) != 14:
+    if len(holes) != len(_DIAGRAM_REFERENCE_POSITIONS_LPS_XY):
         print(
             f"  diagram-numbering: skipped (have {len(holes)} holes; "
             f"expected 14 for `0283-300-04`-style implant)"
         )
         return holes
 
-    def _section_a_min(h: Hole) -> float:
-        return min(s.a_mm for s in h.sections) if h.sections else float("inf")
-
-    apex_idx = min(range(len(holes)), key=lambda i: _section_a_min(holes[i]))
-    apex = holes[apex_idx]
-    rest = [h for i, h in enumerate(holes) if i != apex_idx]
-
-    rest_by_x = sorted(rest, key=lambda h: h.ref_point[0])
-    right = rest_by_x[:5]
-    centre = rest_by_x[5:10]
-    left = rest_by_x[10:]
-    if len(left) != 3:
-        print(
-            f"  diagram-numbering: skipped (column split was "
-            f"({len(right)}, {len(centre)}, {len(left)}); expected (5, 5, 3))"
-        )
+    used: set[int] = set()
+    new_holes: list[Hole | None] = [None] * len(holes)
+    for did, (ex, ey) in enumerate(_DIAGRAM_REFERENCE_POSITIONS_LPS_XY):
+        best_idx, best_dist = -1, float("inf")
+        for i, h in enumerate(holes):
+            if i in used:
+                continue
+            dx = float(h.ref_point[0]) - ex
+            dy = float(h.ref_point[1]) - ey
+            d = dx * dx + dy * dy
+            if d < best_dist:
+                best_dist, best_idx = d, i
+        used.add(best_idx)
+        new_holes[did] = holes[best_idx]
+    if any(h is None for h in new_holes):  # defensive
+        print("  diagram-numbering: skipped (matching failed)")
         return holes
-
-    right.sort(key=lambda h: h.ref_point[1])
-    centre.sort(key=lambda h: h.ref_point[1])
-    left.sort(key=lambda h: h.ref_point[1])
-
-    new_holes: list[Hole] = [apex, *right, *centre, *left]
-    print("  diagram-numbering: applied (apex + 5/5/3 anterior→posterior).")
-    return new_holes
+    print(
+        "  diagram-numbering: applied (matched to "
+        "`0283-300-04` reference positions)."
+    )
+    return new_holes  # type: ignore[return-value]
 
 
 def holes_to_yaml(holes: list[Hole]) -> dict:
