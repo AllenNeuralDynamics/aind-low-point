@@ -262,10 +262,22 @@ def build_probes(
                     float(row["ideal_pt_A"]) - float(row["target_pt_A"]), 4
                 ),
             ]
+        # Spin convention compensation: the reference k3d notebook
+        # canonicalises probe meshes via a pure column-permute
+        # ``vertices[:, [0, 2, 1]]`` (no sign flip), while our config
+        # uses a proper ``LSA → LPS`` conversion. The two agree on
+        # shaft direction (+z) but the perpendicular y-axis is
+        # sign-flipped, which is a 180° rotation around the shaft.
+        # CSV ``spin`` values were measured under the reference's
+        # convention, so add 180° to recover the same physical
+        # headstage orientation in our system. Wrap into [-180, 180]
+        # for human-readable display.
+        raw_spin = float(row["spin"])
+        adjusted_spin = ((raw_spin + 180.0) + 180.0) % 360.0 - 180.0
         probes[probe_name] = {
             "kind": kind,
             "arc": arc_letter,
-            "spin": int(float(row["spin"])),
+            "spin": int(round(adjusted_spin)),
             "slider_ml": float(row["ml_angle"]),
             "past_target_mm": past_target_mm,
             "offsets_RA": offsets_RA,

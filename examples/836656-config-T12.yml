@@ -391,7 +391,7 @@ plan:
     MD:
       kind: quadbase
       arc: a
-      spin: 141
+      spin: -39
       slider_ml: -12.0
       past_target_mm: 0.0675
       offsets_RA:
@@ -406,7 +406,7 @@ plan:
     BLA:
       kind: quadbase
       arc: b
-      spin: 180
+      spin: 0
       slider_ml: 27.0
       past_target_mm: -1.1325
       offsets_RA:
@@ -421,7 +421,7 @@ plan:
     PL:
       kind: quadbase
       arc: b
-      spin: -49
+      spin: 131
       slider_ml: -30.0
       past_target_mm: -0.9325
       offsets_RA:
@@ -436,7 +436,7 @@ plan:
     VM:
       kind: '2.1'
       arc: c
-      spin: 180
+      spin: 0
       slider_ml: -8.0
       past_target_mm: -1.5325
       offsets_RA:
@@ -451,7 +451,7 @@ plan:
     RSP:
       kind: '2.1'
       arc: c
-      spin: 4
+      spin: -176
       slider_ml: 8.0
       past_target_mm: 0.3675
       offsets_RA:
@@ -466,7 +466,7 @@ plan:
     CA1:
       kind: '2.1'
       arc: b
-      spin: 87
+      spin: -93
       slider_ml: 3.5
       past_target_mm: -0.6325
       offsets_RA:
@@ -481,7 +481,7 @@ plan:
     CLA:
       kind: '2.1'
       arc: c
-      spin: 171
+      spin: -9
       slider_ml: -24.0
       past_target_mm: -1.0325
       offsets_RA:
