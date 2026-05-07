@@ -440,10 +440,20 @@ def emit_full_config(
         a for a in config.get("assets", [])
         if not (
             isinstance(a, dict)
-            and "keys" in a
-            and any(
-                isinstance(k, str) and k.startswith("structure:")
-                for k in a["keys"]
+            and (
+                # Multi-key form: ``keys: [structure:A, structure:B, ...]``
+                (
+                    "keys" in a
+                    and any(
+                        isinstance(k, str) and k.startswith("structure:")
+                        for k in a["keys"]
+                    )
+                )
+                # Single-key form (what we emit): ``key: structure:A``
+                or (
+                    isinstance(a.get("key"), str)
+                    and a["key"].startswith("structure:")
+                )
             )
         )
     ]
