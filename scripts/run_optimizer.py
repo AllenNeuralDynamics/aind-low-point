@@ -149,6 +149,12 @@ def main():
     p.add_argument("--no-cma", action="store_true",
                    help="Skip CMA-ES global stage; SLSQP polish only")
     p.add_argument(
+        "--slsqp-soft",
+        action="store_true",
+        help="Use soft penalties (legacy) instead of native SLSQP "
+             "inequality constraints during the polish step.",
+    )
+    p.add_argument(
         "--cma-stage-multipliers",
         type=str,
         default="0.1,1.0,10.0",
@@ -201,6 +207,7 @@ def main():
         min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
         use_cma=not args.no_cma,
         cma_stage_multipliers=stage_mults,
+        slsqp_constrained=not args.slsqp_soft,
         verbose=args.verbose,
     )
     if result is None:

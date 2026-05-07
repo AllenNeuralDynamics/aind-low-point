@@ -443,6 +443,70 @@ def scalar_objective(x: NDArray, ctx: OptimizerContext) -> float:
     return evaluate_objective(x, ctx).total
 
 
+@dataclass(frozen=True)
+class ConstraintVectors:
+    """Raw constraint slack vectors at ``x``.
+
+    All entries are ``slack_i = limit - violation_i`` so that ``slack_i
+    >= 0`` indicates feasibility. Pass straight to scipy's SLSQP
+    ``constraints=[{"type": "ineq", "fun": ...}]`` form.
+    """
+
+    threading: NDArray[np.floating]      # one entry per (probe, shank, section)
+    clearance: NDArray[np.floating]      # one entry per probe pair
+    arc_ap_separation: NDArray[np.floating]   # one entry per arc pair
+    intra_arc_ml_separation: NDArray[np.floating]  # one entry per intra-arc pair
+    coverage_total: float                # objective term (to maximise)
+
+
+def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors:
+    """Compute the raw, ReLU-free constraint slack vectors at ``x`` and
+    the (negated-for-minimisation-friendliness) coverage total.
+
+    Used by :func:`_slsqp_polish` when running with native inequality
+    constraints instead of soft penalties — scipy expects ``g(x) >= 0``
+    for feasibility, which is what each slack array provides.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    arc_aps = ctx.layout.arc_aps(x)
+    arc_id_to_idx = {a: i for i, a in enumerate(ctx.layout.arc_ids)}
+    evals: list[ProbeEvaluation] = []
+    probe_mls = np.empty(ctx.layout.num_probes, dtype=np.float64)
+    probe_arc_idxs = np.empty(ctx.layout.num_probes, dtype=np.int64)
+    for i, probe in enumerate(ctx.probes):
+        ml, spin, off_R, off_A, depth = ctx.layout.probe_vars(x, i)
+        ap = float(arc_aps[arc_id_to_idx[probe.arc_id]])
+        evals.append(
+            evaluate_probe(probe, ap, ml, spin, off_R, off_A, depth, ctx=ctx)
+        )
+        probe_mls[i] = ml
+        probe_arc_idxs[i] = arc_id_to_idx[probe.arc_id]
+
+    threading_gs = (
+        np.concatenate([ev.threading_gs for ev in evals], axis=0)
+        if evals else np.zeros(0, dtype=np.float64)
+    )
+    pair_clearances = pairwise_headstage_clearances(evals)
+    ap_seps, ml_seps = kinematic_separations(arc_aps, probe_mls, probe_arc_idxs)
+
+    return ConstraintVectors(
+        # threading_gs > 0 means infeasible; slack = -g.
+        threading=-threading_gs,
+        # pair_clearances < safety means infeasible; slack = clearance - safety.
+        clearance=pair_clearances - ctx.weights.safety_clearance_mm,
+        # ap_seps < min means infeasible; slack = ap_sep - min.
+        arc_ap_separation=ap_seps - ctx.min_arc_ap_sep_deg,
+        intra_arc_ml_separation=ml_seps - ctx.min_within_arc_ml_sep_deg,
+        coverage_total=float(sum(ev.coverage for ev in evals)),
+    )
+
+
+def coverage_objective(x: NDArray, ctx: OptimizerContext) -> float:
+    """``-coverage_total`` for use as the SLSQP objective when the
+    feasibility terms are expressed as inequality constraints."""
+    return -evaluate_constraints(x, ctx).coverage_total
+
+
 def make_objective(ctx: OptimizerContext) -> Callable[[NDArray], float]:
     """Bind ``ctx`` and return ``J(x) -> float`` for the optimizer."""
     def J(x: NDArray) -> float:

@@ -32,11 +32,16 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import linear_sum_assignment
 
+from aind_low_point.optimization.density import coverage, gaussian_density
 from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import (
     pose_at_hole_best_fit,
     shank_capsules_from_pose,
+)
+from aind_low_point.optimization.recording import (
+    RecordingGeometry,
+    get_recording_geometry,
 )
 
 
@@ -52,11 +57,18 @@ class AssignmentProbe:
     Avoids pulling in ``ProbeContext``'s assignment-dependent fields
     (``assigned_hole``, ``density_fn``) since those don't exist yet
     when this layer runs.
+
+    ``kind`` is used to look up :class:`RecordingGeometry` for the
+    coverage-cost term (LSAP-time coverage estimate at the geometric
+    best-fit pose). ``density_sigma_mm`` controls the Gaussian density
+    width (default 0.5 mm matches the inner loop).
     """
 
     name: str
     target_LPS: NDArray[np.floating]
     shank_tips_local: NDArray[np.floating]
+    kind: str = "2.1"
+    density_sigma_mm: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +195,53 @@ def pairwise_interference_penalty(
 
 @dataclass(frozen=True)
 class CostWeights:
-    """Weights for the three-component LSAP cost."""
+    """Weights for the LSAP cost components."""
 
     alpha_target_angle: float = 1.0      # primary
     beta_clearance: float = 0.3          # tiebreaker
     gamma_interference: float = 0.5      # soft pairwise penalty
+    delta_coverage: float = 5.0          # subtract (= maximise) coverage
     forbid_cost: float = 1.0e9           # used in place of +∞
+
+
+def static_coverage(
+    probe: "AssignmentProbe",
+    hole: Hole,
+    *,
+    shaft_length_mm: float = 10.0,
+    shank_radius_mm: float = 0.05,
+    n_samples: int = 41,
+) -> float:
+    """Coverage of the probe's target volume at the geometric best-fit
+    pose for ``hole``. Used in the LSAP cost so the outer layer prefers
+    holes whose recording bank actually overlaps the target.
+
+    Replicates :func:`evaluate_probe`'s pose computation for the
+    best-fit pose: shank-row centroid lands at the slot bottom, row
+    aligned with slot major. Then integrates a Gaussian density
+    (centered on ``probe.target_LPS``) along each shank's active
+    recording range using the kind's :class:`RecordingGeometry`.
+    """
+    R, pose_tip = pose_at_hole_best_fit(hole)
+    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(
+        axis=0
+    )
+    pose_tip = pose_tip - R @ centroid_local
+    capsules = shank_capsules_from_pose(
+        R, pose_tip, probe.shank_tips_local,
+        shaft_length_mm=shaft_length_mm,
+        shank_radius_mm=shank_radius_mm,
+    )
+    try:
+        geom = get_recording_geometry(probe.kind)
+    except Exception:
+        geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
+    if len(capsules) != geom.n_shanks:
+        # Mismatch — silent zero coverage would bias the LSAP toward
+        # this hole. Better to bail loudly.
+        return 0.0
+    density_fn = gaussian_density(probe.target_LPS, sigma_mm=probe.density_sigma_mm)
+    return coverage(density_fn, capsules, geom, n_samples=n_samples)
 
 
 def build_cost_matrix(
@@ -211,10 +264,12 @@ def build_cost_matrix(
     # Target-line angle (radians) and static clearance per pair.
     angle_mat = np.zeros((K, N), dtype=np.float64)
     max_g_mat = np.zeros((K, N), dtype=np.float64)
+    coverage_mat = np.zeros((K, N), dtype=np.float64)
     for i, probe in enumerate(probes):
         for j, hole in enumerate(holes):
             angle_mat[i, j] = angle_to_target_rad(probe.target_LPS, hole)
             max_g_mat[i, j] = static_threading_max_g(probe, hole)
+            coverage_mat[i, j] = static_coverage(probe, hole)
 
     interference_mat = pairwise_interference_penalty(probes, holes)
 
@@ -222,6 +277,7 @@ def build_cost_matrix(
         weights.alpha_target_angle * angle_mat
         + weights.beta_clearance * max_g_mat
         + weights.gamma_interference * interference_mat
+        - weights.delta_coverage * coverage_mat
     )
     # Hard reject infeasible pairs.
     cost[max_g_mat > 0.0] = weights.forbid_cost

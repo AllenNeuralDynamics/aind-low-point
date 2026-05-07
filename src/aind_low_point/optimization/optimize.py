@@ -49,6 +49,8 @@ from aind_low_point.optimization.objective import (
     OptimizerContext,
     ProbeContext,
     VariableLayout,
+    coverage_objective,
+    evaluate_constraints,
     evaluate_objective,
     scalar_objective,
 )
@@ -336,10 +338,7 @@ def _slsqp_polish(
     Constraints are folded into the objective via
     :class:`ObjectiveWeights` penalties (no separate ``constraints=...``
     argument) — this keeps the inner-loop API simple at the cost of
-    slower convergence near tight feasibility boundaries. Future
-    variant: pass kinematic / threading violations as proper SLSQP
-    inequality constraints once we have JAX-autodiff Jacobians wired
-    in.
+    slower convergence near tight feasibility boundaries.
 
     Box bounds prevent runaway behaviour (without them SLSQP can walk
     variables to ~10⁷ when the gradient is malformed near the
@@ -354,6 +353,55 @@ def _slsqp_polish(
         np.asarray(x0, dtype=np.float64),
         method="SLSQP",
         bounds=_default_bounds(ctx),
+        options={"maxiter": max_iter, "ftol": 1e-6, "disp": False},
+    )
+    x_opt = np.asarray(result.x, dtype=np.float64)
+    return x_opt, evaluate_objective(x_opt, ctx)
+
+
+def _slsqp_polish_constrained(
+    ctx: OptimizerContext, x0: NDArray, *, max_iter: int
+) -> tuple[NDArray, ObjectiveBreakdown]:
+    """SLSQP with native inequality constraints instead of penalties.
+
+    Objective is just ``-coverage_total``; threading, clearance, and
+    kinematic separations are passed as ``ineq`` constraints. Scipy's
+    SLSQP supports vector-valued constraints, so each group is one
+    constraint dict. Finite-difference Jacobians are slow (~37×
+    evaluations per gradient) but correct; future improvement is
+    JAX-traceable autodiff.
+
+    Constraint slack vectors come from
+    :func:`evaluate_constraints`; each entry is ``g(x) >= 0`` at
+    feasibility, matching scipy's convention.
+    """
+    bounds = _default_bounds(ctx)
+
+    def obj(v):
+        return coverage_objective(np.asarray(v, dtype=np.float64), ctx)
+
+    def make_constraint(field_name):
+        def fn(v):
+            cv = evaluate_constraints(np.asarray(v, dtype=np.float64), ctx)
+            arr = np.asarray(getattr(cv, field_name), dtype=np.float64)
+            # SciPy SLSQP can't handle empty arrays; substitute a single
+            # always-feasible scalar.
+            return arr if arr.size > 0 else np.array([1.0])
+        return fn
+
+    constraints = [
+        {"type": "ineq", "fun": make_constraint("threading")},
+        {"type": "ineq", "fun": make_constraint("clearance")},
+        {"type": "ineq", "fun": make_constraint("arc_ap_separation")},
+        {"type": "ineq", "fun": make_constraint("intra_arc_ml_separation")},
+    ]
+
+    result = minimize(
+        obj,
+        np.asarray(x0, dtype=np.float64),
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
         options={"maxiter": max_iter, "ftol": 1e-6, "disp": False},
     )
     x_opt = np.asarray(result.x, dtype=np.float64)
@@ -381,6 +429,7 @@ def optimize(
     cma_sigma: float = 5.0,
     cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
     slsqp_max_iter: int = 100,
+    slsqp_constrained: bool = True,
     min_arc_ap_sep_deg: float = 16.0,
     verbose: bool = False,
 ) -> OptimizationResult | None:
@@ -398,6 +447,8 @@ def optimize(
             name=p.name,
             target_LPS=np.asarray(p.target_LPS, dtype=np.float64),
             shank_tips_local=np.asarray(p.shank_tips_local, dtype=np.float64),
+            kind=p.kind,
+            density_sigma_mm=p.density_sigma_mm,
         )
         for p in probes
     ]
@@ -472,9 +523,14 @@ def optimize(
                     )
                 if x_cma is not None:
                     x = x_cma
-            x_opt, breakdown_opt = _slsqp_polish(
-                ctx, x, max_iter=slsqp_max_iter
-            )
+            if slsqp_constrained:
+                x_opt, breakdown_opt = _slsqp_polish_constrained(
+                    ctx, x, max_iter=slsqp_max_iter
+                )
+            else:
+                x_opt, breakdown_opt = _slsqp_polish(
+                    ctx, x, max_iter=slsqp_max_iter
+                )
 
             if verbose:
                 print(
