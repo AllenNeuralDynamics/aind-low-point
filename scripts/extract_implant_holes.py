@@ -413,6 +413,66 @@ def extract_holes(
     return holes
 
 
+def _assign_diagram_ids(holes: list[Hole]) -> list[Hole]:
+    """Re-assign hole IDs in the manufacturer's diagram convention.
+
+    Specific to the 14-hole `0283-300-04.obj` implant geometry: one
+    small "apex" hole plus 13 slot-shaped bores arranged in three
+    columns (right, centre, left) of (5, 5, 3) holes. The diagram
+    numbering is::
+
+        - 0       — apex (the small hole at the anterior tip)
+        - 1..5    — right column, anterior → posterior
+        - 6..10   — centre column, anterior → posterior
+        - 11..13  — left column, anterior → posterior
+
+    Identification:
+    - Apex: hole with the smallest oval semi-major axis (its slot is
+      essentially circular — the small "alignment" hole).
+    - Right / centre / left: by ascending implant-local x (LPS →
+      ``+x = Left``, so smallest x sits on the mouse's right).
+    - Anterior → posterior within each column: by ascending y
+      (LPS → ``+y = Posterior``, smallest y is most anterior).
+
+    Returns a list of new ``Hole`` objects with re-assigned ``id``
+    fields. If the hole count isn't 14 (or apex detection fails),
+    returns ``holes`` unchanged so the diagram-numbering step is a
+    no-op for non-standard implants.
+    """
+    if len(holes) != 14:
+        print(
+            f"  diagram-numbering: skipped (have {len(holes)} holes; "
+            f"expected 14 for `0283-300-04`-style implant)"
+        )
+        return holes
+
+    def _section_a_min(h: Hole) -> float:
+        return min(s.a_mm for s in h.sections) if h.sections else float("inf")
+
+    apex_idx = min(range(len(holes)), key=lambda i: _section_a_min(holes[i]))
+    apex = holes[apex_idx]
+    rest = [h for i, h in enumerate(holes) if i != apex_idx]
+
+    rest_by_x = sorted(rest, key=lambda h: h.ref_point[0])
+    right = rest_by_x[:5]
+    centre = rest_by_x[5:10]
+    left = rest_by_x[10:]
+    if len(left) != 3:
+        print(
+            f"  diagram-numbering: skipped (column split was "
+            f"({len(right)}, {len(centre)}, {len(left)}); expected (5, 5, 3))"
+        )
+        return holes
+
+    right.sort(key=lambda h: h.ref_point[1])
+    centre.sort(key=lambda h: h.ref_point[1])
+    left.sort(key=lambda h: h.ref_point[1])
+
+    new_holes: list[Hole] = [apex, *right, *centre, *left]
+    print("  diagram-numbering: applied (apex + 5/5/3 anterior→posterior).")
+    return new_holes
+
+
 def holes_to_yaml(holes: list[Hole]) -> dict:
     out: list[dict] = []
     for i, h in enumerate(holes):
@@ -472,6 +532,14 @@ def main():
                    help="Reject bores whose largest section a_mm is below this")
     p.add_argument("--max-section-a", type=float, default=1.0,
                    help="Reject bores whose largest section a_mm exceeds this")
+    p.add_argument(
+        "--no-diagram-numbering", action="store_true",
+        help="Skip the manufacturer's diagram-ID re-assignment step "
+             "(apex + 5/5/3 anterior→posterior). For 14-hole "
+             "0283-300-04 implants this is on by default and produces "
+             "IDs that match the manufacturer's diagram. For other "
+             "implants it's a no-op."
+    )
     args = p.parse_args()
 
     mesh = trimesh.load_mesh(args.mesh, process=False)
@@ -500,6 +568,8 @@ def main():
         max_section_a=args.max_section_a,
         max_tilt_deg=args.max_tilt_deg,
     )
+    if not args.no_diagram_numbering:
+        holes = _assign_diagram_ids(holes)
 
     out_path = args.output or args.mesh.with_suffix(".holes.yml")
     payload = holes_to_yaml(holes)
