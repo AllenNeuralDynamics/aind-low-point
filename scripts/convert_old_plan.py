@@ -209,20 +209,29 @@ def build_probes(
         R = arc_angles_to_affine(ap_deg, ml_deg, spin_for_R)
         n_shanks = N_SHANKS_BY_KIND.get(kind, 1)
         centroid_y = (n_shanks - 1) * SHANK_PITCH_MM / 2.0
-        n_centered = OLD_CENTERED_SHANK_INDEX.get(row["probe_type"], 0)
-        shift_local = np.array(
-            [0.0, centroid_y - n_centered * SHANK_PITCH_MM, 0.0],
-            dtype=np.float64,
-        )
+        # Centroid shift: the reference k3d pipeline uses
+        # ``Quadbase_customHolder_centeredOnShank0`` for *all* quadbase
+        # variants (no per-variant shifted-mesh), anchoring shank-0 at
+        # ``target_pt - dpt·shaft_dir``. Our pipeline puts the recording-
+        # array centre at the inline target, so to match reference we
+        # shift the target by ``R @ (0, centroid_y, 0)`` — independent
+        # of CSV's variant suffix (the previous ``centroid_y -
+        # n_centered·pitch`` formula over-shifted MD/BLA by ~0.7 mm).
+        shift_local = np.array([0.0, centroid_y, 0.0], dtype=np.float64)
         shift_lps = R @ shift_local
 
-        ideal_lps = convert_coordinate_system(
+        # Anchor on target_pt (the CSV's auto-placed centroid that the
+        # rig actually executed against), not ideal_pt (user's adjusted
+        # intent). Reference k3d does ``T1.translation = target_pt``;
+        # using ideal_pt landed our probes ~0.5-1 mm off from the
+        # reference rendering. CSV columns are RAS, so we convert.
+        target_pt_lps = convert_coordinate_system(
             np.array(
                 [
                     [
-                        float(row["ideal_pt_R"]),
-                        float(row["ideal_pt_A"]),
-                        float(row["ideal_pt_S"]),
+                        float(row["target_pt_R"]),
+                        float(row["target_pt_A"]),
+                        float(row["target_pt_S"]),
                     ]
                 ],
                 dtype=np.float64,
@@ -230,7 +239,7 @@ def build_probes(
             "RAS",
             "LPS",
         ).ravel()
-        target_lps = ideal_lps + shift_lps
+        target_lps = target_pt_lps + shift_lps
         target_ras = convert_coordinate_system(
             target_lps.reshape(1, 3), "LPS", "RAS"
         ).ravel()
