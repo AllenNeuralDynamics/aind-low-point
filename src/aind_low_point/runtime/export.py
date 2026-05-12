@@ -4,7 +4,10 @@ export_plan_geometry, and the _depth_along_probe_axis helper."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from aind_low_point.state_change import PlanStore
 
 import numpy as np
 import trimesh
@@ -82,6 +85,7 @@ def planning_state_to_plan_model(
             target=target_ref,
             past_target_mm=plan.past_target_mm,
             offsets_RA=list(plan.offsets_RA),
+            position_bearing_shank=plan.position_bearing_shank,
             calibrated=plan.calibrated,
             auto_scene=orig_decl.auto_scene if orig_decl else True,
             scene_tags=orig_decl.scene_tags if orig_decl else ["probe", "dynamic"],
@@ -141,10 +145,29 @@ def export_plan_geometry(
     if brain_spec is not None and brain_spec.mesh is not None:
         brain_mesh = brain_spec.mesh.raw
 
+    from aind_low_point.runtime.shanks import detect_shank_tips_local
+
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():
         pose = ProbePose.from_planning_state(plan_state, name, catalog=catalog)
-        tip_lps = np.asarray(pose.tip, dtype=np.float64)
+        R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+        # Tip readout = world position of the position-bearing shank's
+        # tip, not necessarily shank-1. ``pose.tip`` is shank-1 (the
+        # canonical local origin); shift to the named shank.
+        asset_key = f"probe:{plan.kind}"
+        spec = catalog.assets.get(asset_key)
+        local_tips = (
+            detect_shank_tips_local(spec.mesh.raw)
+            if spec is not None and spec.mesh is not None
+            else np.zeros((0, 3), dtype=np.float64)
+        )
+        named_idx = max(0, int(plan.position_bearing_shank) - 1)
+        if local_tips.shape[0] > 0:
+            named_idx = min(named_idx, local_tips.shape[0] - 1)
+            named_local = np.asarray(local_tips[named_idx], dtype=np.float64)
+        else:
+            named_local = np.zeros(3, dtype=np.float64)
+        tip_lps = np.asarray(pose.tip, dtype=np.float64) + R @ named_local
         tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
 
         target_ras = None
@@ -157,8 +180,8 @@ def export_plan_geometry(
 
         depth = None
         if brain_mesh is not None:
-            R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
+            # Depth measured from the named shank's tip along the shaft.
             depth = _depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
 
         probes_out[name] = {
@@ -186,6 +209,110 @@ def export_plan_geometry(
         "arc_angles_deg": dict(plan_state.kinematics.arc_angles),
         "probes": probes_out,
     }
+
+
+def apply_plan_model_to_state(
+    plan: PlanningModel, store: "PlanStore"
+) -> list[str]:
+    """Apply a loaded :class:`PlanningModel` to a live :class:`PlanStore`.
+
+    Issues per-arc and per-probe planning commands through ``store.dispatch``
+    so the controller's subscribers (renderer, collisions, readouts)
+    fan out the resulting changes the same way they would for any
+    user-initiated edit.
+
+    Probes named in ``plan.probes`` that aren't already in the store's
+    state are skipped with a warning printed to stdout — adding/removing
+    probes is a config-level concern (the optimizer plumbing assumes
+    a fixed probe roster) and not something a plan-only YAML should
+    silently do. Returns the list of probe names actually touched.
+
+    Arc angles are dispatched first so any probe bound to that arc
+    sees the new AP via the inner reducer's resolved-angles helper.
+    """
+    from aind_low_point.commands import (
+        AssignProbeArc,
+        SetArcAngle,
+        SetProbeCalibrated,
+        SetProbeKind,
+        SetProbeLocalAngles,
+        SetProbeOffsetsRA,
+        SetProbePastTarget,
+        SetProbePositionBearingShank,
+        SetProbeTarget,
+    )
+
+    for arc_id, ap_deg in plan.arcs.items():
+        store.dispatch(SetArcAngle(arc_id=str(arc_id), ap_deg=float(ap_deg)))
+
+    touched: list[str] = []
+    for name, decl in plan.probes.items():
+        if name not in store.state.probes:
+            print(f"apply_plan_model_to_state: skipping unknown probe {name!r}")
+            continue
+        # Kind first — switching kind affects what's a valid pose.
+        store.dispatch(SetProbeKind(name=name, kind=str(decl.kind)))
+        store.dispatch(
+            AssignProbeArc(
+                name=name,
+                arc_id=decl.arc,
+                bind_ap_to_arc=bool(decl.bind_ap_to_arc),
+            )
+        )
+        store.dispatch(
+            SetProbeLocalAngles(
+                name=name,
+                ap_local=(
+                    float(decl.ap_local) if decl.ap_local is not None else None
+                ),
+                ml_local=float(decl.slider_ml),
+                spin=float(decl.spin),
+            )
+        )
+        store.dispatch(
+            SetProbeOffsetsRA(
+                name=name,
+                R_mm=float(decl.offsets_RA[0]),
+                A_mm=float(decl.offsets_RA[1]),
+            )
+        )
+        store.dispatch(
+            SetProbePastTarget(
+                name=name, past_target_mm=float(decl.past_target_mm)
+            )
+        )
+        store.dispatch(
+            SetProbePositionBearingShank(
+                name=name,
+                position_bearing_shank=int(decl.position_bearing_shank),
+            )
+        )
+        store.dispatch(
+            SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated))
+        )
+        # Target is always last — it can clear a stale target_key while
+        # setting a new RAS-only target without an intervening invalid
+        # state, since SetProbeTarget rejects "neither set" in one shot.
+        target_key = None
+        target_pt_RAS = None
+        if hasattr(decl.target, "key"):
+            target_key = str(decl.target.key) if decl.target.key else None
+        if hasattr(decl.target, "point_RAS"):
+            pts = decl.target.point_RAS
+            if pts is not None and len(pts) == 3:
+                target_pt_RAS = (
+                    float(pts[0]), float(pts[1]), float(pts[2]),
+                )
+        if target_key is not None or target_pt_RAS is not None:
+            store.dispatch(
+                SetProbeTarget(
+                    name=name,
+                    target_key=target_key,
+                    target_point_RAS=target_pt_RAS,
+                )
+            )
+        touched.append(name)
+    return touched
 
 
 def save_plan_to_config(

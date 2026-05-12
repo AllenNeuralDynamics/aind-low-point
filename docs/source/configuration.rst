@@ -241,10 +241,11 @@ Target-Specific Fields
 Field                Required     Description
 ==================== ============ ================================================
 ``source_key``       Conditional  Asset key to derive target from
-``reducer``          No           Reduction method (``centroid``, etc.)
-``reducer_kwargs``   No           Additional reducer arguments
-``approach_vector``  No           [x, y, z] preferred insertion direction
-``uncertainty_mm``   No           Position uncertainty radius
+``reducer``          No           Reduction method (``centroid``, ``mesh_centroid``, ``mesh_center_mass``, ``hemisphere_center_mass``, …)
+``reducer_kwargs``   No           Extra args for the reducer (e.g. ``{hemisphere: left}``)
+``approach_vector``  No           [x, y, z] preferred insertion direction (advisory)
+``uncertainty_mm``   No           Position uncertainty radius (advisory)
+``chem_shift_policy`` No          MR chem-shift correction: ``auto`` (default, applies if `imaging` is configured), ``on``, ``off``
 ==================== ============ ================================================
 
 Range Target Declarations
@@ -575,6 +576,66 @@ Source Space Options
 - ``FILE_NATIVE``: No assumed orientation; requires explicit transform
 
 
+.. _config_tags_vs_scene_tags:
+
+``tags`` vs ``scene_tags``
+--------------------------
+
+Two fields with almost-identical names but different scopes — easy to confuse,
+worth getting straight before authoring a config.
+
+================ ====================================================
+``tags``         Lives on the **asset spec**. Catalog-only metadata —
+                 used for queries like "give me every CCF region" or
+                 "is this asset a target?". Doesn't reach the rendered
+                 scene. Default: empty list.
+``scene_tags``   Lives on the **scene node** (auto-created from the asset).
+                 What the UI, collision adapter, and visibility toggles
+                 filter on. Default: empty list (which suppresses
+                 auto-scene-node creation unless ``transform`` is set).
+================ ====================================================
+
+A node is auto-created from an asset when **either** ``transform`` is set
+**or** ``scene_tags`` is non-empty (controlled by ``auto_scene``, default
+``true``). Probes are an exception — they always have ``scene_tags=
+["probe", "dynamic"]`` by default.
+
+Well-known ``scene_tags`` values
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These are tags the existing runtime + UI actively look for. Adding new
+ones is fine; they just won't trigger any behaviour unless someone wires
+them up.
+
+==================== =====================================================
+Tag                  What it does
+==================== =====================================================
+``static``           Doesn't move with probe state. Affects collision-group
+                     inclusion.
+``dynamic``          Repositioned on every probe state change (probes only).
+``probe``            Identifies probe meshes. Drives the *Probes* visibility
+                     switch + opacity slider on the Display tab.
+``brain``            Drives the *Brain outline* visibility group; also what
+                     the *Recenter on brain* button uses to find the focal
+                     point.
+``structure``        CCF-region meshes; drives the *CCF regions* group.
+``fixture``          Generic rig hardware (well, probe-guard, etc.). Drives
+                     the *Other fixtures* group; gets a default 60%
+                     transparency at startup.
+``implant``          The implant body. Drives the *Implant* group; gets a
+                     default 80% transparency at startup. The implant
+                     typically carries **both** ``fixture`` and ``implant``;
+                     the visibility-group exclusion column keeps the implant
+                     slider distinct from "Other fixtures".
+``headframe``        Headframe mesh. Subject to fixture-group defaults.
+``target``           Visualised target points.
+``hole``             Per-bore points on the implant (used by hole extraction).
+==================== =====================================================
+
+When in doubt: ``scene_tags`` is what controls how the user *sees* the
+asset; ``tags`` is what controls how the *code* finds it.
+
+
 Scene Graph
 -----------
 
@@ -669,20 +730,23 @@ Probes
 Probe Fields
 ~~~~~~~~~~~~
 
-==================== ============ ================================================
-Field                Required     Description
-==================== ============ ================================================
-``kind``             Yes          Probe type (matches ``probe:{kind}`` asset)
-``arc``              Yes          Arc key reference
-``target``           Yes          Target reference (key or ``{kind: node, key: ...}``)
-``slider_ml``        No           Slider position in mm (default: 0)
-``spin``             No           Probe rotation in degrees (default: 0)
-``past_target_mm``   No           Distance past target (default: 0)
-``offsets_RA``       No           [R, A] offset adjustments
-``calibrated``       No           Whether probe is calibrated (default: false)
-``auto_scene``       No           Auto-create scene node (default: true)
-``scene_tags``       No           Tags for auto-generated node
-==================== ============ ================================================
+========================= ============ ================================================
+Field                     Required     Description
+========================= ============ ================================================
+``kind``                  Yes          Probe type (matches ``probe:{kind}`` asset)
+``arc``                   No           Arc key reference; ``null`` for off-arc probes
+``target``                Yes          Target reference (key string, ``{kind: catalog, key: ...}``, ``{kind: node, key: ...}``, ``{kind: inline, point_RAS: [x, y, z]}``, or a bare ``[x, y, z]`` list which is coerced to ``inline``)
+``ap_local``              No           Per-probe AP angle override (deg). When ``bind_ap_to_arc`` is true this is ignored at runtime; kept as a fallback when you unbind.
+``bind_ap_to_arc``        No           If ``true`` (default), AP comes from ``arcs[arc]``; if ``false``, AP comes from ``ap_local``. Requires ``arc`` to be set when true.
+``slider_ml``             No           ML slider angle (deg, default 0)
+``spin``                  No           Spin angle around the probe shaft (deg, default 0)
+``past_target_mm``        No           Distance past target along the shaft (mm, default 0). Positive = deeper into the brain. For multi-shank probes this is measured from the named shank's tip — see ``position_bearing_shank``.
+``offsets_RA``            No           [R, A] entry-offset in mm relative to the bore (default [0, 0])
+``position_bearing_shank`` No          1-indexed shank index whose tip is the "named" reference: it's the one tip-RAS / brain-depth readouts report and the one ``past_target_mm`` measures from. Default 1. Single-shank probes ignore the value.
+``calibrated``            No           Lock the AP/ML angles to a pre-recorded calibration (default ``false``). Calibration data lives under ``plan.calibrations``.
+``auto_scene``            No           Auto-create the ``probe:{name}`` scene node (default ``true``)
+``scene_tags``            No           Tags for the auto-created scene node. **Default ``["probe", "dynamic"]``** — don't drop these unless you know what you're doing; ``probe`` drives the Display-tab Probes group + opacity slider, and ``dynamic`` is what tells the renderer + collision adapter to refresh on probe state changes.
+========================= ============ ================================================
 
 Target References
 ~~~~~~~~~~~~~~~~~
@@ -735,6 +799,54 @@ Calibrations
           probe_B:
             cal_id: cal_2024
             probe_code: "67890"
+
+
+Plan-Only YAML
+--------------
+
+The trame UI's *Save plan* button writes a separate, smaller YAML
+containing only the ``plan:`` block of the full config — i.e. a
+serialized ``PlanningModel``. The *Load plan* button (a browser file
+picker) reads the same shape.
+
+This format intentionally **omits the asset list, targets, transforms,
+materials, and scene**: it's portable across any full config that shares
+the same probe roster. Use it to checkpoint a working plan and reload
+later, or to ship a plan to a colleague running a different mouse-specific
+config with the same probes.
+
+Top-level shape:
+
+.. code-block:: yaml
+
+    arcs:
+      a: 13.0
+      b: -10.0
+      c: -43.0
+    probes:
+      P1:
+        kind: quadbase
+        arc: a
+        slider_ml: -12.0
+        spin: 141.0
+        ap_local: null
+        bind_ap_to_arc: true
+        past_target_mm: 0.0675
+        offsets_RA: [0.0, 0.0]
+        position_bearing_shank: 1
+        target:
+          kind: catalog
+          key: target:MD
+      # ... more probes
+
+Probes named in the loaded plan that aren't in the running session's
+state are skipped (with a stdout warning) — adding/removing probes is a
+full-config concern, not a plan concern.
+
+The geometric **Export plan** button is a *different* format
+(``plan_export_version: 1``, fields like ``tip_RAS_mm`` and
+``depth_from_brain_surface_mm``) intended for hand-off to physical
+execution. It's read-only — there's no loader for that variant.
 
 
 Capabilities

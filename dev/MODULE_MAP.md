@@ -3,6 +3,11 @@
 Per-file reference for `src/aind_low_point/`. Layered top-down: enums → core
 data → catalog/scene → planning state → adapters → frontends.
 
+**New to the codebase?** Start with `dev/CORE_CONCEPTS.md` for the
+mental model (catalog vs scene vs planning vs adapters, end-to-end
+slider-drag walkthrough, the design questions you'll ask in week 1).
+Come back here for per-file detail.
+
 ## Foundations
 
 | File | Purpose |
@@ -49,7 +54,10 @@ Frozen dataclasses; transforms compose through `TransformChain`.
 The probe kinematics layer. Pure functions over `PlanningState`.
 
 - `ProbePlan` — kind, arc_id, `bind_ap_to_arc`, ap_local, ml_local, spin,
-  past_target_mm, offsets_RA, target_key / target_point_RAS, calibrated.
+  past_target_mm, offsets_RA, target_key / target_point_RAS, calibrated,
+  `position_bearing_shank` (1-indexed; for multi-shank probes selects the
+  shank whose tip is used for tip-RAS / brain-depth readouts and as the
+  reference for `past_target_mm`).
 - `JointRange` / `PoseLimits` — clamps for angles and translational envelope.
 - `Kinematics` — `arc_angles: dict[str, float]`, limits, `coupled_axes`.
 - `PlanningState` — kinematics, `probes: dict[str, ProbePlan]`, calibrations,
@@ -98,6 +106,15 @@ Factory layer. `build_runtime_from_config(cfg) -> RuntimeBundle`.
   applied to MRI-derived geometry (anatomy role by default).
 - **Round-trip**: `planning_state_to_plan_model` and `save_plan_to_config`
   serialize a live PlanningState back to a ConfigModel for YAML export.
+  `apply_plan_model_to_state(plan, store)` is the reverse — dispatches per-
+  arc + per-probe commands through the store so the renderer / collisions
+  fan out as if the user edited each field. Used by the trame *Load plan*
+  file picker.
+- **Plan export**: `export_plan_geometry(state, catalog, *, source_config=...)`
+  emits a thin per-probe geometric summary (kind, target, arc, angles,
+  tip_RAS_mm, depth_from_brain_surface_mm) — for hand-off to physical
+  execution. Different shape from `save_plan_to_config` (which round-trips
+  the full ConfigModel); read-only, no loader.
 
 `RuntimeBundle = (asset_catalog, scene, plan_state, label_index)`.
 

@@ -6,12 +6,18 @@ get a **required-AP** angle per probe; arc assignment is then a 1-D
 constrained partition of those K required-APs into ``num_arcs``
 labelled groups.
 
-Constraints:
+Constraints / costs:
 
-- **Per-arc capacity.** With ML range ±30° and 16° pairwise minimum,
-  an arc holds at most ``floor(60/16) + 1 = 4`` probes.
-- **Inter-arc AP separation.** Cluster centroids must be ≥16° apart
-  pairwise (default ``min_arc_ap_sep_deg``).
+- **Per-arc capacity (hard).** With ML range ±30° and 16° pairwise
+  minimum, an arc holds at most ``floor(60/16) + 1 = 4`` probes.
+- **Inter-arc AP separation (soft).** Cluster centroids ideally sit
+  ≥16° apart pairwise. The hard rig constraint (`ap_arc_{σ(j+1)} ≥
+  ap_arc_{σ(j)} + 16°`) applies to the inner loop's continuous
+  ``ap_arc`` variables, *not* the cluster centroids — those are warm-
+  starts. So we score centroid-spread shortfall as a soft penalty
+  (Σ over arc pairs of ``max(0, 16 − |Δc|)²``) and let the inner loop
+  decide whether the threading + coverage + clearance cost of pushing
+  centroids apart is worth it.
 
 Symmetry quotient: arc *labels* are interchangeable; canonicalize by
 ordering arcs ascending in their AP centroid. Reduces the assignment
@@ -19,8 +25,9 @@ count by ``num_arcs!`` and removes label-permutation duplicates from
 the top-K_a output.
 
 For K = 7 probes into 2-4 arcs, ``num_arcs ** K`` is at most 16,384.
-After capacity + AP-sep filters and symmetry quotient, the surviving
-count is typically 5-50 partitions per hole assignment.
+The capacity filter culls aggressively; after symmetry quotient the
+surviving count is typically a few hundred per hole assignment, which
+``solve_top_k_arc_assignments`` truncates to ``k`` (default 3).
 """
 
 from __future__ import annotations
@@ -124,11 +131,15 @@ def _is_valid_partition(
     centroids: NDArray,
     *,
     max_per_arc: int,
-    min_arc_ap_sep_deg: float,
 ) -> bool:
-    """Capacity + AP-separation feasibility check."""
+    """Hard capacity + non-empty-arc check.
+
+    AP-separation is intentionally **not** a hard gate here: it's a
+    constraint on the inner loop's continuous ``ap_arc`` variables, not
+    on the warm-start centroid. See ``_arc_sep_shortfall_sq``.
+    """
     num_arcs = len(centroids)
-    # Capacity per arc
+    # Capacity per arc (hardware: ≤4 probes per arc on the AIND rig).
     counts = np.bincount(arc_idxs, minlength=num_arcs)
     if counts.max() > max_per_arc:
         return False
@@ -137,12 +148,88 @@ def _is_valid_partition(
     # but redundant — emit only fully-populated partitions for now).
     if (counts == 0).any():
         return False
-    # AP separation: centroids must be pairwise ≥ threshold apart
-    for i in range(num_arcs):
-        for j in range(i + 1, num_arcs):
-            if abs(centroids[i] - centroids[j]) < min_arc_ap_sep_deg:
-                return False
     return True
+
+
+def project_centroids_min_sep(
+    centroids: NDArray, min_sep_deg: float
+) -> NDArray:
+    """L2-optimal projection of arc centroids onto the chained constraint
+    ``c_{σ(k+1)} − c_{σ(k)} ≥ min_sep`` (in sorted order).
+
+    The rig's hard 16° AP-separation acts on the *continuous* arc-AP
+    variables, not the cluster mean. So when the natural cluster
+    centroids are too close, the inner loop has to push them apart
+    anyway — at the cost of tilting probes away from their preferred
+    bore-axis APs. This function precomputes the projected centroids
+    so the partitioner can rank partitions by the resulting *tilt
+    cost* (sum of squared probe-vs-arc deviations) rather than the
+    natural within-cluster variance.
+
+    Reduction: substitute ``d_k = c'_{σ(k)} − k · min_sep``; the
+    constraint becomes ``d_k ≥ d_{k-1}`` — isotonic regression on
+    ``(c_{σ(k)} − k · min_sep)``. Solve with PAV.
+    """
+    c = np.asarray(centroids, dtype=np.float64)
+    n = c.size
+    if n <= 1:
+        return c.copy()
+    order = np.argsort(c)
+    inv = np.empty(n, dtype=np.int64)
+    for i, j in enumerate(order):
+        inv[j] = i
+    c_sorted = c[order]
+    # Reduce to isotonic regression on (c_k - k*min_sep).
+    y = c_sorted - min_sep_deg * np.arange(n, dtype=np.float64)
+    # Pool-adjacent-violators.
+    levels = list(y.tolist())
+    counts = [1] * n
+    k = 0
+    while k < len(levels) - 1:
+        if levels[k] > levels[k + 1]:
+            new_count = counts[k] + counts[k + 1]
+            new_level = (
+                levels[k] * counts[k] + levels[k + 1] * counts[k + 1]
+            ) / new_count
+            levels[k:k + 2] = [new_level]
+            counts[k:k + 2] = [new_count]
+            if k > 0:
+                k -= 1
+        else:
+            k += 1
+    # Expand back to length n.
+    d = np.empty(n, dtype=np.float64)
+    pos = 0
+    for level, count in zip(levels, counts):
+        d[pos:pos + count] = level
+        pos += count
+    c_proj_sorted = d + min_sep_deg * np.arange(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)
+    out[order] = c_proj_sorted
+    return out
+
+
+def _arc_sep_shortfall_sq(
+    centroids: NDArray, min_arc_ap_sep_deg: float
+) -> float:
+    """``Σ_{i<j} max(0, min_sep − |c_i − c_j|)²`` — soft AP-separation
+    cost on cluster centroids.
+
+    Zero when every pair of arc centroids is already ≥``min_sep`` apart
+    (i.e. the warm-start respects the hard rig constraint without any
+    inner-loop AP-pushing). Strictly positive otherwise; the inner
+    loop's chained ``ap_arc`` constraint will spread the centroids by
+    roughly the missing degrees, paying a coverage / threading cost
+    we capture here as a ranking signal.
+    """
+    n = len(centroids)
+    total = 0.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = abs(float(centroids[i]) - float(centroids[j]))
+            short = max(0.0, min_arc_ap_sep_deg - d)
+            total += short * short
+    return total
 
 
 def _canonical_arc_relabel(
@@ -169,15 +256,31 @@ def enumerate_partitions(
     *,
     max_per_arc: int = 4,
     min_arc_ap_sep_deg: float = 16.0,
+    arc_sep_shortfall_weight: float = 10.0,
 ) -> list[ArcAssignment]:
-    """Brute-force enumerate every probe→arc partition, filter by
-    capacity + AP-separation, deduplicate by canonical arc ordering,
-    return the survivors ranked by within-cluster cost (best first).
+    """Brute-force enumerate every probe→arc partition, hard-filter by
+    capacity, score with ``within-cluster variance + arc_sep_shortfall``,
+    deduplicate by canonical arc ordering, return survivors ranked by
+    cost (best first).
 
     For K probes and ``num_arcs`` ≤ 4, the search space is
-    ``num_arcs ** K`` (≤ 16,384 for the AIND rig). This is small
-    enough to enumerate exhaustively without smarter clustering — the
-    capacity + AP-sep filters reject most candidates immediately.
+    ``num_arcs ** K`` (≤ 16,384 for the AIND rig). The capacity filter
+    cuts most candidates; arc-separation enters as a soft cost so the
+    inner loop sees marginally-spaced centroids too (its chained
+    ``ap_arc`` constraint can push them apart at the cost of coverage
+    and threading violations — a tradeoff the caller surfaces by
+    inspecting the inner-loop result).
+
+    Parameters
+    ----------
+    arc_sep_shortfall_weight
+        Weight on ``Σ_{i<j} max(0, min_sep − |Δc_ij|)²`` (degrees²).
+        Default 10.0 — empirically large enough that a fully feasible
+        partition (zero shortfall) ranks above a partition needing 5°
+        of centroid-spreading (cost = 250) for typical 7-probe within-
+        cluster spreads (~10–30 deg²), but small enough that the inner
+        loop still gets a chance to optimize a marginal partition. Set
+        to ``+inf`` to recover the legacy hard-AP-sep filter.
     """
     K = len(probe_names)
     if K == 0 or num_arcs == 0:
@@ -197,9 +300,7 @@ def enumerate_partitions(
         if np.isnan(centroids).any():
             continue
         if not _is_valid_partition(
-            arc_idxs, centroids,
-            max_per_arc=max_per_arc,
-            min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+            arc_idxs, centroids, max_per_arc=max_per_arc,
         ):
             continue
         canonical_idxs, canonical_centroids = _canonical_arc_relabel(
@@ -210,13 +311,41 @@ def enumerate_partitions(
             continue
         seen_canonical.add(sig)
 
-        cost = _within_cluster_cost(aps, canonical_idxs, num_arcs)
+        # Project centroids onto the rig's ≥min_sep constraint and rank
+        # by the resulting tilt cost (sum of squared probe-vs-arc
+        # deviations using the *projected* centroids). This surfaces
+        # partitions whose probes can be deliberately tilted to give the
+        # inner loop a kinematically feasible warm start, even when the
+        # natural means cluster too tightly.
+        projected_centroids = project_centroids_min_sep(
+            canonical_centroids, min_arc_ap_sep_deg
+        )
+        tilt_cost = float(
+            np.sum(
+                (aps - projected_centroids[canonical_idxs]) ** 2
+            )
+        )
+        shortfall_sq = _arc_sep_shortfall_sq(
+            canonical_centroids, min_arc_ap_sep_deg
+        )
+        if not np.isfinite(arc_sep_shortfall_weight) and shortfall_sq > 0.0:
+            # Treat ``+inf`` weight as a hard reject — convenience knob.
+            continue
+        # Tilt cost dominates ranking; the soft shortfall penalty stays
+        # as a small additional preference for partitions where natural
+        # means already respect the constraint.
+        cost = tilt_cost + arc_sep_shortfall_weight * shortfall_sq
         candidates.append(
             ArcAssignment(
                 probe_to_arc_idx={
                     probe_names[i]: int(canonical_idxs[i]) for i in range(K)
                 },
-                arc_centroids_deg=tuple(float(c) for c in canonical_centroids),
+                # Hand the inner loop the *projected* centroids as the
+                # warm start so SLSQP doesn't waste Stage A pushing them
+                # apart from a tightly clustered seed.
+                arc_centroids_deg=tuple(
+                    float(c) for c in projected_centroids
+                ),
                 cost=cost,
             )
         )
@@ -234,6 +363,7 @@ def solve_top_k_arc_assignments(
     min_num_arcs: int = 1,
     max_per_arc: int = 4,
     min_arc_ap_sep_deg: float = 16.0,
+    arc_sep_shortfall_weight: float = 10.0,
     arc_count_penalty_deg2: float = 25.0,
 ) -> list[ArcAssignment]:
     """End-to-end: from a hole assignment, enumerate arc partitions for
@@ -255,6 +385,10 @@ def solve_top_k_arc_assignments(
         without overruling cases where extra arcs really help cluster
         tightness. Set to 0.0 to remove the preference and rank by
         within-cluster variance only.
+    arc_sep_shortfall_weight
+        Soft penalty per ``deg²`` on AP-centroid pairs closer than
+        ``min_arc_ap_sep_deg``. Forwarded to :func:`enumerate_partitions`;
+        see that function for the rationale.
     """
     if k <= 0:
         return []
@@ -274,6 +408,7 @@ def solve_top_k_arc_assignments(
             probe_names, aps, n_arcs,
             max_per_arc=max_per_arc,
             min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+            arc_sep_shortfall_weight=arc_sep_shortfall_weight,
         )
         penalty = arc_count_penalty_deg2 * (n_arcs - min_num_arcs)
         if penalty != 0.0:

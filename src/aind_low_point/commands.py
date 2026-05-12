@@ -123,6 +123,19 @@ class SetProbeKind:
     kind: str
 
 
+@dataclass(frozen=True)
+class SetProbePositionBearingShank:
+    """Choose which shank's tip is the readout for tip-RAS / brain depth.
+
+    1-indexed (1..N where N is the probe's shank count). Pure metadata:
+    the kinematic chain still pivots on the recording-array centre, so
+    the probe doesn't move when this changes — only the readouts do.
+    """
+
+    name: str
+    position_bearing_shank: int
+
+
 PlanningCommand = Union[
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
@@ -135,6 +148,7 @@ PlanningCommand = Union[
     BindProbeAPToArc,
     SetProbeCalibrated,
     SetProbeKind,
+    SetProbePositionBearingShank,
 ]
 
 
@@ -229,6 +243,12 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
     if isinstance(cmd, SetProbeKind):
         plan = ps.probes[cmd.name]
         plan.kind = str(cmd.kind)
+        changed.add(cmd.name)
+        return sorted(changed)
+
+    if isinstance(cmd, SetProbePositionBearingShank):
+        plan = ps.probes[cmd.name]
+        plan.position_bearing_shank = int(cmd.position_bearing_shank)
         changed.add(cmd.name)
         return sorted(changed)
 

@@ -51,6 +51,11 @@ class ProbePlan:
     offsets_RA: Tuple[float, float] = (0.0, 0.0)
     target_key: Optional[str] = None
     target_point_RAS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
+    # The shank whose tip is the kinematic pivot (1-indexed). Drives
+    # which shank's tip lands at the inline target, which shank's RAS
+    # is shown in the readout, and along which shank brain-surface
+    # depth is measured. See ``ProbeDeclModel.position_bearing_shank``.
+    position_bearing_shank: int = 1
     # calibration policy
     calibrated: bool = (
         False  # if True and calibration exists → AP/ML come from calibration
@@ -333,6 +338,11 @@ class ProbePose:
         adjusted_target = tgt_LPS + off_LPS
 
         # --- pivot lookup ---
+        # Pivot is the recording-array centre in the canonical local
+        # frame (746764b semantic): ``past_target_mm = 0`` lands the
+        # recording bank on target. ``position_bearing_shank`` is a
+        # *reporting* setting — it doesn't change the kinematic pivot,
+        # only which shank's tip the GUI reports as the RAS readout.
         pivot_local: Optional[np.ndarray] = None
         if catalog is not None:
             asset_key = f"probe:{plan.kind}"
@@ -340,8 +350,6 @@ class ProbePose:
             if spec is not None and spec.pivot_LPS is not None:
                 pivot_local = np.asarray(spec.pivot_LPS, dtype=np.float64)
         if pivot_local is None:
-            # Kind-keyed fallback. Local import keeps planning →
-            # optimization an optional dependency.
             from aind_low_point.optimization.recording import (
                 recording_center_local_for_kind,
             )
@@ -353,8 +361,9 @@ class ProbePose:
         insertion_vec = R_probe @ np.array(
             [0.0, 0.0, -float(plan.past_target_mm)], dtype=np.float64
         )
-        # Subtract R @ pivot_local so the recording-array center (not
-        # the position shank's tip) lands at adjusted_target + insertion_vec.
+        # Subtract R @ pivot_local so the recording-array centre lands
+        # at adjusted_target + insertion_vec (and the canonical-local
+        # origin = shank-1 ends up at pose.tip).
         tip = adjusted_target + insertion_vec - R_probe @ pivot_local
         tip = ps.kinematics.clamp_xyz(tip)
 

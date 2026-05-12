@@ -41,6 +41,17 @@ def main():
             "<config>_plan.yml)"
         ),
     )
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help=(
+            "Path for the 'Save plan' / 'Load plan' buttons — plan-only "
+            "YAML (just the PlanningModel block, no asset lists). "
+            "Default: <config>.plan.yml. Used for both save and load, "
+            "so you can round-trip into the same file."
+        ),
+    )
     args = parser.parse_args()
 
     config_path: Path = args.config
@@ -56,6 +67,10 @@ def main():
     if export_plan_path is None:
         export_plan_path = config_path.with_stem(config_path.stem + "_plan")
 
+    plan_path = args.plan
+    if plan_path is None:
+        plan_path = config_path.with_suffix(".plan.yml")
+
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
 
     cfg = ConfigModel.from_yaml(config_path)
@@ -64,6 +79,7 @@ def main():
         ccf_volume=args.ccf_volume,
         save_path=save_path,
         export_plan_path=export_plan_path,
+        plan_path=plan_path,
         source_config_path=config_path,
     )
 

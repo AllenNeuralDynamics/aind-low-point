@@ -95,7 +95,7 @@ assets:
   # template-LPS mm so canonicalization is identity. Resolved by acronym
   # via the bundled CCF ontology.
   - atlas_dir: "${paths.atlas_dir}"
-    acronyms: [ACB, GPe, SNr, VTA, SI, PL, ORB, SUB, BLA, MD, PVT, LHA]
+    acronyms: [ACB, GPe, SNr, VTA, SI, PL, ORB, SUB, BLA, MD, PVT, LHA, ACA]
     key_prefix: "structure"
     canonicalization_ref: "identity-lps"
     material_ref: structure   # provides opacity etc.; color overridden per region
@@ -171,42 +171,74 @@ plan:
     # Hardware constraint: arcs must be ≥16° apart in AP. The default
     # spread keeps the starting plan kinematically valid; retune in the
     # GUI as needed.
-    a: -20.0
-    b: 20.0
+    a: 20.0
+    b: -9.0
+    c: -25.0
 
-  # Four NP 2.0 four-shank probes per insertion. Three are dedicated to
-  # specific regions; the fourth is flex (defaults to BLA, retarget in UI).
+  # Six-probe insertion mixing quadbase (1×), 4-shank NP 2.0 (4×), and
+  # single-shank NP 2.0 / fiber (1×). Geometry pulled from
+  # build5-template-config.plan.yml. Probe-name suffixes are user
+  # labels — the catalog key on each ``target:`` is what actually
+  # drives placement.
   probes:
     P1_ACB:
-      kind: "2.4"
-      arc: a
-      spin: 0
-      slider_ml: -10
+      kind: quadbase
+      arc: b
+      slider_ml: 25.0
+      spin: 180.0
+      past_target_mm: -0.7
+      offsets_RA: [0.15, -0.1]
       target:
         kind: catalog
         key: "target:L:ACB"
     P2_SNr_VTA:           # alternates between SNr and VTA — flip in UI
       kind: "2.4"
-      arc: a
-      spin: 0
-      slider_ml: 10
+      arc: c
+      slider_ml: -14.0
+      spin: 90.0
+      past_target_mm: 0.3
+      offsets_RA: [0.55, 0.25]
       target:
         kind: catalog
         key: "target:L:SNr"
-    P3_GPe:
+    P3_GPe:               # labelled GPe but actually targets SI
       kind: "2.4"
-      arc: b
-      spin: 0
-      slider_ml: -10
+      arc: c
+      slider_ml: 9.5
+      spin: 0.0
+      past_target_mm: -0.1
+      offsets_RA: [-0.25, -1.05]
       target:
         kind: catalog
-        key: "target:L:GPe"
-    P4_flex:              # any of the 12 regions; default BLA
+        key: "target:L:SI"
+    P4_flex:              # any of the 13 regions; default PL
       kind: "2.4"
       arc: b
-      spin: 0
-      slider_ml: 10
+      slider_ml: -22.0
+      spin: 0.0
+      past_target_mm: 0.0
+      offsets_RA: [-0.1, -0.1]
       target:
         kind: catalog
-        key: "target:L:BLA"
+        key: "target:L:PL"
+    P5_flex:              # second flex probe; default ACA
+      kind: "2.4"
+      arc: b
+      slider_ml: -6.0
+      spin: 0.0
+      past_target_mm: 0.0
+      offsets_RA: [-0.35, -0.05]
+      target:
+        kind: catalog
+        key: "target:L:ACA"
+    P6_fiber:             # single-shank fiber, deep ACB
+      kind: "2.1"
+      arc: c
+      slider_ml: -31.0
+      spin: 0.0
+      past_target_mm: -2.4
+      offsets_RA: [0.25, -0.4]
+      target:
+        kind: catalog
+        key: "target:L:ACB"
 

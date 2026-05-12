@@ -28,6 +28,7 @@ from aind_low_point.optimization.holes import Hole, load_holes
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
     ProbeStaticInfo,
+    format_plan_table,
     optimize,
 )
 from aind_low_point.runtime import (
@@ -142,6 +143,13 @@ def main():
                    help="Max number of arcs the optimizer can use")
     p.add_argument("--min-num-arcs", type=int, default=1,
                    help="Min number of arcs")
+    p.add_argument(
+        "--arc-count-penalty-deg2",
+        type=float, default=25.0,
+        help="Cost added per arc beyond --min-num-arcs (deg^2). "
+             "Default 25.0 prefers fewer arcs; set 0.0 to remove the "
+             "preference and let the inner loop decide on arc count.",
+    )
     p.add_argument("--k-holes", type=int, default=5,
                    help="Top-K hole assignments to evaluate")
     p.add_argument("--k-arcs", type=int, default=3,
@@ -168,6 +176,40 @@ def main():
         help="Max SLSQP iterations for the Stage-A feasibility solve.",
     )
     p.add_argument(
+        "--slsqp-max-iter",
+        type=int, default=100,
+        help="Max SLSQP iterations for the Stage-B coverage polish. "
+             "Bump higher (e.g. 300) when residual violations look like "
+             "convergence rather than basin issues.",
+    )
+    p.add_argument(
+        "--no-final-feasibility-cleanup",
+        action="store_true",
+        help="Skip the Stage-C feasibility re-projection. Stage C runs "
+             "feasibility_solve from the Stage-B output and keeps "
+             "whichever (B, C) candidate has the better lex key. Default "
+             "is enabled — disable only when comparing against legacy "
+             "two-stage runs.",
+    )
+    p.add_argument(
+        "--polish-method",
+        type=str, default="SLSQP", choices=["SLSQP", "trust-constr"],
+        help="Stage-B polish method. SLSQP (default) is fast but can "
+             "drift off the feasibility tube; trust-constr is interior-"
+             "point and maintains feasibility throughout, at higher "
+             "per-iteration cost.",
+    )
+    p.add_argument(
+        "--feasibility-threshold",
+        type=float, default=0.0,
+        help="Lex-rank tiebreaker: plans with max_violation <= ε are "
+             "treated as 'feasible enough' and ranked by coverage "
+             "instead. Default 0 = strict feasibility-first. Set ε to "
+             "the physical 'slop budget' the manual workflow tolerates "
+             "(e.g. 0.5 if 0.5 mm of clearance overlap or 0.5° of "
+             "AP/ML-sep margin is fine in practice).",
+    )
+    p.add_argument(
         "--cma-stage-multipliers",
         type=str,
         default="0.1,1.0,10.0",
@@ -177,6 +219,30 @@ def main():
     )
     p.add_argument("--min-arc-ap-sep-deg", type=float, default=16.0,
                    help="Min AP separation between arc centroids (rig limit)")
+    p.add_argument(
+        "--arc-sep-shortfall-weight",
+        type=float, default=10.0,
+        help="Soft penalty (deg^-2) on AP-centroid pairs closer than "
+             "--min-arc-ap-sep-deg. Default 10.0 lets the inner loop "
+             "rescue marginally-spaced partitions; pass 'inf' to "
+             "recover the legacy hard-AP-sep middle-layer filter.",
+    )
+    p.add_argument(
+        "--threading-oval-tolerance",
+        type=float, default=0.0,
+        help="Allow ``g_thread <= tol`` instead of strict ``g <= 0`` "
+             "(``g = (u/a)² + (v/b)² − 1`` at the shaft-section "
+             "intersection). ``tol = K² − 1`` corresponds to 'shaft "
+             "within K oval-radii of slot centre'. Default 0 = strict.",
+    )
+    p.add_argument(
+        "--clearance-overlap-allowance-mm",
+        type=float, default=0.0,
+        help="Allow headstage capsules to overlap by up to this many mm "
+             "before the clearance constraint flags them. Default 0 = "
+             "strict; non-zero values trade model strictness for "
+             "matching observed manual practice.",
+    )
     p.add_argument("--verbose", action="store_true", help="Verbose log")
     args = p.parse_args()
 
@@ -215,14 +281,22 @@ def main():
         holes,
         max_num_arcs=args.max_num_arcs,
         min_num_arcs=args.min_num_arcs,
+        arc_count_penalty_deg2=args.arc_count_penalty_deg2,
         k_holes=args.k_holes,
         k_arcs=args.k_arcs,
         min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
+        arc_sep_shortfall_weight=args.arc_sep_shortfall_weight,
+        threading_oval_tolerance=args.threading_oval_tolerance,
+        clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
+        final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
+        polish_method=args.polish_method,
+        feasibility_threshold=args.feasibility_threshold,
         use_cma=not args.no_cma,
         cma_stage_multipliers=stage_mults,
         slsqp_constrained=not args.slsqp_soft,
         two_stage_inner=not args.no_two_stage_inner,
         feasibility_max_iter=args.feasibility_max_iter,
+        slsqp_max_iter=args.slsqp_max_iter,
         verbose=args.verbose,
     )
     if result is None:
@@ -238,6 +312,16 @@ def main():
           f"thread={result.breakdown.threading_penalty:.3f}, "
           f"clear={result.breakdown.clearance_penalty:.3f}, "
           f"kin={result.breakdown.kinematic_penalty:.3f}")
+
+    if result.alternatives:
+        print(f"\nLex-ranked candidates ({len(result.alternatives)} total):")
+        print(format_plan_table(result.alternatives))
+        feasible_count = sum(1 for c in result.alternatives if c.feasible)
+        print(
+            f"\n{feasible_count}/{len(result.alternatives)} candidates feasible. "
+            f"Best plan is "
+            f"{'feasible' if result.alternatives[0].feasible else 'INFEASIBLE'}."
+        )
 
     _apply_result_to_plan_state(plan_state, result)
     new_cfg = save_plan_to_config(plan_state, cfg)

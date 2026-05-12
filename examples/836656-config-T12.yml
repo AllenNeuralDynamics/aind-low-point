@@ -10,13 +10,13 @@
 #   c: -43.0°  (CSV ap_arc_id=3.0)
 #
 # Per-probe notes (hole assignment + depth conversion):
-#   MD: hole 3  (probe_type=quadbase3, old_dpt=1.700 → past_target_mm=0.068, shift_LPS=[-0.231, 0.273, 0.113])
-#   BLA: hole 4  (probe_type=quadbase_dovetail0, old_dpt=0.500 → past_target_mm=-1.133, shift_LPS=[-0.0, 0.369, -0.065])
-#   PL: hole 1  (probe_type=quadbase0, old_dpt=0.700 → past_target_mm=-0.932, shift_LPS=[0.245, -0.267, -0.097])
-#   VM: hole 6  (probe_type=2.1, old_dpt=0.100 → past_target_mm=-1.532, shift_LPS=[0.0, 0.0, 0.0])
-#   RSP: hole 5  (probe_type=2.1, old_dpt=2.000 → past_target_mm=0.367, shift_LPS=[0.0, 0.0, 0.0])
-#   CA1: hole 10  (probe_type=2.1, old_dpt=1.000 → past_target_mm=-0.632, shift_LPS=[0.0, 0.0, 0.0])
-#   CLA: hole 12  (probe_type=2.1, old_dpt=0.600 → past_target_mm=-1.032, shift_LPS=[0.0, 0.0, 0.0])
+#   MD: hole 3  (probe_type=quadbase3, position_bearing_shank=1, past_target_mm=0.068)
+#   BLA: hole 4  (probe_type=quadbase_dovetail0, position_bearing_shank=1, past_target_mm=-1.133)
+#   PL: hole 1  (probe_type=quadbase0, position_bearing_shank=4, past_target_mm=-0.932)
+#   VM: hole 6  (probe_type=2.1, position_bearing_shank=1, past_target_mm=-1.532)
+#   RSP: hole 5  (probe_type=2.1, position_bearing_shank=1, past_target_mm=0.367)
+#   CA1: hole 10  (probe_type=2.1, position_bearing_shank=1, past_target_mm=-0.632)
+#   CLA: hole 12  (probe_type=2.1, position_bearing_shank=1, past_target_mm=-1.032)
 #
 # Past-target depths converted from tip-past-target (old)
 # to recording-center-past-target (new) by subtracting the
@@ -391,7 +391,7 @@ plan:
     MD:
       kind: quadbase
       arc: a
-      spin: -39
+      spin: 141
       slider_ml: -12.0
       past_target_mm: 0.0675
       offsets_RA:
@@ -400,13 +400,14 @@ plan:
       target:
         kind: inline
         point_RAS:
-        - -0.7583
-        - -0.6964
-        - -3.1442
+        - -1.22
+        - -0.1505
+        - -3.3709
+      position_bearing_shank: 1
     BLA:
       kind: quadbase
       arc: b
-      spin: 0
+      spin: -180
       slider_ml: 27.0
       past_target_mm: -1.1325
       offsets_RA:
@@ -416,12 +417,13 @@ plan:
         kind: inline
         point_RAS:
         - -3.8413
-        - -1.4986
-        - -5.0785
+        - -0.76
+        - -4.9482
+      position_bearing_shank: 1
     PL:
       kind: quadbase
       arc: b
-      spin: 131
+      spin: -49
       slider_ml: -30.0
       past_target_mm: -0.9325
       offsets_RA:
@@ -433,10 +435,11 @@ plan:
         - -0.8549
         - 3.1071
         - -2.1555
+      position_bearing_shank: 4
     VM:
       kind: '2.1'
       arc: c
-      spin: 0
+      spin: -180
       slider_ml: -8.0
       past_target_mm: -1.5325
       offsets_RA:
@@ -448,10 +451,11 @@ plan:
         - -1.3185
         - -0.4781
         - -4.2672
+      position_bearing_shank: 1
     RSP:
       kind: '2.1'
       arc: c
-      spin: -176
+      spin: 4
       slider_ml: 8.0
       past_target_mm: 0.3675
       offsets_RA:
@@ -463,10 +467,11 @@ plan:
         - -1.3512
         - -3.0413
         - -0.4436
+      position_bearing_shank: 1
     CA1:
       kind: '2.1'
       arc: b
-      spin: -93
+      spin: 87
       slider_ml: 3.5
       past_target_mm: -0.6325
       offsets_RA:
@@ -478,10 +483,11 @@ plan:
         - -3.5644
         - -3.2709
         - -4.4218
+      position_bearing_shank: 1
     CLA:
       kind: '2.1'
       arc: c
-      spin: -9
+      spin: 171
       slider_ml: -24.0
       past_target_mm: -1.0325
       offsets_RA:
@@ -493,3 +499,4 @@ plan:
         - -2.1695
         - 2.0614
         - -3.7451
+      position_bearing_shank: 1

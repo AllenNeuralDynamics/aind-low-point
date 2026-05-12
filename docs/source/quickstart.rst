@@ -210,6 +210,38 @@ Each probe automatically creates a scene node (``probe:probe_A``, ``probe:probe_
 using the ``probe:neuropixels`` asset geometry.
 
 
+Scene Tags Cheat Sheet
+----------------------
+
+Assets and probes both have a ``scene_tags`` field that drives how the UI
+treats them (visibility toggles, default opacity, recenter target). It's
+distinct from the catalog-only ``tags`` field — see
+:ref:`config_tags_vs_scene_tags` for the full distinction.
+
+Most-used values when hand-authoring:
+
+============= =========================================================
+Tag           Use it on…
+============= =========================================================
+``brain``     The brain-surface mesh. Drives *Recenter on brain* and
+              the *Brain outline* visibility toggle.
+``structure`` CCF region meshes. Drives the *CCF regions* group.
+``implant``   The implant body. Default opacity 0.2 (80% transparent)
+              so probes threading the holes stay visible.
+``fixture``   Headframe / well / probe-guard etc. Default opacity 0.6.
+``probe``     Probe meshes. Auto-added by ``ProbeDeclModel``; leave it.
+``dynamic``   Anything that moves with probe state. Auto-added for
+              probes; leave it.
+``static``    Anything that doesn't move with probe state.
+============= =========================================================
+
+You generally don't need to tag every asset — only the ones whose
+behaviour the UI / runtime needs to differentiate. A bare structure mesh
+with no scene_tags is still rendered (assets default to ``auto_scene:
+true`` if any of ``transform`` / ``scene_tags`` are set); it just won't
+appear in the Display tab's visibility toggles.
+
+
 Common File Extensions
 ----------------------
 

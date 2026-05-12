@@ -495,6 +495,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
             offsets_RA=tuple(probe_decl.offsets_RA),
             target_key=target_key,
             target_point_RAS=target_point_RAS,
+            position_bearing_shank=probe_decl.position_bearing_shank,
             calibrated=probe_decl.calibrated,
         )
     plan_state = PlanningState(

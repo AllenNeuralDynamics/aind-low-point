@@ -30,6 +30,7 @@ from aind_low_point.commands import (
     SetProbePastTarget,
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
+    SetProbePositionBearingShank,
     SetProbeTarget,
 )
 from aind_low_point.core import Material
@@ -84,8 +85,11 @@ KB_ACTIONS: list[tuple[str, str, str]] = [
     ("ArrowDown", "a_dec", "−A offset"),
     ("ArrowLeft", "r_dec", "−R offset"),
     ("ArrowRight", "r_inc", "+R offset"),
-    ("r", "depth_inc", "Deeper (+depth)"),
-    ("f", "depth_dec", "Shallower (−depth)"),
+    # ``r`` and ``f`` are left for VTK.js's defaults (reset camera /
+    # fly to point); depth uses the "elevator" convention with
+    # ``e`` = extend deeper, ``q`` = retract shallower.
+    ("e", "depth_inc", "Deeper (+depth)"),
+    ("q", "depth_dec", "Shallower (−depth)"),
     ("i", "ap_inc", "AP tilt up"),
     ("k", "ap_dec", "AP tilt down"),
     ("j", "ml_dec", "ML tilt left"),
@@ -96,6 +100,8 @@ KB_ACTIONS: list[tuple[str, str, str]] = [
     ("1", "speed_slow", "Slow speed"),
     ("2", "speed_normal", "Normal speed"),
     ("3", "speed_fast", "Fast speed"),
+    ("c", "recenter", "Recenter on brain"),
+    ("t", "focus_target", "Focus on target"),
     ("?", "help", "Toggle help"),
 ]
 # Persistent speed-mode multipliers. Stack with Shift/Ctrl one-shot
@@ -125,6 +131,12 @@ VISIBILITY_GROUPS: list[tuple[str, str, set[str], set[str]]] = [
     # from the rest of the fixtures (the implant has both "implant"
     # and "fixture" tags, so excluding "implant" from the broader
     # group is how we split it out without renaming any tags).
+    #
+    # Probes go first since they're what the user is positioning;
+    # opacity edits persist via the node's material_override (the
+    # renderer reads override before the asset's base material), so
+    # subsequent probe pose updates don't reset the slider.
+    ("probes", "Probes", {"probe"}, set()),
     ("brain", "Brain outline", {"brain"}, set()),
     ("structures", "CCF regions", {"structure"}, set()),
     ("implant", "Implant", {"implant"}, set()),
@@ -180,6 +192,8 @@ class TrameController:
     ccf_overlay: CCFOverlayManager | None = field(default=None)
     on_save: Callable[[], None] | None = None
     on_export_plan: Callable[[], None] | None = None
+    on_save_plan: Callable[[], None] | None = None
+    on_load_plan: Callable[[], None] | None = None
     # Per-key step sizes for keyboard shortcuts (multiplied by Shift=10×
     # for coarse, Ctrl=0.2× for fine — matches the K3D controller).
     kb_step_offset_mm: float = 0.05
@@ -195,6 +209,10 @@ class TrameController:
     # actually flipped.
     _prev_overinserted: set = field(default_factory=set, repr=False)
     _prev_kinematic: set = field(default_factory=set, repr=False)
+    # Held so camera-only updates (recenter, focus-on-target) can call
+    # ``ctrl.view_update`` to push the new camera state to the browser.
+    # The renderer's normal flush only runs when actors change.
+    _ctrl: object | None = field(default=None, repr=False)
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -203,6 +221,7 @@ class TrameController:
         """
         server = server or get_server()
         state, ctrl = server.state, server.controller
+        self._ctrl = ctrl
 
         self.render_adapter.overlays = self.overlays_resolver
 
@@ -235,6 +254,11 @@ class TrameController:
             state.target = target_names[0] if target_names else None
             state.probe_kinds = probe_kinds
             state.probe_kind = ""  # populated by _load_probe_state
+            # Number of shanks for the current probe (1 for single-shank
+            # kinds, 4 for quadbase). Drives the shank-selector
+            # dropdown's items list and visibility.
+            state.probe_shank_options = [1]
+            state.probe_position_bearing_shank = 1
 
             # Keyboard fan-out:
             # ``state.kb_event`` is set by the JS keydown listener to a
@@ -244,11 +268,30 @@ class TrameController:
             state.kb_help_open = False
             state.kb_speed = "normal"  # slow / normal / fast — see KB_SPEED_MULTIPLIER
 
+            # Current tab in the left control column. Pose-editing is
+            # the default since it's what most slider/keyboard work
+            # touches; switching to Readouts / Display / Files surfaces
+            # less-frequently-used controls without making the column
+            # scroll-only.
+            state.ctrl_tab = "pose"
+
             # Read-only geometric readouts for the currently selected probe.
             state.probe_tip_str = "—"
             state.probe_depth_str = "—"
             state.probe_overinsertion_str = "—"
             state.probe_kinematic_str = "—"
+            # Collision readouts. ``probe_collision_str`` shows what the
+            # currently selected probe is touching (local view); the
+            # scene-wide counter on the help dialog / status bar lives
+            # in ``scene_collision_str``.
+            state.probe_collision_str = "—"
+            state.scene_collision_str = "—"
+            # Plan-file upload (drives the "Load plan" file picker).
+            # Trame's VFileInput writes a dict ``{name, size, content,
+            # type}`` once a file is selected; the change handler reads
+            # the bytes, validates, applies, then resets to None.
+            state.plan_file = None
+            state.plan_load_status = ""
 
             # Visibility / opacity per asset group. Initial values are taken
             # from each group's first node so the UI matches what's drawn.
@@ -306,6 +349,16 @@ class TrameController:
         # dispatch involving the currently-selected probe.
         self._readout_state = state  # captured for the closure
         self.store.subscribe(self._on_plan_change_for_readouts)
+        # Chain a readout-refresh onto the collision handler's existing
+        # on_state_changed callback so collision-driven readouts update
+        # without us polling. The collision worker thread can call this
+        # at any time; ``with state:`` handles the trame side.
+        prev_coll_cb = getattr(self.collision_handler, "on_state_changed", None)
+        self.collision_handler.on_state_changed = (
+            lambda cs, flips, plan: self._on_collision_state_changed(
+                cs, flips, plan, chained_callback=prev_coll_cb,
+            )
+        )
         # Run an initial over-insertion + kinematic pass for every probe
         # so the overlays reflect the loaded plan from the moment the
         # GUI comes up (rather than waiting for the first dispatch).
@@ -389,6 +442,23 @@ class TrameController:
                 return
             self._on_probe_kind_change(state.probe, str(state.probe_kind))
 
+        @state.change("probe_position_bearing_shank")
+        def on_position_bearing_shank(**kwargs):
+            if not state.probe:
+                return
+            try:
+                idx = int(state.probe_position_bearing_shank)
+            except (TypeError, ValueError):
+                return
+            plan = self.store.state.probes.get(state.probe)
+            if plan is None or plan.position_bearing_shank == idx:
+                return
+            self.store.dispatch(
+                SetProbePositionBearingShank(
+                    name=state.probe, position_bearing_shank=idx
+                )
+            )
+
         for skey, _label, include, exclude in VISIBILITY_GROUPS:
             self._wire_visibility_handlers(state, skey, include, exclude)
 
@@ -398,6 +468,31 @@ class TrameController:
             key = ev.get("key") or ""
             if key:
                 self._handle_kb(key, bool(ev.get("shift")), bool(ev.get("ctrl")))
+
+        @state.change("plan_file")
+        def _on_plan_file(**_):
+            # VFileInput writes either a dict (single) or list-of-dicts
+            # (multiple files). Each entry has at least
+            # ``{name, size, content}`` where ``content`` is bytes.
+            payload = state.plan_file
+            if payload is None:
+                return
+            entry = payload[0] if isinstance(payload, list) else payload
+            if not entry:
+                return
+            content = entry.get("content") if isinstance(entry, dict) else None
+            name = entry.get("name") if isinstance(entry, dict) else "?"
+            if content is None:
+                state.plan_load_status = f"⚠ '{name}': no content"
+                return
+            try:
+                self._apply_plan_yaml_bytes(content)
+                state.plan_load_status = f"✓ Loaded {name}"
+            except Exception as exc:
+                state.plan_load_status = f"⚠ {name}: {exc}"
+            # Reset so the same file can be picked again without
+            # toggling between two files first.
+            state.plan_file = None
 
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
@@ -566,18 +661,32 @@ class TrameController:
         pose = ProbePose.from_planning_state(
             self.store.state, probe_name, catalog=self.assets
         )
-        tip_lps = np.asarray(pose.tip, dtype=np.float64)
-        tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
+        R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+        # Read out the position-bearing shank's tip, not shank-1's.
+        # ``pose.tip`` is the world position of the canonical-local
+        # origin (= shank-1 in the AIND canonicalization); the named
+        # shank's tip is offset by ``R @ shank_tips_local[N-1]``.
+        local_tips = self._shank_tips_local(f"probe:{plan.kind}")
+        named_idx = max(0, int(plan.position_bearing_shank) - 1)
+        named_idx = min(named_idx, max(0, len(local_tips) - 1))
+        named_local = (
+            np.asarray(local_tips[named_idx], dtype=np.float64)
+            if len(local_tips) > 0
+            else np.zeros(3, dtype=np.float64)
+        )
+        named_world_lps = np.asarray(pose.tip, dtype=np.float64) + R @ named_local
+        tip_ras = convert_coordinate_system(named_world_lps, "LPS", "RAS")
         tip_str = f"{tip_ras[0]:+.2f}, {tip_ras[1]:+.2f}, {tip_ras[2]:+.2f} mm"
 
         depth_str = "—"
         overins_str = "—"
         brain_spec = self.assets.assets.get("brain")
         if brain_spec is not None and brain_spec.mesh is not None:
-            R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
             brain_mesh = brain_spec.mesh.raw
-            depth = _depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
+            # Depth is the distance from the named shank's tip down to
+            # the nearest brain-surface intersection along the shaft.
+            depth = _depth_along_probe_axis(named_world_lps, probe_axis, brain_mesh)
             if depth is not None:
                 depth_str = f"{depth:.2f} mm"
             n_over, n_total = self._count_overinserted_shanks(
@@ -654,14 +763,78 @@ class TrameController:
                 n_over += 1
         return n_over, len(local_tips)
 
+    def _format_pair_other(self, this_nid: str, pair: tuple[str, str]) -> str:
+        """Return the *other* side of a collision pair, formatted for the
+        local-collision readout. Probe nodes lose their ``probe:`` prefix
+        so the cell reads like a list of probe names; non-probe nodes
+        (``implant``, ``headframe``, ...) pass through unchanged."""
+        other = pair[1] if pair[0] == this_nid else pair[0]
+        if other.startswith("probe:"):
+            return other.split(":", 1)[1]
+        return other
+
+    def _compute_collision_strs(self, probe_name: str) -> tuple[str, str]:
+        """Return ``(this-probe collisions, scene-wide collisions)`` as
+        display strings.
+
+        - ``this-probe`` lists the *other* side of each pair the current
+          probe participates in, comma-separated. ``"✓"`` when clear.
+        - ``scene`` is a counter ``"N pair(s)"`` over all colliding
+          objects (or ``"✓"`` when clear) — gives a quick sense of
+          whether problems exist elsewhere in the plan that the local
+          probe-view doesn't surface.
+        """
+        coll_state = getattr(self.collision_handler, "state", None)
+        if coll_state is None or not coll_state.pairs:
+            return ("✓", "✓")
+        this_nid = f"probe:{probe_name}" if probe_name else None
+        local_others: list[str] = []
+        for pair in coll_state.pairs:
+            if this_nid is not None and this_nid in pair:
+                local_others.append(self._format_pair_other(this_nid, pair))
+        local_str = (
+            "⚠ " + ", ".join(sorted(set(local_others)))
+            if local_others else "✓"
+        )
+        n_pairs = len(coll_state.pairs)
+        scene_str = f"⚠ {n_pairs} pair{'s' if n_pairs != 1 else ''}"
+        return (local_str, scene_str)
+
     def _refresh_readouts(self, state, probe_name: str) -> None:
         tip_str, depth_str, overins_str = self._compute_probe_readouts(probe_name)
         kin_str = self._kinematic_status_for_probe(probe_name)
+        coll_local, coll_scene = self._compute_collision_strs(probe_name)
         with state:
             state.probe_tip_str = tip_str
             state.probe_depth_str = depth_str
             state.probe_overinsertion_str = overins_str
             state.probe_kinematic_str = kin_str
+            state.probe_collision_str = coll_local
+            state.scene_collision_str = coll_scene
+
+    def _on_collision_state_changed(
+        self,
+        coll_state,
+        flips,
+        plan,
+        chained_callback=None,
+    ) -> None:
+        """Wrapper installed over the collision handler's
+        ``on_state_changed``. Runs the original overlay-repaint callback
+        first, then refreshes our collision readouts. Kept distinct from
+        ``_refresh_readouts`` because collision changes fire from a
+        worker thread; we forward to the main loop via the readout
+        state (which is the trame server state)."""
+        if chained_callback is not None:
+            chained_callback(coll_state, flips, plan)
+        state = self._readout_state
+        if state is None:
+            return
+        probe_name = state.probe
+        coll_local, coll_scene = self._compute_collision_strs(probe_name or "")
+        with state:
+            state.probe_collision_str = coll_local
+            state.scene_collision_str = coll_scene
 
     def _handle_kb(self, key: str, shift: bool, ctrl: bool) -> None:
         """Dispatch a single keyboard shortcut. Step sizes are multiplied
@@ -683,6 +856,12 @@ class TrameController:
             return
         if match in ("speed_slow", "speed_normal", "speed_fast"):
             state.kb_speed = match.split("_", 1)[1]
+            return
+        if match == "recenter":
+            self.recenter_view()
+            return
+        if match == "focus_target":
+            self.focus_on_current_target()
             return
         if match == "next_probe":
             probes = sorted(self.store.state.probes.keys())
@@ -950,17 +1129,27 @@ class TrameController:
             # ``undefined``), but ``window`` is reachable via its proxy
             # context. Route DOM access through ``window.document``.
             #
-            # Sentinel name is bumped (``_aind_kb_listener_v2``) so that
-            # any stale ``window._aind_kb = true`` left over from a
-            # previous broken attempt in the same browser session does
-            # not block re-installation. Also wrapped in try/catch so
-            # the next failure is loud in the browser console rather
-            # than silently leaving the keyboard inert.
+            # Sentinel name is bumped (``_aind_kb_listener_v3``) so that
+            # any stale listener from a previous attempt in the same
+            # browser session does not block re-installation. Wrapped
+            # in try/catch so the next failure is loud in the browser
+            # console rather than silently leaving the keyboard inert.
+            #
+            # ``stopImmediatePropagation`` (in addition to
+            # ``preventDefault``) is required because VTK.js's render
+            # window interactor registers its own keydown handler that
+            # binds e.g. 'r' to ResetCamera. Without stopping
+            # propagation, our handler absorbs the application
+            # action and VTK still fires its own — so 'r' both deepens
+            # the probe (intended) and resets the camera (a bug). Our
+            # listener runs in the capture phase on ``document``, so
+            # stopping propagation here halts the event before it
+            # reaches descendant elements like the render canvas.
             kb_keys_js = ",".join(f"'{k}'" for k in KB_KEYS_TO_INTERCEPT)
             client.ClientTriggers(
                 mounted=(
                     "(function(){"
-                    "if (window._aind_kb_listener_v2) return;"
+                    "if (window._aind_kb_listener_v3) return;"
                     "try {"
                     "  const trapped = new Set([" + kb_keys_js + "]);"
                     "  window.document.addEventListener('keydown', function(e){"
@@ -971,11 +1160,39 @@ class TrameController:
                     "      key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, t: Date.now()"
                     "    });"
                     "    e.preventDefault();"
+                    "    e.stopImmediatePropagation();"
                     "  }, true);"
-                    "  window._aind_kb_listener_v2 = true;"
+                    "  window._aind_kb_listener_v3 = true;"
                     "} catch (err) {"
                     "  window.console && window.console.error('aind keyboard listener install failed:', err);"
                     "}"
+                    "})();"
+                )
+            )
+            # Silence the benign ``ResizeObserver loop completed with
+            # undelivered notifications`` / ``ResizeObserver loop limit
+            # exceeded`` error that Vuetify + trame's render-window
+            # sizing fires whenever an observed element schedules a
+            # second resize in the same frame. It's a W3C-spec
+            # informational notice (not a real failure) but bubbles to
+            # ``window.error`` in Chrome / Firefox and clutters the
+            # console. Suppress that *one* message; let everything else
+            # through.
+            client.ClientTriggers(
+                mounted=(
+                    "(function(){"
+                    "if (window._aind_resize_obs_filter) return;"
+                    "const SILENCED = ["
+                    "  'ResizeObserver loop completed with undelivered notifications.',"
+                    "  'ResizeObserver loop limit exceeded'"
+                    "];"
+                    "window.addEventListener('error', function(e){"
+                    "  if (e && e.message && SILENCED.some(function(m){ return e.message.indexOf(m) !== -1; })) {"
+                    "    e.stopImmediatePropagation();"
+                    "    e.preventDefault();"
+                    "  }"
+                    "}, true);"
+                    "window._aind_resize_obs_filter = true;"
                     "})();"
                 )
             )
@@ -992,78 +1209,154 @@ class TrameController:
             self._build_kb_help_dialog()
 
     def _build_controls(self, on_set_target) -> None:
-        """Build the left-column control widgets."""
-        with vuetify3.VCol(cols=3):
-            vuetify3.VSelect(
-                v_model=("probe",),
-                items=("probes",),
-                label="Probe",
-                hide_details=True,
-                density="compact",
-            )
-            vuetify3.VSelect(
-                v_model=("arc",),
-                items=("arcs",),
-                label="Arc",
-                hide_details=True,
-                density="compact",
-            )
-            vuetify3.VSelect(
-                v_model=("probe_kind",),
-                items=("probe_kinds",),
-                label="Probe type",
-                hide_details=True,
-                density="compact",
-            )
-            vuetify3.VDivider(classes="my-2")
-            self._slider_row("offset_r", "R (mm)", -7.5, 7.5, 0.05)
-            self._slider_row("offset_a", "A (mm)", -7.5, 7.5, 0.05)
-            self._slider_row("depth", "Depth (mm)", -10, 10, 0.1)
-            vuetify3.VDivider(classes="my-2")
-            self._slider_row("ap_tilt", "AP tilt (°)", -60, 60, 0.5)
-            self._slider_row("ml_tilt", "ML tilt (°)", -60, 60, 0.5)
-            self._slider_row("spin", "Spin (°)", -180, 180, 1)
-            vuetify3.VDivider(classes="my-2")
-            vuetify3.VSelect(
-                v_model=("target",),
-                items=("targets",),
-                label="Target",
-                hide_details=True,
-                density="compact",
-            )
-            vuetify3.VBtn(
-                "Set target",
-                color="primary",
-                click=on_set_target,
-                classes="mt-2",
-            )
-            vuetify3.VDivider(classes="my-2")
-            self._build_readouts()
-            vuetify3.VDivider(classes="my-2")
-            self._build_kb_speed_controls()
-            vuetify3.VDivider(classes="my-2")
-            self._build_display_controls()
-            vuetify3.VDivider(classes="my-2")
-            if self.on_save is not None:
-                vuetify3.VBtn(
-                    "Save YAML",
-                    color="success",
-                    click=self.on_save,
-                    classes="mt-2",
-                    block=True,
-                )
-            if self.on_export_plan is not None:
-                vuetify3.VBtn(
-                    "Export plan",
-                    color="primary",
-                    click=self.on_export_plan,
-                    classes="mt-2",
-                    block=True,
-                )
+        """Build the left-column control widgets.
 
-            # CCF overlay controls
-            if self.ccf_overlay is not None:
-                self._build_ccf_controls()
+        Organized into four tabs so the column doesn't outgrow the
+        viewport:
+
+        - **Pose** — probe/arc/type selection, R/A/depth + AP/ML/spin
+          sliders, target picker, *and* the per-probe readouts +
+          keyboard-speed mode that you read off while editing.
+        - **Display** — scene visibility toggles + CCF overlay.
+        - **Files** — save / export / plan-IO buttons.
+        """
+        with vuetify3.VCol(cols=3, classes="fill-height overflow-y-auto"):
+            with vuetify3.VTabs(
+                v_model=("ctrl_tab",),
+                density="compact",
+                grow=True,
+            ):
+                vuetify3.VTab(text="Pose", value="pose")
+                vuetify3.VTab(text="Display", value="display")
+                vuetify3.VTab(text="Files", value="files")
+            with vuetify3.VTabsWindow(v_model=("ctrl_tab",), classes="mt-2"):
+                with vuetify3.VTabsWindowItem(value="pose"):
+                    self._build_pose_tab(on_set_target)
+                    vuetify3.VDivider(classes="my-2")
+                    self._build_readouts()
+                    vuetify3.VDivider(classes="my-2")
+                    self._build_kb_speed_controls()
+                with vuetify3.VTabsWindowItem(value="display"):
+                    self._build_display_controls()
+                    if self.ccf_overlay is not None:
+                        vuetify3.VDivider(classes="my-2")
+                        self._build_ccf_controls()
+                with vuetify3.VTabsWindowItem(value="files"):
+                    self._build_files_tab()
+
+    def _build_pose_tab(self, on_set_target) -> None:
+        """Probe/arc/type + sliders + target — the pose-editing flow."""
+        vuetify3.VSelect(
+            v_model=("probe",), items=("probes",),
+            label="Probe", hide_details=True, density="compact",
+        )
+        vuetify3.VSelect(
+            v_model=("arc",), items=("arcs",),
+            label="Arc", hide_details=True, density="compact",
+        )
+        vuetify3.VSelect(
+            v_model=("probe_kind",), items=("probe_kinds",),
+            label="Probe type", hide_details=True, density="compact",
+        )
+        # Hidden when the probe has only one shank — the dropdown would
+        # just show "1" and it'd waste a row.
+        vuetify3.VSelect(
+            v_model=("probe_position_bearing_shank",),
+            items=("probe_shank_options",),
+            label="Reported shank",
+            hide_details=True, density="compact",
+            v_show=("probe_shank_options.length > 1",),
+            classes="mt-1",
+        )
+        vuetify3.VDivider(classes="my-2")
+        self._slider_row("offset_r", "R (mm)", -7.5, 7.5, 0.05)
+        self._slider_row("offset_a", "A (mm)", -7.5, 7.5, 0.05)
+        self._slider_row("depth", "Depth (mm)", -10, 10, 0.1)
+        vuetify3.VDivider(classes="my-2")
+        self._slider_row("ap_tilt", "AP tilt (°)", -60, 60, 0.5)
+        self._slider_row("ml_tilt", "ML tilt (°)", -60, 60, 0.5)
+        self._slider_row("spin", "Spin (°)", -180, 180, 1)
+        vuetify3.VDivider(classes="my-2")
+        vuetify3.VSelect(
+            v_model=("target",), items=("targets",),
+            label="Target", hide_details=True, density="compact",
+        )
+        vuetify3.VBtn(
+            "Set target", color="primary",
+            click=on_set_target, classes="mt-2",
+        )
+
+    def _apply_plan_yaml_bytes(self, content) -> None:
+        """Parse plan-only YAML bytes from a browser upload and apply.
+
+        Mirrors the path-based ``on_load_plan`` callback from app.py but
+        takes bytes directly so it works with VFileInput uploads. Raises
+        on parse / validation failures so the change handler can surface
+        the error to the user via ``plan_load_status``.
+        """
+        import yaml
+
+        from aind_low_point.config import PlanningModel
+        from aind_low_point.runtime.export import apply_plan_model_to_state
+
+        if isinstance(content, (bytes, bytearray)):
+            text = content.decode("utf-8")
+        else:
+            text = str(content)
+        raw = yaml.safe_load(text)
+        loaded = PlanningModel.model_validate(raw)
+        apply_plan_model_to_state(loaded, self.store)
+
+    def _build_files_tab(self) -> None:
+        """Save/export/plan-IO actions — grouped on their own tab so the
+        Pose tab stays focused on edits and the row of save buttons
+        doesn't crowd the slider stack."""
+        if self.on_save is not None:
+            vuetify3.VBtn(
+                "Save YAML",
+                color="success",
+                click=self.on_save,
+                classes="mt-2",
+                block=True,
+            )
+        if self.on_export_plan is not None:
+            vuetify3.VBtn(
+                "Export plan",
+                color="primary",
+                click=self.on_export_plan,
+                classes="mt-2",
+                block=True,
+            )
+        # Save: server-side write to the configured plan path. Load: a
+        # browser file picker (VFileInput) — uploads the picked YAML to
+        # the server, our state.change handler parses + applies. The
+        # plan-only YAML has no asset list, so it ports across configs
+        # that share probe rosters.
+        if self.on_save_plan is not None:
+            vuetify3.VBtn(
+                "Save plan",
+                color="info",
+                click=self.on_save_plan,
+                classes="mt-2",
+                block=True,
+            )
+        vuetify3.VFileInput(
+            v_model=("plan_file",),
+            label="Load plan",
+            accept=".yml,.yaml",
+            show_size=True,
+            truncate_length=20,
+            density="compact",
+            hide_details=True,
+            classes="mt-2",
+            prepend_icon="mdi-folder-open",
+        )
+        # Status line for the load (✓ Loaded foo.yml / ⚠ failure msg).
+        vuetify3.VLabel(
+            "{{ plan_load_status }}",
+            v_show=("plan_load_status",),
+            classes="mt-1 text-caption",
+        )
 
     def _slider_row(
         self,
@@ -1116,11 +1409,33 @@ class TrameController:
                 vuetify3.VLabel("Kinematic")
             with vuetify3.VCol():
                 vuetify3.VLabel("{{ probe_kinematic_str }}")
+        # Collisions split into local (this probe) and scene-wide.
+        # Local lists the other side of each pair the current probe
+        # touches; scene shows a total count so problems elsewhere
+        # still surface without you having to switch probes to check.
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Collide (this)")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ probe_collision_str }}")
+        with vuetify3.VRow(no_gutters=True, dense=True):
+            with vuetify3.VCol(cols=4):
+                vuetify3.VLabel("Collide (all)")
+            with vuetify3.VCol():
+                vuetify3.VLabel("{{ scene_collision_str }}")
 
     def _build_display_controls(self) -> None:
         """Per-group visibility toggles + opacity sliders for the major
         asset categories. Probes are always visible."""
         vuetify3.VLabel("Display")
+        vuetify3.VBtn(
+            "Recenter on brain",
+            click=self.recenter_view,
+            classes="mt-1 mb-2",
+            block=True,
+            variant="outlined",
+            density="compact",
+        )
         for skey, label, _include, _exclude in VISIBILITY_GROUPS:
             with vuetify3.VRow(align="center", no_gutters=True, dense=True):
                 with vuetify3.VCol(cols="auto"):
@@ -1196,6 +1511,162 @@ class TrameController:
                         click="kb_help_open = false",
                     )
 
+    def _flush_view(self) -> None:
+        """Push the current plotter state (camera, actors) to the
+        browser. Camera-only updates (recenter / focus) need this
+        because the renderer's auto-flush only fires on actor changes.
+
+        ``plotter.render()`` triggers VTK's render pass; ``view_update``
+        ships the resulting scene state over the trame WebSocket. We
+        need both — render alone leaves the browser holding the prior
+        snapshot, and view_update alone doesn't roll the camera matrix
+        forward.
+        """
+        try:
+            self.plotter.render()
+        except Exception:
+            pass
+        update = getattr(self._ctrl, "view_update", None) if self._ctrl else None
+        if callable(update):
+            update()
+
+    def recenter_view(self) -> None:
+        """Set the camera to a brain-focused isometric pose.
+
+        Camera sits in the **superior–left–anterior** octant relative
+        to the brain's centroid, looking back at it; ``view_up`` is
+        ``+z`` (Superior) so dragging up tilts toward Inferior. The
+        camera distance is then refit to the brain mesh's bounding
+        box so the brain fills the view rather than the whole scene
+        bounding box (which includes the bulky implant + headframe
+        stack and tends to shrink the brain).
+
+        Bound to the ``c`` keyboard shortcut and the "Recenter" button
+        in the Display tab. Also called at startup from
+        :meth:`apply_default_view`.
+        """
+        brain_spec = self.assets.assets.get("brain")
+        if brain_spec is None or brain_spec.mesh is None:
+            self.plotter.reset_camera()
+            return
+        brain = brain_spec.mesh.raw
+        centroid = np.asarray(brain.centroid, dtype=np.float64)
+        # trimesh `bounds` is ((xmin, ymin, zmin), (xmax, ymax, zmax)) —
+        # different from PyVista's flat (xmin, xmax, ymin, ymax, zmin,
+        # zmax). Normalize to the flat form for ``reset_camera`` below.
+        bounds_arr = np.asarray(brain.bounds, dtype=np.float64).reshape(2, 3)
+        xmin, ymin, zmin = (float(v) for v in bounds_arr[0])
+        xmax, ymax, zmax = (float(v) for v in bounds_arr[1])
+        diag = float(
+            np.linalg.norm([xmax - xmin, ymax - ymin, zmax - zmin])
+        )
+        print(
+            f"[recenter_view] brain centroid={centroid}, bounds="
+            f"x=({xmin:.2f},{xmax:.2f}) y=({ymin:.2f},{ymax:.2f}) "
+            f"z=({zmin:.2f},{zmax:.2f}) diag={diag:.2f}"
+        )
+        # LPS axes: +x = Left, +y = Posterior, +z = Superior.
+        # Superior–left–anterior octant ⇒ offset has +x, -y, +z.
+        # Equal magnitudes give an isometric perspective.
+        offset = np.array([1.0, -1.0, 1.0]) * (diag / np.sqrt(3.0))
+        self.plotter.camera.focal_point = tuple(centroid)
+        self.plotter.camera.position = tuple(centroid + offset)
+        # PyVista renames VTK's ``view_up`` to ``up`` and blocks the
+        # original; setting ``view_up`` raises PyVistaAttributeError.
+        self.plotter.camera.up = (0.0, 0.0, 1.0)
+        # Re-fit camera distance to the brain bounds (not full scene).
+        self.plotter.reset_camera(
+            bounds=(xmin, xmax, ymin, ymax, zmin, zmax)
+        )
+        cam = self.plotter.camera
+        print(
+            f"[recenter_view] after reset: pos={tuple(round(v, 2) for v in cam.position)} "
+            f"focal={tuple(round(v, 2) for v in cam.focal_point)} "
+            f"up={tuple(round(v, 2) for v in cam.up)}"
+        )
+        self._flush_view()
+
+    def focus_on_current_target(self) -> None:
+        """Shift the camera's ``focal_point`` onto the currently selected
+        probe's target.
+
+        Only the orbit centre moves — ``position`` stays put — so the
+        view direction tilts toward the target and subsequent left-drag
+        orbits around it. If you want to also reposition the camera or
+        refit zoom, press ``c`` (recenter on brain) afterwards or use
+        VTK.js's ``r`` to reset.
+
+        Looks up the target via ``plan_state.target_index`` for catalog
+        keys (already in LPS) or converts ``target_point_RAS`` for
+        inline targets. No-op silently if no probe is selected or the
+        target can't be resolved.
+        """
+        state = self._readout_state
+        probe_name = state.probe
+        if not probe_name:
+            return
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None:
+            return
+        target_lps: np.ndarray | None = None
+        if plan.target_key is not None:
+            tlps = self.store.state.target_index.get(plan.target_key)
+            if tlps is not None:
+                arr = np.asarray(tlps, dtype=np.float64).reshape(-1, 3)
+                target_lps = arr.mean(axis=0)
+        if target_lps is None and plan.target_point_RAS is not None:
+            ras = np.asarray(
+                plan.target_point_RAS, dtype=np.float64
+            ).reshape(1, 3)
+            target_lps = convert_coordinate_system(
+                ras, "RAS", "LPS"
+            ).reshape(3)
+        if target_lps is None:
+            return
+        self.plotter.camera.focal_point = tuple(
+            float(c) for c in target_lps
+        )
+        self._flush_view()
+
+    # Default opacity overrides per scene-tag. Implant is mostly
+    # transparent so probes-threading-through-holes are visible; other
+    # fixtures (headframe, well, probe guard) sit at 40% transparency
+    # so they're still readable as a frame of reference without
+    # obscuring the implant + brain.
+    _DEFAULT_OPACITY_BY_TAG: tuple[tuple[str, float, frozenset[str]], ...] = (
+        ("implant", 0.2, frozenset()),
+        ("fixture", 0.6, frozenset({"implant"})),
+        ("headframe", 0.6, frozenset({"implant"})),
+    )
+
+    def apply_default_opacities(self) -> None:
+        """Override per-node opacity for tagged fixtures so the implant
+        is mostly transparent and other fixtures sit at 40% transparency.
+
+        Reads tags from the scene graph and pokes the PyVistaBackend
+        actor's `prop.opacity` directly. Called once at startup; the
+        per-asset config opacity values are the baseline this overrides.
+        """
+        backend = self.render_adapter.backend
+        if not hasattr(backend, "_actors"):
+            return
+        for node in self.render_adapter.scene.nodes.values():
+            tags = node.tags
+            for tag, opacity, excluded in self._DEFAULT_OPACITY_BY_TAG:
+                if tag in tags and not (tags & excluded):
+                    actor = backend._actors.get(node.key)
+                    if actor is not None:
+                        actor.prop.opacity = float(opacity)
+                    break
+
+    def apply_default_view(self) -> None:
+        """Apply default camera (brain-focused iso, S-L-A octant) and
+        opacity (implant 20%, fixtures 60%) on first paint. Called
+        once from :func:`aind_low_point.app.build_trame_app` after the
+        renderer's initial build."""
+        self.recenter_view()
+        self.apply_default_opacities()
+
     def _build_ccf_controls(self) -> None:
         """Build the CCF region overlay UI widgets."""
         vuetify3.VDivider(classes="my-2")
@@ -1234,6 +1705,7 @@ class TrameController:
             if plan.arc_id and plan.bind_ap_to_arc
             else float(plan.ap_local)
         )
+        n_shanks = max(1, len(self._shank_tips_local(f"probe:{plan.kind}")))
         with state:
             state.offset_r = float(r_mm)
             state.offset_a = float(a_mm)
@@ -1246,4 +1718,8 @@ class TrameController:
             if plan.target_key:
                 state.target = plan.target_key
             state.probe_kind = plan.kind
+            state.probe_shank_options = list(range(1, n_shanks + 1))
+            state.probe_position_bearing_shank = max(
+                1, min(n_shanks, int(plan.position_bearing_shank))
+            )
         self._refresh_readouts(state, state.probe)

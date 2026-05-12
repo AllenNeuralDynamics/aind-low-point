@@ -89,14 +89,18 @@ class ProbeStaticInfo:
 
 
 @dataclass(frozen=True)
-class OptimizationResult:
-    """Final optimizer output.
+class PlanCandidate:
+    """One (hole, arc, x*) attempt + the metrics used for lex-ranking.
 
-    ``probe_to_hole`` and ``probe_to_arc_idx`` give the discrete
-    decisions; ``arc_centroids_deg`` gives the AP cluster centroids
-    (post-optimization, the actual ``ap_arc`` values are read from
-    ``x[:n_arcs]``). ``cost`` is the inner-loop scalar; ``breakdown``
-    has the component-wise terms for diagnostics.
+    Feasibility metrics (``max_violation``, ``sum_violation_sq``) come
+    from :func:`evaluate_constraints`'s slack vectors: ``slack ≥ 0`` is
+    feasible, so ``max_violation = max(0, max_j -slack_j)`` and
+    ``sum_violation_sq = Σ_j ReLU(-slack_j)²``. Units across groups are
+    mixed (threading is dimensionless oval value, clearance is mm, AP/ML
+    separations are deg), but we compare candidates on the same key so
+    the mix is consistent.
+
+    A candidate is feasible iff ``max_violation == 0``.
     """
 
     probe_to_hole: dict[str, int]
@@ -106,6 +110,89 @@ class OptimizationResult:
     x: NDArray[np.floating]
     cost: float
     breakdown: ObjectiveBreakdown
+    max_violation: float
+    sum_violation_sq: float
+    coverage: float
+    min_headstage_clearance_mm: float
+    min_arc_ap_sep_deg: float
+    min_intra_arc_ml_sep_deg: float
+    # Per-group max-violation breakdown — helps diagnose *which* constraint
+    # is forcing a candidate infeasible. Units differ per group: threading
+    # is dimensionless oval value, clearance is mm, AP/ML are deg. Zero on
+    # a group means that group is fully satisfied at this candidate.
+    max_violation_threading: float = 0.0
+    max_violation_clearance: float = 0.0
+    max_violation_arc_ap_sep: float = 0.0
+    max_violation_intra_arc_ml_sep: float = 0.0
+
+    @property
+    def feasible(self) -> bool:
+        return self.max_violation <= 0.0
+
+    @property
+    def dominant_violation_group(self) -> str:
+        """Name of the group contributing the largest violation, or
+        ``"feasible"`` if the candidate satisfies every constraint."""
+        if self.max_violation <= 0.0:
+            return "feasible"
+        groups = {
+            "threading": self.max_violation_threading,
+            "clearance": self.max_violation_clearance,
+            "arc_ap_sep": self.max_violation_arc_ap_sep,
+            "intra_arc_ml_sep": self.max_violation_intra_arc_ml_sep,
+        }
+        return max(groups, key=lambda k: groups[k])
+
+    def lex_key(
+        self, feasibility_threshold: float = 0.0
+    ) -> tuple[float, float, float]:
+        """Sort key for lexicographic ranking with a "feasible enough"
+        threshold.
+
+        ``feasibility_threshold = 0`` (default) gives strict
+        feasibility-first: ``(max_violation, sum_violation_sq,
+        -coverage)``. Strictly correct when the literal model and the
+        physical constraints agree; aggressive when the model is more
+        conservative than reality (as on 836656 with the build5 implant).
+
+        ``feasibility_threshold = ε > 0`` collapses any plan with
+        ``max_violation ≤ ε`` to the same first-tier rank (zero), so
+        coverage breaks ties among "feasible enough" plans. Plans
+        violating by more than ε are ranked by their excess (max_viol
+        − ε). This matches the practitioner's preference: a plan with
+        max_viol 0.4 / coverage 4.4 beats max_viol 0.1 / coverage 0.0
+        at any ε ≥ 0.4. Set ε to the physical "slop budget" the
+        manual workflow tolerates — e.g. ε = 0.5 if 0.5 mm of
+        clearance overlap or 0.5° of AP/ML-sep margin is "fine".
+        """
+        eff_viol = max(0.0, self.max_violation - feasibility_threshold)
+        return (eff_viol, self.sum_violation_sq, -self.coverage)
+
+
+@dataclass(frozen=True)
+class OptimizationResult:
+    """Final optimizer output.
+
+    ``probe_to_hole`` and ``probe_to_arc_idx`` give the discrete
+    decisions; ``arc_centroids_deg`` gives the AP cluster centroids
+    (post-optimization, the actual ``ap_arc`` values are read from
+    ``x[:n_arcs]``). ``cost`` is the inner-loop scalar; ``breakdown``
+    has the component-wise terms for diagnostics.
+
+    ``best`` is the lex-best plan candidate; ``alternatives`` is the
+    full ranked list of attempted (hole, arc) inner solves (best
+    first), useful for surfacing top-K plans to the user. Empty when
+    no inner solve completed.
+    """
+
+    probe_to_hole: dict[str, int]
+    probe_to_arc_idx: dict[str, int]
+    arc_centroids_deg: tuple[float, ...]
+    n_arcs: int
+    x: NDArray[np.floating]
+    cost: float
+    breakdown: ObjectiveBreakdown
+    alternatives: tuple[PlanCandidate, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +206,9 @@ def _build_inner_context(
     hole_assignment: HoleAssignment,
     arc_assignment: ArcAssignment,
     weights: ObjectiveWeights,
+    *,
+    threading_oval_tolerance: float = 0.0,
+    clearance_overlap_allowance_mm: float = 0.0,
 ) -> OptimizerContext:
     """Build :class:`OptimizerContext` from the discrete assignments."""
     n_arcs = max(arc_assignment.probe_to_arc_idx.values()) + 1
@@ -154,6 +244,8 @@ def _build_inner_context(
         layout=layout,
         probes=tuple(probe_contexts),
         weights=weights,
+        threading_oval_tolerance=threading_oval_tolerance,
+        clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
     )
 
 
@@ -251,6 +343,8 @@ def _ctx_with_weights(ctx: OptimizerContext, w: ObjectiveWeights) -> OptimizerCo
         min_arc_ap_sep_deg=ctx.min_arc_ap_sep_deg,
         min_within_arc_ml_sep_deg=ctx.min_within_arc_ml_sep_deg,
         coverage_n_samples=ctx.coverage_n_samples,
+        threading_oval_tolerance=ctx.threading_oval_tolerance,
+        clearance_overlap_allowance_mm=ctx.clearance_overlap_allowance_mm,
     )
 
 
@@ -392,20 +486,25 @@ def _feasibility_solve(
 
 
 def _slsqp_polish_constrained(
-    ctx: OptimizerContext, x0: NDArray, *, max_iter: int
+    ctx: OptimizerContext, x0: NDArray, *, max_iter: int,
+    method: str = "SLSQP",
 ) -> tuple[NDArray, ObjectiveBreakdown]:
-    """SLSQP with native inequality constraints instead of penalties.
+    """SLSQP (or trust-constr) polish with native inequality constraints.
 
     Objective is just ``-coverage_total``; threading, clearance, and
-    kinematic separations are passed as ``ineq`` constraints. Scipy's
-    SLSQP supports vector-valued constraints, so each group is one
-    constraint dict. Finite-difference Jacobians are slow (~37×
-    evaluations per gradient) but correct; future improvement is
-    JAX-traceable autodiff.
+    kinematic separations are passed as ``ineq`` constraints.
 
-    Constraint slack vectors come from
-    :func:`evaluate_constraints`; each entry is ``g(x) >= 0`` at
-    feasibility, matching scipy's convention.
+    ``method="SLSQP"`` (default) uses scipy's vector-valued ineq
+    constraint dicts. SLSQP doesn't strictly maintain feasibility
+    between iterations — after an active-set step, finite-diff Jacobian
+    noise can let the iterate drift outside the feasibility tube. For a
+    coverage objective whose gradient pulls probes off-bore, this drift
+    accumulates.
+
+    ``method="trust-constr"`` uses interior-point with a barrier; the
+    iterate is kept inside the feasibility tube (or the strictly-positive
+    side of slack) by construction. Slower per iteration but the
+    coverage polish stays on the constraint manifold.
     """
     bounds = _default_bounds(ctx)
 
@@ -421,23 +520,153 @@ def _slsqp_polish_constrained(
             return arr if arr.size > 0 else np.array([1.0])
         return fn
 
-    constraints = [
-        {"type": "ineq", "fun": make_constraint("threading")},
-        {"type": "ineq", "fun": make_constraint("clearance")},
-        {"type": "ineq", "fun": make_constraint("arc_ap_separation")},
-        {"type": "ineq", "fun": make_constraint("intra_arc_ml_separation")},
-    ]
+    field_names = (
+        "threading", "clearance",
+        "arc_ap_separation", "intra_arc_ml_separation",
+    )
+    if method == "SLSQP":
+        constraints = [
+            {"type": "ineq", "fun": make_constraint(name)}
+            for name in field_names
+        ]
+        options = {"maxiter": max_iter, "ftol": 1e-6, "disp": False}
+    elif method == "trust-constr":
+        from scipy.optimize import NonlinearConstraint
+
+        constraints = [
+            NonlinearConstraint(
+                make_constraint(name), 0.0, np.inf,
+            )
+            for name in field_names
+        ]
+        options = {
+            "maxiter": max_iter,
+            "xtol": 1e-7, "gtol": 1e-6,
+            "verbose": 0,
+            "initial_constr_penalty": 1.0,
+        }
+    else:
+        raise ValueError(f"unknown method {method!r}")
 
     result = minimize(
         obj,
         np.asarray(x0, dtype=np.float64),
-        method="SLSQP",
+        method=method,
         bounds=bounds,
         constraints=constraints,
-        options={"maxiter": max_iter, "ftol": 1e-6, "disp": False},
+        options=options,
     )
     x_opt = np.asarray(result.x, dtype=np.float64)
     return x_opt, evaluate_objective(x_opt, ctx)
+
+
+# ---------------------------------------------------------------------------
+# Plan candidate construction + reporting
+# ---------------------------------------------------------------------------
+
+
+def _build_plan_candidate(
+    x_opt: NDArray,
+    ctx: OptimizerContext,
+    breakdown: ObjectiveBreakdown,
+    *,
+    ha: HoleAssignment,
+    aa: ArcAssignment,
+    n_arcs: int,
+) -> PlanCandidate:
+    """Wrap an inner-solve outcome with its lex-ranking metrics.
+
+    Pulls feasibility from the slack vectors (any slack < 0 ⇒ infeasible)
+    and the actually-realised minimums (clearance in mm; AP/ML separations
+    in deg) so the report can show physical numbers, not penalty terms.
+    """
+    cv = evaluate_constraints(x_opt, ctx)
+    max_viol = 0.0
+    sum_viol_sq = 0.0
+    per_group_max: dict[str, float] = {}
+    for name, arr in (
+        ("threading", cv.threading),
+        ("clearance", cv.clearance),
+        ("arc_ap_separation", cv.arc_ap_separation),
+        ("intra_arc_ml_separation", cv.intra_arc_ml_separation),
+    ):
+        a = np.asarray(arr, dtype=np.float64)
+        if a.size == 0:
+            per_group_max[name] = 0.0
+            continue
+        excess = np.maximum(0.0, -a)
+        group_max = float(excess.max()) if excess.size > 0 else 0.0
+        per_group_max[name] = group_max
+        if group_max > max_viol:
+            max_viol = group_max
+        sum_viol_sq += float(np.sum(excess * excess))
+
+    # Physical mins (in their native units). Subtract the tolerance/
+    # allowance shifts so reporting reflects raw geometry, independent
+    # of what slack we're tolerating.
+    min_clear = (
+        float(cv.clearance.min())
+        + ctx.weights.safety_clearance_mm
+        - ctx.clearance_overlap_allowance_mm
+        if cv.clearance.size else float("inf")
+    )
+    min_ap_sep = (
+        float(cv.arc_ap_separation.min()) + ctx.min_arc_ap_sep_deg
+        if cv.arc_ap_separation.size else float("inf")
+    )
+    min_ml_sep = (
+        float(cv.intra_arc_ml_separation.min()) + ctx.min_within_arc_ml_sep_deg
+        if cv.intra_arc_ml_separation.size else float("inf")
+    )
+
+    return PlanCandidate(
+        probe_to_hole=dict(ha.probe_to_hole),
+        probe_to_arc_idx=dict(aa.probe_to_arc_idx),
+        arc_centroids_deg=aa.arc_centroids_deg,
+        n_arcs=n_arcs,
+        x=np.asarray(x_opt, dtype=np.float64),
+        cost=float(breakdown.total),
+        breakdown=breakdown,
+        max_violation=max_viol,
+        sum_violation_sq=sum_viol_sq,
+        coverage=float(cv.coverage_total),
+        min_headstage_clearance_mm=min_clear,
+        min_arc_ap_sep_deg=min_ap_sep,
+        min_intra_arc_ml_sep_deg=min_ml_sep,
+        max_violation_threading=per_group_max["threading"],
+        max_violation_clearance=per_group_max["clearance"],
+        max_violation_arc_ap_sep=per_group_max["arc_ap_separation"],
+        max_violation_intra_arc_ml_sep=per_group_max["intra_arc_ml_separation"],
+    )
+
+
+def format_plan_table(candidates: tuple[PlanCandidate, ...]) -> str:
+    """Render the lex-ranked candidates as a Markdown table.
+
+    Columns: rank, feasible, max violation (worst constraint slack — unitless
+    for threading; mm for clearance; deg for AP/ML sep), min headstage
+    clearance (mm), min arc-AP / intra-arc-ML separation (deg), coverage,
+    inner cost. Use sparingly — meant for end-of-run summary, not per-iter.
+    """
+    if not candidates:
+        return "(no candidates)"
+    rows = [
+        "| # | feas? | max viol | dominant group | thread | clear (mm) | AP sep (°) | ML sep (°) | coverage | cost |",
+        "|---|---|---:|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for i, c in enumerate(candidates, start=1):
+        rows.append(
+            f"| {i} | {'yes' if c.feasible else 'no'} | "
+            f"{c.max_violation:.4g} | "
+            f"{c.dominant_violation_group} | "
+            f"{c.max_violation_threading:.3g} | "
+            f"{c.min_headstage_clearance_mm:.3f} | "
+            f"{c.min_arc_ap_sep_deg:.2f} | "
+            f"{c.min_intra_arc_ml_sep_deg:.2f} | "
+            f"{c.coverage:.3f} | "
+            f"{c.cost:.3g} |"
+        )
+    return "\n".join(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +694,12 @@ def optimize(
     two_stage_inner: bool = True,
     feasibility_max_iter: int = 80,
     min_arc_ap_sep_deg: float = 16.0,
+    arc_sep_shortfall_weight: float = 10.0,
+    threading_oval_tolerance: float = 0.0,
+    clearance_overlap_allowance_mm: float = 0.0,
+    final_feasibility_cleanup: bool = True,
+    polish_method: str = "SLSQP",
+    feasibility_threshold: float = 0.0,
     verbose: bool = False,
 ) -> OptimizationResult | None:
     """Run the three-level optimizer.
@@ -505,7 +740,7 @@ def optimize(
             )
             use_cma = False
 
-    best: OptimizationResult | None = None
+    candidates: list[PlanCandidate] = []
     for ha_idx, ha in enumerate(hole_assignments):
         if verbose:
             print(
@@ -519,6 +754,7 @@ def optimize(
             min_num_arcs=min_num_arcs,
             k=k_arcs,
             min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+            arc_sep_shortfall_weight=arc_sep_shortfall_weight,
             arc_count_penalty_deg2=arc_count_penalty_deg2,
         )
         if not arc_assignments:
@@ -535,7 +771,11 @@ def optimize(
                     f"{aa.probe_to_arc_idx}"
                 )
 
-            ctx = _build_inner_context(probes, holes, ha, aa, weights)
+            ctx = _build_inner_context(
+                probes, holes, ha, aa, weights,
+                threading_oval_tolerance=threading_oval_tolerance,
+                clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
+            )
             x0 = _build_initial_x(ctx, holes, ha, aa)
 
             x = x0
@@ -571,13 +811,50 @@ def optimize(
                     )
             if slsqp_constrained:
                 x_opt, breakdown_opt = _slsqp_polish_constrained(
-                    ctx, x, max_iter=slsqp_max_iter
+                    ctx, x, max_iter=slsqp_max_iter,
+                    method=polish_method,
                 )
             else:
                 x_opt, breakdown_opt = _slsqp_polish(
                     ctx, x, max_iter=slsqp_max_iter
                 )
 
+            cand = _build_plan_candidate(
+                x_opt, ctx, breakdown_opt,
+                ha=ha, aa=aa, n_arcs=n_arcs,
+            )
+            # Stage C: feasibility cleanup. Stage B's coverage polish can
+            # drift off the feasibility tube because the coverage gradient
+            # pulls probes off-bore; re-solve from x_opt and keep
+            # whichever result has the better lex key. Cheap (one extra
+            # bounded SLSQP call) and never produces a worse candidate.
+            if (
+                slsqp_constrained
+                and final_feasibility_cleanup
+                and not cand.feasible
+            ):
+                x_clean, v_clean = _feasibility_solve(
+                    ctx, x_opt, max_iter=feasibility_max_iter
+                )
+                breakdown_clean = evaluate_objective(x_clean, ctx)
+                cand_clean = _build_plan_candidate(
+                    x_clean, ctx, breakdown_clean,
+                    ha=ha, aa=aa, n_arcs=n_arcs,
+                )
+                if (
+                    cand_clean.lex_key(feasibility_threshold)
+                    < cand.lex_key(feasibility_threshold)
+                ):
+                    if verbose:
+                        print(
+                            f"    Stage C: max_viol "
+                            f"{cand.max_violation:.4g} → "
+                            f"{cand_clean.max_violation:.4g}, "
+                            f"coverage {cand.coverage:.3f} → "
+                            f"{cand_clean.coverage:.3f}"
+                        )
+                    cand = cand_clean
+            candidates.append(cand)
             if verbose:
                 print(
                     f"    inner cost={breakdown_opt.total:.3f}  "
@@ -585,19 +862,28 @@ def optimize(
                     f"thread={breakdown_opt.threading_penalty:.3f}, "
                     f"clear={breakdown_opt.clearance_penalty:.3f}, "
                     f"kin={breakdown_opt.kinematic_penalty:.3f})"
+                    f"  feas={'Y' if cand.feasible else 'N'}"
+                    f" max_viol={cand.max_violation:.4g}"
                 )
 
-            if best is None or breakdown_opt.total < best.cost:
-                best = OptimizationResult(
-                    probe_to_hole=dict(ha.probe_to_hole),
-                    probe_to_arc_idx=dict(aa.probe_to_arc_idx),
-                    arc_centroids_deg=aa.arc_centroids_deg,
-                    n_arcs=n_arcs,
-                    x=x_opt,
-                    cost=float(breakdown_opt.total),
-                    breakdown=breakdown_opt,
-                )
-
-    if verbose and best is not None:
-        print(f"[optimize] best total cost: {best.cost:.3f}")
-    return best
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c.lex_key(feasibility_threshold))
+    best_cand = candidates[0]
+    if verbose:
+        print(
+            f"[optimize] best plan: feasible={best_cand.feasible} "
+            f"max_viol={best_cand.max_violation:.4g} "
+            f"coverage={best_cand.coverage:.3f} "
+            f"cost={best_cand.cost:.3f}"
+        )
+    return OptimizationResult(
+        probe_to_hole=best_cand.probe_to_hole,
+        probe_to_arc_idx=best_cand.probe_to_arc_idx,
+        arc_centroids_deg=best_cand.arc_centroids_deg,
+        n_arcs=best_cand.n_arcs,
+        x=best_cand.x,
+        cost=best_cand.cost,
+        breakdown=best_cand.breakdown,
+        alternatives=tuple(candidates),
+    )

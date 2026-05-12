@@ -71,7 +71,9 @@ from aind_low_point.optimization.arc_assignment import (
 )
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
+    PlanCandidate,
     ProbeStaticInfo,
+    format_plan_table,
     optimize,
 )
 

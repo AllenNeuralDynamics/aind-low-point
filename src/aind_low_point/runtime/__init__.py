@@ -54,6 +54,7 @@ from aind_low_point.runtime.chem_shift import ChemShiftContext, _should_apply_ch
 from aind_low_point.runtime.export import (
     _depth_along_probe_axis,
     _reconstruct_target_ref,
+    apply_plan_model_to_state,
     export_plan_geometry,
     planning_state_to_plan_model,
     save_plan_to_config,
@@ -130,6 +131,7 @@ __all__ = [
     # chem_shift
     "ChemShiftContext",
     # export
+    "apply_plan_model_to_state",
     "export_plan_geometry",
     "planning_state_to_plan_model",
     "save_plan_to_config",

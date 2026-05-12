@@ -9,9 +9,12 @@ import pytest
 
 from aind_low_point.optimization.geometry import HoleSection
 from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.objective import ObjectiveBreakdown
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
+    PlanCandidate,
     ProbeStaticInfo,
+    format_plan_table,
     optimize,
 )
 
@@ -301,3 +304,157 @@ def test_optimize_against_build5_holes():
     assert result.n_arcs in (1, 2)
     # Coverage > 0 for every probe (Gaussian sees something on each shaft).
     assert result.breakdown.coverage_total > 0.0
+
+
+# -- Lex-ranking + reporting -----------------------------------------------
+
+
+def _bare_breakdown(total: float, cov: float = 0.0) -> ObjectiveBreakdown:
+    """Minimal ObjectiveBreakdown stand-in for unit-testing PlanCandidate
+    sort behaviour. The driver fills in real values; for ranking-key
+    tests we don't need the per-component penalties."""
+    return ObjectiveBreakdown(
+        total=total,
+        coverage_total=cov,
+        threading_penalty=0.0,
+        clearance_penalty=0.0,
+        kinematic_penalty=0.0,
+        margin_reward=0.0,
+        per_probe_evals=[],
+    )
+
+
+def _bare_candidate(
+    *,
+    max_violation: float = 0.0,
+    sum_violation_sq: float = 0.0,
+    coverage: float = 0.0,
+    cost: float = 0.0,
+) -> PlanCandidate:
+    return PlanCandidate(
+        probe_to_hole={"p": 0},
+        probe_to_arc_idx={"p": 0},
+        arc_centroids_deg=(0.0,),
+        n_arcs=1,
+        x=np.zeros(0),
+        cost=cost,
+        breakdown=_bare_breakdown(cost, coverage),
+        max_violation=max_violation,
+        sum_violation_sq=sum_violation_sq,
+        coverage=coverage,
+        min_headstage_clearance_mm=0.0,
+        min_arc_ap_sep_deg=20.0,
+        min_intra_arc_ml_sep_deg=20.0,
+    )
+
+
+def test_plan_candidate_feasible_outranks_infeasible():
+    """A feasible plan with low coverage beats an infeasible plan with
+    higher coverage (lex order: feasibility first)."""
+    feasible_low = _bare_candidate(coverage=1.0)
+    infeasible_high = _bare_candidate(
+        max_violation=0.05, sum_violation_sq=0.01, coverage=10.0,
+    )
+    assert feasible_low.feasible
+    assert not infeasible_high.feasible
+    cands = sorted([infeasible_high, feasible_low], key=PlanCandidate.lex_key)
+    assert cands[0] is feasible_low
+    assert cands[1] is infeasible_high
+
+
+def test_plan_candidate_coverage_breaks_feasible_ties():
+    """Among feasible plans, higher coverage ranks first."""
+    a = _bare_candidate(coverage=2.0)
+    b = _bare_candidate(coverage=5.0)
+    cands = sorted([a, b], key=PlanCandidate.lex_key)
+    assert cands[0] is b
+    assert cands[1] is a
+
+
+def test_plan_candidate_threshold_promotes_high_coverage():
+    """With ``feasibility_threshold = 0.5``, a plan at max_viol 0.4 /
+    cov 4.4 outranks max_viol 0.1 / cov 0 — both clear the threshold,
+    so coverage decides. Default (threshold 0) keeps strict ordering."""
+    high_cov_marginal = _bare_candidate(max_violation=0.4, coverage=4.4)
+    low_cov_strict = _bare_candidate(max_violation=0.1, coverage=0.0)
+    # Strict (default 0): low_cov_strict wins because max_viol smaller.
+    cands = sorted(
+        [high_cov_marginal, low_cov_strict], key=PlanCandidate.lex_key,
+    )
+    assert cands[0] is low_cov_strict
+    # ε = 0.5: both cleared, coverage breaks tie → high_cov_marginal wins.
+    cands = sorted(
+        [high_cov_marginal, low_cov_strict],
+        key=lambda c: c.lex_key(0.5),
+    )
+    assert cands[0] is high_cov_marginal
+
+
+def test_plan_candidate_threshold_does_not_help_strictly_infeasible():
+    """Plans that exceed the threshold still rank by their excess
+    violation, so a max_viol-1.0 plan never beats a max_viol-0.6 plan
+    at ε=0.5 regardless of coverage."""
+    barely_over = _bare_candidate(max_violation=0.6, coverage=0.0)
+    deeply_over = _bare_candidate(max_violation=1.0, coverage=100.0)
+    cands = sorted(
+        [barely_over, deeply_over], key=lambda c: c.lex_key(0.5),
+    )
+    assert cands[0] is barely_over
+
+
+def test_plan_candidate_violation_magnitude_breaks_infeasible_ties():
+    """Among infeasible plans, lower max-violation ranks first; ties
+    fall through to sum-violation² then coverage."""
+    a = _bare_candidate(max_violation=0.10, sum_violation_sq=1.0)
+    b = _bare_candidate(max_violation=0.05, sum_violation_sq=2.0)
+    cands = sorted([a, b], key=PlanCandidate.lex_key)
+    assert cands[0] is b  # smaller max_violation wins despite higher sum_sq
+
+
+def test_format_plan_table_lists_all_candidates():
+    table = format_plan_table((
+        _bare_candidate(coverage=3.0),
+        _bare_candidate(max_violation=0.02, coverage=5.0),
+    ))
+    assert "feas?" in table
+    assert "yes" in table
+    assert "no" in table
+    # Two data rows + header + separator.
+    assert len(table.splitlines()) == 4
+    assert "dominant group" in table
+
+
+def test_format_plan_table_empty_candidates():
+    assert format_plan_table(()) == "(no candidates)"
+
+
+def test_optimize_returns_alternatives_sorted():
+    """End-to-end: ``optimize()`` populates ``alternatives`` and they're
+    ranked by ``PlanCandidate.lex_key``."""
+    holes = [
+        _make_hole(j, center=(float(j) - 1, 0, 0), axis=(0, 0, 1))
+        for j in range(3)
+    ]
+    probes = [
+        ProbeStaticInfo(
+            name=f"p{i}",
+            target_LPS=np.array([float(i) - 0.5, 0.0, -3.0]),
+            kind="2.1",
+            shank_tips_local=_single_shank_tips(),
+        )
+        for i in range(2)
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = optimize(
+            probes, holes,
+            max_num_arcs=2, k_holes=2, k_arcs=2,
+            slsqp_max_iter=30,
+        )
+    assert result is not None
+    assert len(result.alternatives) >= 1
+    # Sorted ascending by lex key.
+    keys = [c.lex_key() for c in result.alternatives]
+    assert keys == sorted(keys)
+    # Best plan in alternatives matches the result's headline cost.
+    assert result.alternatives[0].cost == pytest.approx(result.cost)

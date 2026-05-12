@@ -51,22 +51,28 @@ KIND_MAP: dict[str, str] = {
 
 
 # Index of the shank that the OLD CSV producer's probe model had at its
-# local origin. The reference script (LoadTransform_PlanPointInsertion_*)
-# loads ``Quadbase_centeredOnShank{N}.obj`` per variant and places that
-# OBJ's local origin (= shank-N tip) at ``ideal_pt``. Our system
-# normalises every variant to a single canonical "quadbase" mesh
-# (shank-1 at origin, others at +y at 250 µm pitch) and places the
-# *recording-array centre* at the inline target. To put the same
-# physical shank that the CSV intended at ``ideal_pt``, we shift the
-# target by ``R @ (0, centroid_y − N·pitch, 0)`` in LPS.
+# local origin, **expressed in our canonical orientation** (shank-0 at
+# +y=0, shank-3 at +y=0.75 mm). The reference script
+# (LoadTransform_PlanPointInsertion_*) loads
+# ``Quadbase_*_centeredOnShank{N}.obj`` per variant and places that
+# OBJ's local origin (= shank-N tip in *its* labeling) at ``ideal_pt``.
+# The dovetail OBJs respect our rig convention (shank-0 at -y in the
+# OBJ's native frame, which after reference's column-permute lands at
+# +y=0), so ``quadbase_dovetailN`` → canonical shank N. The
+# *customHolder* OBJs have a mirroring issue along the shank-row
+# direction — what's labeled "centeredOnShank0" actually has shank-3 at
+# origin in our canonical frame. So ``quadbaseN`` (customHolder, no
+# ``_dovetail`` suffix) → canonical shank ``3 − N``.
 OLD_CENTERED_SHANK_INDEX: dict[str, int] = {
     "2.1": 0,  # single shank
     "2.4": 0,
-    "quadbase": 0,  # default
-    "quadbase0": 0,
-    "quadbase1": 1,
-    "quadbase2": 2,
-    "quadbase3": 3,
+    "quadbase": 0,  # default (no suffix → assume shank-0)
+    # customHolder variants are row-flipped: N → 3−N.
+    "quadbase0": 3,
+    "quadbase1": 2,
+    "quadbase2": 1,
+    "quadbase3": 0,
+    # Dovetail variants line up with our canonical shank order.
     "quadbase_dovetail0": 0,
     "quadbase_dovetail1": 1,
     "quadbase_dovetail2": 2,
@@ -176,20 +182,20 @@ def build_probes(
         kind = normalize_kind(row["probe_type"])
         arc_letter = arc_id_to_letter[float(row["ap_arc_id"])]
 
-        # Pivot redesign: NEW past_target_mm = tip-past-target −
-        # recording_center_z. ``ACTIVE_CENTER_MM`` is the local-frame
+        # Pivot redesign (746864b): NEW past_target_mm = tip-past-target
+        # − recording_center_z. ``ACTIVE_CENTER_MM`` is the local-frame
         # active-region centre along the shaft.
         old_dpt = float(row["distance_past_target"])
         active_z = ACTIVE_CENTER_MM.get(kind, 0.0)
         past_target_mm = round(old_dpt - active_z, 4)
 
-        # Centroid shift: the CSV's reference script puts shank-N of a
-        # variant-specific OBJ at ``ideal_pt`` (where N is the index in
-        # the OBJ filename, ``Quadbase_centeredOnShank{N}.obj``). Our
-        # canonical mesh always has shank-0 at the local origin (others
-        # at +y) and we place the recording-array centre at the inline
-        # target. Shift the target by ``R @ (0, centroid_y − N·pitch, 0)``
-        # in LPS so the same physical shank lands on ``ideal_pt``.
+        # The CSV variant suffix records which shank the rig was
+        # anchored on. Lifted onto ``position_bearing_shank``
+        # (1-indexed) so the runtime knows which shank to report in
+        # tip-RAS / brain-depth readouts.
+        n_centered = OLD_CENTERED_SHANK_INDEX.get(row["probe_type"], 0)
+        position_bearing_shank = int(n_centered) + 1
+
         from aind_anatomical_utils.coordinate_systems import (
             convert_coordinate_system,
         )
@@ -197,34 +203,34 @@ def build_probes(
 
         ap_deg = float(row["ap_angle"])
         ml_deg = float(row["ml_angle"])
-        # Use the *adjusted* spin (CSV spin + 180°) when computing the
-        # rotation that the runtime will see — the centroid-shift
-        # vector lives in the probe's local frame, so it has to be
-        # rotated by the same R the runtime uses; otherwise the
-        # 180° spin offset induces a 180° rotation around z that
-        # doesn't cancel and shows up as a row-span (~0.75 mm)
-        # offset on multi-shank probes.
+        # Use the *same* spin the YAML writes (raw, just wrapped to
+        # [-180, 180]). The shift vector lives in the probe's local
+        # frame, so it has to be rotated by the same R the runtime
+        # will use when it reads back the YAML.
         raw_spin_deg = float(row["spin"])
-        spin_for_R = ((raw_spin_deg + 180.0) + 180.0) % 360.0 - 180.0
-        R = arc_angles_to_affine(ap_deg, ml_deg, spin_for_R)
+        wrapped_spin = ((raw_spin_deg + 180.0) % 360.0) - 180.0
+        R = arc_angles_to_affine(ap_deg, ml_deg, wrapped_spin)
         n_shanks = N_SHANKS_BY_KIND.get(kind, 1)
         centroid_y = (n_shanks - 1) * SHANK_PITCH_MM / 2.0
-        # Centroid shift: the reference k3d pipeline uses
-        # ``Quadbase_customHolder_centeredOnShank0`` for *all* quadbase
-        # variants (no per-variant shifted-mesh), anchoring shank-0 at
-        # ``target_pt - dpt·shaft_dir``. Our pipeline puts the recording-
-        # array centre at the inline target, so to match reference we
-        # shift the target by ``R @ (0, centroid_y, 0)`` — independent
-        # of CSV's variant suffix (the previous ``centroid_y -
-        # n_centered·pitch`` formula over-shifted MD/BLA by ~0.7 mm).
-        shift_local = np.array([0.0, centroid_y, 0.0], dtype=np.float64)
+        # Centroid shift: the runtime puts the recording-array centre
+        # (= ``(0, centroid_y, active_z)`` in canonical local) at the
+        # inline target. The CSV's ``target_pt`` is where shank-N's
+        # tip should land (N = ``OLD_CENTERED_SHANK_INDEX[probe_type]``).
+        # Shifting the inline target by ``R @ (0, centroid_y −
+        # N·pitch, 0)`` makes shank-N (not the row centroid) coincide
+        # with target_pt at past_target_mm + active_z = old_dpt.
+        shift_local = np.array(
+            [0.0, centroid_y - n_centered * SHANK_PITCH_MM, 0.0],
+            dtype=np.float64,
+        )
         shift_lps = R @ shift_local
 
-        # Anchor on target_pt (the CSV's auto-placed centroid that the
-        # rig actually executed against), not ideal_pt (user's adjusted
-        # intent). Reference k3d does ``T1.translation = target_pt``;
-        # using ideal_pt landed our probes ~0.5-1 mm off from the
-        # reference rendering. CSV columns are RAS, so we convert.
+        # Anchor on ``target_pt`` (the rig's executed landing).
+        # Reference k3d builds the same anchor via ``[-ideal_R, -ideal_A,
+        # ideal_S] + (x_offset, y_offset, 0)`` where the xy offsets
+        # cancel ideal back to target_R/A; the S column is identical
+        # between target_pt and ideal_pt in the rig's CSV format, so
+        # using target_pt for all three axes matches reference exactly.
         target_pt_lps = convert_coordinate_system(
             np.array(
                 [
@@ -251,8 +257,8 @@ def build_probes(
         hole_notes.append(
             f"#   {probe_name}: hole {hole_id}  "
             f"(probe_type={row['probe_type']}, "
-            f"old_dpt={old_dpt:.3f} → past_target_mm={past_target_mm:.3f}, "
-            f"shift_LPS={shift_lps.round(3).tolist()})"
+            f"position_bearing_shank={position_bearing_shank}, "
+            f"past_target_mm={past_target_mm:.3f})"
         )
 
         if target_mode == "inline":
@@ -279,26 +285,22 @@ def build_probes(
                     float(row["ideal_pt_A"]) - float(row["target_pt_A"]), 4
                 ),
             ]
-        # Spin convention compensation: the reference k3d notebook
-        # canonicalises probe meshes via a pure column-permute
-        # ``vertices[:, [0, 2, 1]]`` (no sign flip), while our config
-        # uses a proper ``LSA → LPS`` conversion. The two agree on
-        # shaft direction (+z) but the perpendicular y-axis is
-        # sign-flipped, which is a 180° rotation around the shaft.
-        # CSV ``spin`` values were measured under the reference's
-        # convention, so add 180° to recover the same physical
-        # headstage orientation in our system. Wrap into [-180, 180]
-        # for human-readable display.
-        raw_spin = float(row["spin"])
-        adjusted_spin = ((raw_spin + 180.0) + 180.0) % 360.0 - 180.0
+        # No spin offset. The reference's per-variant OBJ frames carry
+        # whatever 0/180 / mirror corrections the rig physically needs;
+        # by lifting the variant suffix onto ``position_bearing_shank``
+        # (and inverting customHolder via OLD_CENTERED_SHANK_INDEX) we
+        # absorb everything that's not the true rig spin. The runtime
+        # spin passed through ``arc_angles_to_affine`` is the raw CSV
+        # value, just wrapped to [-180, 180] for readability.
         probes[probe_name] = {
             "kind": kind,
             "arc": arc_letter,
-            "spin": int(round(adjusted_spin)),
+            "spin": int(round(wrapped_spin)),
             "slider_ml": float(row["ml_angle"]),
             "past_target_mm": past_target_mm,
             "offsets_RA": offsets_RA,
             "target": target_ref,
+            "position_bearing_shank": position_bearing_shank,
         }
     return probes, hole_notes
 

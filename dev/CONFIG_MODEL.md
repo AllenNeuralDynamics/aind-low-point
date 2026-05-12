@@ -3,6 +3,11 @@
 Field-level reference and gotcha list for `config.py`. The Pydantic model is
 the source of truth — when this doc disagrees, fix the doc.
 
+**New to the project?** Read `dev/CORE_CONCEPTS.md` first — it explains
+what catalog / scene / planning / adapters are and how they fit
+together. This doc assumes you already know that the YAML drives all
+four.
+
 Entry point: `ConfigModel.from_yaml(path)` — uses OmegaConf for `${...}`
 interpolation, then `model_validate`. Plain `model_validate(dict)` is fine
 for tests / programmatic config.
@@ -182,6 +187,110 @@ does everything in `mode="after"`. Order matters:
 
 Errors are collected via the local `err(msg)` callback so the user sees all
 problems at once, not one at a time.
+
+## `tags` vs `scene_tags` (two fields, different scopes)
+
+Both appear on almost every model and easy to confuse.
+
+| Field | Lives on | Used for | When unset |
+|---|---|---|---|
+| `tags` | `AssetSpec` / `TargetSpec` (catalog) | Catalog-level metadata: `catalog.assets_with_tag(...)`, "is this a CCF region asset?". Does **not** reach the scene. | empty list |
+| `scene_tags` | `NodeInstance` (scene) | Scene-level filters: `scene.by_tag(...)`, `VISIBILITY_GROUPS` (visibility toggles + opacity sliders), default-opacity overrides in the trame controller, collision-group selection. | empty list (no scene node unless `transform` is set) |
+
+A node is auto-created from the asset when **either** `transform` is set
+**or** `scene_tags` is non-empty (controlled by `auto_scene`, default
+`True`). Set `auto_scene: false` to suppress.
+
+### Well-known `scene_tags` values
+
+These are what existing UI / runtime logic actively looks for. New values
+are fine — they just won't trigger any behaviour unless someone wires them
+up.
+
+| Tag | Meaning / Behaviour |
+|---|---|
+| `static` | Doesn't move with probe state. Used for collision group inclusion. |
+| `dynamic` | Repositioned on every probe state change (probes only). |
+| `probe` | Identifies probe meshes. Matches the `("probes", "Probes", {"probe"}, set())` group in `VISIBILITY_GROUPS` → drives the *Probes* visibility switch + opacity slider on the Display tab. |
+| `brain` | Drives the "Brain outline" visibility group; also what `recenter_view` finds when computing the camera focal point. |
+| `structure` | CCF-region meshes; drives the "CCF regions" group. |
+| `fixture` | Generic non-implant rig hardware (well, probe-guard, …). Drives the "Other fixtures" group; default opacity 0.6 via `_DEFAULT_OPACITY_BY_TAG`. |
+| `implant` | The implant body. Drives the "Implant" group; default opacity 0.2. Note the implant typically carries **both** `fixture` and `implant`; the visibility-group exclusion column keeps the implant slider distinct from the "Other fixtures" slider. |
+| `headframe` | Headframe mesh. Subject to fixture-group opacity defaults. |
+| `target` | Visualised target points. |
+| `hole` | Per-bore points on the implant (for hole extraction). |
+
+### `ProbeDeclModel` defaults
+
+```yaml
+plan:
+  probes:
+    P1:
+      kind: quadbase
+      # defaults:
+      # ap_local: null
+      # bind_ap_to_arc: true
+      # slider_ml: 0.0
+      # spin: 0.0
+      # past_target_mm: 0.0
+      # offsets_RA: [0.0, 0.0]
+      # position_bearing_shank: 1   # 1-indexed; multi-shank only — chooses
+      #                              # the named shank for tip readouts +
+      #                              # ``past_target_mm`` reference
+      # calibrated: false
+      # auto_scene: true
+      # scene_tags: ["probe", "dynamic"]
+      # chem_shift_policy: auto
+```
+
+`scene_tags` on probes is what causes `("probe", ...)` filtering elsewhere
+to work; **don't override it** unless you know what you're doing —
+omitting `dynamic` will make collision and rendering treat the probe as
+static, omitting `probe` removes it from the visibility group and the
+probe-set queries that drive selection / labels.
+
+## Plan-only YAML (`Save plan` / `Load plan` buttons)
+
+The trame `Save plan` button writes only the `plan:` block of the
+`ConfigModel` — i.e. a serialized `PlanningModel`. The `Load plan` file
+picker reads the same shape. This format is intentionally portable: it
+contains no `assets`, no `targets`, no `transforms`. Any config that
+shares the same probe roster (probe names + arc letters) can load any of
+these YAMLs.
+
+Top-level shape:
+
+```yaml
+arcs:
+  a: 13.0
+  b: -10.0
+  c: -43.0
+probes:
+  P1:
+    kind: quadbase
+    arc: a
+    slider_ml: -12.0
+    spin: 141.0
+    ap_local: null
+    bind_ap_to_arc: true
+    past_target_mm: 0.0675
+    offsets_RA: [0.0, 0.0]
+    position_bearing_shank: 1
+    target: { kind: catalog, key: target:MD }
+    # …
+```
+
+Loading dispatches one `SetArcAngle` per arc and a sequence of per-probe
+commands (`SetProbeKind`, `AssignProbeArc`, `SetProbeLocalAngles`,
+`SetProbeOffsetsRA`, `SetProbePastTarget`, `SetProbeTarget`,
+`SetProbePositionBearingShank`, `SetProbeCalibrated`) through
+`apply_plan_model_to_state(plan, store)` (`runtime/export.py`). Probes
+not in the current state are skipped with a stdout warning.
+
+The geometric **Export plan** button (`export_plan_geometry`) is a
+different format: it emits a flat per-probe summary (`kind`, `target`,
+`arc`, `angles_deg`, `tip_RAS_mm`, `depth_from_brain_surface_mm`) for
+hand-off to physical execution. It's read-only; there's no loader for it.
 
 ## Known gotchas
 

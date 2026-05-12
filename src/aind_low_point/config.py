@@ -1243,6 +1243,17 @@ class ProbeDeclModel(BaseModel):
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
     )
 
+    # Which shank's tip is the kinematic pivot (1-indexed). For
+    # multi-shank probes the user may want shank 1, 2, 3, or 4 to be
+    # "the named shank" — the one whose tip lands at the inline target
+    # when ``past_target_mm = 0``, the one whose RAS position is shown
+    # in the readout, and the one along which the brain-surface depth
+    # is measured. For single-shank probes there's only one option;
+    # default 1 covers both cases. ``past_target_mm`` is interpreted
+    # as the named shank's tip distance past target, measured along
+    # the shaft direction.
+    position_bearing_shank: int = 1
+
     # initial lock state; actual calibration affine comes from 'calibrations' map
     calibrated: bool = False
 

@@ -4,9 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from aind_low_point.build_runtime import (
+    apply_plan_model_to_state,
     planning_state_to_plan_model,
     save_plan_to_config,
 )
+from aind_low_point.state_change import PlanStore
 from aind_low_point.config import (
     CatalogTargetRefModel,
     ConfigModel,
@@ -785,3 +787,141 @@ class TestExplicitNodeTracking:
         assert "my_brain_node" in node_keys
         # Auto-generated probe node present
         assert "probe:probe1" in node_keys
+
+
+class TestApplyPlanModelToState:
+    """Test ``apply_plan_model_to_state`` — the load side of the
+    Save plan / Load plan UI buttons."""
+
+    @staticmethod
+    def _make_initial_state() -> PlanningState:
+        return PlanningState(
+            kinematics=Kinematics(arc_angles={"a": 0.0, "b": 0.0}),
+            probes={
+                "P1": ProbePlan(
+                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
+                    ml_local=0.0, spin=0.0,
+                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
+                    target_key="t1", calibrated=False,
+                    position_bearing_shank=1,
+                ),
+                "P2": ProbePlan(
+                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
+                    ml_local=0.0, spin=0.0,
+                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
+                    target_key="t2", calibrated=False,
+                    position_bearing_shank=1,
+                ),
+            },
+        )
+
+    def test_apply_overwrites_arcs_and_probes(self):
+        """Loaded plan overrides arc angles and per-probe fields."""
+        state = self._make_initial_state()
+        store = PlanStore(state)
+        loaded = PlanningModel(
+            arcs={"a": 12.5, "b": -8.0},
+            probes={
+                "P1": ProbeDeclModel(
+                    kind="quadbase", arc="b",
+                    target=CatalogTargetRefModel(key="t1"),
+                    slider_ml=4.5, spin=141.0,
+                    past_target_mm=0.5, offsets_RA=[0.1, -0.2],
+                    position_bearing_shank=4,
+                ),
+                "P2": ProbeDeclModel(
+                    kind="2.1", arc="a",
+                    target=CatalogTargetRefModel(key="t2"),
+                    slider_ml=-3.0, spin=20.0,
+                ),
+            },
+        )
+        touched = apply_plan_model_to_state(loaded, store)
+        assert set(touched) == {"P1", "P2"}
+        assert store.state.kinematics.arc_angles["a"] == 12.5
+        assert store.state.kinematics.arc_angles["b"] == -8.0
+        p1 = store.state.probes["P1"]
+        assert p1.kind == "quadbase"
+        assert p1.arc_id == "b"
+        assert p1.ml_local == 4.5
+        assert p1.spin == 141.0
+        assert p1.past_target_mm == 0.5
+        assert p1.offsets_RA == (0.1, -0.2)
+        assert p1.position_bearing_shank == 4
+        p2 = store.state.probes["P2"]
+        assert p2.spin == 20.0
+        assert p2.ml_local == -3.0
+
+    def test_apply_skips_unknown_probes(self, capsys):
+        """Probes not in the current state are skipped (with a stdout note)."""
+        state = self._make_initial_state()
+        store = PlanStore(state)
+        loaded = PlanningModel(
+            arcs={"a": 5.0},
+            probes={
+                "GHOST": ProbeDeclModel(
+                    kind="2.1", arc="a",
+                    target=CatalogTargetRefModel(key="t1"),
+                ),
+            },
+        )
+        touched = apply_plan_model_to_state(loaded, store)
+        assert touched == []
+        captured = capsys.readouterr()
+        assert "GHOST" in captured.out
+
+    def test_save_then_load_round_trip(self):
+        """``planning_state_to_plan_model`` followed by
+        ``apply_plan_model_to_state`` reproduces the source state."""
+        # Source state with non-trivial values.
+        src = PlanningState(
+            kinematics=Kinematics(arc_angles={"a": 13.0, "b": -10.0}),
+            probes={
+                "MD": ProbePlan(
+                    kind="quadbase", arc_id="a", bind_ap_to_arc=True,
+                    ml_local=-12.0, spin=141.0,
+                    past_target_mm=0.0675, offsets_RA=(0.0, 0.0),
+                    target_key="MD_target", calibrated=False,
+                    position_bearing_shank=1,
+                ),
+            },
+        )
+        original = PlanningModel(
+            arcs={"a": 13.0, "b": -10.0},
+            probes={
+                "MD": ProbeDeclModel(
+                    kind="quadbase", arc="a",
+                    target=CatalogTargetRefModel(key="MD_target"),
+                    slider_ml=-12.0, spin=141.0,
+                    past_target_mm=0.0675, offsets_RA=[0.0, 0.0],
+                    position_bearing_shank=1,
+                ),
+            },
+        )
+        saved_plan = planning_state_to_plan_model(src, original)
+
+        # Fresh state with default values.
+        dst = PlanningState(
+            kinematics=Kinematics(arc_angles={"a": 0.0, "b": 0.0}),
+            probes={
+                "MD": ProbePlan(
+                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
+                    ml_local=0.0, spin=0.0,
+                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
+                    target_key="MD_target", calibrated=False,
+                    position_bearing_shank=1,
+                ),
+            },
+        )
+        store = PlanStore(dst)
+        apply_plan_model_to_state(saved_plan, store)
+
+        assert store.state.kinematics.arc_angles == src.kinematics.arc_angles
+        loaded = store.state.probes["MD"]
+        for field in (
+            "kind", "arc_id", "bind_ap_to_arc",
+            "ml_local", "spin", "past_target_mm",
+            "target_key", "position_bearing_shank",
+        ):
+            assert getattr(loaded, field) == getattr(src.probes["MD"], field), field
+        assert loaded.offsets_RA == src.probes["MD"].offsets_RA

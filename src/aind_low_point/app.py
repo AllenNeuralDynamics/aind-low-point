@@ -36,6 +36,7 @@ def build_trame_app(
     ccf_volume: Path | None = None,
     save_path: Path | None = None,
     export_plan_path: Path | None = None,
+    plan_path: Path | None = None,
     source_config_path: Path | None = None,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
@@ -150,6 +151,42 @@ def build_trame_app(
                 )
             print(f"Exported plan geometry to {export_plan_path}")
 
+    on_save_plan = None
+    on_load_plan = None
+    if plan_path is not None:
+        from aind_low_point.runtime.export import (
+            apply_plan_model_to_state,
+            planning_state_to_plan_model,
+        )
+        from aind_low_point.config import PlanningModel
+
+        def on_save_plan():
+            import yaml
+
+            new_plan = planning_state_to_plan_model(store.state, cfg.plan)
+            data = new_plan.model_dump(mode="json")
+            with open(plan_path, "w") as f:
+                yaml.safe_dump(
+                    data, f, default_flow_style=False, sort_keys=False
+                )
+            print(f"Saved plan-only YAML to {plan_path}")
+
+        def on_load_plan():
+            import yaml
+
+            if not plan_path.exists():
+                print(f"Plan YAML not found at {plan_path}; nothing to load")
+                return
+            with open(plan_path) as f:
+                raw = yaml.safe_load(f)
+            try:
+                loaded = PlanningModel.model_validate(raw)
+            except Exception as exc:
+                print(f"Plan YAML at {plan_path} failed to validate: {exc}")
+                return
+            apply_plan_model_to_state(loaded, store)
+            print(f"Loaded plan from {plan_path}")
+
     controller = TrameController(
         store=store,
         assets=catalog,
@@ -160,7 +197,11 @@ def build_trame_app(
         ccf_overlay=ccf_overlay,
         on_save=on_save,
         on_export_plan=on_export_plan,
+        on_save_plan=on_save_plan,
+        on_load_plan=on_load_plan,
     )
+
+    controller.apply_default_view()
 
     server = controller.build_app()
     debounced_flush = DebouncedFlush(server.controller.view_update, delay_s=0.03)

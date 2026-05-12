@@ -149,6 +149,24 @@ class OptimizerContext:
     min_arc_ap_sep_deg: float = 16.0
     min_within_arc_ml_sep_deg: float = 16.0
     coverage_n_samples: int = 41
+    # Threading slack tolerance: allow ``g_thread <= threading_oval_tolerance``
+    # rather than the strict ``g_thread <= 0``. ``g`` is the oval value
+    # ``(u/a)² + (v/b)² − 1`` evaluated at the shaft-section intersection,
+    # so ``tolerance = K² − 1`` corresponds to "shaft within K oval-radii of
+    # the slot centre". Default 0.0 = strict; the manual T12 plan on
+    # 836656 needs ~3.0 to register as threading-feasible, suggesting the
+    # oval params extracted from the implant OBJ underestimate the
+    # technician-tolerable slop. Set non-zero only after diagnosing
+    # whether the discrepancy is model fidelity (raise tolerance) or
+    # search inadequacy (leave tolerance at 0 and fix the inner loop).
+    threading_oval_tolerance: float = 0.0
+    # Headstage-headstage clearance allowance: shifts the "safe gap"
+    # threshold so ``pair_clear >= safety - clearance_overlap_allowance_mm``
+    # is still feasible. The manual T12 plan has pair clearances down to
+    # −1.25 mm, suggesting our placeholder headstage capsule is more
+    # conservative than real geometry. Default 0.0 = strict; non-zero
+    # tolerance trades model strictness for matching observed practice.
+    clearance_overlap_allowance_mm: float = 0.0
 
     def probe_index(self, name: str) -> int:
         return self.layout.probe_names.index(name)
@@ -490,10 +508,14 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
     ap_seps, ml_seps = kinematic_separations(arc_aps, probe_mls, probe_arc_idxs)
 
     return ConstraintVectors(
-        # threading_gs > 0 means infeasible; slack = -g.
-        threading=-threading_gs,
-        # pair_clearances < safety means infeasible; slack = clearance - safety.
-        clearance=pair_clearances - ctx.weights.safety_clearance_mm,
+        # ``g <= tol`` ⇒ feasible; slack = tol - g.
+        threading=ctx.threading_oval_tolerance - threading_gs,
+        # ``pair_clear >= safety - allowance`` ⇒ feasible; slack = pair_clear - (safety - allowance).
+        clearance=(
+            pair_clearances
+            - ctx.weights.safety_clearance_mm
+            + ctx.clearance_overlap_allowance_mm
+        ),
         # ap_seps < min means infeasible; slack = ap_sep - min.
         arc_ap_separation=ap_seps - ctx.min_arc_ap_sep_deg,
         intra_arc_ml_separation=ml_seps - ctx.min_within_arc_ml_sep_deg,

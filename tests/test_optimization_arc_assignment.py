@@ -73,14 +73,39 @@ def test_enumerate_partitions_two_well_separated_clusters_best_is_tight():
         assert p.cost > best.cost
 
 
-def test_enumerate_partitions_capacity_filter():
-    """4 probes in 2 arcs at the same AP angle → fails capacity (one
-    arc would have all 4 at low AP, but arc-sep filter blocks too)."""
+def test_enumerate_partitions_arc_sep_is_soft():
+    """With probes all clustered near 0°, splitting into 2 arcs gives
+    centroids closer than 16° apart — that's an inner-loop concern, not
+    a hard middle-layer reject. The partition still surfaces, ranked
+    high (bad) by ``arc_sep_shortfall_weight × shortfall²``.
+
+    Hard ``+inf`` weight recovers the legacy filter-out behaviour.
+    """
     probe_names = ["p0", "p1", "p2", "p3", "p4"]
     aps = np.array([0.0, 0.5, 1.0, 1.5, 2.0])  # all near 0
-    # 2 arcs with 16° min sep — can't separate this cluster
     parts = enumerate_partitions(probe_names, aps, num_arcs=2)
-    assert parts == []  # no feasible partition
+    # Soft default: partition surfaces, but its cost is dominated by
+    # the AP-sep shortfall (16² weight × ~1).
+    assert len(parts) >= 1
+    # Cost should be dominated by shortfall ≫ within-cluster variance.
+    assert parts[0].cost > 100.0  # 16° shortfall → 256 × weight = 2560
+    parts_hard = enumerate_partitions(
+        probe_names, aps, num_arcs=2,
+        arc_sep_shortfall_weight=float("inf"),
+    )
+    assert parts_hard == []  # legacy hard-filter behaviour
+
+
+def test_enumerate_partitions_capacity_filter_hard():
+    """Capacity stays a hard reject (it's a hardware ceiling)."""
+    probe_names = [f"p{i}" for i in range(5)]
+    aps = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+    # 5 probes into 1 arc with capacity 4 → infeasible regardless of
+    # the arc-sep weight.
+    parts = enumerate_partitions(
+        probe_names, aps, num_arcs=1, max_per_arc=4,
+    )
+    assert parts == []
 
 
 def test_enumerate_partitions_canonical_ordering():

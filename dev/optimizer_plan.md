@@ -144,36 +144,55 @@ Gaussian; reporting uses both.
 - End-to-end runner (`scripts/run_optimizer.py`) that loads YAML
   config, applies `implant_to_lps` to extracted holes, writes an
   optimized config back.
+- **Multi-pose LSAP feasibility score** — `multi_pose_evaluate` aggregates
+  ``min Σ ReLU(g)²``, ``min max_g``, ``max coverage`` across a 7-pose
+  bank (slot-aligned + target-aligned + halfway slerp + ±AP/ML wobble);
+  hard reject only when the min violation² across the bank exceeds
+  `violation_reject_threshold`. Replaces the brittle single-pose
+  ``max_g > 0`` filter.
+- **Soft arc AP-separation in the middle layer** — `enumerate_partitions`
+  no longer hard-filters cluster centroids closer than 16°; it scores
+  ``Σ_{i<j} max(0, 16 − |Δc_ij|)²`` weighted by `arc_sep_shortfall_weight`
+  (default 10.0, `+inf` recovers legacy hard filter). Capacity stays
+  hard. Empirical win on 836656 / 7 probes (single fresh runs):
+  legacy hard gate → cost **1.18 M** (cov 0.53, thread 198 K, clear
+  7 K, kin 970 K), 2/5 hole assignments contributing; relaxed gate →
+  cost **0.49 M** (cov 0.02, thread 84 K, clear 21 K, kin 390 K),
+  5/5 contributing. CMA-ES stochasticity moves coverage between runs
+  but kin + thread penalties consistently drop ~60%.
+- **Lex-ranking + top-K plan table** — `optimize()` now collects every
+  (hole, arc) inner-solve attempt as a `PlanCandidate` with feasibility
+  metrics from `evaluate_constraints` (max_violation, sum_violation²,
+  coverage, min clearance, min AP/ML separations) and sorts by
+  `(max_violation, sum_violation², -coverage)` — feasibility first,
+  coverage second. The driver returns the lex-best plan plus the full
+  ranked list as `OptimizationResult.alternatives`. `format_plan_table`
+  renders Markdown for `scripts/run_optimizer.py`. **Big practical
+  win**: on 836656 the new picker chose a plan with max-viol 1.60 and
+  coverage 3.90 over the old min-cost pick (cov 0.02), because the old
+  scalar was dominated by kinematic-penalty mass even when coverage
+  was near zero. Headline cost dropped 0.49 M → 56 K because the
+  selected candidate has both lower violation *and* radically higher
+  coverage. Reporting now also surfaces "0/15 feasible — best is
+  INFEASIBLE" certificates explicitly.
 
 ### Active / next
 
 In recommended order; estimates assume one focused session each.
 
-1. **Multi-pose LSAP feasibility score.** ~1 hr. For each (probe,
-   hole) pair, sample a small bank of candidate poses and aggregate.
-   Replace the binary `max_g > 0` hard reject with the aggregate
-   score. Cheap; helps when probe targets are clustered and the
-   single best-fit pose isn't quite feasible but a neighbour is.
-   Also: 4 of 5 hole assignments on 836656 currently die at "no
-   feasible arc assignment" — that's the *arc partitioner's* hard
-   filter, not LSAP, but the same idea (relax binary feasibility
-   gates) applies.
-2. **Lexicographic ranking + top-K plan reporting.** ~30 min. Track
-   feasibility metrics per (hole, arc) combination instead of just
-   `min(cost)`. Emit the table from the Reporting section above.
-3. **JAX autodiff for objective + constraints.** ~half day. Swap
+1. **JAX autodiff for objective + constraints.** ~half day. Swap
    `np → jnp` in `objective.py`, `geometry.py`, `density.py`,
-   `kinematics.py`. Returns `coverage_grad`, `g_jac`. Unblocks (4).
-4. **Switch to `trust-constr`** once gradients land. ~1 day.
+   `kinematics.py`. Returns `coverage_grad`, `g_jac`. Unblocks (2).
+2. **Switch to `trust-constr`** once gradients land. ~1 day.
    Interior-point SQP scales better than SLSQP for ~120 constraints
    and respects the constraint geometry more directly. With Stage A
    and Stage B both as `trust-constr`, the inner loop becomes
    genuinely interior-point throughout.
-5. **Cheap arc-feasibility surrogate** before the full inner solve.
+3. **Cheap arc-feasibility surrogate** before the full inner solve.
    ~1 day. Per arc-partition candidate, run a fast continuous solve
    on AP/ML only with simplified shaft-line geometry. Drop obviously
    over-constrained partitions before the full inner loop runs.
-6. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
+4. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
    alongside the Gaussian-density coverage scalar. Display only.
 
 ### Open questions
@@ -202,6 +221,69 @@ move ~10-30% run-to-run; relative deltas are the signal.)
   cost **1.7 M** (cov 0.7, thread 519 K, clear 15 K, kin 1.17 M).
 - **Add Stage A (two-stage inner solve), 2026-05-07:** cost
   **0.86 M** (cov 3.88, thread 101 K, clear 10 K, kin 746 K).
+- **Soft arc AP-sep gate, 2026-05-08:** legacy hard-gate run cost
+  **1.18 M** (cov 0.53, thread 198 K, clear 7 K, kin 970 K), only
+  2/5 hole assignments produced inner candidates. Relaxed gate run
+  cost **0.49 M** (cov 0.02, thread 84 K, clear 21 K, kin 390 K),
+  5/5 hole assignments contributing. (CMA-ES stochasticity makes the
+  per-run absolute coverage noisy; the ~60% kin+thread reduction is
+  the durable signal.)
+- **Lex-ranking, 2026-05-08:** with min-cost picker, best candidate
+  was cov 0.02 / kin 390 K — a low-coverage local minimum dominated
+  by kin penalty mass. With lex-ranking by `(max_viol, sum_viol²,
+  -coverage)`, best becomes cov **3.90** with max_viol 1.60 / kin
+  50 K — same hole/arc combo, different inner-solve outcome promoted
+  by feasibility-first ranking. Headline cost **56 K**. 0/15 plans
+  fully feasible — explicit infeasibility certificate now surfaced.
+- **Diagnosis + tilt projection, 2026-05-08:** 836656 with K=7 is
+  rig-feasible only with 3 arcs whose APs span ≥48°. But the
+  required-APs from the implant's holes span only ~30° → no
+  partition with mean-clustering centroids can satisfy the 16°
+  pairwise constraint. Manual T12 plan handles this by tilting probes
+  to arcs at (-43°, -10°, +13°) — *deliberately* far from required.
+  Replaced the partitioner's mean-centroid + within-cluster-variance
+  ranking with: (a) PAV-projection of the centroids onto the chained
+  ≥16° constraint (`project_centroids_min_sep`), (b) ranking by
+  *tilt cost* = Σ(required_ap_p − projected_centroid_p)², (c)
+  warm-starting the inner loop from the *projected* centroids. With
+  3 arcs, threading_oval_tolerance=3, clearance_overlap_allowance=1.5
+  mm, the optimizer now finds: max_viol **0.73** (threading), kin **0**,
+  AP sep 16.00° / ML sep 16.00° exactly, coverage **8.21** (vs 0.33
+  before; manual 15.0), cost **174 K** (down from 486 K). Still
+  marginally infeasible (0.73 threading + 0.001 mm clearance) but
+  search structure is now correct.
+- **Threading + clearance tolerance knobs.** Diagnostic showed the
+  manual T12 plan itself has threading max-viol 2.997 and clearance
+  min slack −1.249 mm against strict constraints — so the manual
+  workflow tolerates more slop than our literal threading-oval-value
+  + headstage-capsule model captures. Added two `OptimizerContext`
+  fields: `threading_oval_tolerance` (default 0; manual feasible at
+  ≥3.0, i.e. K=2 oval radii) and `clearance_overlap_allowance_mm`
+  (default 0; manual feasible at ≥1.25 mm). Strict mode preserved as
+  the default; tolerances are explicit knobs the user/CLI sets when
+  matching observed practice rather than literal model.
+- **Stage-C feasibility cleanup + trust-constr polish.** Verbose log
+  showed Stage A drives violation²→0–5 but Stage B's coverage polish
+  drifts back to max_viol 0.7–2 because SLSQP's finite-diff Jacs let
+  the iterate step off the active constraint surface. Two fixes
+  added: (a) `_slsqp_polish_constrained` accepts ``method="trust-
+  constr"`` (interior-point, maintains feasibility throughout but
+  ~3× slower), wired via `--polish-method trust-constr`; (b) Stage-C
+  re-projection runs `_feasibility_solve` from Stage-B output and
+  keeps the better lex_key, wired via `--no-final-feasibility-cleanup`
+  to disable. trust-constr empirically pulls max_viol from 0.73
+  (SLSQP best on 836656) → **0.10**.
+- **Threshold-mode lex ranking (`feasibility_threshold`).** Strict
+  lex would pick (max_viol 0.10, cov 0.007) over (max_viol 1.07,
+  cov 6.69) — feasibility-first technically right, practically wrong.
+  Added an ε knob to ``PlanCandidate.lex_key(ε)``: plans with
+  ``max_viol ≤ ε`` collapse to the same first-tier rank (eff_viol=0),
+  so coverage decides among "feasible enough" plans. Plans worse
+  than ε rank by their excess. Default 0 = strict (preserved).
+  Empirical on 836656: at ε=2.0 (matching the ~1.5–2 slack budget
+  that manual workflows tolerate), optimizer picks (max_viol 1.07,
+  cov 6.69) — much closer to manual T12's cov 15.0 than the strict
+  pick of (0.10, 0.007). Wired via `--feasibility-threshold`.
 - Visually: probes pass through *roughly* the right bores but with
   bodies still clipping the implant. Goal is **fully feasible** plan;
   remaining penalty mass is mostly the rig-kinematic ML/AP
