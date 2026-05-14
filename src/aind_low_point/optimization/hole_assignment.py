@@ -173,24 +173,34 @@ def _rotate_to(from_dir: NDArray, to_dir: NDArray) -> NDArray:
 def _build_pose_bank(
     probe: AssignmentProbe,
     hole: Hole,
+    pivot_local: NDArray,
     *,
     tilt_deg: float = 2.0,
 ) -> list[tuple[NDArray, NDArray]]:
     """Construct the candidate-pose bank for LSAP feasibility scoring.
 
-    The bank samples the *target-aim continuum* — the inner loop's
-    actual optimum is somewhere between the slot-axis-aligned best-fit
-    and the target-aligned pose — plus small AP/ML wobbles around the
-    halfway pose, in the rig's natural axes:
+    The bank samples poses *around the target-oriented insertion* — the
+    physically realistic regime for a real plan, where the probe points
+    at the target rather than down the bore axis. Bore-aligned and
+    halfway poses are intentionally excluded: they typically have
+    excellent threading but near-zero coverage at off-axis targets, so
+    crediting a pair with their min-clearance was over-optimistic about
+    how feasible the eventual plan actually is.
 
-    1. Slot-aligned best-fit (``pose_at_hole_best_fit``).
-    2. Target-aligned (shaft along ``target − slot_center``).
-    3. Halfway slerp between them.
-    4. Halfway ± ``tilt_deg`` around world ``+x_LPS`` (rig AP axis).
-    5. Halfway ± ``tilt_deg`` around world ``+y_LPS`` (rig ML axis).
+    Bank composition (5 poses):
 
-    All poses translate ``pose_tip`` so the shank-row centroid lands
-    at the slot bottom centre.
+    1. Target-aligned (shaft along ``target − slot_center``).
+    2-3. Target-aligned ± ``tilt_deg`` around world ``+x_LPS`` (rig AP).
+    4-5. Target-aligned ± ``tilt_deg`` around world ``+y_LPS`` (rig ML).
+
+    ``pose_tip`` is anchored the way the inner loop does: ``pose_tip =
+    target_LPS − R @ pivot_local`` for each pose's own ``R``. That puts
+    the recording-array centre on the target, so the LSAP's coverage
+    integral reflects what a real plan would actually record. Threading
+    values are insensitive to the parallel-to-shaft shift this implies
+    (the section ``(u, v)`` projections of the shaft line don't change
+    when ``pose_tip`` slides along ``R[:, 2]``), so this anchoring
+    affects coverage scoring but not the threading penalties.
 
     Spin±90° (row across slot minor) is omitted: for the multi-shank
     AIND probes the row span (~0.75 mm) exceeds the slot minor (~0.7
@@ -200,43 +210,30 @@ def _build_pose_bank(
     shifts the intersection along the shaft but leaves the projected
     ``(u, v)`` unchanged, so they don't relax max_g.
     """
-    R_base, pose_tip = pose_at_hole_best_fit(hole)
-    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(axis=0)
-    pose_tip = pose_tip - R_base @ centroid_local
+    R_base, _ = pose_at_hole_best_fit(hole)
+    target_LPS = np.asarray(probe.target_LPS, dtype=np.float64)
+    pivot_local = np.asarray(pivot_local, dtype=np.float64)
 
     bore_dir = -np.asarray(hole.axis, dtype=np.float64)
     bore_dir /= np.linalg.norm(bore_dir)
-    to_target = np.asarray(probe.target_LPS, dtype=np.float64) - np.asarray(
-        hole.sections[-1].center, dtype=np.float64
-    )
+    to_target = target_LPS - np.asarray(hole.sections[-1].center, dtype=np.float64)
     n = float(np.linalg.norm(to_target))
     target_dir = to_target / n if n >= 1e-9 else bore_dir
 
     R_target = _rotate_to(bore_dir, target_dir) @ R_base
 
-    cos = float(np.clip(np.dot(bore_dir, target_dir), -1.0, 1.0))
-    angle_half = 0.5 * float(np.arccos(cos))
-    ax_half = np.cross(bore_dir, target_dir)
-    ax_norm = float(np.linalg.norm(ax_half))
-    if angle_half < 1e-9 or ax_norm < 1e-12:
-        R_half = R_base.copy()
-    else:
-        R_half = _rotation_about_axis(ax_half / ax_norm, angle_half) @ R_base
+    def _anchor(R: NDArray) -> NDArray:
+        return target_LPS - R @ pivot_local
 
-    poses: list[tuple[NDArray, NDArray]] = [
-        (R_base, pose_tip),
-        (R_target, pose_tip),
-        (R_half, pose_tip),
-    ]
+    poses: list[tuple[NDArray, NDArray]] = [(R_target, _anchor(R_target))]
 
     tilt_rad = float(np.deg2rad(tilt_deg))
     e_x = np.array([1.0, 0.0, 0.0])  # AP-rotation axis (LPS +x)
     e_y = np.array([0.0, 1.0, 0.0])  # ML-rotation axis (LPS +y)
     for sign in (+1.0, -1.0):
         for axis in (e_x, e_y):
-            poses.append(
-                (_rotation_about_axis(axis, sign * tilt_rad) @ R_half, pose_tip)
-            )
+            R = _rotation_about_axis(axis, sign * tilt_rad) @ R_target
+            poses.append((R, _anchor(R)))
     return poses
 
 
@@ -292,18 +289,32 @@ def multi_pose_evaluate(
 ) -> MultiPoseScore:
     """Evaluate the (probe, hole) pair over the multi-pose bank.
 
-    Builds the 7-pose bank from :func:`_build_pose_bank`, computes the
+    Builds the 5-pose bank from :func:`_build_pose_bank`, computes the
     threading-constraint vector and coverage at each, and returns the
     best-of-bank aggregates as a :class:`MultiPoseScore`. Used by
     :func:`build_cost_matrix` to set both the soft cost contribution
     and the (relaxed) hard-reject criterion.
     """
-    poses = _build_pose_bank(probe, hole, tilt_deg=tilt_deg)
-
     try:
         geom = get_recording_geometry(probe.kind)
     except Exception:
         geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
+    # ``pivot_local`` matches what the inner loop uses to translate
+    # pose_tip: shank-row centroid in xy + active recording centre in z.
+    tips = np.asarray(probe.shank_tips_local, dtype=np.float64)
+    if tips.shape[0] > 0:
+        pivot_local = np.array(
+            [
+                float(tips[:, 0].mean()),
+                float(tips[:, 1].mean()),
+                float(geom.active_center_mm),
+            ],
+            dtype=np.float64,
+        )
+    else:
+        pivot_local = np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
+    poses = _build_pose_bank(probe, hole, pivot_local, tilt_deg=tilt_deg)
+
     density_fn = gaussian_density(probe.target_LPS, sigma_mm=probe.density_sigma_mm)
 
     min_vio_sq = float("inf")
@@ -400,9 +411,20 @@ def pairwise_interference_penalty(
 
 @dataclass(frozen=True)
 class CostWeights:
-    """Weights for the LSAP cost components."""
+    """Weights for the LSAP cost components.
 
-    alpha_target_angle: float = 1.0  # primary
+    The bore-vs-target *angle* term is disabled by default (alpha=0.0):
+    once the pose bank evaluates target-oriented feasibility directly
+    (via ``min_max_g`` and ``min_violation_sq``) and coverage is
+    anchored on the target, the bore-line angle is the wrong axis to
+    penalise — it punishes off-bore targets even when the probe can
+    in fact tilt to thread them, and ignores the rig's actual arc/AP/ML
+    coordinate system. A proper "extreme rig-frame angle" penalty
+    (accounting for the subject's mounted head pitch) is the right
+    formulation; left as a follow-up.
+    """
+
+    alpha_target_angle: float = 0.0  # disabled — see class docstring
     beta_clearance: float = 0.3  # tiebreaker (more-negative max_g better)
     gamma_interference: float = 0.5  # soft pairwise penalty
     delta_coverage: float = 5.0  # subtract (= maximise) coverage
