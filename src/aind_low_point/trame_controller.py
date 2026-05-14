@@ -1345,23 +1345,26 @@ class TrameController:
     def _build_files_tab(self) -> None:
         """Save/export/plan-IO actions — grouped on their own tab so the
         Pose tab stays focused on edits and the row of save buttons
-        doesn't crowd the slider stack."""
+        doesn't crowd the slider stack.
+
+        Verb convention: ``Save`` = re-importable file (this tool can
+        reopen it). ``Export`` = derived hand-off (rig technician,
+        downstream pipeline; not re-importable). ``Save plan`` and
+        ``Load plan`` are deliberately adjacent — they're the
+        plan-slice round-trip pair.
+        """
+        # Save config: server-side write of the full ConfigModel YAML
+        # (paths, transforms, asset catalog, scene, options, plan).
+        # Re-importable.
         if self.on_save is not None:
             vuetify3.VBtn(
-                "Save YAML",
+                "Save config",
                 color="success",
                 click=self.on_save,
                 classes="mt-2",
                 block=True,
             )
-        if self.on_export_plan is not None:
-            vuetify3.VBtn(
-                "Export plan",
-                color="primary",
-                click=self.on_export_plan,
-                classes="mt-2",
-                block=True,
-            )
+        # Save plan + Load plan: the plan-only YAML round-trip pair.
         # Save: server-side write to the configured plan path. Load: a
         # browser file picker (VFileInput) — uploads the picked YAML to
         # the server, our state.change handler parses + applies. The
@@ -1392,6 +1395,16 @@ class TrameController:
             v_show=("plan_load_status",),
             classes="mt-1 text-caption",
         )
+        # Export poses: derived per-probe geometry hand-off (resolved
+        # tip positions, depths, AP/ML/spin numbers). Not re-importable.
+        if self.on_export_plan is not None:
+            vuetify3.VBtn(
+                "Export poses",
+                color="primary",
+                click=self.on_export_plan,
+                classes="mt-2",
+                block=True,
+            )
 
     def _slider_row(
         self,
