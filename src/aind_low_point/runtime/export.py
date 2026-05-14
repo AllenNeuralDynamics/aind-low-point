@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from aind_low_point.scene import Scene
     from aind_low_point.state_change import PlanStore
 
 import numpy as np
@@ -127,6 +128,7 @@ def export_plan_geometry(
     *,
     brain_asset_key: str = "brain",
     source_config: Optional[str] = None,
+    scene: Optional["Scene"] = None,
 ) -> dict[str, Any]:
     """Produce the minimal geometric summary needed to execute a plan.
 
@@ -138,12 +140,29 @@ def export_plan_geometry(
     depth of the tip below the brain surface measured along the probe
     axis.
 
+    Pass ``scene`` when the brain asset has a scene-node-level transform
+    (e.g. ``transform: headframe_to_lps``); the brain mesh will be
+    resolved through that transform so the depth ray cast happens in
+    world LPS. Without a scene the catalog's raw mesh is used, which is
+    correct only when the brain is authored directly in LPS.
+
     The dict is yaml-serialisable. Intended for ``yaml.safe_dump``.
     """
     brain_mesh = None
-    brain_spec = catalog.assets.get(brain_asset_key)
-    if brain_spec is not None and brain_spec.mesh is not None:
-        brain_mesh = brain_spec.mesh.raw
+    if scene is not None:
+        from aind_low_point.scene import resolve_base_geometry
+
+        # Find the scene node carrying this brain asset.
+        for k, n in scene.nodes.items():
+            if n.asset_key == brain_asset_key:
+                wrap = resolve_base_geometry(catalog, scene, k)
+                if wrap is not None:
+                    brain_mesh = wrap.raw
+                break
+    if brain_mesh is None:
+        brain_spec = catalog.assets.get(brain_asset_key)
+        if brain_spec is not None and brain_spec.mesh is not None:
+            brain_mesh = brain_spec.mesh.raw
 
     from aind_low_point.runtime.shanks import detect_shank_tips_local
 
@@ -172,7 +191,9 @@ def export_plan_geometry(
 
         target_ras = None
         if plan.target_key is not None and plan.target_key in plan_state.target_index:
-            tlps = np.asarray(plan_state.target_index[plan.target_key], dtype=np.float64)
+            tlps = np.asarray(
+                plan_state.target_index[plan.target_key], dtype=np.float64
+            )
             tlps = tlps.flatten() if tlps.ndim > 1 else tlps
             target_ras = convert_coordinate_system(tlps[:3], "LPS", "RAS").tolist()
         elif plan.target_point_RAS is not None:
@@ -211,9 +232,7 @@ def export_plan_geometry(
     }
 
 
-def apply_plan_model_to_state(
-    plan: PlanningModel, store: "PlanStore"
-) -> list[str]:
+def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[str]:
     """Apply a loaded :class:`PlanningModel` to a live :class:`PlanStore`.
 
     Issues per-arc and per-probe planning commands through ``store.dispatch``
@@ -262,9 +281,7 @@ def apply_plan_model_to_state(
         store.dispatch(
             SetProbeLocalAngles(
                 name=name,
-                ap_local=(
-                    float(decl.ap_local) if decl.ap_local is not None else None
-                ),
+                ap_local=(float(decl.ap_local) if decl.ap_local is not None else None),
                 ml_local=float(decl.slider_ml),
                 spin=float(decl.spin),
             )
@@ -277,9 +294,7 @@ def apply_plan_model_to_state(
             )
         )
         store.dispatch(
-            SetProbePastTarget(
-                name=name, past_target_mm=float(decl.past_target_mm)
-            )
+            SetProbePastTarget(name=name, past_target_mm=float(decl.past_target_mm))
         )
         store.dispatch(
             SetProbePositionBearingShank(
@@ -287,9 +302,7 @@ def apply_plan_model_to_state(
                 position_bearing_shank=int(decl.position_bearing_shank),
             )
         )
-        store.dispatch(
-            SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated))
-        )
+        store.dispatch(SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated)))
         # Target is always last — it can clear a stale target_key while
         # setting a new RAS-only target without an intervening invalid
         # state, since SetProbeTarget rejects "neither set" in one shot.
@@ -301,7 +314,9 @@ def apply_plan_model_to_state(
             pts = decl.target.point_RAS
             if pts is not None and len(pts) == 3:
                 target_pt_RAS = (
-                    float(pts[0]), float(pts[1]), float(pts[2]),
+                    float(pts[0]),
+                    float(pts[1]),
+                    float(pts[2]),
                 )
         if target_key is not None or target_pt_RAS is not None:
             store.dispatch(

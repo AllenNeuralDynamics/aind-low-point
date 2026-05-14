@@ -9,15 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+import numpy as np
 import pyvista as pv
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
+from aind_mri_utils.arc_angles import arc_angles_to_affine
 from pyvista.trame.ui import plotter_ui
 from trame.app import get_server
 from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import client, vuetify3
-
-import numpy as np
-from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 
 from aind_low_point.assets import AssetCatalog
 from aind_low_point.ccf_ontology import CCFOntology
@@ -27,22 +26,16 @@ from aind_low_point.commands import (
     AssignProbeArc,
     SetArcAngle,
     SetProbeKind,
-    SetProbePastTarget,
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
+    SetProbePastTarget,
     SetProbePositionBearingShank,
     SetProbeTarget,
-)
-from aind_low_point.core import Material
-from aind_low_point.optimization.recording import (
-    RECORDING_GEOMETRY,
-    get_recording_geometry,
 )
 from aind_low_point.planning import ProbePose, kinematic_violations
 from aind_low_point.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_low_point.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_low_point.state_change import PlanStore
-
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
 # at priority 30, so they still win when both overlays apply to the same
@@ -159,9 +152,7 @@ def _as_float(value) -> float | None:
         return None
 
 
-def _ccf_color_for_target(
-    catalog: AssetCatalog, target_key: str | None
-) -> str | None:
+def _ccf_color_for_target(catalog: AssetCatalog, target_key: str | None) -> str | None:
     """Return the CCF color_hex for *target_key* if its source asset
     carries CCF metadata (set by AtlasMeshPackSpecModel.expand). Returns
     None for targets that aren't derived from a CCF region."""
@@ -209,6 +200,15 @@ class TrameController:
     # actually flipped.
     _prev_overinserted: set = field(default_factory=set, repr=False)
     _prev_kinematic: set = field(default_factory=set, repr=False)
+    # Cached world-frame brain mesh used by ray-cast based depth and
+    # over-insertion checks. The catalog's ``brain_spec.mesh.raw`` is in
+    # the asset's pre-scene-node frame (e.g. an MRI NRRD's file frame);
+    # the scene node may carry a ``transform: headframe_to_lps`` that
+    # isn't applied to ``.raw``. We need the world-LPS mesh so the
+    # ray cast lines up with the probe tips. Populated lazily on first
+    # access; the brain's scene-node transform is static at runtime.
+    _brain_world_mesh: object | None = field(default=None, repr=False)
+    _brain_world_resolved: bool = field(default=False, repr=False)
     # Held so camera-only updates (recenter, focus-on-target) can call
     # ``ctrl.view_update`` to push the new camera state to the browser.
     # The renderer's normal flush only runs when actors change.
@@ -240,9 +240,7 @@ class TrameController:
         # "probe:<kind>"). The kind value stored in plan.probes is just
         # "<kind>"; the renderer looks the asset up as "probe:<kind>".
         probe_kinds = sorted(
-            k.split(":", 1)[1]
-            for k in self.assets.assets
-            if k.startswith("probe:")
+            k.split(":", 1)[1] for k in self.assets.assets if k.startswith("probe:")
         )
 
         with state:
@@ -302,9 +300,10 @@ class TrameController:
                     setattr(state, f"{skey}_opacity", 1.0)
                     continue
                 first = members[0]
-                base_mat = first.material_override or self.assets.get_spec(
-                    first.asset_key
-                ).default_material
+                base_mat = (
+                    first.material_override
+                    or self.assets.get_spec(first.asset_key).default_material
+                )
                 setattr(state, f"{skey}_visible", bool(base_mat.visible))
                 setattr(state, f"{skey}_opacity", float(base_mat.opacity))
 
@@ -354,9 +353,12 @@ class TrameController:
         # without us polling. The collision worker thread can call this
         # at any time; ``with state:`` handles the trame side.
         prev_coll_cb = getattr(self.collision_handler, "on_state_changed", None)
-        self.collision_handler.on_state_changed = (
-            lambda cs, flips, plan: self._on_collision_state_changed(
-                cs, flips, plan, chained_callback=prev_coll_cb,
+        self.collision_handler.on_state_changed = lambda cs, flips, plan: (
+            self._on_collision_state_changed(
+                cs,
+                flips,
+                plan,
+                chained_callback=prev_coll_cb,
             )
         )
         # Run an initial over-insertion + kinematic pass for every probe
@@ -373,7 +375,7 @@ class TrameController:
             state.ccf_visible_regions = []
             state.ccf_global_opacity = self.ccf_overlay.global_opacity
 
-    def _wire_handlers(self, state) -> None:
+    def _wire_handlers(self, state) -> None:  # noqa: C901
         """Register trame reactive handlers."""
 
         @state.change("probe")
@@ -388,9 +390,7 @@ class TrameController:
             a = _as_float(state.offset_a)
             if r is None or a is None:
                 return
-            self.store.dispatch(
-                SetProbeOffsetsRA(name=state.probe, R_mm=r, A_mm=a)
-            )
+            self.store.dispatch(SetProbeOffsetsRA(name=state.probe, R_mm=r, A_mm=a))
 
         @state.change("ap_tilt")
         def on_ap(**kwargs):
@@ -428,9 +428,7 @@ class TrameController:
             spin = _as_float(state.spin)
             if spin is None:
                 return
-            self.store.dispatch(
-                SetProbeLocalAngles(name=state.probe, spin=spin)
-            )
+            self.store.dispatch(SetProbeLocalAngles(name=state.probe, spin=spin))
 
         @state.change("arc")
         def on_arc_assign(**kwargs):
@@ -643,9 +641,7 @@ class TrameController:
                 opacity=float(getattr(state, op_var)),
             )
 
-    def _compute_probe_readouts(
-        self, probe_name: str
-    ) -> tuple[str, str, str]:
+    def _compute_probe_readouts(self, probe_name: str) -> tuple[str, str, str]:
         """Return ``(tip_RAS_str, depth_str, overinsertion_str)`` for the
         named probe — pre-formatted for direct display.
 
@@ -680,10 +676,9 @@ class TrameController:
 
         depth_str = "—"
         overins_str = "—"
-        brain_spec = self.assets.assets.get("brain")
-        if brain_spec is not None and brain_spec.mesh is not None:
+        brain_mesh = self._get_brain_world_mesh()
+        if brain_mesh is not None:
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
-            brain_mesh = brain_spec.mesh.raw
             # Depth is the distance from the named shank's tip down to
             # the nearest brain-surface intersection along the shaft.
             depth = _depth_along_probe_axis(named_world_lps, probe_axis, brain_mesh)
@@ -699,6 +694,34 @@ class TrameController:
             else:
                 overins_str = f"⚠ {n_over}/{n_total} shanks"
         return tip_str, depth_str, overins_str
+
+    def _get_brain_world_mesh(self):
+        """Return the brain mesh in world LPS, or None if no brain asset.
+
+        The catalog's ``brain_spec.mesh.raw`` is in the asset's
+        pre-scene-node frame — for an MRI NRRD that's the file's native
+        frame, which may sit ~tens of mm off LPS world if the scene
+        node carries a ``transform: headframe_to_lps``. Ray casts that
+        use ``.raw`` directly compare a probe tip in LPS world against
+        a brain mesh in NRRD-file frame → garbage. Apply the scene
+        transform once and cache."""
+        if self._brain_world_resolved:
+            return self._brain_world_mesh
+        scene = self.render_adapter.scene
+        brain_id = None
+        for k, n in scene.nodes.items():
+            if n.asset_key == "brain":
+                brain_id = k
+                break
+        if brain_id is None:
+            self._brain_world_resolved = True
+            return None
+        from aind_low_point.scene import resolve_base_geometry
+
+        wrap = resolve_base_geometry(self.assets, scene, brain_id)
+        self._brain_world_mesh = wrap.raw if wrap is not None else None
+        self._brain_world_resolved = True
+        return self._brain_world_mesh
 
     def _shank_tips_local(self, asset_key: str) -> np.ndarray:
         """Lazy per-asset shank-tip detection cache. Logs the count once
@@ -792,10 +815,7 @@ class TrameController:
         for pair in coll_state.pairs:
             if this_nid is not None and this_nid in pair:
                 local_others.append(self._format_pair_other(this_nid, pair))
-        local_str = (
-            "⚠ " + ", ".join(sorted(set(local_others)))
-            if local_others else "✓"
-        )
+        local_str = "⚠ " + ", ".join(sorted(set(local_others))) if local_others else "✓"
         n_pairs = len(coll_state.pairs)
         scene_str = f"⚠ {n_pairs} pair{'s' if n_pairs != 1 else ''}"
         return (local_str, scene_str)
@@ -962,10 +982,9 @@ class TrameController:
         """For every probe in *changed_ids*, recompute over-insertion and
         update the shared overlay state. Repaints only the probes whose
         over-insertion status flipped."""
-        brain_spec = self.assets.assets.get("brain")
-        if brain_spec is None or brain_spec.mesh is None:
+        brain_mesh = self._get_brain_world_mesh()
+        if brain_mesh is None:
             return
-        brain_mesh = brain_spec.mesh.raw
         flips: list[str] = []
         for probe_name in changed_ids:
             if probe_name not in self.store.state.probes:
@@ -1066,9 +1085,7 @@ class TrameController:
 
         # Re-register collision object with the new BVH (sync handles
         # missing-node case by creating).
-        self.collision_handler.adapter.on_store_change(
-            self.store.state, [probe_name]
-        )
+        self.collision_handler.adapter.on_store_change(self.store.state, [probe_name])
 
         # Re-run collision detection now that the BVH for this probe is
         # the new mesh — without this, collision overlay still reflects
@@ -1101,9 +1118,7 @@ class TrameController:
             self.store.dispatch(
                 SetProbePastTarget(name=state.probe, past_target_mm=0.0)
             )
-            self.store.dispatch(
-                SetProbeOffsetsRA(name=state.probe, R_mm=0.0, A_mm=0.0)
-            )
+            self.store.dispatch(SetProbeOffsetsRA(name=state.probe, R_mm=0.0, A_mm=0.0))
             state.depth = 0.0
             state.offset_r = 0.0
             state.offset_a = 0.0
@@ -1154,17 +1169,21 @@ class TrameController:
                     "  const trapped = new Set([" + kb_keys_js + "]);"
                     "  window.document.addEventListener('keydown', function(e){"
                     "    const tag = e.target && e.target.tagName;"
-                    "    if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;"
-                    "    if (!trapped.has(e.key) && !trapped.has(e.key.toLowerCase())) return;"
+                    "    if (tag === 'INPUT' || tag === 'TEXTAREA' || "
+                    "(e.target && e.target.isContentEditable)) return;"
+                    "    if (!trapped.has(e.key) && "
+                    "!trapped.has(e.key.toLowerCase())) return;"
                     "    trame.state.set('kb_event', {"
-                    "      key: e.key, shift: e.shiftKey, ctrl: e.ctrlKey, t: Date.now()"
+                    "      key: e.key, shift: e.shiftKey, "
+                    "ctrl: e.ctrlKey, t: Date.now()"
                     "    });"
                     "    e.preventDefault();"
                     "    e.stopImmediatePropagation();"
                     "  }, true);"
                     "  window._aind_kb_listener_v3 = true;"
                     "} catch (err) {"
-                    "  window.console && window.console.error('aind keyboard listener install failed:', err);"
+                    "  window.console && window.console.error("
+                    "'aind keyboard listener install failed:', err);"
                     "}"
                     "})();"
                 )
@@ -1187,7 +1206,8 @@ class TrameController:
                     "  'ResizeObserver loop limit exceeded'"
                     "];"
                     "window.addEventListener('error', function(e){"
-                    "  if (e && e.message && SILENCED.some(function(m){ return e.message.indexOf(m) !== -1; })) {"
+                    "  if (e && e.message && SILENCED.some(function(m){ "
+                    "return e.message.indexOf(m) !== -1; })) {"
                     "    e.stopImmediatePropagation();"
                     "    e.preventDefault();"
                     "  }"
@@ -1247,16 +1267,25 @@ class TrameController:
     def _build_pose_tab(self, on_set_target) -> None:
         """Probe/arc/type + sliders + target — the pose-editing flow."""
         vuetify3.VSelect(
-            v_model=("probe",), items=("probes",),
-            label="Probe", hide_details=True, density="compact",
+            v_model=("probe",),
+            items=("probes",),
+            label="Probe",
+            hide_details=True,
+            density="compact",
         )
         vuetify3.VSelect(
-            v_model=("arc",), items=("arcs",),
-            label="Arc", hide_details=True, density="compact",
+            v_model=("arc",),
+            items=("arcs",),
+            label="Arc",
+            hide_details=True,
+            density="compact",
         )
         vuetify3.VSelect(
-            v_model=("probe_kind",), items=("probe_kinds",),
-            label="Probe type", hide_details=True, density="compact",
+            v_model=("probe_kind",),
+            items=("probe_kinds",),
+            label="Probe type",
+            hide_details=True,
+            density="compact",
         )
         # Hidden when the probe has only one shank — the dropdown would
         # just show "1" and it'd waste a row.
@@ -1264,7 +1293,8 @@ class TrameController:
             v_model=("probe_position_bearing_shank",),
             items=("probe_shank_options",),
             label="Reported shank",
-            hide_details=True, density="compact",
+            hide_details=True,
+            density="compact",
             v_show=("probe_shank_options.length > 1",),
             classes="mt-1",
         )
@@ -1278,12 +1308,17 @@ class TrameController:
         self._slider_row("spin", "Spin (°)", -180, 180, 1)
         vuetify3.VDivider(classes="my-2")
         vuetify3.VSelect(
-            v_model=("target",), items=("targets",),
-            label="Target", hide_details=True, density="compact",
+            v_model=("target",),
+            items=("targets",),
+            label="Target",
+            hide_details=True,
+            density="compact",
         )
         vuetify3.VBtn(
-            "Set target", color="primary",
-            click=on_set_target, classes="mt-2",
+            "Set target",
+            color="primary",
+            click=on_set_target,
+            classes="mt-2",
         )
 
     def _apply_plan_yaml_bytes(self, content) -> None:
@@ -1471,11 +1506,13 @@ class TrameController:
                     divided=True,
                     children=None,
                     hide_details=True,
-                ).add_children([
-                    vuetify3.VBtn("Slow", value="slow", size="small"),
-                    vuetify3.VBtn("Norm", value="normal", size="small"),
-                    vuetify3.VBtn("Fast", value="fast", size="small"),
-                ])
+                ).add_children(
+                    [
+                        vuetify3.VBtn("Slow", value="slow", size="small"),
+                        vuetify3.VBtn("Norm", value="normal", size="small"),
+                        vuetify3.VBtn("Fast", value="fast", size="small"),
+                    ]
+                )
 
     def _build_kb_help_dialog(self) -> None:
         """Modal that lists the keyboard shortcuts. Toggle with '?'."""
@@ -1490,9 +1527,7 @@ class TrameController:
         rows.append(("Shift + key", "10× step (coarse, stacks with mode)"))
         rows.append(("Ctrl + key", "0.2× step (fine, stacks with mode)"))
 
-        with vuetify3.VDialog(
-            v_model=("kb_help_open",), max_width="480"
-        ):
+        with vuetify3.VDialog(v_model=("kb_help_open",), max_width="480"):
             with vuetify3.VCard():
                 vuetify3.VCardTitle("Keyboard shortcuts")
                 with vuetify3.VCardText():
@@ -1557,9 +1592,7 @@ class TrameController:
         bounds_arr = np.asarray(brain.bounds, dtype=np.float64).reshape(2, 3)
         xmin, ymin, zmin = (float(v) for v in bounds_arr[0])
         xmax, ymax, zmax = (float(v) for v in bounds_arr[1])
-        diag = float(
-            np.linalg.norm([xmax - xmin, ymax - ymin, zmax - zmin])
-        )
+        diag = float(np.linalg.norm([xmax - xmin, ymax - ymin, zmax - zmin]))
         print(
             f"[recenter_view] brain centroid={centroid}, bounds="
             f"x=({xmin:.2f},{xmax:.2f}) y=({ymin:.2f},{ymax:.2f}) "
@@ -1575,12 +1608,11 @@ class TrameController:
         # original; setting ``view_up`` raises PyVistaAttributeError.
         self.plotter.camera.up = (0.0, 0.0, 1.0)
         # Re-fit camera distance to the brain bounds (not full scene).
-        self.plotter.reset_camera(
-            bounds=(xmin, xmax, ymin, ymax, zmin, zmax)
-        )
+        self.plotter.reset_camera(bounds=(xmin, xmax, ymin, ymax, zmin, zmax))
         cam = self.plotter.camera
+        cam_pos = tuple(round(v, 2) for v in cam.position)
         print(
-            f"[recenter_view] after reset: pos={tuple(round(v, 2) for v in cam.position)} "
+            f"[recenter_view] after reset: pos={cam_pos} "
             f"focal={tuple(round(v, 2) for v in cam.focal_point)} "
             f"up={tuple(round(v, 2) for v in cam.up)}"
         )
@@ -1615,17 +1647,11 @@ class TrameController:
                 arr = np.asarray(tlps, dtype=np.float64).reshape(-1, 3)
                 target_lps = arr.mean(axis=0)
         if target_lps is None and plan.target_point_RAS is not None:
-            ras = np.asarray(
-                plan.target_point_RAS, dtype=np.float64
-            ).reshape(1, 3)
-            target_lps = convert_coordinate_system(
-                ras, "RAS", "LPS"
-            ).reshape(3)
+            ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
+            target_lps = convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
         if target_lps is None:
             return
-        self.plotter.camera.focal_point = tuple(
-            float(c) for c in target_lps
-        )
+        self.plotter.camera.focal_point = tuple(float(c) for c in target_lps)
         self._flush_view()
 
     # Default opacity overrides per scene-tag. Implant is mostly

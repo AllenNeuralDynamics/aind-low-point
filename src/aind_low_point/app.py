@@ -135,30 +135,26 @@ def build_trame_app(
     if export_plan_path is not None:
         from aind_low_point.build_runtime import export_plan_geometry
 
-        src_str = (
-            str(source_config_path) if source_config_path is not None else None
-        )
+        src_str = str(source_config_path) if source_config_path is not None else None
 
         def on_export_plan():
             import yaml
 
             payload = export_plan_geometry(
-                store.state, catalog, source_config=src_str
+                store.state, catalog, source_config=src_str, scene=scene
             )
             with open(export_plan_path, "w") as f:
-                yaml.safe_dump(
-                    payload, f, default_flow_style=False, sort_keys=False
-                )
+                yaml.safe_dump(payload, f, default_flow_style=False, sort_keys=False)
             print(f"Exported plan geometry to {export_plan_path}")
 
     on_save_plan = None
     on_load_plan = None
     if plan_path is not None:
+        from aind_low_point.config import PlanningModel
         from aind_low_point.runtime.export import (
             apply_plan_model_to_state,
             planning_state_to_plan_model,
         )
-        from aind_low_point.config import PlanningModel
 
         def on_save_plan():
             import yaml
@@ -166,9 +162,7 @@ def build_trame_app(
             new_plan = planning_state_to_plan_model(store.state, cfg.plan)
             data = new_plan.model_dump(mode="json")
             with open(plan_path, "w") as f:
-                yaml.safe_dump(
-                    data, f, default_flow_style=False, sort_keys=False
-                )
+                yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
             print(f"Saved plan-only YAML to {plan_path}")
 
         def on_load_plan():
