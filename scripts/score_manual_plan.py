@@ -325,6 +325,9 @@ def main():
     holes_by_id = {h.id: h for h in holes}
     probe_contexts: list[ProbeContext] = []
     probe_to_arc_idx: dict[str, int] = {}
+    headstage_objs: list[object] = []  # fcl.CollisionObject | None
+    from aind_low_point.optimization.headstages import make_fcl_convex  # noqa: E402
+
     for ps in probe_static_list:
         name = ps.name
         plan = plan_state.probes[name]
@@ -347,6 +350,10 @@ def main():
                 recording_geom=geom,
             )
         )
+        if ps.headstage_hull is not None:
+            headstage_objs.append(make_fcl_convex(ps.headstage_hull))
+        else:
+            headstage_objs.append(None)
     ctx = OptimizerContext(
         layout=layout,
         probes=tuple(probe_contexts),
@@ -354,6 +361,7 @@ def main():
         clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
         min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
         min_within_arc_ml_sep_deg=args.min_within_arc_ml_sep_deg,
+        headstage_fcl_objs=tuple(headstage_objs),
     )
 
     x = np.zeros(layout.n_vars, dtype=np.float64)

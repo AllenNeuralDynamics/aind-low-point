@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+import fcl
 import numpy as np
 from numpy.typing import NDArray
 
@@ -142,6 +143,18 @@ class OptimizerContext:
     weights: ObjectiveWeights = field(default_factory=ObjectiveWeights)
     shaft_length_mm: float = 10.0
     shank_radius_mm: float = 0.05
+    # Per-probe FCL CollisionObjects holding the canonical-local
+    # headstage hull geometry. Populated by ``_build_inner_context`` in
+    # :mod:`optimize` from each probe's owning ``AssetSpec`` (its
+    # ``headstage_hull`` field). Probes without a hull (pipettes,
+    # degenerate test fixtures) get ``None`` and are skipped from the
+    # pairwise clearance constraint. The tuple is parallel to
+    # ``probes``: ``headstage_fcl_objs[i]`` belongs to ``probes[i]``.
+    headstage_fcl_objs: tuple[fcl.CollisionObject | None, ...] = ()
+    # DEPRECATED legacy capsule parameters. Replaced by per-kind convex
+    # hulls (``headstage_fcl_objs``). Retained so the capsule fallback
+    # remains usable for tests and ad-hoc diagnostics; the production
+    # pairwise-clearance path uses the hulls when available.
     headstage_base_along_shaft_mm: float = 10.0
     headstage_length_mm: float = 5.0
     headstage_radius_mm: float = 2.0
@@ -183,13 +196,22 @@ class OptimizerContext:
 # ---------------------------------------------------------------------------
 
 
-def headstage_capsule(R: NDArray, pose_tip: NDArray, ctx: OptimizerContext) -> Capsule:
-    """Coarse capsule above the probe's local origin.
+def _headstage_capsule_legacy(
+    R: NDArray, pose_tip: NDArray, ctx: OptimizerContext
+) -> Capsule:
+    """Coarse capsule above the probe's local origin (legacy fallback).
+
+    .. deprecated::
+        Use per-kind convex hulls via ``ctx.headstage_fcl_objs`` and
+        :func:`pairwise_headstage_clearances` instead. This helper
+        remains for diagnostic / fallback use only — pipettes and
+        degenerate fixtures whose ``AssetSpec.headstage_hull`` is
+        ``None`` could be modelled with this capsule if the caller
+        wants any clearance signal at all, but the optimizer's default
+        path skips them.
 
     Default (configurable on ``ctx``): 10 mm up the shaft from the
-    probe's local origin, 5 mm long, 2 mm radius. This is a *placeholder*
-    until per-probe-kind headstage geometry is registered (``recording.py``
-    is the right home for that table once we have the dimensions).
+    probe's local origin, 5 mm long, 2 mm radius.
     """
     shaft_dir = R @ np.array([0.0, 0.0, 1.0])
     base = np.asarray(pose_tip, dtype=np.float64) + (
@@ -197,6 +219,11 @@ def headstage_capsule(R: NDArray, pose_tip: NDArray, ctx: OptimizerContext) -> C
     )
     top = base + ctx.headstage_length_mm * shaft_dir
     return Capsule(p0=base, p1=top, radius=ctx.headstage_radius_mm)
+
+
+# Backwards-compatible public alias. New code should use
+# ``_headstage_capsule_legacy`` directly to make the legacy nature obvious.
+headstage_capsule = _headstage_capsule_legacy
 
 
 @dataclass(frozen=True)
@@ -276,7 +303,7 @@ def evaluate_probe(
         R=R,
         pose_tip=pose_tip,
         shanks=shanks,
-        headstage=headstage_capsule(R, pose_tip, ctx),
+        headstage=_headstage_capsule_legacy(R, pose_tip, ctx),
         coverage=float(cov),
         threading_gs=threading_gs,
     )
@@ -289,20 +316,82 @@ def evaluate_probe(
 
 def pairwise_headstage_clearances(
     evals: list[ProbeEvaluation],
+    ctx: OptimizerContext | None = None,
 ) -> NDArray[np.floating]:
-    """Signed clearances between every pair of headstage capsules.
+    """Signed clearances between every pair of headstage bodies.
 
-    Positive = clearance, 0 = touching, negative = penetration. Empty
-    array if there's only one probe.
+    Uses per-kind convex hulls (FCL ``Convex`` + GJK distance) when
+    ``ctx`` carries non-empty ``headstage_fcl_objs``; falls back to the
+    legacy capsule approximation otherwise (and for probes whose hull
+    is ``None``, e.g. pipettes or degenerate fixtures — those probes
+    are simply dropped from the pair list when running in hull mode).
+
+    Parameters
+    ----------
+    evals : list[ProbeEvaluation]
+        Per-probe pose evaluations from :func:`evaluate_probe`.
+    ctx : OptimizerContext or None, optional
+        Optimizer context with ``headstage_fcl_objs`` populated.
+        When ``None`` (or when no hulls are available), the function
+        reverts to the legacy capsule path. The capsule fallback
+        preserves backward compatibility for tests that construct
+        ``ProbeEvaluation`` directly without a context.
+
+    Returns
+    -------
+    ndarray, shape (n_pairs,)
+        Signed clearance in millimetres for each pair of probes-with-
+        hulls, in lex order of the underlying indices. Positive =
+        clearance, zero = touching, negative = penetration (FCL
+        returns negative distances for overlapping convex shapes).
+        Empty when fewer than two probes have valid hulls.
     """
     n = len(evals)
     if n < 2:
         return np.zeros(0, dtype=np.float64)
-    out = np.empty(n * (n - 1) // 2, dtype=np.float64)
+
+    fcl_objs = ctx.headstage_fcl_objs if ctx is not None else ()
+    has_hulls = len(fcl_objs) == n and any(o is not None for o in fcl_objs)
+
+    if not has_hulls:
+        # Legacy capsule path. Used by tests that don't thread a ctx
+        # in, and by the diagnostic fallback when no hulls are wired.
+        out = np.empty(n * (n - 1) // 2, dtype=np.float64)
+        k = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                out[k] = capsule_capsule_dist(evals[i].headstage, evals[j].headstage)
+                k += 1
+        return out
+
+    # Hull path: update each hull's transform from the per-probe pose,
+    # then GJK-distance every pair where both sides have a hull.
+    valid_indices: list[int] = []
+    for i, obj in enumerate(fcl_objs):
+        if obj is None:
+            continue
+        ev = evals[i]
+        obj.setTransform(
+            fcl.Transform(
+                np.ascontiguousarray(ev.R, dtype=np.float64),
+                np.ascontiguousarray(ev.pose_tip, dtype=np.float64),
+            )
+        )
+        valid_indices.append(i)
+
+    m = len(valid_indices)
+    if m < 2:
+        return np.zeros(0, dtype=np.float64)
+    out = np.empty(m * (m - 1) // 2, dtype=np.float64)
+    req = fcl.DistanceRequest(enable_signed_distance=True)
     k = 0
-    for i in range(n):
-        for j in range(i + 1, n):
-            out[k] = capsule_capsule_dist(evals[i].headstage, evals[j].headstage)
+    for a in range(m):
+        ia = valid_indices[a]
+        for b in range(a + 1, m):
+            ib = valid_indices[b]
+            res = fcl.DistanceResult()
+            fcl.distance(fcl_objs[ia], fcl_objs[ib], req, res)
+            out[k] = float(res.min_distance)
             k += 1
     return out
 
@@ -411,7 +500,7 @@ def evaluate_objective(x: NDArray, ctx: OptimizerContext) -> ObjectiveBreakdown:
     )
 
     # Headstage-headstage clearance (negative clearance = penetration)
-    pair_clearances = pairwise_headstage_clearances(evals)
+    pair_clearances = pairwise_headstage_clearances(evals, ctx)
     clearance_penalty = ctx.weights.lambda_clearance * _quadratic_violation_penalty(
         -pair_clearances,
         threshold=-ctx.weights.safety_clearance_mm,
@@ -496,7 +585,7 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
         if evals
         else np.zeros(0, dtype=np.float64)
     )
-    pair_clearances = pairwise_headstage_clearances(evals)
+    pair_clearances = pairwise_headstage_clearances(evals, ctx)
     ap_seps, ml_seps = kinematic_separations(arc_aps, probe_mls, probe_arc_idxs)
 
     return ConstraintVectors(

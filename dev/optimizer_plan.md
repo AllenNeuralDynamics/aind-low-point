@@ -175,6 +175,21 @@ Gaussian; reporting uses both.
   selected candidate has both lower violation *and* radically higher
   coverage. Reporting now also surfaces "0/15 feasible — best is
   INFEASIBLE" certificates explicitly.
+- **Joint (H, A) reranker, 2026-05-14.** New
+  `optimization/pose_features.py` + `optimization/joint_rerank.py`
+  modules. Per-(probe, hole) pose features (closed-form
+  `required_ap_ml_for_target`, AP-feasibility interval from a 1-D
+  threading sweep) feed a reduced-SLSQP scoring stage over
+  `(ap_arc_per_arc, ml_per_probe, spin_per_probe)` — length
+  `n_arcs + 2K`. Three warm starts per (H, A): partitioner centroid
+  (legacy convention, ml=0), AP-interval midpoint across on-arc
+  probes + slot-major spin + closed-form ML, and alternating-spin
+  variant. Joint candidates are lex-ranked by
+  `(max_violation, sum_violation², -approx_coverage)`; top-`k_joint`
+  pass into the existing `_inner_solve_one` warm-started from the
+  reduced solution. Wired via `--joint-rerank` in
+  `scripts/run_optimizer.py` (default off). Closes the diagnosed
+  "seed not in top-50 in either discrete layer" gap on 836656 / T12.
 
 ### Active / next
 
@@ -188,11 +203,16 @@ In recommended order; estimates assume one focused session each.
    and respects the constraint geometry more directly. With Stage A
    and Stage B both as `trust-constr`, the inner loop becomes
    genuinely interior-point throughout.
-3. **Cheap arc-feasibility surrogate** before the full inner solve.
-   ~1 day. Per arc-partition candidate, run a fast continuous solve
-   on AP/ML only with simplified shaft-line geometry. Drop obviously
-   over-constrained partitions before the full inner loop runs.
-4. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
+3. **Per-kind headstage capsule from canonicalised probe meshes.**
+   Currently `headstage_capsule` uses a uniform placeholder. Once
+   per-kind capsules land, raise `JointWeights.lambda_clearance`
+   from 0 so the joint reranker can prune candidates with obvious
+   headstage collisions.
+4. **Wider LSAP diversity (Hamming, Gumbel noise).** Murty top-50
+   currently enumerates near-permutations of the top-1. Once the
+   joint reranker is in place, a more diverse pool gives it more
+   joint structures to rank.
+5. **Probability-style reporting metric** (`1 - Π(1-p_q)` per probe)
    alongside the Gaussian-density coverage scalar. Display only.
 
 ### Open questions

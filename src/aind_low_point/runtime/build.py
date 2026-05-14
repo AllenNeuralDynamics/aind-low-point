@@ -278,6 +278,8 @@ def build_asset_spec(
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime],
 ) -> AssetSpec:
+    from aind_low_point.optimization.headstages import build_headstage_hull
+
     mesh_tf: MeshTransformable | None = None
     pts_tf: PointsTransformable | None = None
 
@@ -302,12 +304,25 @@ def build_asset_spec(
         if default_pivot is not None:
             base_kwargs = {**base_kwargs, "pivot_LPS": default_pivot}
 
+    # Per-kind headstage convex hull for the placement optimizer's
+    # clearance constraint. Computed from the canonical mesh's "body"
+    # region (above the shanks); pipettes / degenerate fixtures return
+    # ``None`` and are skipped from pairwise clearance checks.
+    headstage_hull = None
+    if (
+        isinstance(a.key, str)
+        and a.key.startswith("probe:")
+        and mesh_tf is not None
+    ):
+        headstage_hull = build_headstage_hull(mesh_tf.raw)
+
     return AssetSpec(
         **base_kwargs,
         source_path=Path(a.src) if a.src else None,
         loader=a.loader,
         mesh=mesh_tf,
         points=pts_tf,
+        headstage_hull=headstage_hull,
     )
 
 
