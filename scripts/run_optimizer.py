@@ -25,6 +25,7 @@ import yaml
 from aind_low_point.config import ConfigModel, PlanningModel
 from aind_low_point.optimization.geometry import HoleSection
 from aind_low_point.optimization.holes import Hole, load_holes
+from aind_low_point.optimization.joint_rerank import JointWeights, optimize_joint
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
     PlanCandidate,
@@ -481,6 +482,41 @@ def main():
         "preserved into the polish; flip on to test how a CMA restart "
         "interacts with a known-good warm start.",
     )
+    p.add_argument(
+        "--joint-rerank",
+        action="store_true",
+        help="Use the joint (H, A) reranking stage between the discrete "
+        "layers and the full inner solve. Dispatches through "
+        "``optimize_joint`` instead of ``optimize``.",
+    )
+    p.add_argument(
+        "--k-holes-pool",
+        type=int,
+        default=50,
+        help="(--joint-rerank only) Wide LSAP hole-assignment pool fed "
+        "to the joint reranker. Default 50.",
+    )
+    p.add_argument(
+        "--k-arcs-pool",
+        type=int,
+        default=20,
+        help="(--joint-rerank only) Arc partitions per LSAP candidate "
+        "fed to the joint reranker. Default 20.",
+    )
+    p.add_argument(
+        "--k-joint",
+        type=int,
+        default=15,
+        help="(--joint-rerank only) Number of joint candidates passed "
+        "into the full inner solve after reranking. Default 15.",
+    )
+    p.add_argument(
+        "--reduced-slsqp-max-iter",
+        type=int,
+        default=50,
+        help="(--joint-rerank only) Max iterations for the reduced "
+        "SLSQP scoring stage. Default 50.",
+    )
     p.add_argument("--verbose", action="store_true", help="Verbose log")
     args = p.parse_args()
 
@@ -539,34 +575,120 @@ def main():
             subject_from_rig_rot=subject_from_rig_rot,
         )
 
-    print(
-        f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
-        f"k_holes={args.k_holes}, k_arcs={args.k_arcs})..."
-    )
-    result = optimize(
-        probes,
-        holes,
-        max_num_arcs=args.max_num_arcs,
-        min_num_arcs=args.min_num_arcs,
-        arc_count_penalty_deg2=args.arc_count_penalty_deg2,
-        k_holes=args.k_holes,
-        k_arcs=args.k_arcs,
-        min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
-        arc_sep_shortfall_weight=args.arc_sep_shortfall_weight,
-        threading_oval_tolerance=args.threading_oval_tolerance,
-        clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
-        final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
-        polish_method=args.polish_method,
-        feasibility_threshold=args.feasibility_threshold,
-        use_cma=not args.no_cma,
-        cma_stage_multipliers=stage_mults,
-        slsqp_constrained=not args.slsqp_soft,
-        two_stage_inner=not args.no_two_stage_inner,
-        feasibility_max_iter=args.feasibility_max_iter,
-        slsqp_max_iter=args.slsqp_max_iter,
-        subject_from_rig_rot=subject_from_rig_rot,
-        verbose=args.verbose,
-    )
+    if args.joint_rerank:
+        # Detect the seed-equivalent (H, A) for diagnostic ranking when
+        # the config has a baked-in plan; pass None otherwise.
+        seed_to_hole: dict[str, int] | None = None
+        seed_to_arc_idx: dict[str, int] | None = None
+        try:
+            tmp_seed_h: dict[str, int] = {}
+            tmp_seed_a_letters: dict[str, float] = {}
+            for ps in probes:
+                plan_n = plan_state.probes[ps.name]
+                if plan_n.arc_id is None:
+                    raise RuntimeError("no arc_id on probe")
+                ap_n = float(plan_state.kinematics.get_arc(plan_n.arc_id))
+                hole_id, _ = best_fit_hole_id_at_pose(
+                    ps,
+                    holes,
+                    ap_deg=ap_n,
+                    ml_deg=float(plan_n.ml_local),
+                    spin_deg=float(plan_n.spin),
+                    off_R_mm=float(plan_n.offsets_RA[0]),
+                    off_A_mm=float(plan_n.offsets_RA[1]),
+                    past_target_mm=float(plan_n.past_target_mm),
+                )
+                tmp_seed_h[ps.name] = int(hole_id)
+                tmp_seed_a_letters[plan_n.arc_id] = ap_n
+            sorted_letters_seed = sorted(
+                tmp_seed_a_letters, key=lambda k: tmp_seed_a_letters[k]
+            )
+            letter_to_idx_seed = {
+                L: i for i, L in enumerate(sorted_letters_seed)
+            }
+            tmp_seed_a: dict[str, int] = {}
+            for ps in probes:
+                plan_n = plan_state.probes[ps.name]
+                assert plan_n.arc_id is not None
+                tmp_seed_a[ps.name] = letter_to_idx_seed[plan_n.arc_id]
+            seed_to_hole = tmp_seed_h
+            seed_to_arc_idx = tmp_seed_a
+            if args.verbose:
+                print(
+                    f"[run_optimizer] detected seed (H, A) from baked plan: "
+                    f"hole={seed_to_hole}, arc_idx={seed_to_arc_idx}"
+                )
+        except Exception as e:
+            if args.verbose:
+                print(f"[run_optimizer] no seed plan detected ({e})")
+
+        print(
+            f"Running joint-rerank optimizer ("
+            f"max_num_arcs={args.max_num_arcs}, "
+            f"k_holes_pool={args.k_holes_pool}, k_arcs_pool={args.k_arcs_pool}, "
+            f"k_joint={args.k_joint})..."
+        )
+        result = optimize_joint(
+            probes,
+            holes,
+            max_num_arcs=args.max_num_arcs,
+            min_num_arcs=args.min_num_arcs,
+            arc_count_penalty_deg2=args.arc_count_penalty_deg2,
+            min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
+            arc_sep_shortfall_weight=args.arc_sep_shortfall_weight,
+            threading_oval_tolerance=args.threading_oval_tolerance,
+            clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
+            final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
+            polish_method=args.polish_method,
+            feasibility_threshold=args.feasibility_threshold,
+            use_cma=not args.no_cma,
+            cma_stage_multipliers=stage_mults,
+            slsqp_constrained=not args.slsqp_soft,
+            two_stage_inner=not args.no_two_stage_inner,
+            feasibility_max_iter=args.feasibility_max_iter,
+            slsqp_max_iter=args.slsqp_max_iter,
+            subject_from_rig_rot=subject_from_rig_rot,
+            k_holes_pool=args.k_holes_pool,
+            k_arcs_pool=args.k_arcs_pool,
+            k_joint=args.k_joint,
+            joint_weights=JointWeights(
+                threading_oval_tolerance=args.threading_oval_tolerance,
+                min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
+            ),
+            reduced_slsqp_max_iter=args.reduced_slsqp_max_iter,
+            seed_to_hole=seed_to_hole,
+            seed_to_arc_idx=seed_to_arc_idx,
+            verbose=args.verbose,
+        )
+    else:
+        print(
+            f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
+            f"k_holes={args.k_holes}, k_arcs={args.k_arcs})..."
+        )
+        result = optimize(
+            probes,
+            holes,
+            max_num_arcs=args.max_num_arcs,
+            min_num_arcs=args.min_num_arcs,
+            arc_count_penalty_deg2=args.arc_count_penalty_deg2,
+            k_holes=args.k_holes,
+            k_arcs=args.k_arcs,
+            min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
+            arc_sep_shortfall_weight=args.arc_sep_shortfall_weight,
+            threading_oval_tolerance=args.threading_oval_tolerance,
+            clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
+            final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
+            polish_method=args.polish_method,
+            feasibility_threshold=args.feasibility_threshold,
+            use_cma=not args.no_cma,
+            cma_stage_multipliers=stage_mults,
+            slsqp_constrained=not args.slsqp_soft,
+            two_stage_inner=not args.no_two_stage_inner,
+            feasibility_max_iter=args.feasibility_max_iter,
+            slsqp_max_iter=args.slsqp_max_iter,
+            subject_from_rig_rot=subject_from_rig_rot,
+            verbose=args.verbose,
+        )
     if result is None:
         print("Optimizer returned no feasible solution.")
         return 1
