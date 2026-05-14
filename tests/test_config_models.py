@@ -371,9 +371,7 @@ class TestBaseTemplateModel:
         from aind_low_point.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
 
-        template_data = TemplateFactory.base_template(
-            kind="mesh", role="geometry"
-        )
+        template_data = TemplateFactory.base_template(kind="mesh", role="geometry")
         template = BaseTemplateModel(**template_data)
         assert template.kind == "mesh"
         assert template.role == "geometry"

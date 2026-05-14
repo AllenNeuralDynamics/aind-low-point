@@ -163,9 +163,7 @@ class CollisionAdapter:
         # ``pivot_LPS`` shows up in pose.tip (recording-array center
         # at target). The legacy ``get_pivot_for_asset`` callback is
         # left at its no-op default — the pivot is already baked.
-        return PoseResolver(
-            scene=self.scene, plan=plan, catalog=self.assets
-        )
+        return PoseResolver(scene=self.scene, plan=plan, catalog=self.assets)
 
     def _spec_for_node(
         self, node: NodeInstance, resolver: PoseResolver

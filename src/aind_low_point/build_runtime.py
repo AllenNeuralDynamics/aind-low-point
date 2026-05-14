@@ -4,7 +4,8 @@ This module used to contain the full runtime implementation. It has been
 split into the ``aind_low_point.runtime`` subpackage; this file remains
 so that ``from aind_low_point.build_runtime import X`` keeps working.
 """
-from aind_low_point.runtime import *  # noqa: F401, F403
+
+from aind_low_point.runtime import *  # noqa: F403
 from aind_low_point.runtime import (  # noqa: F401  re-export private names
     _GEOMETRY_LOADER_REGISTRY,
     _REDUCER_REGISTRY,

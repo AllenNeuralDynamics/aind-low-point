@@ -26,10 +26,9 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 from scipy.optimize import minimize
 
 from aind_low_point.optimization.arc_assignment import (
@@ -60,7 +59,6 @@ from aind_low_point.optimization.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )
-
 
 # ---------------------------------------------------------------------------
 # Per-probe static info input
@@ -143,9 +141,7 @@ class PlanCandidate:
         }
         return max(groups, key=lambda k: groups[k])
 
-    def lex_key(
-        self, feasibility_threshold: float = 0.0
-    ) -> tuple[float, float, float]:
+    def lex_key(self, feasibility_threshold: float = 0.0) -> tuple[float, float, float]:
         """Sort key for lexicographic ranking with a "feasible enough"
         threshold.
 
@@ -409,19 +405,19 @@ def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(ctx.layout.num_arcs):
-        bounds.append((-60.0, +60.0))   # ap_arc deg
+        bounds.append((-60.0, +60.0))  # ap_arc deg
     for _ in range(ctx.layout.num_probes):
-        bounds.append((-30.0, +30.0))   # ml_local deg
-        bounds.append((-180.0, +180.0)) # spin deg
+        bounds.append((-30.0, +30.0))  # ml_local deg
+        bounds.append((-180.0, +180.0))  # spin deg
         # Lateral offsets must stay within the slot's half-extent so
         # the probe physically fits through the bore. Bounding to
         # ±0.5 mm keeps the threading constraint inside the optimizer's
         # feasible basin.
-        bounds.append((-0.5, +0.5))     # off_R mm
-        bounds.append((-0.5, +0.5))     # off_A mm
+        bounds.append((-0.5, +0.5))  # off_R mm
+        bounds.append((-0.5, +0.5))  # off_A mm
         # past_target_mm: typical probe insertion is 2-5 mm into brain;
         # ±3 mm covers a centered recording bank with margin.
-        bounds.append((-3.0, +3.0))     # past_target_mm
+        bounds.append((-3.0, +3.0))  # past_target_mm
     return bounds
 
 
@@ -486,7 +482,10 @@ def _feasibility_solve(
 
 
 def _slsqp_polish_constrained(
-    ctx: OptimizerContext, x0: NDArray, *, max_iter: int,
+    ctx: OptimizerContext,
+    x0: NDArray,
+    *,
+    max_iter: int,
     method: str = "SLSQP",
 ) -> tuple[NDArray, ObjectiveBreakdown]:
     """SLSQP (or trust-constr) polish with native inequality constraints.
@@ -518,16 +517,18 @@ def _slsqp_polish_constrained(
             # SciPy SLSQP can't handle empty arrays; substitute a single
             # always-feasible scalar.
             return arr if arr.size > 0 else np.array([1.0])
+
         return fn
 
     field_names = (
-        "threading", "clearance",
-        "arc_ap_separation", "intra_arc_ml_separation",
+        "threading",
+        "clearance",
+        "arc_ap_separation",
+        "intra_arc_ml_separation",
     )
     if method == "SLSQP":
         constraints = [
-            {"type": "ineq", "fun": make_constraint(name)}
-            for name in field_names
+            {"type": "ineq", "fun": make_constraint(name)} for name in field_names
         ]
         options = {"maxiter": max_iter, "ftol": 1e-6, "disp": False}
     elif method == "trust-constr":
@@ -535,13 +536,16 @@ def _slsqp_polish_constrained(
 
         constraints = [
             NonlinearConstraint(
-                make_constraint(name), 0.0, np.inf,
+                make_constraint(name),
+                0.0,
+                np.inf,
             )
             for name in field_names
         ]
         options = {
             "maxiter": max_iter,
-            "xtol": 1e-7, "gtol": 1e-6,
+            "xtol": 1e-7,
+            "gtol": 1e-6,
             "verbose": 0,
             "initial_constr_penalty": 1.0,
         }
@@ -608,15 +612,18 @@ def _build_plan_candidate(
         float(cv.clearance.min())
         + ctx.weights.safety_clearance_mm
         - ctx.clearance_overlap_allowance_mm
-        if cv.clearance.size else float("inf")
+        if cv.clearance.size
+        else float("inf")
     )
     min_ap_sep = (
         float(cv.arc_ap_separation.min()) + ctx.min_arc_ap_sep_deg
-        if cv.arc_ap_separation.size else float("inf")
+        if cv.arc_ap_separation.size
+        else float("inf")
     )
     min_ml_sep = (
         float(cv.intra_arc_ml_separation.min()) + ctx.min_within_arc_ml_sep_deg
-        if cv.intra_arc_ml_separation.size else float("inf")
+        if cv.intra_arc_ml_separation.size
+        else float("inf")
     )
 
     return PlanCandidate(
@@ -651,7 +658,8 @@ def format_plan_table(candidates: tuple[PlanCandidate, ...]) -> str:
     if not candidates:
         return "(no candidates)"
     rows = [
-        "| # | feas? | max viol | dominant group | thread | clear (mm) | AP sep (°) | ML sep (°) | coverage | cost |",
+        "| # | feas? | max viol | dominant group | thread | clear (mm) | "
+        "AP sep (°) | ML sep (°) | coverage | cost |",
         "|---|---|---:|---|---:|---:|---:|---:|---:|---:|",
     ]
     for i, c in enumerate(candidates, start=1):
@@ -674,7 +682,7 @@ def format_plan_table(candidates: tuple[PlanCandidate, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def optimize(
+def optimize(  # noqa: C901
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
     *,
@@ -721,9 +729,7 @@ def optimize(
         )
         for p in probes
     ]
-    hole_assignments = solve_top_k_assignments(
-        assignment_probes, holes, k=k_holes
-    )
+    hole_assignments = solve_top_k_assignments(assignment_probes, holes, k=k_holes)
     if not hole_assignments:
         if verbose:
             print("[optimize] No feasible hole assignment.")
@@ -749,7 +755,8 @@ def optimize(
             )
         # 2. Middle: probe→arc.
         arc_assignments = solve_top_k_arc_assignments(
-            ha.probe_to_hole, holes,
+            ha.probe_to_hole,
+            holes,
             max_num_arcs=max_num_arcs,
             min_num_arcs=min_num_arcs,
             k=k_arcs,
@@ -772,7 +779,11 @@ def optimize(
                 )
 
             ctx = _build_inner_context(
-                probes, holes, ha, aa, weights,
+                probes,
+                holes,
+                ha,
+                aa,
+                weights,
                 threading_oval_tolerance=threading_oval_tolerance,
                 clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
             )
@@ -782,7 +793,8 @@ def optimize(
             if use_cma:
                 if cma_stage_multipliers:
                     x_cma = _multistage_cma_es(
-                        ctx, x,
+                        ctx,
+                        x,
                         population=cma_population,
                         total_generations=cma_generations,
                         sigma=cma_sigma,
@@ -790,7 +802,8 @@ def optimize(
                     )
                 else:
                     x_cma = _try_cma_es(
-                        ctx, x,
+                        ctx,
+                        x,
                         population=cma_population,
                         generations=cma_generations,
                         sigma=cma_sigma,
@@ -806,44 +819,46 @@ def optimize(
                     x = x_feas
                 if verbose:
                     print(
-                        f"    feasibility stage: violation² "
-                        f"{v_pre:.4g} → {v_feas:.4g}"
+                        f"    feasibility stage: violation² {v_pre:.4g} → {v_feas:.4g}"
                     )
             if slsqp_constrained:
                 x_opt, breakdown_opt = _slsqp_polish_constrained(
-                    ctx, x, max_iter=slsqp_max_iter,
+                    ctx,
+                    x,
+                    max_iter=slsqp_max_iter,
                     method=polish_method,
                 )
             else:
-                x_opt, breakdown_opt = _slsqp_polish(
-                    ctx, x, max_iter=slsqp_max_iter
-                )
+                x_opt, breakdown_opt = _slsqp_polish(ctx, x, max_iter=slsqp_max_iter)
 
             cand = _build_plan_candidate(
-                x_opt, ctx, breakdown_opt,
-                ha=ha, aa=aa, n_arcs=n_arcs,
+                x_opt,
+                ctx,
+                breakdown_opt,
+                ha=ha,
+                aa=aa,
+                n_arcs=n_arcs,
             )
             # Stage C: feasibility cleanup. Stage B's coverage polish can
             # drift off the feasibility tube because the coverage gradient
             # pulls probes off-bore; re-solve from x_opt and keep
             # whichever result has the better lex key. Cheap (one extra
             # bounded SLSQP call) and never produces a worse candidate.
-            if (
-                slsqp_constrained
-                and final_feasibility_cleanup
-                and not cand.feasible
-            ):
+            if slsqp_constrained and final_feasibility_cleanup and not cand.feasible:
                 x_clean, v_clean = _feasibility_solve(
                     ctx, x_opt, max_iter=feasibility_max_iter
                 )
                 breakdown_clean = evaluate_objective(x_clean, ctx)
                 cand_clean = _build_plan_candidate(
-                    x_clean, ctx, breakdown_clean,
-                    ha=ha, aa=aa, n_arcs=n_arcs,
+                    x_clean,
+                    ctx,
+                    breakdown_clean,
+                    ha=ha,
+                    aa=aa,
+                    n_arcs=n_arcs,
                 )
-                if (
-                    cand_clean.lex_key(feasibility_threshold)
-                    < cand.lex_key(feasibility_threshold)
+                if cand_clean.lex_key(feasibility_threshold) < cand.lex_key(
+                    feasibility_threshold
                 ):
                     if verbose:
                         print(

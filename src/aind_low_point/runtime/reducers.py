@@ -86,9 +86,7 @@ def hemisphere_center_mass(
     elif hemi in {"right", "r"}:
         sign = -1.0
     else:
-        raise ValueError(
-            f"hemisphere must be 'left' or 'right', got {hemisphere!r}"
-        )
+        raise ValueError(f"hemisphere must be 'left' or 'right', got {hemisphere!r}")
 
     if isinstance(source, trimesh.Trimesh):
         half = source.slice_plane(

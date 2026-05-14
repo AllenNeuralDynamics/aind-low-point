@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Callable,
     Optional,
     Set,
-    TYPE_CHECKING,
     Tuple,
 )
 from warnings import warn
@@ -175,9 +175,11 @@ def kinematic_violations(
     arc_violations: set[tuple[str, ...]] = set()
     arcs = sorted(state.kinematics.arc_angles.keys())
     for i, a in enumerate(arcs):
-        for b in arcs[i + 1:]:
-            if abs(state.kinematics.arc_angles[a]
-                   - state.kinematics.arc_angles[b]) < ap_thr:
+        for b in arcs[i + 1 :]:
+            if (
+                abs(state.kinematics.arc_angles[a] - state.kinematics.arc_angles[b])
+                < ap_thr
+            ):
                 arc_violations.add(tuple(sorted((a, b))))
 
     by_arc: dict[str, list[str]] = {}
@@ -191,7 +193,7 @@ def kinematic_violations(
         members.sort()
         for i, a in enumerate(members):
             ml_a = state.probes[a].ml_local
-            for b in members[i + 1:]:
+            for b in members[i + 1 :]:
                 ml_b = state.probes[b].ml_local
                 if abs(ml_a - ml_b) < ml_thr:
                     ml_violations.add(tuple(sorted((a, b))))
@@ -397,9 +399,7 @@ class PoseResolver:
     # double-wrapping here would shift the probe twice. Non-probe
     # assets that need an asset-level pivot can still use this; for
     # probe assets pass ``catalog`` instead.
-    get_pivot_for_asset: GetPivotFn = (
-        lambda _key: None
-    )
+    get_pivot_for_asset: GetPivotFn = lambda _key: None
 
     # ---- final world transform = base ∘ dynamic ----
     def world_chain_for_node(self, node: "NodeInstance") -> TransformChain:

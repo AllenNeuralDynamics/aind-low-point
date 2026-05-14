@@ -5,6 +5,18 @@ Currently exposes geometric primitives only; the optimization driver
 for the design.
 """
 
+from aind_low_point.optimization.arc_assignment import (
+    ArcAssignment,
+    enumerate_partitions,
+    required_aps_deg_for_assignment,
+    solve_top_k_arc_assignments,
+)
+from aind_low_point.optimization.density import (
+    DensityFn,
+    coverage,
+    gaussian_density,
+    integrate_density_along_shank,
+)
 from aind_low_point.optimization.geometry import (
     Capsule,
     HoleSection,
@@ -14,6 +26,17 @@ from aind_low_point.optimization.geometry import (
     section_oval_value,
     segment_to_segment_dist,
     shaft_section_oval_value,
+)
+from aind_low_point.optimization.hole_assignment import (
+    AssignmentProbe,
+    CostWeights,
+    HoleAssignment,
+    angle_to_target_rad,
+    build_cost_matrix,
+    pairwise_interference_penalty,
+    solve_optimal_assignment,
+    solve_top_k_assignments,
+    static_threading_max_g,
 )
 from aind_low_point.optimization.holes import (
     Hole,
@@ -25,17 +48,6 @@ from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
     required_ap_deg,
     shank_capsules_from_pose,
-)
-from aind_low_point.optimization.density import (
-    DensityFn,
-    coverage,
-    gaussian_density,
-    integrate_density_along_shank,
-)
-from aind_low_point.optimization.recording import (
-    RECORDING_GEOMETRY,
-    RecordingGeometry,
-    get_recording_geometry,
 )
 from aind_low_point.optimization.objective import (
     ObjectiveBreakdown,
@@ -52,23 +64,6 @@ from aind_low_point.optimization.objective import (
     pairwise_headstage_clearances,
     scalar_objective,
 )
-from aind_low_point.optimization.hole_assignment import (
-    AssignmentProbe,
-    CostWeights,
-    HoleAssignment,
-    angle_to_target_rad,
-    build_cost_matrix,
-    pairwise_interference_penalty,
-    solve_optimal_assignment,
-    solve_top_k_assignments,
-    static_threading_max_g,
-)
-from aind_low_point.optimization.arc_assignment import (
-    ArcAssignment,
-    enumerate_partitions,
-    required_aps_deg_for_assignment,
-    solve_top_k_arc_assignments,
-)
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
     PlanCandidate,
@@ -76,26 +71,42 @@ from aind_low_point.optimization.optimize import (
     format_plan_table,
     optimize,
 )
+from aind_low_point.optimization.recording import (
+    RECORDING_GEOMETRY,
+    RecordingGeometry,
+    get_recording_geometry,
+)
 
 __all__ = [
+    "ArcAssignment",
+    "AssignmentProbe",
     "Capsule",
+    "CostWeights",
     "DensityFn",
     "Hole",
+    "HoleAssignment",
     "HoleSection",
     "ObjectiveBreakdown",
     "ObjectiveWeights",
+    "OptimizationResult",
     "OptimizerContext",
+    "PlanCandidate",
     "ProbeContext",
     "ProbeEvaluation",
+    "ProbeStaticInfo",
     "RECORDING_GEOMETRY",
     "RecordingGeometry",
     "VariableLayout",
+    "angle_to_target_rad",
+    "build_cost_matrix",
     "cap_basis",
     "capsule_capsule_dist",
     "coverage",
+    "enumerate_partitions",
     "evaluate_objective",
     "evaluate_probe",
     "find_hole_by_id",
+    "format_plan_table",
     "gaussian_density",
     "get_recording_geometry",
     "headstage_capsule",
@@ -103,14 +114,21 @@ __all__ = [
     "kinematic_separations",
     "load_holes",
     "make_objective",
+    "optimize",
     "pairwise_headstage_clearances",
+    "pairwise_interference_penalty",
     "point_to_segment_dist",
     "pose_at_hole_best_fit",
     "pose_from_optimizer_vars",
     "required_ap_deg",
+    "required_aps_deg_for_assignment",
     "scalar_objective",
     "section_oval_value",
     "segment_to_segment_dist",
     "shaft_section_oval_value",
     "shank_capsules_from_pose",
+    "solve_optimal_assignment",
+    "solve_top_k_arc_assignments",
+    "solve_top_k_assignments",
+    "static_threading_max_g",
 ]

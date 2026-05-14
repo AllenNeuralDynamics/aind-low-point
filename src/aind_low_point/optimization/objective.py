@@ -57,7 +57,6 @@ from aind_low_point.optimization.recording import (
     recording_center_local_for_kind,
 )
 
-
 # ---------------------------------------------------------------------------
 # Static context
 # ---------------------------------------------------------------------------
@@ -127,8 +126,8 @@ class ObjectiveWeights:
 
     lambda_threading: float = 1.0e3
     lambda_clearance: float = 1.0e3
-    lambda_kinematic: float = 1.0e4   # large; rig limits are inviolable
-    lambda_margin: float = 0.0        # disabled in v1 — see class docstring
+    lambda_kinematic: float = 1.0e4  # large; rig limits are inviolable
+    lambda_margin: float = 0.0  # disabled in v1 — see class docstring
     margin_softmin_beta: float = 0.5  # mm
     safety_clearance_mm: float = 0.0  # min headstage-to-headstage gap
 
@@ -177,9 +176,7 @@ class OptimizerContext:
 # ---------------------------------------------------------------------------
 
 
-def headstage_capsule(
-    R: NDArray, pose_tip: NDArray, ctx: OptimizerContext
-) -> Capsule:
+def headstage_capsule(R: NDArray, pose_tip: NDArray, ctx: OptimizerContext) -> Capsule:
     """Coarse capsule above the probe's local origin.
 
     Default (configurable on ``ctx``): 10 mm up the shaft from the
@@ -239,18 +236,25 @@ def evaluate_probe(
         pivot_local = recording_center_local_for_kind(probe.kind)
     R, pose_tip = pose_from_optimizer_vars(
         target_LPS=probe.target_LPS,
-        ap_deg=ap_deg, ml_deg=ml_deg, spin_deg=spin_deg,
-        offset_R_mm=off_R_mm, offset_A_mm=off_A_mm,
+        ap_deg=ap_deg,
+        ml_deg=ml_deg,
+        spin_deg=spin_deg,
+        offset_R_mm=off_R_mm,
+        offset_A_mm=off_A_mm,
         past_target_mm=past_target_mm,
         recording_center_local=pivot_local,
     )
     shanks = shank_capsules_from_pose(
-        R, pose_tip, probe.shank_tips_local,
+        R,
+        pose_tip,
+        probe.shank_tips_local,
         shaft_length_mm=ctx.shaft_length_mm,
         shank_radius_mm=ctx.shank_radius_mm,
     )
     cov = coverage(
-        probe.density_fn, shanks, probe.recording_geom,
+        probe.density_fn,
+        shanks,
+        probe.recording_geom,
         n_samples=ctx.coverage_n_samples,
     )
     threading_gs = np.array(
@@ -262,7 +266,9 @@ def evaluate_probe(
         dtype=np.float64,
     )
     return ProbeEvaluation(
-        R=R, pose_tip=pose_tip, shanks=shanks,
+        R=R,
+        pose_tip=pose_tip,
+        shanks=shanks,
         headstage=headstage_capsule(R, pose_tip, ctx),
         coverage=float(cov),
         threading_gs=threading_gs,
@@ -322,9 +328,7 @@ def kinematic_separations(
     for i in range(n_probes):
         for j in range(i + 1, n_probes):
             if probe_arc_indices[i] == probe_arc_indices[j]:
-                ml_pairs.append(
-                    abs(float(probe_mls_deg[i]) - float(probe_mls_deg[j]))
-                )
+                ml_pairs.append(abs(float(probe_mls_deg[i]) - float(probe_mls_deg[j])))
     return ap_seps, np.asarray(ml_pairs, dtype=np.float64)
 
 
@@ -333,9 +337,7 @@ def kinematic_separations(
 # ---------------------------------------------------------------------------
 
 
-def _quadratic_violation_penalty(
-    values: NDArray, *, threshold: float = 0.0
-) -> float:
+def _quadratic_violation_penalty(values: NDArray, *, threshold: float = 0.0) -> float:
     """``Σ max(0, value − threshold)²``. Smooth on the violating side,
     zero on the satisfied side."""
     if values.size == 0:
@@ -369,9 +371,7 @@ class ObjectiveBreakdown:
     per_probe_evals: list[ProbeEvaluation]
 
 
-def evaluate_objective(
-    x: NDArray, ctx: OptimizerContext
-) -> ObjectiveBreakdown:
+def evaluate_objective(x: NDArray, ctx: OptimizerContext) -> ObjectiveBreakdown:
     """Evaluate the objective at ``x``, returning the scalar plus diagnostics.
 
     Use :func:`scalar_objective` (a thin wrapper that returns just the
@@ -379,9 +379,7 @@ def evaluate_objective(
     """
     x = np.asarray(x, dtype=np.float64)
     if x.shape != (ctx.layout.n_vars,):
-        raise ValueError(
-            f"x has shape {x.shape}; expected ({ctx.layout.n_vars},)"
-        )
+        raise ValueError(f"x has shape {x.shape}; expected ({ctx.layout.n_vars},)")
 
     # Per-probe pose, shanks, coverage, threading
     arc_aps = ctx.layout.arc_aps(x)
@@ -392,11 +390,7 @@ def evaluate_objective(
     for i, probe in enumerate(ctx.probes):
         ml, spin, off_R, off_A, depth = ctx.layout.probe_vars(x, i)
         ap = float(arc_aps[arc_id_to_idx[probe.arc_id]])
-        evals.append(
-            evaluate_probe(
-                probe, ap, ml, spin, off_R, off_A, depth, ctx=ctx
-            )
-        )
+        evals.append(evaluate_probe(probe, ap, ml, spin, off_R, off_A, depth, ctx=ctx))
         probe_mls[i] = ml
         probe_arc_idxs[i] = arc_id_to_idx[probe.arc_id]
 
@@ -404,9 +398,7 @@ def evaluate_objective(
     coverage_total = float(sum(ev.coverage for ev in evals))
 
     # Threading penalty (one quadratic term per (probe, shank, section))
-    all_threading = np.concatenate(
-        [ev.threading_gs for ev in evals], axis=0
-    )
+    all_threading = np.concatenate([ev.threading_gs for ev in evals], axis=0)
     threading_penalty = ctx.weights.lambda_threading * _quadratic_violation_penalty(
         all_threading, threshold=0.0
     )
@@ -419,15 +411,9 @@ def evaluate_objective(
     )
 
     # Kinematic separations (penalty if below threshold)
-    ap_seps, ml_seps = kinematic_separations(
-        arc_aps, probe_mls, probe_arc_idxs
-    )
-    ap_kin_pen = _quadratic_violation_penalty(
-        ctx.min_arc_ap_sep_deg - ap_seps
-    )
-    ml_kin_pen = _quadratic_violation_penalty(
-        ctx.min_within_arc_ml_sep_deg - ml_seps
-    )
+    ap_seps, ml_seps = kinematic_separations(arc_aps, probe_mls, probe_arc_idxs)
+    ap_kin_pen = _quadratic_violation_penalty(ctx.min_arc_ap_sep_deg - ap_seps)
+    ml_kin_pen = _quadratic_violation_penalty(ctx.min_within_arc_ml_sep_deg - ml_seps)
     kinematic_penalty = ctx.weights.lambda_kinematic * (ap_kin_pen + ml_kin_pen)
 
     # Margin reward (softmin over clearances; encourages bigger gaps)
@@ -470,11 +456,11 @@ class ConstraintVectors:
     ``constraints=[{"type": "ineq", "fun": ...}]`` form.
     """
 
-    threading: NDArray[np.floating]      # one entry per (probe, shank, section)
-    clearance: NDArray[np.floating]      # one entry per probe pair
-    arc_ap_separation: NDArray[np.floating]   # one entry per arc pair
+    threading: NDArray[np.floating]  # one entry per (probe, shank, section)
+    clearance: NDArray[np.floating]  # one entry per probe pair
+    arc_ap_separation: NDArray[np.floating]  # one entry per arc pair
     intra_arc_ml_separation: NDArray[np.floating]  # one entry per intra-arc pair
-    coverage_total: float                # objective term (to maximise)
+    coverage_total: float  # objective term (to maximise)
 
 
 def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors:
@@ -494,15 +480,14 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
     for i, probe in enumerate(ctx.probes):
         ml, spin, off_R, off_A, depth = ctx.layout.probe_vars(x, i)
         ap = float(arc_aps[arc_id_to_idx[probe.arc_id]])
-        evals.append(
-            evaluate_probe(probe, ap, ml, spin, off_R, off_A, depth, ctx=ctx)
-        )
+        evals.append(evaluate_probe(probe, ap, ml, spin, off_R, off_A, depth, ctx=ctx))
         probe_mls[i] = ml
         probe_arc_idxs[i] = arc_id_to_idx[probe.arc_id]
 
     threading_gs = (
         np.concatenate([ev.threading_gs for ev in evals], axis=0)
-        if evals else np.zeros(0, dtype=np.float64)
+        if evals
+        else np.zeros(0, dtype=np.float64)
     )
     pair_clearances = pairwise_headstage_clearances(evals)
     ap_seps, ml_seps = kinematic_separations(arc_aps, probe_mls, probe_arc_idxs)
@@ -510,7 +495,8 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
     return ConstraintVectors(
         # ``g <= tol`` ⇒ feasible; slack = tol - g.
         threading=ctx.threading_oval_tolerance - threading_gs,
-        # ``pair_clear >= safety - allowance`` ⇒ feasible; slack = pair_clear - (safety - allowance).
+        # ``pair_clear >= safety - allowance`` is feasible; slack is
+        # pair_clear - (safety - allowance).
         clearance=(
             pair_clearances
             - ctx.weights.safety_clearance_mm
@@ -556,6 +542,8 @@ def feasibility_violation_squared(x: NDArray, ctx: OptimizerContext) -> float:
 
 def make_objective(ctx: OptimizerContext) -> Callable[[NDArray], float]:
     """Bind ``ctx`` and return ``J(x) -> float`` for the optimizer."""
+
     def J(x: NDArray) -> float:
         return scalar_objective(x, ctx)
+
     return J

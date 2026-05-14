@@ -25,7 +25,6 @@ from aind_low_point.optimization.geometry import (
     shaft_section_oval_value,
 )
 
-
 # -- point_to_segment_dist --------------------------------------------------
 
 
@@ -70,9 +69,7 @@ def test_segment_segment_intersect():
 
 def test_segment_segment_endpoint_clip():
     # Two segments along x, end-to-end with a gap of 0.5 between them.
-    d = segment_to_segment_dist(
-        [0, 0, 0], [1, 0, 0], [1.5, 0, 0], [2.5, 0, 0]
-    )
+    d = segment_to_segment_dist([0, 0, 0], [1, 0, 0], [1.5, 0, 0], [2.5, 0, 0])
     assert d == pytest.approx(0.5)
 
 
@@ -206,9 +203,7 @@ def test_section_oval_rotation_swaps_axes():
 
 def test_shaft_through_center_is_inside():
     # Vertical shaft passing exactly through (0, 0, 0); section at z=0.
-    shaft = Capsule(
-        np.array([0, 0, -1]), np.array([0, 0, 5]), radius=0.0
-    )
+    shaft = Capsule(np.array([0, 0, -1]), np.array([0, 0, 5]), radius=0.0)
     sec = HoleSection(
         axis=np.array([0, 0, 1]),
         center=np.array([0, 0, 0]),

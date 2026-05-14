@@ -8,7 +8,6 @@ from aind_low_point.build_runtime import (
     planning_state_to_plan_model,
     save_plan_to_config,
 )
-from aind_low_point.state_change import PlanStore
 from aind_low_point.config import (
     CatalogTargetRefModel,
     ConfigModel,
@@ -18,6 +17,7 @@ from aind_low_point.config import (
     ProbeDeclModel,
 )
 from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
+from aind_low_point.state_change import PlanStore
 from tests.config_factories import (
     AssetFactory,
     ConfigFactory,
@@ -799,17 +799,27 @@ class TestApplyPlanModelToState:
             kinematics=Kinematics(arc_angles={"a": 0.0, "b": 0.0}),
             probes={
                 "P1": ProbePlan(
-                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
-                    ml_local=0.0, spin=0.0,
-                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
-                    target_key="t1", calibrated=False,
+                    kind="2.1",
+                    arc_id="a",
+                    bind_ap_to_arc=True,
+                    ml_local=0.0,
+                    spin=0.0,
+                    past_target_mm=0.0,
+                    offsets_RA=(0.0, 0.0),
+                    target_key="t1",
+                    calibrated=False,
                     position_bearing_shank=1,
                 ),
                 "P2": ProbePlan(
-                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
-                    ml_local=0.0, spin=0.0,
-                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
-                    target_key="t2", calibrated=False,
+                    kind="2.1",
+                    arc_id="a",
+                    bind_ap_to_arc=True,
+                    ml_local=0.0,
+                    spin=0.0,
+                    past_target_mm=0.0,
+                    offsets_RA=(0.0, 0.0),
+                    target_key="t2",
+                    calibrated=False,
                     position_bearing_shank=1,
                 ),
             },
@@ -823,16 +833,21 @@ class TestApplyPlanModelToState:
             arcs={"a": 12.5, "b": -8.0},
             probes={
                 "P1": ProbeDeclModel(
-                    kind="quadbase", arc="b",
+                    kind="quadbase",
+                    arc="b",
                     target=CatalogTargetRefModel(key="t1"),
-                    slider_ml=4.5, spin=141.0,
-                    past_target_mm=0.5, offsets_RA=[0.1, -0.2],
+                    slider_ml=4.5,
+                    spin=141.0,
+                    past_target_mm=0.5,
+                    offsets_RA=[0.1, -0.2],
                     position_bearing_shank=4,
                 ),
                 "P2": ProbeDeclModel(
-                    kind="2.1", arc="a",
+                    kind="2.1",
+                    arc="a",
                     target=CatalogTargetRefModel(key="t2"),
-                    slider_ml=-3.0, spin=20.0,
+                    slider_ml=-3.0,
+                    spin=20.0,
                 ),
             },
         )
@@ -860,7 +875,8 @@ class TestApplyPlanModelToState:
             arcs={"a": 5.0},
             probes={
                 "GHOST": ProbeDeclModel(
-                    kind="2.1", arc="a",
+                    kind="2.1",
+                    arc="a",
                     target=CatalogTargetRefModel(key="t1"),
                 ),
             },
@@ -878,10 +894,15 @@ class TestApplyPlanModelToState:
             kinematics=Kinematics(arc_angles={"a": 13.0, "b": -10.0}),
             probes={
                 "MD": ProbePlan(
-                    kind="quadbase", arc_id="a", bind_ap_to_arc=True,
-                    ml_local=-12.0, spin=141.0,
-                    past_target_mm=0.0675, offsets_RA=(0.0, 0.0),
-                    target_key="MD_target", calibrated=False,
+                    kind="quadbase",
+                    arc_id="a",
+                    bind_ap_to_arc=True,
+                    ml_local=-12.0,
+                    spin=141.0,
+                    past_target_mm=0.0675,
+                    offsets_RA=(0.0, 0.0),
+                    target_key="MD_target",
+                    calibrated=False,
                     position_bearing_shank=1,
                 ),
             },
@@ -890,10 +911,13 @@ class TestApplyPlanModelToState:
             arcs={"a": 13.0, "b": -10.0},
             probes={
                 "MD": ProbeDeclModel(
-                    kind="quadbase", arc="a",
+                    kind="quadbase",
+                    arc="a",
                     target=CatalogTargetRefModel(key="MD_target"),
-                    slider_ml=-12.0, spin=141.0,
-                    past_target_mm=0.0675, offsets_RA=[0.0, 0.0],
+                    slider_ml=-12.0,
+                    spin=141.0,
+                    past_target_mm=0.0675,
+                    offsets_RA=[0.0, 0.0],
                     position_bearing_shank=1,
                 ),
             },
@@ -905,10 +929,15 @@ class TestApplyPlanModelToState:
             kinematics=Kinematics(arc_angles={"a": 0.0, "b": 0.0}),
             probes={
                 "MD": ProbePlan(
-                    kind="2.1", arc_id="a", bind_ap_to_arc=True,
-                    ml_local=0.0, spin=0.0,
-                    past_target_mm=0.0, offsets_RA=(0.0, 0.0),
-                    target_key="MD_target", calibrated=False,
+                    kind="2.1",
+                    arc_id="a",
+                    bind_ap_to_arc=True,
+                    ml_local=0.0,
+                    spin=0.0,
+                    past_target_mm=0.0,
+                    offsets_RA=(0.0, 0.0),
+                    target_key="MD_target",
+                    calibrated=False,
                     position_bearing_shank=1,
                 ),
             },
@@ -919,9 +948,14 @@ class TestApplyPlanModelToState:
         assert store.state.kinematics.arc_angles == src.kinematics.arc_angles
         loaded = store.state.probes["MD"]
         for field in (
-            "kind", "arc_id", "bind_ap_to_arc",
-            "ml_local", "spin", "past_target_mm",
-            "target_key", "position_bearing_shank",
+            "kind",
+            "arc_id",
+            "bind_ap_to_arc",
+            "ml_local",
+            "spin",
+            "past_target_mm",
+            "target_key",
+            "position_bearing_shank",
         ):
             assert getattr(loaded, field) == getattr(src.probes["MD"], field), field
         assert loaded.offsets_RA == src.probes["MD"].offsets_RA

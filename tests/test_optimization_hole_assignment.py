@@ -17,7 +17,6 @@ from aind_low_point.optimization.hole_assignment import (
 )
 from aind_low_point.optimization.holes import Hole
 
-
 # -- helpers ----------------------------------------------------------------
 
 
@@ -35,10 +34,13 @@ def _make_hole(
     sec = HoleSection(
         axis=axis_arr,
         center=np.asarray(center, dtype=float),
-        a=a, b=b, theta=theta,
+        a=a,
+        b=b,
+        theta=theta,
     )
     return Hole(
-        id=hole_id, axis=axis_arr,
+        id=hole_id,
+        axis=axis_arr,
         ref_point=np.asarray(center, dtype=float),
         sections=[sec, sec, sec],
     )
@@ -46,12 +48,14 @@ def _make_hole(
 
 def _np24_tips() -> np.ndarray:
     """4 shanks at 250 µm pitch along local +x."""
-    return np.array([
-        [0.0, 0.0, 0.0],
-        [0.25, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [0.75, 0.0, 0.0],
-    ])
+    return np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.25, 0.0, 0.0],
+            [0.5, 0.0, 0.0],
+            [0.75, 0.0, 0.0],
+        ]
+    )
 
 
 def _single_shank_tips() -> np.ndarray:
@@ -96,7 +100,8 @@ def test_static_threading_max_g_4shank_fits_normal_slot():
     """4-shank probe (750 µm span) fits a 1.20 × 0.70 mm slot."""
     hole = _make_hole(0, a=0.6, b=0.35, theta=np.pi / 2)
     probe = AssignmentProbe(
-        name="p", target_LPS=np.array([0, 0, -2]),
+        name="p",
+        target_LPS=np.array([0, 0, -2]),
         shank_tips_local=_np24_tips(),
     )
     g = static_threading_max_g(probe, hole)
@@ -111,7 +116,8 @@ def test_static_threading_max_g_4shank_too_wide_for_slot():
     # Slot major a=0.35 means outer shank at 0.375 → g > 0
     hole = _make_hole(0, a=0.35, b=0.25, theta=np.pi / 2)
     probe = AssignmentProbe(
-        name="p", target_LPS=np.array([0, 0, -2]),
+        name="p",
+        target_LPS=np.array([0, 0, -2]),
         shank_tips_local=_np24_tips(),
     )
     g = static_threading_max_g(probe, hole)
@@ -122,7 +128,8 @@ def test_static_threading_single_shank_fits_easily():
     """Single-shank probe through any reasonable hole has lots of clearance."""
     hole = _make_hole(0, a=0.6, b=0.35, theta=np.pi / 2)
     probe = AssignmentProbe(
-        name="p", target_LPS=np.array([0, 0, -2]),
+        name="p",
+        target_LPS=np.array([0, 0, -2]),
         shank_tips_local=_single_shank_tips(),
     )
     g = static_threading_max_g(probe, hole)
@@ -135,8 +142,9 @@ def test_static_threading_single_shank_fits_easily():
 
 def test_cost_matrix_shape():
     probes = [
-        AssignmentProbe(name=f"p{i}", target_LPS=np.zeros(3),
-                        shank_tips_local=_single_shank_tips())
+        AssignmentProbe(
+            name=f"p{i}", target_LPS=np.zeros(3), shank_tips_local=_single_shank_tips()
+        )
         for i in range(3)
     ]
     holes = [_make_hole(i) for i in range(5)]
@@ -147,12 +155,15 @@ def test_cost_matrix_shape():
 def test_cost_matrix_rejects_infeasible_pairs():
     """Slot too small for the 4-shank probe gets a forbid-cost entry."""
     probes = [
-        AssignmentProbe(name="big_probe", target_LPS=np.array([0, 0, -2]),
-                        shank_tips_local=_np24_tips()),
+        AssignmentProbe(
+            name="big_probe",
+            target_LPS=np.array([0, 0, -2]),
+            shank_tips_local=_np24_tips(),
+        ),
     ]
     holes = [
         _make_hole(0, a=0.35, b=0.25, theta=np.pi / 2),  # too small
-        _make_hole(1, a=0.6, b=0.35, theta=np.pi / 2),    # OK
+        _make_hole(1, a=0.6, b=0.35, theta=np.pi / 2),  # OK
     ]
     cost = build_cost_matrix(probes, holes)
     assert cost[0, 0] >= CostWeights().forbid_cost
@@ -163,7 +174,8 @@ def test_cost_matrix_prefers_aligned_target():
     """Hole pointing toward target gets lower cost than hole pointing away."""
     probes = [
         AssignmentProbe(
-            name="p", target_LPS=np.array([0, 0, -5]),
+            name="p",
+            target_LPS=np.array([0, 0, -5]),
             shank_tips_local=_single_shank_tips(),
         )
     ]
@@ -185,11 +197,13 @@ def test_optimal_assignment_picks_aligned_holes():
     gets the hole directly above its target."""
     probes = [
         AssignmentProbe(
-            name="p_left", target_LPS=np.array([-5, 0, -5]),
+            name="p_left",
+            target_LPS=np.array([-5, 0, -5]),
             shank_tips_local=_single_shank_tips(),
         ),
         AssignmentProbe(
-            name="p_right", target_LPS=np.array([+5, 0, -5]),
+            name="p_right",
+            target_LPS=np.array([+5, 0, -5]),
             shank_tips_local=_single_shank_tips(),
         ),
     ]
@@ -207,11 +221,13 @@ def test_optimal_assignment_skips_infeasible_pair():
     route the big probe to a feasible hole."""
     probes = [
         AssignmentProbe(
-            name="big", target_LPS=np.array([0, 0, -5]),
+            name="big",
+            target_LPS=np.array([0, 0, -5]),
             shank_tips_local=_np24_tips(),
         ),
         AssignmentProbe(
-            name="small", target_LPS=np.array([3, 0, -5]),
+            name="small",
+            target_LPS=np.array([3, 0, -5]),
             shank_tips_local=_single_shank_tips(),
         ),
     ]
@@ -238,15 +254,13 @@ def test_murty_returns_k_results_ranked_by_cost():
     """Top-K assignments come back sorted by cost."""
     probes = [
         AssignmentProbe(
-            name=f"p{i}", target_LPS=np.array([float(i), 0, -5]),
+            name=f"p{i}",
+            target_LPS=np.array([float(i), 0, -5]),
             shank_tips_local=_single_shank_tips(),
         )
         for i in range(3)
     ]
-    holes = [
-        _make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1))
-        for j in range(5)
-    ]
+    holes = [_make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1)) for j in range(5)]
     results = solve_top_k_assignments(probes, holes, k=5)
     assert len(results) == 5
     costs = [r.cost for r in results]
@@ -257,15 +271,13 @@ def test_murty_first_matches_optimal():
     """The first (best) Murty result equals the LSAP-1 optimal."""
     probes = [
         AssignmentProbe(
-            name=f"p{i}", target_LPS=np.array([float(i), 0, -5]),
+            name=f"p{i}",
+            target_LPS=np.array([float(i), 0, -5]),
             shank_tips_local=_single_shank_tips(),
         )
         for i in range(3)
     ]
-    holes = [
-        _make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1))
-        for j in range(5)
-    ]
+    holes = [_make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1)) for j in range(5)]
     optimal = solve_optimal_assignment(probes, holes)
     top_k = solve_top_k_assignments(probes, holes, k=3)
     assert top_k[0].cost == pytest.approx(optimal.cost)
@@ -276,15 +288,13 @@ def test_murty_yields_distinct_assignments():
     """Top-K Murty results all have different probe→hole mappings."""
     probes = [
         AssignmentProbe(
-            name=f"p{i}", target_LPS=np.array([float(i), 0, -5]),
+            name=f"p{i}",
+            target_LPS=np.array([float(i), 0, -5]),
             shank_tips_local=_single_shank_tips(),
         )
         for i in range(3)
     ]
-    holes = [
-        _make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1))
-        for j in range(5)
-    ]
+    holes = [_make_hole(j, center=(float(j), 0, 0), axis=(0, 0, 1)) for j in range(5)]
     results = solve_top_k_assignments(probes, holes, k=4)
     seen = set()
     for r in results:
@@ -296,8 +306,9 @@ def test_murty_yields_distinct_assignments():
 
 def test_murty_k_zero_returns_empty():
     probes = [
-        AssignmentProbe(name="p", target_LPS=np.zeros(3),
-                        shank_tips_local=_single_shank_tips())
+        AssignmentProbe(
+            name="p", target_LPS=np.zeros(3), shank_tips_local=_single_shank_tips()
+        )
     ]
     holes = [_make_hole(0)]
     assert solve_top_k_assignments(probes, holes, k=0) == []
@@ -307,8 +318,11 @@ def test_murty_capped_by_total_distinct_assignments():
     """If we ask for more than exists, we get only the existing ones."""
     # 1 probe × 1 hole → only 1 distinct assignment
     probes = [
-        AssignmentProbe(name="p", target_LPS=np.array([0, 0, -5]),
-                        shank_tips_local=_single_shank_tips())
+        AssignmentProbe(
+            name="p",
+            target_LPS=np.array([0, 0, -5]),
+            shank_tips_local=_single_shank_tips(),
+        )
     ]
     holes = [_make_hole(0, center=(0, 0, 0), axis=(0, 0, 1))]
     results = solve_top_k_assignments(probes, holes, k=10)

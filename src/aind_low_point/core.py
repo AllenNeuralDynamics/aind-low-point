@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace as dc_replace
+from dataclasses import dataclass, field
+from dataclasses import replace as dc_replace
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -177,7 +178,8 @@ class Transformed(Generic[W, RawT_co]):
         # Runtime structural check (optional but nice)
         if not isinstance(self.original, SupportsRigidTransform):
             raise TypeError(
-                f"`original` must implement SupportsRigidTransform; got {type(self.original).__name__}"
+                "`original` must implement SupportsRigidTransform; got "
+                f"{type(self.original).__name__}"
             )
 
     @cached_property

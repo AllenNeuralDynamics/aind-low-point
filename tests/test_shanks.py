@@ -81,9 +81,7 @@ class TestDetectShankTips:
         m = _shank_mesh([(2.0, 0.0), (2.0, 0.25)])
         tips = detect_shank_tips_local(m)
         assert len(tips) == 2
-        np.testing.assert_allclose(
-            sorted(tips[:, 1].tolist()), [0.0, 0.25], atol=1e-3
-        )
+        np.testing.assert_allclose(sorted(tips[:, 1].tolist()), [0.0, 0.25], atol=1e-3)
         np.testing.assert_allclose(tips[:, 0], 2.0, atol=1e-3)
 
     def test_below_z_tolerance_collapses(self):

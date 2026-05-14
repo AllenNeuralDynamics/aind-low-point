@@ -103,7 +103,4 @@ def find_hole_by_id(holes: list[Hole], hole_id: int) -> Hole:
     for h in holes:
         if h.id == hole_id:
             return h
-    raise KeyError(
-        f"hole id={hole_id} not found; have "
-        f"{sorted(h.id for h in holes)}"
-    )
+    raise KeyError(f"hole id={hole_id} not found; have {sorted(h.id for h in holes)}")

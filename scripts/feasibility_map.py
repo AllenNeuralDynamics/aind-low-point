@@ -85,17 +85,15 @@ def make_shanks(
     return shanks
 
 
-def evaluate_threading(
-    shanks: list[Capsule], sections: list[HoleSection]
-) -> dict:
+def evaluate_threading(shanks: list[Capsule], sections: list[HoleSection]) -> dict:
     """Return per-section worst-shank g and overall worst-of-all g."""
     per_section = []
     for sec in sections:
         gs = [shaft_section_oval_value(sh, sec) for sh in shanks]
         per_section.append(max(gs))
     return {
-        "per_section": per_section,           # list, one g per section
-        "worst": max(per_section),            # scalar overall worst
+        "per_section": per_section,  # list, one g per section
+        "worst": max(per_section),  # scalar overall worst
     }
 
 
@@ -111,7 +109,8 @@ def sweep_2d(
     for i, e1v in enumerate(e1_axis):
         for j, e2v in enumerate(e2_axis):
             shanks = make_shanks(
-                axis, sections,
+                axis,
+                sections,
                 offset_e1=float(e1v),
                 offset_e2=float(e2v),
                 spin_rad=spin_rad,
@@ -129,9 +128,7 @@ def main():
     p.add_argument("--hole-id", type=int, default=0)
     p.add_argument("--n-shanks", type=int, default=4)
     p.add_argument("--shank-pitch-mm", type=float, default=0.25)
-    p.add_argument(
-        "--out", type=Path, default=Path("/tmp/feasibility_map.png")
-    )
+    p.add_argument("--out", type=Path, default=Path("/tmp/feasibility_map.png"))
     args = p.parse_args()
 
     hole = find_hole_by_id(load_holes(args.holes_yaml), args.hole_id)
@@ -161,7 +158,11 @@ def main():
 
     # Center-pose diagnostics (offset 0, spin 0).
     center_shanks = make_shanks(
-        axis, sections, offset_e1=0.0, offset_e2=0.0, spin_rad=0.0,
+        axis,
+        sections,
+        offset_e1=0.0,
+        offset_e2=0.0,
+        spin_rad=0.0,
         **shank_kw,
     )
     center = evaluate_threading(center_shanks, sections)
@@ -170,9 +171,7 @@ def main():
         f"{[round(x, 3) for x in center['per_section']]}  "
         f"overall worst = {center['worst']:.3f}"
     )
-    print(
-        "  (chamfer should be most negative; straight bore tightest)"
-    )
+    print("  (chamfer should be most negative; straight bore tightest)")
 
     # Quantitative sweep: feasibility % per spin
     print("\nFeasibility sweep over (e1, e2) at varying spin:")
@@ -180,39 +179,49 @@ def main():
     feas_pct_rows = []
     for sp in spins:
         G, _ = sweep_2d(
-            axis, sections,
-            e1_axis=e1_axis, e2_axis=e2_axis, spin_deg=sp,
+            axis,
+            sections,
+            e1_axis=e1_axis,
+            e2_axis=e2_axis,
+            spin_deg=sp,
             **shank_kw,
         )
         feas_pct = 100.0 * (G <= 0).sum() / G.size
         feas_pct_rows.append((sp, feas_pct, G.min(), G.max()))
-        print(
-            f"  {sp:>+4d}°  {feas_pct:>5.1f}%  {G.min():>+7.3f}  "
-            f"{G.max():>+7.3f}"
-        )
+        print(f"  {sp:>+4d}°  {feas_pct:>5.1f}%  {G.min():>+7.3f}  {G.max():>+7.3f}")
 
     # Plot heatmaps: one per spin, with feasibility contour overlay
     fig, axes = plt.subplots(
-        2, len(spins), figsize=(2.5 * len(spins), 5.5),
-        sharex=True, sharey=True
+        2, len(spins), figsize=(2.5 * len(spins), 5.5), sharex=True, sharey=True
     )
     extent = [e1_axis[0], e1_axis[-1], e2_axis[0], e2_axis[-1]]
     for col, sp in enumerate(spins):
         G, TmB = sweep_2d(
-            axis, sections,
-            e1_axis=e1_axis, e2_axis=e2_axis, spin_deg=sp,
+            axis,
+            sections,
+            e1_axis=e1_axis,
+            e2_axis=e2_axis,
+            spin_deg=sp,
             **shank_kw,
         )
         # Top row: worst-g heatmap
         ax = axes[0, col]
         im0 = ax.imshow(
             np.clip(G.T, -1.0, 2.0),
-            extent=extent, origin="lower", aspect="equal",
-            cmap="RdYlGn_r", vmin=-1.0, vmax=2.0,
+            extent=extent,
+            origin="lower",
+            aspect="equal",
+            cmap="RdYlGn_r",
+            vmin=-1.0,
+            vmax=2.0,
         )
         ax.contour(
-            e1_axis, e2_axis, G.T, levels=[0],
-            colors="black", linewidths=1.5,
+            e1_axis,
+            e2_axis,
+            G.T,
+            levels=[0],
+            colors="black",
+            linewidths=1.5,
         )
         ax.set_title(f"spin={sp:+d}°")
         if col == 0:
@@ -221,8 +230,13 @@ def main():
         # Bottom row: g_top − g_bot (chamfer-vs-bore semantics check)
         ax2 = axes[1, col]
         ax2.imshow(
-            TmB.T, extent=extent, origin="lower", aspect="equal",
-            cmap="coolwarm", vmin=-0.5, vmax=0.5,
+            TmB.T,
+            extent=extent,
+            origin="lower",
+            aspect="equal",
+            cmap="coolwarm",
+            vmin=-0.5,
+            vmax=0.5,
         )
         ax2.set_xlabel("Δe1 / major (mm)")
         if col == 0:

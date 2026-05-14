@@ -44,7 +44,6 @@ from aind_low_point.optimization.recording import (
     get_recording_geometry,
 )
 
-
 # ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
@@ -76,9 +75,7 @@ class AssignmentProbe:
 # ---------------------------------------------------------------------------
 
 
-def angle_to_target_rad(
-    target_LPS: ArrayLike, hole: Hole
-) -> float:
+def angle_to_target_rad(target_LPS: ArrayLike, hole: Hole) -> float:
     """Angle between the hole's bore axis (going into the brain) and
     the line from the hole's bottom-section center to the target.
 
@@ -123,20 +120,18 @@ def static_threading_max_g(
     a multi-shank probe.
     """
     R, pose_tip = pose_at_hole_best_fit(hole)
-    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(
-        axis=0
-    )
+    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(axis=0)
     # Shift pose_tip so shank-row centroid (in world) sits at slot center.
     pose_tip = pose_tip - R @ centroid_local
     capsules = shank_capsules_from_pose(
-        R, pose_tip, probe.shank_tips_local,
+        R,
+        pose_tip,
+        probe.shank_tips_local,
         shaft_length_mm=shaft_length_mm,
         shank_radius_mm=shank_radius_mm,
     )
     gs = [
-        shaft_section_oval_value(cap, sec)
-        for cap in capsules
-        for sec in hole.sections
+        shaft_section_oval_value(cap, sec) for cap in capsules for sec in hole.sections
     ]
     return float(max(gs)) if gs else 0.0
 
@@ -144,16 +139,14 @@ def static_threading_max_g(
 def _rotation_about_axis(axis: NDArray, angle_rad: float) -> NDArray:
     """3×3 rotation matrix about ``axis`` (unit) by ``angle_rad``
     (Rodrigues). Axis assumed already normalised by the caller."""
-    K = np.array([
-        [0.0, -axis[2], axis[1]],
-        [axis[2], 0.0, -axis[0]],
-        [-axis[1], axis[0], 0.0],
-    ])
-    return (
-        np.eye(3)
-        + np.sin(angle_rad) * K
-        + (1.0 - np.cos(angle_rad)) * (K @ K)
+    K = np.array(
+        [
+            [0.0, -axis[2], axis[1]],
+            [axis[2], 0.0, -axis[0]],
+            [-axis[1], axis[0], 0.0],
+        ]
     )
+    return np.eye(3) + np.sin(angle_rad) * K + (1.0 - np.cos(angle_rad)) * (K @ K)
 
 
 def _rotate_to(from_dir: NDArray, to_dir: NDArray) -> NDArray:
@@ -208,16 +201,13 @@ def _build_pose_bank(
     ``(u, v)`` unchanged, so they don't relax max_g.
     """
     R_base, pose_tip = pose_at_hole_best_fit(hole)
-    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(
-        axis=0
-    )
+    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(axis=0)
     pose_tip = pose_tip - R_base @ centroid_local
 
     bore_dir = -np.asarray(hole.axis, dtype=np.float64)
     bore_dir /= np.linalg.norm(bore_dir)
-    to_target = (
-        np.asarray(probe.target_LPS, dtype=np.float64)
-        - np.asarray(hole.sections[-1].center, dtype=np.float64)
+    to_target = np.asarray(probe.target_LPS, dtype=np.float64) - np.asarray(
+        hole.sections[-1].center, dtype=np.float64
     )
     n = float(np.linalg.norm(to_target))
     target_dir = to_target / n if n >= 1e-9 else bore_dir
@@ -244,7 +234,9 @@ def _build_pose_bank(
     e_y = np.array([0.0, 1.0, 0.0])  # ML-rotation axis (LPS +y)
     for sign in (+1.0, -1.0):
         for axis in (e_x, e_y):
-            poses.append((_rotation_about_axis(axis, sign * tilt_rad) @ R_half, pose_tip))
+            poses.append(
+                (_rotation_about_axis(axis, sign * tilt_rad) @ R_half, pose_tip)
+            )
     return poses
 
 
@@ -281,7 +273,8 @@ def multi_pose_threading_max_g(
 ) -> float:
     """Backwards-compatible scalar — returns ``MultiPoseScore.min_max_g``."""
     return multi_pose_evaluate(
-        probe, hole,
+        probe,
+        hole,
         shaft_length_mm=shaft_length_mm,
         shank_radius_mm=shank_radius_mm,
         tilt_deg=tilt_deg,
@@ -318,7 +311,9 @@ def multi_pose_evaluate(
     max_cov = 0.0
     for R, tp in poses:
         capsules = shank_capsules_from_pose(
-            R, tp, probe.shank_tips_local,
+            R,
+            tp,
+            probe.shank_tips_local,
             shaft_length_mm=shaft_length_mm,
             shank_radius_mm=shank_radius_mm,
         )
@@ -407,20 +402,20 @@ def pairwise_interference_penalty(
 class CostWeights:
     """Weights for the LSAP cost components."""
 
-    alpha_target_angle: float = 1.0      # primary
-    beta_clearance: float = 0.3          # tiebreaker (more-negative max_g better)
-    gamma_interference: float = 0.5      # soft pairwise penalty
-    delta_coverage: float = 5.0          # subtract (= maximise) coverage
-    eta_violation: float = 2.0           # ``min_m Σ ReLU(g)²`` term — soft
-                                          # feasibility cost; only a hint, the
-                                          # hard reject below is the gate
+    alpha_target_angle: float = 1.0  # primary
+    beta_clearance: float = 0.3  # tiebreaker (more-negative max_g better)
+    gamma_interference: float = 0.5  # soft pairwise penalty
+    delta_coverage: float = 5.0  # subtract (= maximise) coverage
+    eta_violation: float = 2.0  # ``min_m Σ ReLU(g)²`` term — soft
+    # feasibility cost; only a hint, the
+    # hard reject below is the gate
     violation_reject_threshold: float = 1.0
     """Pairs whose ``min_m Σ ReLU(g_j)²`` exceeds this are hard rejected
     (i.e. *every* sampled pose is so badly infeasible that no nearby
     inner-loop solve will recover). 1.0 corresponds roughly to one
     section-shank entry with ``g ≈ 1`` (~one full oval-radius worth of
     overlap) — anything more is hopeless. Set lower for stricter LSAP."""
-    forbid_cost: float = 1.0e9           # used in place of +∞
+    forbid_cost: float = 1.0e9  # used in place of +∞
 
 
 def static_coverage(
@@ -442,12 +437,12 @@ def static_coverage(
     recording range using the kind's :class:`RecordingGeometry`.
     """
     R, pose_tip = pose_at_hole_best_fit(hole)
-    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(
-        axis=0
-    )
+    centroid_local = np.asarray(probe.shank_tips_local, dtype=np.float64).mean(axis=0)
     pose_tip = pose_tip - R @ centroid_local
     capsules = shank_capsules_from_pose(
-        R, pose_tip, probe.shank_tips_local,
+        R,
+        pose_tip,
+        probe.shank_tips_local,
         shaft_length_mm=shaft_length_mm,
         shank_radius_mm=shank_radius_mm,
     )
@@ -632,9 +627,7 @@ def solve_top_k_assignments(
     # Priority queue: (cost, tiebreaker, forced_edges, forbidden_edges, edges)
     counter = 0
     heap: list[tuple[float, int, list, list, list]] = []
-    total, edges = _solve_constrained(
-        cost_mat, [], [], forbid_cost=weights.forbid_cost
-    )
+    total, edges = _solve_constrained(cost_mat, [], [], forbid_cost=weights.forbid_cost)
     if edges is None:
         return []
     heapq.heappush(heap, (total, counter, [], [], edges))
@@ -655,7 +648,9 @@ def solve_top_k_assignments(
             new_forbidden = forbidden + [e]
             new_forced = forced + forced_extension
             sub_cost, sub_edges = _solve_constrained(
-                cost_mat, new_forced, new_forbidden,
+                cost_mat,
+                new_forced,
+                new_forbidden,
                 forbid_cost=weights.forbid_cost,
             )
             if sub_edges is not None:

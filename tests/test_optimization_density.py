@@ -18,7 +18,6 @@ from aind_low_point.optimization.recording import (
     get_recording_geometry,
 )
 
-
 # -- recording geometry table ----------------------------------------------
 
 
@@ -92,9 +91,7 @@ def test_gaussian_density_batched_input():
 def test_integrate_density_uniform_density_equals_span():
     """A density that's identically 1 integrates to the span length."""
     fn = lambda p: np.ones(p.shape[:-1]) if p.ndim > 1 else 1.0  # noqa: E731
-    shank = Capsule(
-        p0=np.array([0, 0, 0]), p1=np.array([0, 0, 1]), radius=0.0
-    )
+    shank = Capsule(p0=np.array([0, 0, 0]), p1=np.array([0, 0, 1]), radius=0.0)
     span = integrate_density_along_shank(
         fn, shank, start_mm=0.0, end_mm=2.0, n_samples=21
     )
@@ -103,13 +100,9 @@ def test_integrate_density_uniform_density_equals_span():
 
 def test_integrate_density_zero_span_is_zero():
     fn = gaussian_density([0, 0, 0], sigma_mm=1.0)
-    shank = Capsule(
-        p0=np.array([0, 0, 0]), p1=np.array([0, 0, 1]), radius=0.0
-    )
+    shank = Capsule(p0=np.array([0, 0, 0]), p1=np.array([0, 0, 1]), radius=0.0)
     assert (
-        integrate_density_along_shank(
-            fn, shank, start_mm=0.5, end_mm=0.5, n_samples=21
-        )
+        integrate_density_along_shank(fn, shank, start_mm=0.5, end_mm=0.5, n_samples=21)
         == 0.0
     )
 
@@ -120,9 +113,7 @@ def test_integrate_density_gaussian_axis_aligned():
     sigma = 0.3
     fn = gaussian_density([0, 0, 0], sigma_mm=sigma)
     # Shank along +z passing through origin; integrate from -2 to +2 mm
-    shank = Capsule(
-        p0=np.array([0, 0, -2.0]), p1=np.array([0, 0, 1.0]), radius=0.0
-    )
+    shank = Capsule(p0=np.array([0, 0, -2.0]), p1=np.array([0, 0, 1.0]), radius=0.0)
     # With p0 at -2 along z, "start_mm" measured from p0 along shank
     # direction (+z), so to integrate symmetrically around z=0 we use
     # start_mm=0 (at z=-2) and end_mm=4 (at z=+2).
@@ -139,9 +130,7 @@ def test_integrate_density_centered_perpendicular_offset():
     sigma = 0.4
     fn = gaussian_density([0, 0, 0], sigma_mm=sigma)
     d = 0.6  # perpendicular offset along x
-    shank = Capsule(
-        p0=np.array([d, 0, -3.0]), p1=np.array([d, 0, 0.0]), radius=0.0
-    )
+    shank = Capsule(p0=np.array([d, 0, -3.0]), p1=np.array([d, 0, 0.0]), radius=0.0)
     integral = integrate_density_along_shank(
         fn, shank, start_mm=0.0, end_mm=6.0, n_samples=301
     )

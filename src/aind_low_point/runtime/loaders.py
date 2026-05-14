@@ -94,9 +94,7 @@ def _load_trimesh(path: str) -> trimesh.Trimesh:
 
 
 @register_loader
-def csv_points(
-    path: str, max_points: int | None = None
-) -> NDArray[np.float64]:
+def csv_points(path: str, max_points: int | None = None) -> NDArray[np.float64]:
     """Load an (N,3) point cloud from a CSV with x, y, z columns.
 
     Parameters
@@ -141,9 +139,7 @@ def ccf_annotation_region(
     annotation volume's native frame.
     """
     if acronym is None and label_id is None:
-        raise ValueError(
-            "ccf_annotation_region: must specify acronym or label_id"
-        )
+        raise ValueError("ccf_annotation_region: must specify acronym or label_id")
 
     ids: set[int] = set()
     if acronym is not None:
@@ -153,16 +149,12 @@ def ccf_annotation_region(
         if include_descendants:
             descendants = ontology.descendants_of(acronym, include_self=True)
             if not descendants:
-                raise KeyError(
-                    f"CCF acronym {acronym!r} not in bundled ontology"
-                )
+                raise KeyError(f"CCF acronym {acronym!r} not in bundled ontology")
             ids.update(s.id for s in descendants)
         else:
             structure = ontology.find_by_acronym(acronym)
             if structure is None:
-                raise KeyError(
-                    f"CCF acronym {acronym!r} not in bundled ontology"
-                )
+                raise KeyError(f"CCF acronym {acronym!r} not in bundled ontology")
             ids.add(structure.id)
     if label_id is not None:
         ids.add(int(label_id))
@@ -172,8 +164,7 @@ def ccf_annotation_region(
     mask = np.isin(arr, list(ids)).astype(np.uint8)
     if not mask.any():
         raise ValueError(
-            f"ccf_annotation_region: no voxels matched ids={sorted(ids)} "
-            f"in {path}"
+            f"ccf_annotation_region: no voxels matched ids={sorted(ids)} in {path}"
         )
     mask_img = sitk.GetImageFromArray(mask)
     mask_img.CopyInformation(annotation)

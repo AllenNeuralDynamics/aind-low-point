@@ -492,9 +492,7 @@ class TemplateFactory:
         return template
 
     @staticmethod
-    def asset_template(
-        material_ref: str = None, **overrides
-    ) -> Dict[str, Any]:
+    def asset_template(material_ref: str = None, **overrides) -> Dict[str, Any]:
         """Create asset template specification."""
         template = TemplateFactory.base_template(
             kind=Kind.MESH.value,
@@ -506,9 +504,7 @@ class TemplateFactory:
         return template
 
     @staticmethod
-    def target_template(
-        material_ref: str = None, **overrides
-    ) -> Dict[str, Any]:
+    def target_template(material_ref: str = None, **overrides) -> Dict[str, Any]:
         """Create target template specification."""
         template = TemplateFactory.base_template(
             kind=Kind.POINTS.value,
@@ -526,9 +522,7 @@ class TemplateFactory:
         **overrides,
     ) -> Dict[str, Any]:
         """Create mesh template with source loader."""
-        return TemplateFactory.asset_template(
-            src=Path(src), loader=loader, **overrides
-        )
+        return TemplateFactory.asset_template(src=Path(src), loader=loader, **overrides)
 
     @staticmethod
     def points_template_explicit(

@@ -169,7 +169,7 @@ def _rewrite_inline_paths(
     return obj
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "config",

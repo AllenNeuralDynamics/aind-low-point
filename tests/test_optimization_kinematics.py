@@ -17,7 +17,6 @@ from aind_low_point.optimization.kinematics import (
     shank_capsules_from_pose,
 )
 
-
 # -- pose_from_optimizer_vars ----------------------------------------------
 
 
@@ -25,8 +24,11 @@ def test_pose_zero_rotations_no_offset_no_depth():
     """Zero rotations + no offsets + zero depth → pose_tip equals target."""
     R, tip = pose_from_optimizer_vars(
         target_LPS=[1.0, 2.0, 3.0],
-        ap_deg=0.0, ml_deg=0.0, spin_deg=0.0,
-        offset_R_mm=0.0, offset_A_mm=0.0,
+        ap_deg=0.0,
+        ml_deg=0.0,
+        spin_deg=0.0,
+        offset_R_mm=0.0,
+        offset_A_mm=0.0,
         past_target_mm=0.0,
     )
     assert np.allclose(R, np.eye(3))
@@ -37,8 +39,11 @@ def test_pose_zero_rotations_depth_shifts_minus_z():
     """At zero rotations the insertion vector is exactly [0, 0, -depth]."""
     _, tip = pose_from_optimizer_vars(
         target_LPS=[0, 0, 0],
-        ap_deg=0.0, ml_deg=0.0, spin_deg=0.0,
-        offset_R_mm=0.0, offset_A_mm=0.0,
+        ap_deg=0.0,
+        ml_deg=0.0,
+        spin_deg=0.0,
+        offset_R_mm=0.0,
+        offset_A_mm=0.0,
         past_target_mm=5.0,
     )
     assert np.allclose(tip, [0.0, 0.0, -5.0])
@@ -48,8 +53,11 @@ def test_pose_offset_RAS_to_LPS():
     """offset_R_mm=2, offset_A_mm=3 in RAS → (-2, -3, 0) in LPS."""
     _, tip = pose_from_optimizer_vars(
         target_LPS=[0, 0, 0],
-        ap_deg=0.0, ml_deg=0.0, spin_deg=0.0,
-        offset_R_mm=2.0, offset_A_mm=3.0,
+        ap_deg=0.0,
+        ml_deg=0.0,
+        spin_deg=0.0,
+        offset_R_mm=2.0,
+        offset_A_mm=3.0,
         past_target_mm=0.0,
     )
     # RAS [2, 3, 0] → LPS [-2, -3, 0] (R/A flip signs, S unchanged).
@@ -69,15 +77,16 @@ def test_pose_matches_planning_probepose():
     off_R, off_A, depth = 0.5, -0.3, 4.0
 
     R_ref = arc_angles_to_affine(ap, ml, spin)
-    off_lps = convert_coordinate_system(
-        np.array([off_R, off_A, 0.0]), "RAS", "LPS"
-    )
+    off_lps = convert_coordinate_system(np.array([off_R, off_A, 0.0]), "RAS", "LPS")
     tip_ref = target + off_lps + R_ref @ np.array([0, 0, -depth])
 
     R, tip = pose_from_optimizer_vars(
         target_LPS=target,
-        ap_deg=ap, ml_deg=ml, spin_deg=spin,
-        offset_R_mm=off_R, offset_A_mm=off_A,
+        ap_deg=ap,
+        ml_deg=ml,
+        spin_deg=spin,
+        offset_R_mm=off_R,
+        offset_A_mm=off_A,
         past_target_mm=depth,
     )
     assert np.allclose(R, R_ref)
@@ -91,12 +100,14 @@ def test_shank_capsules_identity_pose_at_origin():
     """R=I, pose_tip=origin: shank tips in world equal local positions."""
     R = np.eye(3)
     pose_tip = np.zeros(3)
-    tips_local = np.array([
-        [-0.375, 0.0, 0.0],
-        [-0.125, 0.0, 0.0],
-        [+0.125, 0.0, 0.0],
-        [+0.375, 0.0, 0.0],
-    ])
+    tips_local = np.array(
+        [
+            [-0.375, 0.0, 0.0],
+            [-0.125, 0.0, 0.0],
+            [+0.125, 0.0, 0.0],
+            [+0.375, 0.0, 0.0],
+        ]
+    )
     capsules = shank_capsules_from_pose(
         R, pose_tip, tips_local, shaft_length_mm=10.0, shank_radius_mm=0.05
     )
@@ -123,11 +134,13 @@ def test_shank_capsules_translation_only():
 def test_shank_capsules_rotated_shaft_direction():
     """Local +z direction is transformed to R @ +z in world."""
     # 90° rotation around y-axis: local +z → world +x
-    R = np.array([
-        [0.0, 0.0, 1.0],
-        [0.0, 1.0, 0.0],
-        [-1.0, 0.0, 0.0],
-    ])
+    R = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        ]
+    )
     pose_tip = np.zeros(3)
     tips_local = np.array([[0.0, 0.0, 0.0]])
     capsules = shank_capsules_from_pose(
@@ -145,7 +158,9 @@ def _make_hole(*, axis, center, theta=0.0, a=0.6, b=0.35) -> Hole:
     sec = HoleSection(
         axis=axis_arr,
         center=np.asarray(center, dtype=float),
-        a=a, b=b, theta=theta,
+        a=a,
+        b=b,
+        theta=theta,
     )
     return Hole(id=0, axis=axis_arr, ref_point=np.asarray(center), sections=[sec, sec])
 
@@ -190,41 +205,44 @@ def test_pose_at_hole_best_fit_threads_the_hole():
     axis_arr = np.asarray([0, 0, 1], dtype=float)
     sections = [
         HoleSection(
-            axis=axis_arr, center=np.array([0.0, 0.0, 0.5]),
-            a=0.65, b=0.42, theta=0.0,
+            axis=axis_arr,
+            center=np.array([0.0, 0.0, 0.5]),
+            a=0.65,
+            b=0.42,
+            theta=0.0,
         ),  # top (chamfer, wider)
         HoleSection(
-            axis=axis_arr, center=np.array([0.0, 0.0, 0.0]),
-            a=0.60, b=0.35, theta=0.0,
+            axis=axis_arr,
+            center=np.array([0.0, 0.0, 0.0]),
+            a=0.60,
+            b=0.35,
+            theta=0.0,
         ),
         HoleSection(
-            axis=axis_arr, center=np.array([0.0, 0.0, -0.5]),
-            a=0.60, b=0.35, theta=0.0,
+            axis=axis_arr,
+            center=np.array([0.0, 0.0, -0.5]),
+            a=0.60,
+            b=0.35,
+            theta=0.0,
         ),  # bottom (straight bore, tightest)
     ]
-    hole = Hole(
-        id=0, axis=axis_arr, ref_point=np.zeros(3), sections=sections
-    )
+    hole = Hole(id=0, axis=axis_arr, ref_point=np.zeros(3), sections=sections)
     R, tip = pose_at_hole_best_fit(hole)
     # 4 shanks at 250 µm pitch along local +x (slot-major in world)
-    tips_local = np.array([
-        [-0.375, 0.0, 0.0],
-        [-0.125, 0.0, 0.0],
-        [+0.125, 0.0, 0.0],
-        [+0.375, 0.0, 0.0],
-    ])
+    tips_local = np.array(
+        [
+            [-0.375, 0.0, 0.0],
+            [-0.125, 0.0, 0.0],
+            [+0.125, 0.0, 0.0],
+            [+0.375, 0.0, 0.0],
+        ]
+    )
     capsules = shank_capsules_from_pose(
         R, tip, tips_local, shaft_length_mm=10.0, shank_radius_mm=0.0
     )
     # Every shank threads every section — max g should be < 0.
-    worst = max(
-        shaft_section_oval_value(c, s)
-        for c in capsules
-        for s in sections
-    )
-    assert worst < 0.0, (
-        f"best-fit pose should thread the hole; worst g = {worst:.3f}"
-    )
+    worst = max(shaft_section_oval_value(c, s) for c in capsules for s in sections)
+    assert worst < 0.0, f"best-fit pose should thread the hole; worst g = {worst:.3f}"
     # The outer shanks at ±0.375 along +y (slot major):
     # g_bot = (0/0.6)² + (0.375/0.35)² − 1 ≈ +0.148 → outside!
     # Wait: local +x maps to world +y (slot major). So the outer shanks

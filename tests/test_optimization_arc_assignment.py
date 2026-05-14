@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from aind_low_point.optimization.arc_assignment import (
-    ArcAssignment,
     enumerate_partitions,
     required_aps_deg_for_assignment,
     solve_top_k_arc_assignments,
@@ -19,11 +18,13 @@ def _make_hole(hole_id: int, axis) -> Hole:
     axis_arr = np.asarray(axis, dtype=float)
     axis_arr /= np.linalg.norm(axis_arr)
     sec = HoleSection(
-        axis=axis_arr, center=np.zeros(3),
-        a=0.6, b=0.35, theta=np.pi / 2,
+        axis=axis_arr,
+        center=np.zeros(3),
+        a=0.6,
+        b=0.35,
+        theta=np.pi / 2,
     )
-    return Hole(id=hole_id, axis=axis_arr, ref_point=np.zeros(3),
-                sections=[sec, sec])
+    return Hole(id=hole_id, axis=axis_arr, ref_point=np.zeros(3), sections=[sec, sec])
 
 
 # -- required_aps_deg_for_assignment --------------------------------------
@@ -90,7 +91,9 @@ def test_enumerate_partitions_arc_sep_is_soft():
     # Cost should be dominated by shortfall ≫ within-cluster variance.
     assert parts[0].cost > 100.0  # 16° shortfall → 256 × weight = 2560
     parts_hard = enumerate_partitions(
-        probe_names, aps, num_arcs=2,
+        probe_names,
+        aps,
+        num_arcs=2,
         arc_sep_shortfall_weight=float("inf"),
     )
     assert parts_hard == []  # legacy hard-filter behaviour
@@ -103,7 +106,10 @@ def test_enumerate_partitions_capacity_filter_hard():
     # 5 probes into 1 arc with capacity 4 → infeasible regardless of
     # the arc-sep weight.
     parts = enumerate_partitions(
-        probe_names, aps, num_arcs=1, max_per_arc=4,
+        probe_names,
+        aps,
+        num_arcs=1,
+        max_per_arc=4,
     )
     assert parts == []
 
@@ -143,9 +149,7 @@ def test_enumerate_partitions_per_arc_capacity_4():
     probe_names = [f"p{i}" for i in range(5)]
     aps = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
     # Single arc with capacity 4 → infeasible
-    parts = enumerate_partitions(
-        probe_names, aps, num_arcs=1, max_per_arc=4
-    )
+    parts = enumerate_partitions(probe_names, aps, num_arcs=1, max_per_arc=4)
     assert parts == []
 
 
@@ -190,7 +194,10 @@ def test_solve_top_k_e2e():
     ]
     probe_to_hole = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
     parts = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=2, k=5,
+        probe_to_hole,
+        holes,
+        max_num_arcs=2,
+        k=5,
     )
     assert len(parts) >= 1
     best = parts[0]
@@ -212,13 +219,15 @@ def test_solve_top_k_returns_sorted_by_cost():
     """If multiple partitions survive, they're ranked ascending by cost."""
     # 6 probes spread across 3 well-separated clusters
     holes = [
-        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)),
-                            np.cos(np.deg2rad(ap))))
+        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)), np.cos(np.deg2rad(ap))))
         for i, ap in enumerate([-30, -29, -10, -9, +20, +21])
     ]
     probe_to_hole = {f"p{i}": i for i in range(6)}
     parts = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=3, k=10,
+        probe_to_hole,
+        holes,
+        max_num_arcs=3,
+        k=10,
     )
     if len(parts) > 1:
         costs = [p.cost for p in parts]
@@ -233,17 +242,24 @@ def test_max_num_arcs_caps_partition_count():
     when ``max_num_arcs=2``. Required APs are well-separated so all
     arc-counts in [1, 4] yield feasible partitions."""
     holes = [
-        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)),
-                            np.cos(np.deg2rad(ap))))
+        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)), np.cos(np.deg2rad(ap))))
         for i, ap in enumerate([-30, -10, +10, +30])
     ]
     probe_to_hole = {f"p{i}": i for i in range(4)}
     parts_max2 = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=2, min_num_arcs=2, k=20,
+        probe_to_hole,
+        holes,
+        max_num_arcs=2,
+        min_num_arcs=2,
+        k=20,
         arc_count_penalty_deg2=0.0,
     )
     parts_max4 = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=4, min_num_arcs=2, k=20,
+        probe_to_hole,
+        holes,
+        max_num_arcs=4,
+        min_num_arcs=2,
+        k=20,
         arc_count_penalty_deg2=0.0,
     )
     n_arcs_used = lambda p: len(set(p.probe_to_arc_idx.values()))  # noqa: E731
@@ -259,8 +275,7 @@ def test_arc_count_penalty_prefers_fewer_arcs():
     """With penalty=0, tightest cluster (4 arcs for 4 well-separated
     probes) wins. With a positive penalty, the 2-arc partition wins."""
     holes = [
-        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)),
-                            np.cos(np.deg2rad(ap))))
+        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)), np.cos(np.deg2rad(ap))))
         for i, ap in enumerate([-30, -10, +10, +30])
     ]
     probe_to_hole = {f"p{i}": i for i in range(4)}
@@ -269,7 +284,11 @@ def test_arc_count_penalty_prefers_fewer_arcs():
     # Penalty 0 → 4-arc partition (each probe its own arc) has zero
     # within-cluster cost and wins.
     no_penalty = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=4, min_num_arcs=2, k=1,
+        probe_to_hole,
+        holes,
+        max_num_arcs=4,
+        min_num_arcs=2,
+        k=1,
         arc_count_penalty_deg2=0.0,
     )
     assert no_penalty[0].cost == pytest.approx(0.0, abs=1e-9)
@@ -280,7 +299,11 @@ def test_arc_count_penalty_prefers_fewer_arcs():
     # Penalty per arc beyond min_num_arcs=2 must be > 100 to push 4 arcs
     # (penalty 200, cost 0) above 2 arcs (penalty 0, cost 200).
     with_penalty = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=4, min_num_arcs=2, k=1,
+        probe_to_hole,
+        holes,
+        max_num_arcs=4,
+        min_num_arcs=2,
+        k=1,
         arc_count_penalty_deg2=200.0,
     )
     assert n_arcs_used(with_penalty[0]) == 2
@@ -290,13 +313,15 @@ def test_arc_count_penalty_default_is_nonzero():
     """The default ``arc_count_penalty_deg2`` is a positive value so
     fewer-arc partitions are preferred unless explicitly disabled."""
     holes = [
-        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)),
-                            np.cos(np.deg2rad(ap))))
+        _make_hole(i, axis=(0, np.sin(np.deg2rad(ap)), np.cos(np.deg2rad(ap))))
         for i, ap in enumerate([-25, -24, +20, +21])
     ]
     probe_to_hole = {f"p{i}": i for i in range(4)}
     parts = solve_top_k_arc_assignments(
-        probe_to_hole, holes, max_num_arcs=4, k=5,
+        probe_to_hole,
+        holes,
+        max_num_arcs=4,
+        k=5,
     )
     # The first (best) partition should be 2 arcs (the tight 4-probe
     # split with default penalty).
@@ -308,5 +333,9 @@ def test_min_num_arcs_validation():
     holes = [_make_hole(0, axis=(0, 0, 1))]
     with pytest.raises(ValueError, match="min_num_arcs"):
         solve_top_k_arc_assignments(
-            {"p": 0}, holes, max_num_arcs=1, k=1, min_num_arcs=2,
+            {"p": 0},
+            holes,
+            max_num_arcs=1,
+            k=1,
+            min_num_arcs=2,
         )

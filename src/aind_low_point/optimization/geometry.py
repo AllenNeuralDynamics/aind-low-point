@@ -66,9 +66,7 @@ def cap_basis(axis: ArrayLike) -> tuple[NDArray, NDArray]:
     return e1, e2
 
 
-def point_to_segment_dist(
-    p: ArrayLike, a: ArrayLike, b: ArrayLike
-) -> float:
+def point_to_segment_dist(p: ArrayLike, a: ArrayLike, b: ArrayLike) -> float:
     """Closest distance from point ``p`` to segment ``[a, b]``."""
     p = np.asarray(p, dtype=float)
     a = np.asarray(a, dtype=float)
@@ -158,8 +156,9 @@ def line_plane_intersect(
     if abs(denom) < 1e-12:
         return None
     return float(
-        np.dot(np.asarray(plane_p, dtype=float)
-               - np.asarray(line_p, dtype=float), plane_n)
+        np.dot(
+            np.asarray(plane_p, dtype=float) - np.asarray(line_p, dtype=float), plane_n
+        )
         / denom
     )
 
@@ -184,9 +183,7 @@ def section_oval_value(point_3d: ArrayLike, section: HoleSection) -> float:
     return (u / section.a) ** 2 + (v / section.b) ** 2 - 1.0
 
 
-def shaft_section_oval_value(
-    shaft: Capsule, section: HoleSection
-) -> float:
+def shaft_section_oval_value(shaft: Capsule, section: HoleSection) -> float:
     """Find where the shaft's *axis line* intersects the section plane,
     then evaluate the oval inequality at that point.
 

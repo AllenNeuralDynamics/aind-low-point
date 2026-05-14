@@ -26,10 +26,9 @@ trig, which JAX can trace as-is once we wire ``jax.numpy`` into
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
-
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
+from numpy.typing import ArrayLike, NDArray
 
 from aind_low_point.optimization.geometry import Capsule
 from aind_low_point.optimization.holes import Hole
@@ -62,19 +61,13 @@ def pose_from_optimizer_vars(
     pivot redesign.
     """
     R = arc_angles_to_affine(float(ap_deg), float(ml_deg), float(spin_deg))
-    off_RAS = np.array(
-        [float(offset_R_mm), float(offset_A_mm), 0.0], dtype=np.float64
-    )
+    off_RAS = np.array([float(offset_R_mm), float(offset_A_mm), 0.0], dtype=np.float64)
     off_LPS = convert_coordinate_system(off_RAS, "RAS", "LPS")
     adjusted_target = np.asarray(target_LPS, dtype=np.float64) + off_LPS
-    insertion_vec = R @ np.array(
-        [0.0, 0.0, -float(past_target_mm)], dtype=np.float64
-    )
+    insertion_vec = R @ np.array([0.0, 0.0, -float(past_target_mm)], dtype=np.float64)
     pose_tip = adjusted_target + insertion_vec
     if recording_center_local is not None:
-        pose_tip = pose_tip - R @ np.asarray(
-            recording_center_local, dtype=np.float64
-        )
+        pose_tip = pose_tip - R @ np.asarray(recording_center_local, dtype=np.float64)
     return R, pose_tip
 
 
@@ -102,9 +95,7 @@ def shank_capsules_from_pose(
     for tip_local in np.asarray(shank_tips_local, dtype=np.float64):
         tip_world = R @ tip_local + pose_tip_world
         base_world = tip_world + shaft_length_mm * shaft_dir_world
-        capsules.append(
-            Capsule(p0=tip_world, p1=base_world, radius=shank_radius_mm)
-        )
+        capsules.append(Capsule(p0=tip_world, p1=base_world, radius=shank_radius_mm))
     return capsules
 
 
@@ -133,8 +124,8 @@ def pose_at_hole_best_fit(
     axis = axis / np.linalg.norm(axis)
     slot_major = hole.slot_major_dir()
 
-    z_col = -axis                    # local +z → world -axis (shaft-down)
-    y_col = slot_major               # local +y → world slot major (shank row)
+    z_col = -axis  # local +z → world -axis (shaft-down)
+    y_col = slot_major  # local +y → world slot major (shank row)
     x_col = np.cross(y_col, z_col)
     x_col_norm = float(np.linalg.norm(x_col))
     if x_col_norm < 1e-12:

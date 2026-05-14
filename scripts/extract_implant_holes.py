@@ -55,7 +55,6 @@ import yaml
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from scipy.sparse.csgraph import connected_components
 
-
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -63,17 +62,17 @@ from scipy.sparse.csgraph import connected_components
 
 @dataclass
 class Section:
-    s_mm: float          # signed offset along axis from a reference point
-    center: np.ndarray   # 3D center of the inner loop (LPS-mm)
-    a_mm: float          # half-extent of fitted oval major axis
-    b_mm: float          # half-extent of fitted oval minor axis
-    theta_rad: float     # rotation in the perpendicular plane
+    s_mm: float  # signed offset along axis from a reference point
+    center: np.ndarray  # 3D center of the inner loop (LPS-mm)
+    a_mm: float  # half-extent of fitted oval major axis
+    b_mm: float  # half-extent of fitted oval minor axis
+    theta_rad: float  # rotation in the perpendicular plane
 
 
 @dataclass
 class Hole:
-    axis: np.ndarray         # unit vector (LPS)
-    ref_point: np.ndarray    # any point on the axis (LPS)
+    axis: np.ndarray  # unit vector (LPS)
+    ref_point: np.ndarray  # any point on the axis (LPS)
     sections: list[Section]
 
 
@@ -97,12 +96,16 @@ def _hole_rings_3d(mesh, origin, axis_normal):
     areas = np.asarray([p.area for p in polys])
     largest_idx = int(np.argmax(areas))
     largest = polys[largest_idx]
-    other_max = float(areas[np.arange(len(polys)) != largest_idx].max() or 0.0) \
-        if len(polys) > 1 else 0.0
+    other_max = (
+        float(areas[np.arange(len(polys)) != largest_idx].max() or 0.0)
+        if len(polys) > 1
+        else 0.0
+    )
 
     rings_xy: list[np.ndarray] = []
-    if list(largest.interiors) and (areas[largest_idx] >= 5.0 * other_max
-                                    or len(polys) == 1):
+    if list(largest.interiors) and (
+        areas[largest_idx] >= 5.0 * other_max or len(polys) == 1
+    ):
         for ring in largest.interiors:
             rings_xy.append(np.asarray(ring.coords)[:, :2])
     else:
@@ -220,8 +223,11 @@ def _bore_components(
         j = int(partner[i])
         if j >= 0 and is_wall[j]:
             pair_edges.append((int(i), j))
-    pair_edges_arr = (np.asarray(pair_edges, dtype=np.int64)
-                      if pair_edges else np.zeros((0, 2), dtype=np.int64))
+    pair_edges_arr = (
+        np.asarray(pair_edges, dtype=np.int64)
+        if pair_edges
+        else np.zeros((0, 2), dtype=np.int64)
+    )
 
     # 2. Face adjacency, restricted to bore-wall faces. Adjacent strips
     #    of one bore wall are reliably connected here (no dihedral
@@ -236,9 +242,7 @@ def _bore_components(
 
     edges = np.concatenate([pair_edges_arr, adj_edges], axis=0)
     data = np.ones(len(edges), dtype=bool)
-    g = sp.coo_matrix(
-        (data, (edges[:, 0], edges[:, 1])), shape=(n, n)
-    )
+    g = sp.coo_matrix((data, (edges[:, 0], edges[:, 1])), shape=(n, n))
     g = g + g.T
     _, labels = connected_components(g, directed=False)
     masks: list[np.ndarray] = []
@@ -253,7 +257,7 @@ def _bore_components(
 def _component_axis(face_normals: np.ndarray) -> np.ndarray:
     """Bore axis = direction perpendicular to all wall-face normals
     (eigenvector of Σ n nᵀ with the smallest eigenvalue)."""
-    M = np.einsum('ij,ik->jk', face_normals, face_normals)
+    M = np.einsum("ij,ik->jk", face_normals, face_normals)
     _, evecs = np.linalg.eigh(M)
     return evecs[:, 0]
 
@@ -311,7 +315,11 @@ def _section_at(
         return None
     c, a_mm, b_mm, theta, _, _ = _fit_oval_in_plane(best, axis)
     return Section(
-        s_mm=float(s), center=c, a_mm=a_mm, b_mm=b_mm, theta_rad=theta,
+        s_mm=float(s),
+        center=c,
+        a_mm=a_mm,
+        b_mm=b_mm,
+        theta_rad=theta,
     )
 
 
@@ -337,9 +345,7 @@ def extract_holes(
     if not mesh.is_watertight:
         print("warning: mesh is not watertight — outer-ray SDF may misclassify faces")
 
-    axis_global = (
-        np.asarray(axis_global, dtype=float) / np.linalg.norm(axis_global)
-    )
+    axis_global = np.asarray(axis_global, dtype=float) / np.linalg.norm(axis_global)
 
     masks, _ = _bore_components(
         mesh,
@@ -379,8 +385,11 @@ def extract_holes(
         sections: list[Section] = []
         for s in s_samples:
             sec = _section_at(
-                mesh, ctr, axis,
-                s=float(s), max_ring_radius=max_ring_radius,
+                mesh,
+                ctr,
+                axis,
+                s=float(s),
+                max_ring_radius=max_ring_radius,
             )
             if sec is None:
                 continue
@@ -490,8 +499,7 @@ def _assign_diagram_ids(holes: list[Hole]) -> list[Hole]:
         print("  diagram-numbering: skipped (matching failed)")
         return holes
     print(
-        "  diagram-numbering: applied (matched to "
-        "`0283-300-04` reference positions)."
+        "  diagram-numbering: applied (matched to `0283-300-04` reference positions)."
     )
     return new_holes  # type: ignore[return-value]
 
@@ -522,46 +530,93 @@ def holes_to_yaml(holes: list[Hole]) -> dict:
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("mesh", type=Path, help="Path to implant OBJ")
-    p.add_argument("-o", "--output", type=Path, default=None,
-                   help="Where to write the YAML (default: <mesh>.holes.yml)")
-    p.add_argument("--source-space", default="ASR",
-                   help="Coordinate system of the input mesh (canonicalize to LPS)")
-    p.add_argument("--scale", type=float, default=1.0,
-                   help="Scale factor to mm")
-    p.add_argument("--axis", default="z", choices=["x", "y", "z"],
-                   help="Global probe axis (LPS frame)")
-    p.add_argument("--n-sections", type=int, default=3,
-                   help="Sections per hole (top, middle, bottom)")
-    p.add_argument("--max-outer-ray-mm", type=float, default=1.3,
-                   help="Outer-ray SDF threshold (mm). Bore walls have "
-                        "outer-ray hit ≈ bore diameter; everything else "
-                        "escapes to infinity. 1.3 mm covers typical "
-                        "implant bore sizes (1.2 × 0.6 mm).")
-    p.add_argument("--ray-offset-mm", type=float, default=5e-4,
-                   help="Tiny offset along +normal so the source face "
-                        "doesn't hit itself (mm)")
-    p.add_argument("--min-face-count", type=int, default=6,
-                   help="Reject bores with fewer than this many wall faces")
-    p.add_argument("--max-tilt-deg", type=float, default=80.0,
-                   help="Reject merged bores whose axis is more tilted "
-                        "than this from the global axis (degrees)")
-    p.add_argument("--max-ring-radius", type=float, default=1.0,
-                   help="Drop perpendicular-section rings whose centroid "
-                        "is farther than this from the bore axis (mm)")
-    p.add_argument("--section-inset-mm", type=float, default=0.05,
-                   help="Inset section sample planes by this much from "
-                        "the wall-vertex extent (mm)")
-    p.add_argument("--min-section-a", type=float, default=0.10,
-                   help="Reject bores whose largest section a_mm is below this")
-    p.add_argument("--max-section-a", type=float, default=1.0,
-                   help="Reject bores whose largest section a_mm exceeds this")
     p.add_argument(
-        "--no-diagram-numbering", action="store_true",
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Where to write the YAML (default: <mesh>.holes.yml)",
+    )
+    p.add_argument(
+        "--source-space",
+        default="ASR",
+        help="Coordinate system of the input mesh (canonicalize to LPS)",
+    )
+    p.add_argument("--scale", type=float, default=1.0, help="Scale factor to mm")
+    p.add_argument(
+        "--axis",
+        default="z",
+        choices=["x", "y", "z"],
+        help="Global probe axis (LPS frame)",
+    )
+    p.add_argument(
+        "--n-sections",
+        type=int,
+        default=3,
+        help="Sections per hole (top, middle, bottom)",
+    )
+    p.add_argument(
+        "--max-outer-ray-mm",
+        type=float,
+        default=1.3,
+        help="Outer-ray SDF threshold (mm). Bore walls have "
+        "outer-ray hit ≈ bore diameter; everything else "
+        "escapes to infinity. 1.3 mm covers typical "
+        "implant bore sizes (1.2 × 0.6 mm).",
+    )
+    p.add_argument(
+        "--ray-offset-mm",
+        type=float,
+        default=5e-4,
+        help="Tiny offset along +normal so the source face doesn't hit itself (mm)",
+    )
+    p.add_argument(
+        "--min-face-count",
+        type=int,
+        default=6,
+        help="Reject bores with fewer than this many wall faces",
+    )
+    p.add_argument(
+        "--max-tilt-deg",
+        type=float,
+        default=80.0,
+        help="Reject merged bores whose axis is more tilted "
+        "than this from the global axis (degrees)",
+    )
+    p.add_argument(
+        "--max-ring-radius",
+        type=float,
+        default=1.0,
+        help="Drop perpendicular-section rings whose centroid "
+        "is farther than this from the bore axis (mm)",
+    )
+    p.add_argument(
+        "--section-inset-mm",
+        type=float,
+        default=0.05,
+        help="Inset section sample planes by this much from "
+        "the wall-vertex extent (mm)",
+    )
+    p.add_argument(
+        "--min-section-a",
+        type=float,
+        default=0.10,
+        help="Reject bores whose largest section a_mm is below this",
+    )
+    p.add_argument(
+        "--max-section-a",
+        type=float,
+        default=1.0,
+        help="Reject bores whose largest section a_mm exceeds this",
+    )
+    p.add_argument(
+        "--no-diagram-numbering",
+        action="store_true",
         help="Skip the manufacturer's diagram-ID re-assignment step "
-             "(apex + 5/5/3 anterior→posterior). For 14-hole "
-             "0283-300-04 implants this is on by default and produces "
-             "IDs that match the manufacturer's diagram. For other "
-             "implants it's a no-op."
+        "(apex + 5/5/3 anterior→posterior). For 14-hole "
+        "0283-300-04 implants this is on by default and produces "
+        "IDs that match the manufacturer's diagram. For other "
+        "implants it's a no-op.",
     )
     args = p.parse_args()
 

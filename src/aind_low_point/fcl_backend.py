@@ -111,9 +111,7 @@ class FCLBackend(CollisionBackend):
         found_pairs: List[Tuple[str, str]] = []
 
         def _cb(o1, o2, _cdata):
-            req = fcl.CollisionRequest(
-                enable_contact=False, num_max_contacts=1
-            )
+            req = fcl.CollisionRequest(enable_contact=False, num_max_contacts=1)
             res = fcl.CollisionResult()
             fcl.collide(o1, o2, req, res)
             if res.is_collision and res.contacts:
@@ -132,10 +130,7 @@ class FCLBackend(CollisionBackend):
             return False  # never stop early
 
         self._mgr.collide(fcl.CollisionData(), _cb)
-        return [
-            CollisionPair(id1=a, id2=b, contacts=())
-            for a, b in set(found_pairs)
-        ]
+        return [CollisionPair(id1=a, id2=b, contacts=()) for a, b in set(found_pairs)]
 
     def collide_one_to_many(
         self, spec: ObjSpec, *, enable_contacts: bool, max_contacts: int

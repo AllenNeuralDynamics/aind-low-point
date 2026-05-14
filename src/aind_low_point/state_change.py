@@ -74,9 +74,7 @@ class AsyncLatestWorker:
         )
         self._thread.start()
 
-    def __call__(
-        self, plan: PlanningState, changed_ids: List[str]
-    ) -> None:
+    def __call__(self, plan: PlanningState, changed_ids: List[str]) -> None:
         """Store subscriber entry point (main thread)."""
         with self._lock:
             self._pending_ids.update(changed_ids)

@@ -260,9 +260,7 @@ class RendererAdapter:
         # ``pivot_LPS`` shows up in pose.tip. Pivot is baked once
         # there; the legacy ``get_pivot_for_asset`` wrap stays at its
         # no-op default to avoid double-application.
-        return PoseResolver(
-            scene=self.scene, plan=plan, catalog=self.assets
-        )
+        return PoseResolver(scene=self.scene, plan=plan, catalog=self.assets)
 
     def _resolve_material(self, node: NodeInstance) -> Material:
         if node.material_override is not None:
@@ -290,9 +288,7 @@ class RendererAdapter:
             base_mesh = geom.raw
 
             if self.backend.has_node(node.key):
-                self.backend.update_mesh(
-                    node.key, material=vm, model_matrix=M
-                )
+                self.backend.update_mesh(node.key, material=vm, model_matrix=M)
             else:
                 self.backend.create_mesh(
                     node.key,
@@ -305,9 +301,7 @@ class RendererAdapter:
 
         elif isinstance(geom, PointsTransformable):
             if self.backend.has_node(node.key):
-                self.backend.update_points(
-                    node.key, material=vm, model_matrix=M
-                )
+                self.backend.update_points(node.key, material=vm, model_matrix=M)
             else:
                 self.backend.create_points(
                     node.key,

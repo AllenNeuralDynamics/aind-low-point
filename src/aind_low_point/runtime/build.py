@@ -23,14 +23,12 @@ from aind_low_point.config import (
     _merge_dict_shallow,
 )
 from aind_low_point.core import (
-    AffineTransform,
     Float3,
     Material,
     MeshTransformable,
     PointsTransformable,
 )
 from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
-from aind_low_point.scene import NodeInstance, Scene, resolve_base_geometry
 from aind_low_point.runtime.calibration import _get_calibration_rt
 from aind_low_point.runtime.canonicalize import (
     CanonicalizationRuntime,
@@ -42,11 +40,11 @@ from aind_low_point.runtime.canonicalize import (
 from aind_low_point.runtime.chem_shift import ChemShiftContext, _should_apply_chem
 from aind_low_point.runtime.loaders import (
     GeometryOut,
-    _GEOMETRY_LOADER_REGISTRY,
     load_geometry,
 )
 from aind_low_point.runtime.reducers import _REDUCER_REGISTRY
 from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_low_point.scene import NodeInstance, Scene, resolve_base_geometry
 
 
 def _compile_collision_labels(labels_in_use: Iterable[str]) -> dict[str, int]:
@@ -173,9 +171,7 @@ def _load_geo(
         if _should_apply_chem(spec, chem):
             tf = chem.pt_transform_for_ppm(spec.chem_shift_ppm)
             shifted = tf.apply_to(geo.vertices)
-            geo = trimesh.Trimesh(
-                vertices=shifted, faces=geo.faces, process=False
-            )
+            geo = trimesh.Trimesh(vertices=shifted, faces=geo.faces, process=False)
         return geo
 
     if isinstance(geo, np.ndarray):

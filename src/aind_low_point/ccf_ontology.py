@@ -56,9 +56,7 @@ class CCFOntology:
         """Load the ontology shipped inside the package (cached singleton)."""
         global _BUNDLED_ONTOLOGY
         if _BUNDLED_ONTOLOGY is None:
-            ref = (
-                resources.files("aind_low_point") / "data" / "allen_ccf_ontology.json"
-            )
+            ref = resources.files("aind_low_point") / "data" / "allen_ccf_ontology.json"
             with resources.as_file(ref) as p:
                 _BUNDLED_ONTOLOGY = cls.from_json(p)
         return _BUNDLED_ONTOLOGY

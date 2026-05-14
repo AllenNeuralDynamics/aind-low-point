@@ -48,10 +48,13 @@ def _make_hole(
     sec = HoleSection(
         axis=axis_arr,
         center=np.asarray(center, dtype=float),
-        a=a, b=b, theta=theta,
+        a=a,
+        b=b,
+        theta=theta,
     )
     return Hole(
-        id=hole_id, axis=axis_arr,
+        id=hole_id,
+        axis=axis_arr,
         ref_point=np.asarray(center, dtype=float),
         sections=[sec, sec, sec],
     )
@@ -66,7 +69,9 @@ def test_optimize_single_probe_returns_result():
     target = np.array([0.0, 0.0, -3.0])
     probes = [
         ProbeStaticInfo(
-            name="p1", target_LPS=target, kind="2.4",
+            name="p1",
+            target_LPS=target,
+            kind="2.4",
             shank_tips_local=_np24_tips(),
         )
     ]
@@ -75,8 +80,11 @@ def test_optimize_single_probe_returns_result():
         # CMA-ES likely missing; suppress the install-cma warning.
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=1, k_holes=1, k_arcs=1,
+            probes,
+            holes,
+            max_num_arcs=1,
+            k_holes=1,
+            k_arcs=1,
             slsqp_max_iter=50,
         )
     assert result is not None
@@ -95,8 +103,7 @@ def test_optimize_multi_probe_distinct_holes():
     """3 probes, 5 holes, 2 arcs — optimizer should assign distinct
     holes to each probe."""
     holes = [
-        _make_hole(j, center=(float(j) - 1, 0, 0), axis=(0, 0, 1))
-        for j in range(5)
+        _make_hole(j, center=(float(j) - 1, 0, 0), axis=(0, 0, 1)) for j in range(5)
     ]
     probes = [
         ProbeStaticInfo(
@@ -110,9 +117,12 @@ def test_optimize_multi_probe_distinct_holes():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=2, min_num_arcs=1,
-            k_holes=3, k_arcs=2,
+            probes,
+            holes,
+            max_num_arcs=2,
+            min_num_arcs=1,
+            k_holes=3,
+            k_arcs=2,
             slsqp_max_iter=50,
         )
     assert result is not None
@@ -153,9 +163,12 @@ def test_optimize_max_num_arcs_capped():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=2, min_num_arcs=2,
-            k_holes=2, k_arcs=2,
+            probes,
+            holes,
+            max_num_arcs=2,
+            min_num_arcs=2,
+            k_holes=2,
+            k_arcs=2,
             arc_count_penalty_deg2=0.0,
             slsqp_max_iter=30,
         )
@@ -183,9 +196,7 @@ def test_optimize_arc_count_penalty_prefers_fewer_arcs():
     probes = [
         ProbeStaticInfo(
             name=f"p{i}",
-            target_LPS=np.array(
-                [float(i) * 5, 0.0, -3.0], dtype=np.float64
-            ),
+            target_LPS=np.array([float(i) * 5, 0.0, -3.0], dtype=np.float64),
             kind="2.1",
             shank_tips_local=_single_shank_tips(),
         )
@@ -196,15 +207,23 @@ def test_optimize_arc_count_penalty_prefers_fewer_arcs():
         # No penalty → 4 separate arcs likely wins (each probe tightly
         # clustered alone).
         no_penalty = optimize(
-            probes, holes,
-            max_num_arcs=4, min_num_arcs=2, k_holes=1, k_arcs=5,
+            probes,
+            holes,
+            max_num_arcs=4,
+            min_num_arcs=2,
+            k_holes=1,
+            k_arcs=5,
             arc_count_penalty_deg2=0.0,
             slsqp_max_iter=20,
         )
         # Big penalty → 2-arc result wins.
         with_penalty = optimize(
-            probes, holes,
-            max_num_arcs=4, min_num_arcs=2, k_holes=1, k_arcs=5,
+            probes,
+            holes,
+            max_num_arcs=4,
+            min_num_arcs=2,
+            k_holes=1,
+            k_arcs=5,
             arc_count_penalty_deg2=10000.0,
             slsqp_max_iter=20,
         )
@@ -230,15 +249,20 @@ def test_optimize_no_feasible_holes_returns_none():
     ]
     probes = [
         ProbeStaticInfo(
-            name="p", target_LPS=np.zeros(3), kind="2.4",
+            name="p",
+            target_LPS=np.zeros(3),
+            kind="2.4",
             shank_tips_local=_np24_tips(),
         )
     ]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=1, k_holes=1, k_arcs=1,
+            probes,
+            holes,
+            max_num_arcs=1,
+            k_holes=1,
+            k_arcs=1,
             slsqp_max_iter=10,
         )
     assert result is None
@@ -249,15 +273,21 @@ def test_optimize_warm_start_shape():
     holes = [_make_hole(0, center=(0, 0, 0), axis=(0, 0, 1))]
     probes = [
         ProbeStaticInfo(
-            name="p", target_LPS=np.array([0.0, 0.0, -3.0]),
-            kind="2.1", shank_tips_local=_single_shank_tips(),
+            name="p",
+            target_LPS=np.array([0.0, 0.0, -3.0]),
+            kind="2.1",
+            shank_tips_local=_single_shank_tips(),
         )
     ]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=1, k_holes=1, k_arcs=1, slsqp_max_iter=20,
+            probes,
+            holes,
+            max_num_arcs=1,
+            k_holes=1,
+            k_arcs=1,
+            slsqp_max_iter=20,
         )
     assert result is not None
     assert result.x.shape == (1 + 5 * 1,)
@@ -271,6 +301,7 @@ def test_optimize_against_build5_holes():
     pipeline with 4 NP 2.0 four-shank probes. Expect a feasible result
     with all probes assigned to distinct holes."""
     import os
+
     from aind_low_point.optimization.holes import load_holes
 
     yaml_path = os.path.expanduser("~/Downloads/0274-P-001.holes.yml")
@@ -283,8 +314,7 @@ def test_optimize_against_build5_holes():
     probes = [
         ProbeStaticInfo(
             name=f"P{i}",
-            target_LPS=holes[i].sections[-1].center
-            + np.array([0.0, 0.0, -5.0]),
+            target_LPS=holes[i].sections[-1].center + np.array([0.0, 0.0, -5.0]),
             kind="2.4",
             shank_tips_local=_np24_tips(),
         )
@@ -293,9 +323,12 @@ def test_optimize_against_build5_holes():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=2, min_num_arcs=1,
-            k_holes=3, k_arcs=2,
+            probes,
+            holes,
+            max_num_arcs=2,
+            min_num_arcs=1,
+            k_holes=3,
+            k_arcs=2,
             slsqp_max_iter=30,
         )
     assert result is not None
@@ -353,7 +386,9 @@ def test_plan_candidate_feasible_outranks_infeasible():
     higher coverage (lex order: feasibility first)."""
     feasible_low = _bare_candidate(coverage=1.0)
     infeasible_high = _bare_candidate(
-        max_violation=0.05, sum_violation_sq=0.01, coverage=10.0,
+        max_violation=0.05,
+        sum_violation_sq=0.01,
+        coverage=10.0,
     )
     assert feasible_low.feasible
     assert not infeasible_high.feasible
@@ -379,7 +414,8 @@ def test_plan_candidate_threshold_promotes_high_coverage():
     low_cov_strict = _bare_candidate(max_violation=0.1, coverage=0.0)
     # Strict (default 0): low_cov_strict wins because max_viol smaller.
     cands = sorted(
-        [high_cov_marginal, low_cov_strict], key=PlanCandidate.lex_key,
+        [high_cov_marginal, low_cov_strict],
+        key=PlanCandidate.lex_key,
     )
     assert cands[0] is low_cov_strict
     # ε = 0.5: both cleared, coverage breaks tie → high_cov_marginal wins.
@@ -397,7 +433,8 @@ def test_plan_candidate_threshold_does_not_help_strictly_infeasible():
     barely_over = _bare_candidate(max_violation=0.6, coverage=0.0)
     deeply_over = _bare_candidate(max_violation=1.0, coverage=100.0)
     cands = sorted(
-        [barely_over, deeply_over], key=lambda c: c.lex_key(0.5),
+        [barely_over, deeply_over],
+        key=lambda c: c.lex_key(0.5),
     )
     assert cands[0] is barely_over
 
@@ -412,10 +449,12 @@ def test_plan_candidate_violation_magnitude_breaks_infeasible_ties():
 
 
 def test_format_plan_table_lists_all_candidates():
-    table = format_plan_table((
-        _bare_candidate(coverage=3.0),
-        _bare_candidate(max_violation=0.02, coverage=5.0),
-    ))
+    table = format_plan_table(
+        (
+            _bare_candidate(coverage=3.0),
+            _bare_candidate(max_violation=0.02, coverage=5.0),
+        )
+    )
     assert "feas?" in table
     assert "yes" in table
     assert "no" in table
@@ -432,8 +471,7 @@ def test_optimize_returns_alternatives_sorted():
     """End-to-end: ``optimize()`` populates ``alternatives`` and they're
     ranked by ``PlanCandidate.lex_key``."""
     holes = [
-        _make_hole(j, center=(float(j) - 1, 0, 0), axis=(0, 0, 1))
-        for j in range(3)
+        _make_hole(j, center=(float(j) - 1, 0, 0), axis=(0, 0, 1)) for j in range(3)
     ]
     probes = [
         ProbeStaticInfo(
@@ -447,8 +485,11 @@ def test_optimize_returns_alternatives_sorted():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = optimize(
-            probes, holes,
-            max_num_arcs=2, k_holes=2, k_arcs=2,
+            probes,
+            holes,
+            max_num_arcs=2,
+            k_holes=2,
+            k_arcs=2,
             slsqp_max_iter=30,
         )
     assert result is not None

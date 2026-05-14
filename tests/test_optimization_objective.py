@@ -22,7 +22,6 @@ from aind_low_point.optimization.objective import (
 )
 from aind_low_point.optimization.recording import RecordingGeometry
 
-
 # -- VariableLayout --------------------------------------------------------
 
 
@@ -65,25 +64,31 @@ def _make_axis_aligned_hole() -> Hole:
     axis = np.array([0.0, 0.0, 1.0])
     theta = np.pi / 2
     sections = [
-        HoleSection(axis=axis, center=np.array([0, 0, 0.5]),
-                    a=0.65, b=0.42, theta=theta),
-        HoleSection(axis=axis, center=np.array([0, 0, 0.0]),
-                    a=0.60, b=0.35, theta=theta),
-        HoleSection(axis=axis, center=np.array([0, 0, -0.5]),
-                    a=0.60, b=0.35, theta=theta),
+        HoleSection(
+            axis=axis, center=np.array([0, 0, 0.5]), a=0.65, b=0.42, theta=theta
+        ),
+        HoleSection(
+            axis=axis, center=np.array([0, 0, 0.0]), a=0.60, b=0.35, theta=theta
+        ),
+        HoleSection(
+            axis=axis, center=np.array([0, 0, -0.5]), a=0.60, b=0.35, theta=theta
+        ),
     ]
     return Hole(id=0, axis=axis, ref_point=np.zeros(3), sections=sections)
 
 
-def _make_single_probe_ctx(target=(0, 0, -2.0), arc_id="arc0",
-                           kind="2.4") -> ProbeContext:
+def _make_single_probe_ctx(
+    target=(0, 0, -2.0), arc_id="arc0", kind="2.4"
+) -> ProbeContext:
     """4-shank context with target below the hole entry."""
-    tips_local = np.array([
-        [0.0, 0.0, 0.0],
-        [0.25, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [0.75, 0.0, 0.0],
-    ])
+    tips_local = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.25, 0.0, 0.0],
+            [0.5, 0.0, 0.0],
+            [0.75, 0.0, 0.0],
+        ]
+    )
     geom = RecordingGeometry(active_ranges_mm=tuple([(0.200, 0.905)] * 4))
     return ProbeContext(
         name="p1",
@@ -106,8 +111,11 @@ def test_evaluate_probe_axis_aligned_pose():
     ctx = OptimizerContext(layout=layout, probes=(probe,))
     ev = evaluate_probe(
         probe,
-        ap_deg=0.0, ml_deg=0.0, spin_deg=0.0,
-        off_R_mm=0.0, off_A_mm=0.0,
+        ap_deg=0.0,
+        ml_deg=0.0,
+        spin_deg=0.0,
+        off_R_mm=0.0,
+        off_A_mm=0.0,
         past_target_mm=0.0,
         ctx=ctx,
     )
@@ -137,17 +145,24 @@ def test_pairwise_headstage_clearance_two_capsules():
     """Two parallel headstage capsules at xy-offset 4 mm, radii 2 each
     → clearance = 4 - 4 = 0 (touching)."""
     from aind_low_point.optimization.objective import ProbeEvaluation
+
     cap_a = Capsule(np.array([0, 0, 10]), np.array([0, 0, 15]), 2.0)
     cap_b = Capsule(np.array([4, 0, 10]), np.array([4, 0, 15]), 2.0)
     evals = [
         ProbeEvaluation(
-            R=np.eye(3), pose_tip=np.zeros(3),
-            shanks=[], headstage=cap_a, coverage=0.0,
+            R=np.eye(3),
+            pose_tip=np.zeros(3),
+            shanks=[],
+            headstage=cap_a,
+            coverage=0.0,
             threading_gs=np.zeros(0),
         ),
         ProbeEvaluation(
-            R=np.eye(3), pose_tip=np.zeros(3),
-            shanks=[], headstage=cap_b, coverage=0.0,
+            R=np.eye(3),
+            pose_tip=np.zeros(3),
+            shanks=[],
+            headstage=cap_b,
+            coverage=0.0,
             threading_gs=np.zeros(0),
         ),
     ]
@@ -158,12 +173,17 @@ def test_pairwise_headstage_clearance_two_capsules():
 
 def test_pairwise_headstage_clearance_single_probe_empty():
     from aind_low_point.optimization.objective import ProbeEvaluation
-    evals = [ProbeEvaluation(
-        R=np.eye(3), pose_tip=np.zeros(3),
-        shanks=[],
-        headstage=Capsule(np.zeros(3), np.array([0, 0, 5]), 2.0),
-        coverage=0.0, threading_gs=np.zeros(0),
-    )]
+
+    evals = [
+        ProbeEvaluation(
+            R=np.eye(3),
+            pose_tip=np.zeros(3),
+            shanks=[],
+            headstage=Capsule(np.zeros(3), np.array([0, 0, 5]), 2.0),
+            coverage=0.0,
+            threading_gs=np.zeros(0),
+        )
+    ]
     out = pairwise_headstage_clearances(evals)
     assert out.shape == (0,)
 
@@ -253,11 +273,21 @@ def test_objective_kinematic_violation_penalty():
     ctx = OptimizerContext(layout=layout, probes=(probe_a, probe_b))
 
     # ML difference of 5° (< 16° threshold)
-    x = np.array([
-        0.0,                                 # ap_arc0
-        0.0, 0.0, 0.375, 0.0, 0.5525,         # p1: ml=0
-        5.0, 0.0, 0.375, 0.0, 0.5525,         # p2: ml=5
-    ])
+    x = np.array(
+        [
+            0.0,  # ap_arc0
+            0.0,
+            0.0,
+            0.375,
+            0.0,
+            0.5525,  # p1: ml=0
+            5.0,
+            0.0,
+            0.375,
+            0.0,
+            0.5525,  # p2: ml=5
+        ]
+    )
     breakdown = evaluate_objective(x, ctx)
     assert breakdown.kinematic_penalty > 0.0
 
@@ -265,8 +295,10 @@ def test_objective_kinematic_violation_penalty():
 def test_objective_kinematic_penalty_zero_when_well_separated():
     probe_a = _make_single_probe_ctx(target=(0, 0, -2.0), arc_id="arc0")
     probe_b = ProbeContext(
-        name="p2", target_LPS=probe_a.target_LPS,
-        kind=probe_a.kind, arc_id="arc0",
+        name="p2",
+        target_LPS=probe_a.target_LPS,
+        kind=probe_a.kind,
+        arc_id="arc0",
         shank_tips_local=probe_a.shank_tips_local,
         assigned_hole=probe_a.assigned_hole,
         density_fn=probe_a.density_fn,
@@ -276,11 +308,21 @@ def test_objective_kinematic_penalty_zero_when_well_separated():
     ctx = OptimizerContext(layout=layout, probes=(probe_a, probe_b))
 
     # ML difference of 20° (> 16° threshold)
-    x = np.array([
-        0.0,
-        0.0, 0.0, 0.375, 0.0, 0.5525,
-        20.0, 0.0, 0.375, 0.0, 0.5525,
-    ])
+    x = np.array(
+        [
+            0.0,
+            0.0,
+            0.0,
+            0.375,
+            0.0,
+            0.5525,
+            20.0,
+            0.0,
+            0.375,
+            0.0,
+            0.5525,
+        ]
+    )
     breakdown = evaluate_objective(x, ctx)
     assert breakdown.kinematic_penalty == pytest.approx(0.0)
 
@@ -294,6 +336,7 @@ def test_make_objective_returns_callable():
     assert isinstance(J(x), float)
     # Same value as scalar_objective
     from aind_low_point.optimization.objective import scalar_objective
+
     assert J(x) == scalar_objective(x, ctx)
 
 
@@ -314,8 +357,10 @@ def test_objective_weights_zero_disables_terms():
     probe = _make_single_probe_ctx(target=(0, 0, -2.0))
     layout = VariableLayout(arc_ids=("arc0",), probe_names=("p1",))
     weights = ObjectiveWeights(
-        lambda_threading=0.0, lambda_clearance=0.0,
-        lambda_kinematic=0.0, lambda_margin=0.0,
+        lambda_threading=0.0,
+        lambda_clearance=0.0,
+        lambda_kinematic=0.0,
+        lambda_margin=0.0,
     )
     ctx = OptimizerContext(layout=layout, probes=(probe,), weights=weights)
     x = np.array([0.0, 0.0, 0.0, 0.375, 0.0, 0.5525])

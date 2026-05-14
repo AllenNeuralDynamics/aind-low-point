@@ -38,13 +38,10 @@ from numpy.typing import ArrayLike, NDArray
 from aind_low_point.optimization.geometry import Capsule
 from aind_low_point.optimization.recording import RecordingGeometry
 
-
 DensityFn = Callable[[NDArray[np.floating]], NDArray[np.floating]]
 
 
-def gaussian_density(
-    target_LPS: ArrayLike, sigma_mm: float = 0.5
-) -> DensityFn:
+def gaussian_density(target_LPS: ArrayLike, sigma_mm: float = 0.5) -> DensityFn:
     """Return a Gaussian density centered on ``target_LPS`` with
     isotropic standard deviation ``sigma_mm``.
 
@@ -138,7 +135,10 @@ def coverage(
         shank_capsules, recording_geom.active_ranges_mm
     ):
         total += integrate_density_along_shank(
-            density_fn, shank,
-            start_mm=start_mm, end_mm=end_mm, n_samples=n_samples,
+            density_fn,
+            shank,
+            start_mm=start_mm,
+            end_mm=end_mm,
+            n_samples=n_samples,
         )
     return total

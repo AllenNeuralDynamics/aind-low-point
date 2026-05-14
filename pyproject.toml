@@ -71,6 +71,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 [tool.ruff]
 line-length = 88
 target-version = "py313"
+extend-exclude = ["scripts/reference_k3d_notebook.py"]
 
 [tool.ruff.lint]
 extend-select = ["Q", "RUF100", "C90", "I", "F", "E", "W"]

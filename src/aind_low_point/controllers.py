@@ -342,9 +342,11 @@ class ProbeWidgetController:
 
         # Probe switch
         self.probe_dd.observe(
-            lambda ch: self._load_probe_into_widgets(ch["new"])
-            if ch["name"] == "value"
-            else None,
+            lambda ch: (
+                self._load_probe_into_widgets(ch["new"])
+                if ch["name"] == "value"
+                else None
+            ),
             names="value",
         )
 

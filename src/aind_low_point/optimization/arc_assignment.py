@@ -42,7 +42,6 @@ from numpy.typing import NDArray
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import required_ap_deg
 
-
 # ---------------------------------------------------------------------------
 # Inputs / outputs
 # ---------------------------------------------------------------------------
@@ -99,9 +98,7 @@ def required_aps_deg_for_assignment(
 # ---------------------------------------------------------------------------
 
 
-def _arc_centroids(
-    aps: NDArray, arc_idxs: NDArray, num_arcs: int
-) -> NDArray:
+def _arc_centroids(aps: NDArray, arc_idxs: NDArray, num_arcs: int) -> NDArray:
     """Per-arc mean of the AP angles assigned to that arc. Empty arcs
     return NaN for that slot — callers detect via ``isnan``."""
     out = np.full(num_arcs, np.nan, dtype=np.float64)
@@ -112,9 +109,7 @@ def _arc_centroids(
     return out
 
 
-def _within_cluster_cost(
-    aps: NDArray, arc_idxs: NDArray, num_arcs: int
-) -> float:
+def _within_cluster_cost(aps: NDArray, arc_idxs: NDArray, num_arcs: int) -> float:
     """Sum of squared deviations from each arc's centroid."""
     total = 0.0
     for k in range(num_arcs):
@@ -151,9 +146,7 @@ def _is_valid_partition(
     return True
 
 
-def project_centroids_min_sep(
-    centroids: NDArray, min_sep_deg: float
-) -> NDArray:
+def project_centroids_min_sep(centroids: NDArray, min_sep_deg: float) -> NDArray:
     """L2-optimal projection of arc centroids onto the chained constraint
     ``c_{σ(k+1)} − c_{σ(k)} ≥ min_sep`` (in sorted order).
 
@@ -191,8 +184,8 @@ def project_centroids_min_sep(
             new_level = (
                 levels[k] * counts[k] + levels[k + 1] * counts[k + 1]
             ) / new_count
-            levels[k:k + 2] = [new_level]
-            counts[k:k + 2] = [new_count]
+            levels[k : k + 2] = [new_level]
+            counts[k : k + 2] = [new_count]
             if k > 0:
                 k -= 1
         else:
@@ -201,7 +194,7 @@ def project_centroids_min_sep(
     d = np.empty(n, dtype=np.float64)
     pos = 0
     for level, count in zip(levels, counts):
-        d[pos:pos + count] = level
+        d[pos : pos + count] = level
         pos += count
     c_proj_sorted = d + min_sep_deg * np.arange(n, dtype=np.float64)
     out = np.empty(n, dtype=np.float64)
@@ -209,9 +202,7 @@ def project_centroids_min_sep(
     return out
 
 
-def _arc_sep_shortfall_sq(
-    centroids: NDArray, min_arc_ap_sep_deg: float
-) -> float:
+def _arc_sep_shortfall_sq(centroids: NDArray, min_arc_ap_sep_deg: float) -> float:
     """``Σ_{i<j} max(0, min_sep − |c_i − c_j|)²`` — soft AP-separation
     cost on cluster centroids.
 
@@ -287,9 +278,7 @@ def enumerate_partitions(
         return []
     aps = np.asarray(required_aps_deg, dtype=np.float64)
     if aps.shape != (K,):
-        raise ValueError(
-            f"required_aps_deg has shape {aps.shape}; expected ({K},)"
-        )
+        raise ValueError(f"required_aps_deg has shape {aps.shape}; expected ({K},)")
 
     seen_canonical: set[tuple[int, ...]] = set()
     candidates: list[ArcAssignment] = []
@@ -300,7 +289,9 @@ def enumerate_partitions(
         if np.isnan(centroids).any():
             continue
         if not _is_valid_partition(
-            arc_idxs, centroids, max_per_arc=max_per_arc,
+            arc_idxs,
+            centroids,
+            max_per_arc=max_per_arc,
         ):
             continue
         canonical_idxs, canonical_centroids = _canonical_arc_relabel(
@@ -320,14 +311,8 @@ def enumerate_partitions(
         projected_centroids = project_centroids_min_sep(
             canonical_centroids, min_arc_ap_sep_deg
         )
-        tilt_cost = float(
-            np.sum(
-                (aps - projected_centroids[canonical_idxs]) ** 2
-            )
-        )
-        shortfall_sq = _arc_sep_shortfall_sq(
-            canonical_centroids, min_arc_ap_sep_deg
-        )
+        tilt_cost = float(np.sum((aps - projected_centroids[canonical_idxs]) ** 2))
+        shortfall_sq = _arc_sep_shortfall_sq(canonical_centroids, min_arc_ap_sep_deg)
         if not np.isfinite(arc_sep_shortfall_weight) and shortfall_sq > 0.0:
             # Treat ``+inf`` weight as a hard reject — convenience knob.
             continue
@@ -343,9 +328,7 @@ def enumerate_partitions(
                 # Hand the inner loop the *projected* centroids as the
                 # warm start so SLSQP doesn't waste Stage A pushing them
                 # apart from a tightly clustered seed.
-                arc_centroids_deg=tuple(
-                    float(c) for c in projected_centroids
-                ),
+                arc_centroids_deg=tuple(float(c) for c in projected_centroids),
                 cost=cost,
             )
         )
@@ -405,7 +388,9 @@ def solve_top_k_arc_assignments(
     all_candidates: list[ArcAssignment] = []
     for n_arcs in range(min_num_arcs, max_num_arcs + 1):
         candidates = enumerate_partitions(
-            probe_names, aps, n_arcs,
+            probe_names,
+            aps,
+            n_arcs,
             max_per_arc=max_per_arc,
             min_arc_ap_sep_deg=min_arc_ap_sep_deg,
             arc_sep_shortfall_weight=arc_sep_shortfall_weight,

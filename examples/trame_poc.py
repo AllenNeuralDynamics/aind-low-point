@@ -21,9 +21,7 @@ state, ctrl = server.state, server.controller
 
 # --- Create mesh and plotter ---
 probe_shaft = pv.Cylinder(radius=0.1, height=5.0, center=(0, 0, 2.5))
-probe_tip = pv.Cone(
-    radius=0.15, height=0.5, center=(0, 0, -0.25), direction=(0, 0, -1)
-)
+probe_tip = pv.Cone(radius=0.15, height=0.5, center=(0, 0, -0.25), direction=(0, 0, -1))
 probe_mesh = probe_shaft + probe_tip
 
 pl = pv.Plotter()

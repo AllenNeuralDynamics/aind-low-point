@@ -1048,11 +1048,8 @@ class RangeTargetSpecModel(BaseModel):
                 overrides["src"] = Path(self.src.replace("{n}", n_str))
             if self.source_key is not None:
                 overrides["source_key"] = self.source_key.replace("{n}", n_str)
-            kwargs = _passthrough_kwargs(
-                self, {"key_pattern", "range"}, overrides
-            )
-            results.append(TargetSpecModel(**kwargs)
-            )
+            kwargs = _passthrough_kwargs(self, {"key_pattern", "range"}, overrides)
+            results.append(TargetSpecModel(**kwargs))
         return results
 
 
@@ -1153,9 +1150,7 @@ class DerivedTargetSpecModel(BaseModel):
                 "key": f"{self.key_prefix}{suffix}",
                 "source_key": asset_key,
             }
-            kwargs = _passthrough_kwargs(
-                self, {"derive_from", "key_prefix"}, overrides
-            )
+            kwargs = _passthrough_kwargs(self, {"derive_from", "key_prefix"}, overrides)
             results.append(TargetSpecModel(**kwargs))
         return results
 
@@ -1463,13 +1458,10 @@ class ConfigModel(BaseModel):
             if not isinstance(item.derive_from, str):
                 continue
             pattern = item.derive_from
-            matched = sorted(
-                k for k in asset_keys if fnmatch.fnmatch(k, pattern)
-            )
+            matched = sorted(k for k in asset_keys if fnmatch.fnmatch(k, pattern))
             if not matched:
                 errors.append(
-                    f"derive_target glob '{pattern}' "
-                    "matched no assets after expansion"
+                    f"derive_target glob '{pattern}' matched no assets after expansion"
                 )
                 item.derive_from = []
                 continue
@@ -1478,10 +1470,7 @@ class ConfigModel(BaseModel):
         expanded_targets: list[TargetSpecModel] = []
         for item in self.targets:
             if isinstance(item, (RangeTargetSpecModel, DerivedTargetSpecModel)):
-                if (
-                    isinstance(item, DerivedTargetSpecModel)
-                    and not item.derive_from
-                ):
+                if isinstance(item, DerivedTargetSpecModel) and not item.derive_from:
                     continue  # glob match was empty; already reported
                 expanded_targets.extend(item.expand())
             else:
