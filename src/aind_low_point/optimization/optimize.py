@@ -25,10 +25,11 @@ note. Install ``cma`` to enable the global stage.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 import numpy as np
+import trimesh
 from numpy.typing import NDArray
 from scipy.optimize import minimize
 
@@ -48,6 +49,7 @@ from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
     shank_capsules_from_pose,
 )
+from aind_low_point.optimization.headstages import make_fcl_convex
 from aind_low_point.optimization.objective import (
     ObjectiveBreakdown,
     ObjectiveWeights,
@@ -77,7 +79,10 @@ class ProbeStaticInfo:
 
     Combines what the outer + inner layers each need: target, kind,
     detected shank tips. ``density_sigma_mm`` controls the coverage
-    objective's Gaussian width.
+    objective's Gaussian width. ``headstage_hull`` (optional) is the
+    canonical-local convex hull of the probe body; when provided, the
+    inner-loop clearance constraint uses FCL Convex / GJK on it
+    instead of the legacy capsule.
     """
 
     name: str
@@ -85,6 +90,7 @@ class ProbeStaticInfo:
     kind: str
     shank_tips_local: NDArray[np.floating]
     density_sigma_mm: float = 0.5
+    headstage_hull: trimesh.Trimesh | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +236,7 @@ def _build_inner_context(
     fallback_geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
 
     probe_contexts: list[ProbeContext] = []
+    headstage_objs: list[object] = []  # fcl.CollisionObject | None
     for p in probes:
         hole_id = hole_assignment.probe_to_hole[p.name]
         arc_idx = arc_assignment.probe_to_arc_idx[p.name]
@@ -249,6 +256,14 @@ def _build_inner_context(
                 recording_geom=geom,
             )
         )
+        # Build a fresh FCL Convex CollisionObject per probe. The hull
+        # vertices live in the canonical-local frame; per-iteration the
+        # objective updates each object's transform from the optimizer's
+        # current (R, pose_tip).
+        if p.headstage_hull is not None:
+            headstage_objs.append(make_fcl_convex(p.headstage_hull))
+        else:
+            headstage_objs.append(None)
 
     return OptimizerContext(
         layout=layout,
@@ -257,6 +272,7 @@ def _build_inner_context(
         threading_oval_tolerance=threading_oval_tolerance,
         clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
         subject_from_rig_rot=subject_from_rig_rot,
+        headstage_fcl_objs=tuple(headstage_objs),
     )
 
 
@@ -348,6 +364,7 @@ def _ctx_with_weights(ctx: OptimizerContext, w: ObjectiveWeights) -> OptimizerCo
         weights=w,
         shaft_length_mm=ctx.shaft_length_mm,
         shank_radius_mm=ctx.shank_radius_mm,
+        headstage_fcl_objs=ctx.headstage_fcl_objs,
         headstage_base_along_shaft_mm=ctx.headstage_base_along_shaft_mm,
         headstage_length_mm=ctx.headstage_length_mm,
         headstage_radius_mm=ctx.headstage_radius_mm,
@@ -979,6 +996,7 @@ def polish_seed(
             weights=ctx.weights,
             shaft_length_mm=ctx.shaft_length_mm,
             shank_radius_mm=ctx.shank_radius_mm,
+            headstage_fcl_objs=ctx.headstage_fcl_objs,
             headstage_base_along_shaft_mm=ctx.headstage_base_along_shaft_mm,
             headstage_length_mm=ctx.headstage_length_mm,
             headstage_radius_mm=ctx.headstage_radius_mm,

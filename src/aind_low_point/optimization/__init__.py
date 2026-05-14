@@ -27,6 +27,11 @@ from aind_low_point.optimization.geometry import (
     segment_to_segment_dist,
     shaft_section_oval_value,
 )
+from aind_low_point.optimization.headstages import (
+    build_headstage_hull,
+    detect_body_region,
+    make_fcl_convex,
+)
 from aind_low_point.optimization.hole_assignment import (
     AssignmentProbe,
     CostWeights,
@@ -102,9 +107,11 @@ __all__ = [
     "angle_to_target_rad",
     "best_fit_hole_id_at_pose",
     "build_cost_matrix",
+    "build_headstage_hull",
     "cap_basis",
     "capsule_capsule_dist",
     "coverage",
+    "detect_body_region",
     "enumerate_partitions",
     "evaluate_objective",
     "evaluate_probe",
@@ -116,6 +123,7 @@ __all__ = [
     "integrate_density_along_shank",
     "kinematic_separations",
     "load_holes",
+    "make_fcl_convex",
     "make_objective",
     "optimize",
     "pairwise_headstage_clearances",

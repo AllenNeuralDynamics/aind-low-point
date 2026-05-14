@@ -98,11 +98,19 @@ def _probe_static_info(plan_state, runtime, name: str) -> ProbeStaticInfo:
         tips_local = detect_shank_tips_local(geom.raw)
     else:
         tips_local = np.zeros((1, 3), dtype=np.float64)
+    # Pull the per-kind body hull built at runtime-build time. ``None``
+    # for pipettes and any kind whose body region is too degenerate to
+    # hull; those probes are skipped from the pairwise clearance check.
+    asset_spec = runtime.asset_catalog.assets.get(asset_key)
+    headstage_hull = (
+        asset_spec.headstage_hull if asset_spec is not None else None
+    )
     return ProbeStaticInfo(
         name=name,
         target_LPS=target_lps,
         kind=plan.kind,
         shank_tips_local=tips_local,
+        headstage_hull=headstage_hull,
     )
 
 
