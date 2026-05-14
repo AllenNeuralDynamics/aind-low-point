@@ -22,21 +22,26 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from aind_low_point.config import ConfigModel
+from aind_low_point.config import ConfigModel, PlanningModel
 from aind_low_point.optimization.geometry import HoleSection
 from aind_low_point.optimization.holes import Hole, load_holes
 from aind_low_point.optimization.optimize import (
     OptimizationResult,
+    PlanCandidate,
     ProbeStaticInfo,
+    best_fit_hole_id_at_pose,
     format_plan_table,
     optimize,
+    polish_seed,
 )
 from aind_low_point.runtime import (
     build_runtime_from_config,
     detect_shank_tips_local,
     save_plan_to_config,
 )
+from aind_low_point.runtime.export import apply_plan_model_to_state
 from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_low_point.state_change import PlanStore
 
 
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
@@ -123,6 +128,194 @@ def _apply_result_to_plan_state(plan_state, result: OptimizationResult) -> None:
         ml, spin, off_R, off_A, depth = result.x[offset : offset + 5]
         plan = plan_state.probes[name]
         plan.arc_id = arc_letters[result.probe_to_arc_idx[name]]
+        plan.bind_ap_to_arc = True
+        plan.ap_local = 0.0
+        plan.ml_local = float(ml)
+        plan.spin = float(spin)
+        plan.offsets_RA = (float(off_R), float(off_A))
+        plan.past_target_mm = float(depth)
+
+
+def _run_seed_polish(
+    probes, plan_state, holes, *, args, stage_mults, subject_from_rig_rot=None
+):
+    """Run the inner solve from a seed plan that was already applied to
+    ``plan_state`` by the caller. Skips outer + middle layers entirely.
+
+    Builds the discrete (probe→hole, probe→arc) assignments from the seed
+    plan's current PlanningState (hole auto-detected per-probe by static
+    threading max_g; arc ordering by ascending AP angle), packages an x0
+    vector from the per-probe plan variables, and calls ``polish_seed``.
+    """
+    probe_names = [p.name for p in probes]
+
+    # Arc letter → arc_idx by ascending AP angle (matches optimizer's
+    # arc_0..arc_{n-1} convention).
+    arc_letters_used: dict[str, float] = {}
+    for name in probe_names:
+        plan = plan_state.probes[name]
+        if plan.arc_id is None:
+            print(f"Probe {name}: arc_id is None in seed plan; aborting.")
+            return 1
+        arc_letter: str = plan.arc_id
+        ap = float(plan_state.kinematics.get_arc(arc_letter))
+        arc_letters_used[arc_letter] = ap
+    sorted_letters = sorted(arc_letters_used, key=lambda k: arc_letters_used[k])
+    letter_to_idx = {letter: i for i, letter in enumerate(sorted_letters)}
+    arc_centroids_deg = tuple(arc_letters_used[L] for L in sorted_letters)
+    print(
+        f"Seed arcs (ascending AP): "
+        f"{[(L, arc_letters_used[L]) for L in sorted_letters]}"
+    )
+
+    # Per-probe best-fit hole at the seed pose.
+    probe_to_hole: dict[str, int] = {}
+    probe_to_arc_idx: dict[str, int] = {}
+    seed_pose_max_g: dict[str, float] = {}
+    for ps in probes:
+        plan = plan_state.probes[ps.name]
+        assert plan.arc_id is not None
+        ap = float(plan_state.kinematics.get_arc(plan.arc_id))
+        hole_id, max_g = best_fit_hole_id_at_pose(
+            ps,
+            holes,
+            ap_deg=ap,
+            ml_deg=float(plan.ml_local),
+            spin_deg=float(plan.spin),
+            off_R_mm=float(plan.offsets_RA[0]),
+            off_A_mm=float(plan.offsets_RA[1]),
+            past_target_mm=float(plan.past_target_mm),
+        )
+        probe_to_hole[ps.name] = hole_id
+        probe_to_arc_idx[ps.name] = letter_to_idx[plan.arc_id]
+        seed_pose_max_g[ps.name] = max_g
+    print("\nSeed probe → (hole, arc), with static threading max_g at seed pose:")
+    for name in probe_names:
+        plan = plan_state.probes[name]
+        print(
+            f"  {name:>4}  kind={plan.kind:<18} arc={plan.arc_id}  "
+            f"hole={probe_to_hole[name]:>2}  max_g={seed_pose_max_g[name]:+.4f}"
+        )
+
+    # Build x0 from the per-probe plan variables. Layout: arc APs first,
+    # then (ml, spin, off_R, off_A, depth) per probe in probe-list order.
+    n_arcs = len(sorted_letters)
+    n_vars = n_arcs + 5 * len(probe_names)
+    x0 = np.zeros(n_vars, dtype=np.float64)
+    for L, idx in letter_to_idx.items():
+        x0[idx] = arc_letters_used[L]
+    for p_idx, name in enumerate(probe_names):
+        plan = plan_state.probes[name]
+        off = n_arcs + 5 * p_idx
+        x0[off + 0] = float(plan.ml_local)
+        x0[off + 1] = float(plan.spin)
+        x0[off + 2] = float(plan.offsets_RA[0])
+        x0[off + 3] = float(plan.offsets_RA[1])
+        x0[off + 4] = float(plan.past_target_mm)
+
+    print(
+        f"\nRunning seed polish "
+        f"(cma={'on' if args.seed_use_cma else 'off'}, "
+        f"two_stage={not args.no_two_stage_inner}, "
+        f"polish_method={args.polish_method}, "
+        f"final_cleanup={not args.no_final_feasibility_cleanup})..."
+    )
+    cand: PlanCandidate = polish_seed(
+        probes,
+        holes,
+        probe_to_hole=probe_to_hole,
+        probe_to_arc_idx=probe_to_arc_idx,
+        arc_centroids_deg=arc_centroids_deg,
+        x0=x0,
+        use_cma=args.seed_use_cma,
+        cma_stage_multipliers=stage_mults,
+        slsqp_max_iter=args.slsqp_max_iter,
+        slsqp_constrained=not args.slsqp_soft,
+        two_stage_inner=not args.no_two_stage_inner,
+        feasibility_max_iter=args.feasibility_max_iter,
+        final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
+        polish_method=args.polish_method,
+        feasibility_threshold=args.feasibility_threshold,
+        threading_oval_tolerance=args.threading_oval_tolerance,
+        clearance_overlap_allowance_mm=args.clearance_overlap_allowance_mm,
+        min_arc_ap_sep_deg=args.min_arc_ap_sep_deg,
+        subject_from_rig_rot=subject_from_rig_rot,
+        verbose=args.verbose,
+    )
+
+    print(f"\nSeed-polish result (cost={cand.cost:.3f}):")
+    print(f"  feasible (strict)            : {cand.feasible}")
+    print(f"  max_violation (any group)    : {cand.max_violation:.4f}")
+    print(f"  sum_violation_sq             : {cand.sum_violation_sq:.4f}")
+    print(f"  coverage_total               : {cand.coverage:.4f}")
+    print(f"  min_headstage_clearance (mm) : {cand.min_headstage_clearance_mm:.3f}")
+    print(f"  min_arc_ap_sep (deg)         : {cand.min_arc_ap_sep_deg:.2f}")
+    print(f"  min_intra_arc_ml_sep (deg)   : {cand.min_intra_arc_ml_sep_deg:.2f}")
+    print(f"  dominant violation group     : {cand.dominant_violation_group}")
+    print("  per-group max violation:")
+    print(f"    threading       : {cand.max_violation_threading:.4f}")
+    print(f"    clearance       : {cand.max_violation_clearance:.4f}")
+    print(f"    arc_ap_sep      : {cand.max_violation_arc_ap_sep:.4f}")
+    print(f"    intra_arc_ml_sep: {cand.max_violation_intra_arc_ml_sep:.4f}")
+
+    print("\nPer-probe x: seed → after polish (units: deg, deg, mm, mm, mm):")
+    print(f"  arc AP angles seed : {[f'{a:+.2f}' for a in arc_centroids_deg]}")
+    print(
+        f"  arc AP angles final: "
+        f"{[f'{cand.x[i]:+.2f}' for i in range(n_arcs)]}"
+    )
+    for p_idx, name in enumerate(probe_names):
+        off = n_arcs + 5 * p_idx
+        seed_vars = x0[off : off + 5]
+        final_vars = cand.x[off : off + 5]
+        print(
+            f"  {name:>4}  arc={plan_state.probes[name].arc_id} "
+            f"hole={probe_to_hole[name]:>2}\n"
+            f"        seed : ml={seed_vars[0]:+6.2f}  spin={seed_vars[1]:+7.2f}  "
+            f"off=({seed_vars[2]:+.3f},{seed_vars[3]:+.3f})  "
+            f"depth={seed_vars[4]:+.3f}\n"
+            f"        final: ml={final_vars[0]:+6.2f}  spin={final_vars[1]:+7.2f}  "
+            f"off=({final_vars[2]:+.3f},{final_vars[3]:+.3f})  "
+            f"depth={final_vars[4]:+.3f}"
+        )
+
+    # Apply the polished result to plan_state and write out an updated
+    # config so the user can visualise it in trame.
+    _apply_seed_polish_to_plan_state(plan_state, cand, sorted_letters, probe_names)
+    from aind_low_point.runtime import save_plan_to_config as _save_plan_to_config
+
+    new_cfg = _save_plan_to_config(plan_state, ConfigModel.from_yaml(args.config))
+    out_path = args.output
+    if out_path is None:
+        out_path = args.config.with_stem(args.config.stem + "_seed_polished")
+    with open(out_path, "w") as f:
+        yaml.safe_dump(
+            new_cfg.model_dump(mode="json"),
+            f,
+            sort_keys=False,
+            default_flow_style=False,
+        )
+    print(f"\nWrote polished seed config to {out_path}")
+    return 0
+
+
+def _apply_seed_polish_to_plan_state(
+    plan_state, cand: PlanCandidate, sorted_letters, probe_names
+):
+    """Map the polished ``cand.x`` back into ``plan_state``.
+
+    Preserves the seed plan's arc letters (instead of renaming to a/b/c)
+    so the output config keeps the user-recognisable arc names.
+    """
+    n_arcs = len(sorted_letters)
+    arc_aps = cand.x[:n_arcs]
+    plan_state.kinematics.arc_angles = {
+        sorted_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
+    }
+    for p_idx, name in enumerate(probe_names):
+        off = n_arcs + 5 * p_idx
+        ml, spin, off_R, off_A, depth = cand.x[off : off + 5]
+        plan = plan_state.probes[name]
         plan.bind_ap_to_arc = True
         plan.ap_local = 0.0
         plan.ml_local = float(ml)
@@ -269,6 +462,25 @@ def main():
         "strict; non-zero values trade model strictness for "
         "matching observed manual practice.",
     )
+    p.add_argument(
+        "--seed-plan",
+        type=Path,
+        default=None,
+        help="If set, skip the LSAP + arc-partition layers and run the "
+        "inner solve from this plan YAML as a warm start. The probe→hole "
+        "assignment is auto-detected at the seed pose (per-probe best-fit "
+        "by static threading max_g). Use to diagnose whether the optimizer "
+        "is search-bound (manual seed stays put after polish) or polish-"
+        "bound (manual seed drifts away).",
+    )
+    p.add_argument(
+        "--seed-use-cma",
+        action="store_true",
+        help="When using --seed-plan, run CMA-ES around the seed before "
+        "the SLSQP polish. Default is to skip CMA so the seed pose is "
+        "preserved into the polish; flip on to test how a CMA restart "
+        "interacts with a known-good warm start.",
+    )
     p.add_argument("--verbose", action="store_true", help="Verbose log")
     args = p.parse_args()
 
@@ -277,6 +489,13 @@ def main():
     cfg = ConfigModel.from_yaml(args.config)
     runtime = build_runtime_from_config(cfg)
     plan_state = runtime.plan_state
+
+    if args.seed_plan is not None:
+        raw = yaml.safe_load(args.seed_plan.read_text())
+        plan_model = PlanningModel.model_validate(raw)
+        store = PlanStore(plan_state)
+        apply_plan_model_to_state(plan_model, store)
+        print(f"Applied seed plan from {args.seed_plan}")
     holes = load_holes(args.holes)
     # Holes are extracted from the implant OBJ in its local LPS frame;
     # transform them into subject LPS via implant_to_lps so they line
@@ -294,15 +513,36 @@ def main():
         _probe_static_info(plan_state, runtime, name) for name in plan_state.probes
     ]
 
-    print(
-        f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
-        f"k_holes={args.k_holes}, k_arcs={args.k_arcs})..."
-    )
     stage_mults_str = args.cma_stage_multipliers.strip()
     if stage_mults_str:
         stage_mults = tuple(float(x) for x in stage_mults_str.split(","))
     else:
         stage_mults = ()
+
+    # Subject-to-rig rotation from the planning state (built from config).
+    subject_from_rig_rot, _ = plan_state.kinematics.subject_from_rig.rotate_translate
+    subject_from_rig_rot = np.asarray(subject_from_rig_rot, dtype=np.float64)
+    if np.allclose(subject_from_rig_rot, np.eye(3)):
+        subject_from_rig_rot = None
+    else:
+        print(
+            "Using subject_from_rig rotation from config (non-identity head tilt)."
+        )
+
+    if args.seed_plan is not None:
+        return _run_seed_polish(
+            probes,
+            plan_state,
+            holes,
+            args=args,
+            stage_mults=stage_mults,
+            subject_from_rig_rot=subject_from_rig_rot,
+        )
+
+    print(
+        f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
+        f"k_holes={args.k_holes}, k_arcs={args.k_arcs})..."
+    )
     result = optimize(
         probes,
         holes,
@@ -324,6 +564,7 @@ def main():
         two_stage_inner=not args.no_two_stage_inner,
         feasibility_max_iter=args.feasibility_max_iter,
         slsqp_max_iter=args.slsqp_max_iter,
+        subject_from_rig_rot=subject_from_rig_rot,
         verbose=args.verbose,
     )
     if result is None:

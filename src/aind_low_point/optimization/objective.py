@@ -166,6 +166,13 @@ class OptimizerContext:
     # conservative than real geometry. Default 0.0 = strict; non-zero
     # tolerance trades model strictness for matching observed practice.
     clearance_overlap_allowance_mm: float = 0.0
+    # Rig-to-subject coordinate frame relationship. ``subject_from_rig_rot``
+    # is the 3×3 rotation that takes vectors in the rig's mechanical frame
+    # to subject anatomical LPS. ``None`` (default) means rig ≡ subject
+    # (legacy behaviour); when set, ``(ap, ml, spin)`` are interpreted as
+    # rig-frame angles, with the kinematic rotation composed as
+    # ``subject_from_rig_rot @ arc_angles_to_affine(ap, ml, spin)``.
+    subject_from_rig_rot: NDArray[np.floating] | None = None
 
     def probe_index(self, name: str) -> int:
         return self.layout.probe_names.index(name)

@@ -68,8 +68,10 @@ from aind_low_point.optimization.optimize import (
     OptimizationResult,
     PlanCandidate,
     ProbeStaticInfo,
+    best_fit_hole_id_at_pose,
     format_plan_table,
     optimize,
+    polish_seed,
 )
 from aind_low_point.optimization.recording import (
     RECORDING_GEOMETRY,
@@ -98,6 +100,7 @@ __all__ = [
     "RecordingGeometry",
     "VariableLayout",
     "angle_to_target_rad",
+    "best_fit_hole_id_at_pose",
     "build_cost_matrix",
     "cap_basis",
     "capsule_capsule_dist",
@@ -118,6 +121,7 @@ __all__ = [
     "pairwise_headstage_clearances",
     "pairwise_interference_penalty",
     "point_to_segment_dist",
+    "polish_seed",
     "pose_at_hole_best_fit",
     "pose_from_optimizer_vars",
     "required_ap_deg",

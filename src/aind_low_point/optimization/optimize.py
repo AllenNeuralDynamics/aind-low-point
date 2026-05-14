@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -41,7 +42,12 @@ from aind_low_point.optimization.hole_assignment import (
     HoleAssignment,
     solve_top_k_assignments,
 )
+from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.kinematics import (
+    pose_from_optimizer_vars,
+    shank_capsules_from_pose,
+)
 from aind_low_point.optimization.objective import (
     ObjectiveBreakdown,
     ObjectiveWeights,
@@ -123,15 +129,22 @@ class PlanCandidate:
     max_violation_arc_ap_sep: float = 0.0
     max_violation_intra_arc_ml_sep: float = 0.0
 
+    # Numerical tolerance for declaring strict feasibility. SLSQP and
+    # trust-constr both leave sub-micron residuals on active constraints
+    # at convergence; ``1e-6`` is comfortably below any physically
+    # meaningful violation (mm, deg, dimensionless oval value all use
+    # this scale).
+    _FEASIBLE_EPSILON: ClassVar[float] = 1e-6
+
     @property
     def feasible(self) -> bool:
-        return self.max_violation <= 0.0
+        return self.max_violation <= self._FEASIBLE_EPSILON
 
     @property
     def dominant_violation_group(self) -> str:
         """Name of the group contributing the largest violation, or
         ``"feasible"`` if the candidate satisfies every constraint."""
-        if self.max_violation <= 0.0:
+        if self.max_violation <= self._FEASIBLE_EPSILON:
             return "feasible"
         groups = {
             "threading": self.max_violation_threading,
@@ -205,6 +218,7 @@ def _build_inner_context(
     *,
     threading_oval_tolerance: float = 0.0,
     clearance_overlap_allowance_mm: float = 0.0,
+    subject_from_rig_rot: NDArray | None = None,
 ) -> OptimizerContext:
     """Build :class:`OptimizerContext` from the discrete assignments."""
     n_arcs = max(arc_assignment.probe_to_arc_idx.values()) + 1
@@ -242,6 +256,7 @@ def _build_inner_context(
         weights=weights,
         threading_oval_tolerance=threading_oval_tolerance,
         clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
+        subject_from_rig_rot=subject_from_rig_rot,
     )
 
 
@@ -341,6 +356,7 @@ def _ctx_with_weights(ctx: OptimizerContext, w: ObjectiveWeights) -> OptimizerCo
         coverage_n_samples=ctx.coverage_n_samples,
         threading_oval_tolerance=ctx.threading_oval_tolerance,
         clearance_overlap_allowance_mm=ctx.clearance_overlap_allowance_mm,
+        subject_from_rig_rot=ctx.subject_from_rig_rot,
     )
 
 
@@ -395,19 +411,53 @@ def _multistage_cma_es(
     return x
 
 
-def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
-    """Conservative box bounds for SLSQP, by variable role.
+def _head_pitch_about_L_deg(subject_from_rig_rot: NDArray | None) -> float:
+    """Extract the X-axis (= LPS L axis) Euler component of the head tilt.
 
-    These keep the optimizer from wandering off into absurd regions
-    while still leaving room for any reasonable physical configuration.
-    Order matches :class:`VariableLayout`: arc-APs first, then per-probe
-    ``(ml, spin, off_R, off_A, depth)`` blocks.
+    For the typical headframe (mouse mounted with nose pitched down),
+    ``subject_from_rig`` is a pure rotation about LPS +x; this helper
+    returns that rotation angle in degrees. For non-pure-X rotations,
+    returns the X-component of the XYZ Euler decomposition — good enough
+    for shifting the AP bound. Returns 0 when the rotation is identity
+    or ``None``.
     """
+    if subject_from_rig_rot is None:
+        return 0.0
+    R = np.asarray(subject_from_rig_rot, dtype=np.float64)
+    # Standard X-component of rotation: atan2(R[2,1], R[1,1]) for a
+    # pure-X rotation matrix; matches the X Euler angle of an XYZ
+    # decomposition when the Y component is near zero.
+    return float(np.rad2deg(np.arctan2(R[2, 1], R[1, 1])))
+
+
+def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
+    """Box bounds for SLSQP, matching the rig's mechanical joint limits.
+
+    Order matches :class:`VariableLayout`: arc-APs first, then per-probe
+    ``(ml, spin, off_R, off_A, depth)`` blocks. AP and ML bounds match
+    ``PoseLimits`` defaults so the optimizer is allowed to explore the
+    full rig envelope (±60° AP/ML) — but expressed in *subject-frame*
+    angles, the rig's AP envelope is shifted by the head tilt.
+
+    Concretely: with ``rig_ap = subject_ap − head_pitch_about_L``,
+    the rig's ``|rig_ap| ≤ 60°`` becomes
+    ``subject_ap ∈ [−60 + head_pitch, 60 + head_pitch]``. With the
+    headframe's nominal +14° pitch about L (nose down), the
+    subject-frame AP range is ``[−46°, +74°]`` — asymmetric, biased
+    toward positive (mouse pitch-down) values.
+
+    Head tilt is assumed to be purely about the L axis (R-axis in RAS).
+    ML and spin ranges are unaffected.
+    """
+    head_pitch = _head_pitch_about_L_deg(ctx.subject_from_rig_rot)
+    ap_lo = -60.0 + head_pitch
+    ap_hi = +60.0 + head_pitch
+
     bounds: list[tuple[float, float]] = []
     for _ in range(ctx.layout.num_arcs):
-        bounds.append((-60.0, +60.0))  # ap_arc deg
+        bounds.append((ap_lo, ap_hi))  # ap_arc deg — rig limit, shifted by head pitch
     for _ in range(ctx.layout.num_probes):
-        bounds.append((-30.0, +30.0))  # ml_local deg
+        bounds.append((-60.0, +60.0))  # ml_local deg — rig mechanical limit
         bounds.append((-180.0, +180.0))  # spin deg
         # Lateral offsets must stay within the slot's half-extent so
         # the probe physically fits through the bore. Bounding to
@@ -678,6 +728,290 @@ def format_plan_table(candidates: tuple[PlanCandidate, ...]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Best-fit hole detection (for seeded inner solves)
+# ---------------------------------------------------------------------------
+
+
+def best_fit_hole_id_at_pose(
+    probe: ProbeStaticInfo,
+    holes: list[Hole],
+    *,
+    ap_deg: float,
+    ml_deg: float,
+    spin_deg: float,
+    off_R_mm: float,
+    off_A_mm: float,
+    past_target_mm: float,
+    shaft_length_mm: float = 10.0,
+    shank_radius_mm: float = 0.05,
+    recording_geom: RecordingGeometry | None = None,
+) -> tuple[int, float]:
+    """Pick the hole whose max(g_thread) at the given pose is smallest.
+
+    Returns ``(hole_id, max_g)``. ``max_g <= 0`` means the probe physically
+    threads through that bore; ``> 0`` means the shank row would graze the
+    slot wall. Used by ``polish_seed`` and ``scripts/score_manual_plan.py``
+    to infer the bore implied by a manually-authored plan.
+    """
+    if recording_geom is None:
+        recording_geom = (
+            get_recording_geometry(probe.kind)
+            if probe.kind in RECORDING_GEOMETRY
+            else RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
+        )
+    tips = np.asarray(probe.shank_tips_local, dtype=np.float64)
+    if tips.shape[0] > 0:
+        pivot_local = np.array(
+            [
+                float(tips[:, 0].mean()),
+                float(tips[:, 1].mean()),
+                float(recording_geom.active_center_mm),
+            ],
+            dtype=np.float64,
+        )
+    else:
+        from aind_low_point.optimization.recording import recording_center_local_for_kind
+
+        pivot_local = recording_center_local_for_kind(probe.kind)
+    R, pose_tip = pose_from_optimizer_vars(
+        target_LPS=probe.target_LPS,
+        ap_deg=ap_deg,
+        ml_deg=ml_deg,
+        spin_deg=spin_deg,
+        offset_R_mm=off_R_mm,
+        offset_A_mm=off_A_mm,
+        past_target_mm=past_target_mm,
+        recording_center_local=pivot_local,
+    )
+    shanks = shank_capsules_from_pose(
+        R,
+        pose_tip,
+        probe.shank_tips_local,
+        shaft_length_mm=shaft_length_mm,
+        shank_radius_mm=shank_radius_mm,
+    )
+    best_id = -1
+    best_max_g = float("inf")
+    for h in holes:
+        max_g = max(
+            shaft_section_oval_value(sh, sec) for sh in shanks for sec in h.sections
+        )
+        if max_g < best_max_g:
+            best_max_g = max_g
+            best_id = int(h.id)
+    return best_id, float(best_max_g)
+
+
+# ---------------------------------------------------------------------------
+# Inner-loop body (shared by `optimize` and `polish_seed`)
+# ---------------------------------------------------------------------------
+
+
+def _inner_solve_one(
+    ctx: OptimizerContext,
+    x0: NDArray,
+    *,
+    ha: HoleAssignment,
+    aa: ArcAssignment,
+    n_arcs: int,
+    use_cma: bool,
+    cma_population: int,
+    cma_generations: int,
+    cma_sigma: float,
+    cma_stage_multipliers: tuple[float, ...],
+    slsqp_max_iter: int,
+    slsqp_constrained: bool,
+    two_stage_inner: bool,
+    feasibility_max_iter: int,
+    final_feasibility_cleanup: bool,
+    polish_method: str,
+    feasibility_threshold: float,
+    verbose: bool,
+) -> PlanCandidate:
+    """Run the inner solve for one (hole, arc) combination from a warm start.
+
+    Encapsulates CMA-ES (optional) → Stage A feasibility solve (optional) →
+    Stage B coverage polish → Stage C feasibility cleanup (optional). Used
+    by both :func:`optimize` and :func:`polish_seed`; the only difference
+    between callers is how ``x0`` is chosen.
+    """
+    x = np.asarray(x0, dtype=np.float64)
+    if use_cma:
+        if cma_stage_multipliers:
+            x_cma = _multistage_cma_es(
+                ctx,
+                x,
+                population=cma_population,
+                total_generations=cma_generations,
+                sigma=cma_sigma,
+                stage_multipliers=cma_stage_multipliers,
+            )
+        else:
+            x_cma = _try_cma_es(
+                ctx,
+                x,
+                population=cma_population,
+                generations=cma_generations,
+                sigma=cma_sigma,
+            )
+        if x_cma is not None:
+            x = x_cma
+    if slsqp_constrained and two_stage_inner:
+        v_pre = feasibility_violation_squared(x, ctx)
+        x_feas, v_feas = _feasibility_solve(ctx, x, max_iter=feasibility_max_iter)
+        if v_feas <= v_pre:
+            x = x_feas
+        if verbose:
+            print(f"    feasibility stage: violation² {v_pre:.4g} → {v_feas:.4g}")
+    if slsqp_constrained:
+        x_opt, breakdown_opt = _slsqp_polish_constrained(
+            ctx, x, max_iter=slsqp_max_iter, method=polish_method
+        )
+    else:
+        x_opt, breakdown_opt = _slsqp_polish(ctx, x, max_iter=slsqp_max_iter)
+
+    cand = _build_plan_candidate(
+        x_opt, ctx, breakdown_opt, ha=ha, aa=aa, n_arcs=n_arcs
+    )
+    if slsqp_constrained and final_feasibility_cleanup and not cand.feasible:
+        x_clean, _v_clean = _feasibility_solve(
+            ctx, x_opt, max_iter=feasibility_max_iter
+        )
+        breakdown_clean = evaluate_objective(x_clean, ctx)
+        cand_clean = _build_plan_candidate(
+            x_clean, ctx, breakdown_clean, ha=ha, aa=aa, n_arcs=n_arcs
+        )
+        if cand_clean.lex_key(feasibility_threshold) < cand.lex_key(
+            feasibility_threshold
+        ):
+            if verbose:
+                print(
+                    f"    Stage C: max_viol "
+                    f"{cand.max_violation:.4g} → {cand_clean.max_violation:.4g}, "
+                    f"coverage {cand.coverage:.3f} → {cand_clean.coverage:.3f}"
+                )
+            cand = cand_clean
+    if verbose:
+        print(
+            f"    inner cost={breakdown_opt.total:.3f}  "
+            f"(coverage={breakdown_opt.coverage_total:.3f}, "
+            f"thread={breakdown_opt.threading_penalty:.3f}, "
+            f"clear={breakdown_opt.clearance_penalty:.3f}, "
+            f"kin={breakdown_opt.kinematic_penalty:.3f})"
+            f"  feas={'Y' if cand.feasible else 'N'}"
+            f" max_viol={cand.max_violation:.4g}"
+        )
+    return cand
+
+
+# ---------------------------------------------------------------------------
+# Seed-plan polish (skip outer + middle layers)
+# ---------------------------------------------------------------------------
+
+
+def polish_seed(
+    probes: list[ProbeStaticInfo],
+    holes: list[Hole],
+    *,
+    probe_to_hole: dict[str, int],
+    probe_to_arc_idx: dict[str, int],
+    arc_centroids_deg: tuple[float, ...],
+    x0: NDArray,
+    weights: ObjectiveWeights = ObjectiveWeights(),
+    use_cma: bool = False,
+    cma_population: int = 30,
+    cma_generations: int = 100,
+    cma_sigma: float = 5.0,
+    cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
+    slsqp_max_iter: int = 100,
+    slsqp_constrained: bool = True,
+    two_stage_inner: bool = True,
+    feasibility_max_iter: int = 80,
+    final_feasibility_cleanup: bool = True,
+    polish_method: str = "SLSQP",
+    feasibility_threshold: float = 0.0,
+    threading_oval_tolerance: float = 0.0,
+    clearance_overlap_allowance_mm: float = 0.0,
+    min_arc_ap_sep_deg: float = 16.0,
+    subject_from_rig_rot: NDArray | None = None,
+    verbose: bool = False,
+) -> PlanCandidate:
+    """Run the inner solve from a caller-supplied seed.
+
+    Bypasses the LSAP and arc-partition layers — feeds the given
+    ``(probe_to_hole, probe_to_arc_idx, arc_centroids_deg, x0)`` straight
+    into the same inner solve ``optimize`` runs for each (hole, arc) pair.
+
+    Defaults differ from :func:`optimize` in one place: ``use_cma`` is
+    ``False`` here so the seed pose isn't trampled by a global restart.
+    Flip it on to test how the warm start interacts with CMA-ES.
+
+    Used to diagnose where the optimizer falls short of a known plan:
+    if the polish from a manual plan stays near the manual's metrics,
+    the inner solve is healthy and the gap is in upstream search; if
+    the polish drifts away, the gap is the inner solve itself.
+    """
+    n_arcs = max(probe_to_arc_idx.values()) + 1 if probe_to_arc_idx else 0
+    ha = HoleAssignment(probe_to_hole=dict(probe_to_hole), cost=0.0)
+    aa = ArcAssignment(
+        probe_to_arc_idx=dict(probe_to_arc_idx),
+        arc_centroids_deg=arc_centroids_deg,
+        cost=0.0,
+    )
+    ctx = _build_inner_context(
+        probes,
+        holes,
+        ha,
+        aa,
+        weights,
+        threading_oval_tolerance=threading_oval_tolerance,
+        clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
+        subject_from_rig_rot=subject_from_rig_rot,
+    )
+    # The middle layer normally also sets ``min_arc_ap_sep_deg`` inside the
+    # ctx; ``_build_inner_context`` uses ``OptimizerContext`` defaults, so
+    # override here if the caller passed a non-default value.
+    if min_arc_ap_sep_deg != ctx.min_arc_ap_sep_deg:
+        ctx = OptimizerContext(
+            layout=ctx.layout,
+            probes=ctx.probes,
+            arc_for_probe=ctx.arc_for_probe,
+            weights=ctx.weights,
+            shaft_length_mm=ctx.shaft_length_mm,
+            shank_radius_mm=ctx.shank_radius_mm,
+            headstage_base_along_shaft_mm=ctx.headstage_base_along_shaft_mm,
+            headstage_length_mm=ctx.headstage_length_mm,
+            headstage_radius_mm=ctx.headstage_radius_mm,
+            min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+            min_within_arc_ml_sep_deg=ctx.min_within_arc_ml_sep_deg,
+            coverage_n_samples=ctx.coverage_n_samples,
+            threading_oval_tolerance=ctx.threading_oval_tolerance,
+            clearance_overlap_allowance_mm=ctx.clearance_overlap_allowance_mm,
+            subject_from_rig_rot=ctx.subject_from_rig_rot,
+        )
+    return _inner_solve_one(
+        ctx,
+        x0,
+        ha=ha,
+        aa=aa,
+        n_arcs=n_arcs,
+        use_cma=use_cma,
+        cma_population=cma_population,
+        cma_generations=cma_generations,
+        cma_sigma=cma_sigma,
+        cma_stage_multipliers=cma_stage_multipliers,
+        slsqp_max_iter=slsqp_max_iter,
+        slsqp_constrained=slsqp_constrained,
+        two_stage_inner=two_stage_inner,
+        feasibility_max_iter=feasibility_max_iter,
+        final_feasibility_cleanup=final_feasibility_cleanup,
+        polish_method=polish_method,
+        feasibility_threshold=feasibility_threshold,
+        verbose=verbose,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -708,6 +1042,7 @@ def optimize(  # noqa: C901
     final_feasibility_cleanup: bool = True,
     polish_method: str = "SLSQP",
     feasibility_threshold: float = 0.0,
+    subject_from_rig_rot: NDArray | None = None,
     verbose: bool = False,
 ) -> OptimizationResult | None:
     """Run the three-level optimizer.
@@ -786,100 +1121,30 @@ def optimize(  # noqa: C901
                 weights,
                 threading_oval_tolerance=threading_oval_tolerance,
                 clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
+                subject_from_rig_rot=subject_from_rig_rot,
             )
             x0 = _build_initial_x(ctx, holes, ha, aa)
-
-            x = x0
-            if use_cma:
-                if cma_stage_multipliers:
-                    x_cma = _multistage_cma_es(
-                        ctx,
-                        x,
-                        population=cma_population,
-                        total_generations=cma_generations,
-                        sigma=cma_sigma,
-                        stage_multipliers=cma_stage_multipliers,
-                    )
-                else:
-                    x_cma = _try_cma_es(
-                        ctx,
-                        x,
-                        population=cma_population,
-                        generations=cma_generations,
-                        sigma=cma_sigma,
-                    )
-                if x_cma is not None:
-                    x = x_cma
-            if slsqp_constrained and two_stage_inner:
-                v_pre = feasibility_violation_squared(x, ctx)
-                x_feas, v_feas = _feasibility_solve(
-                    ctx, x, max_iter=feasibility_max_iter
-                )
-                if v_feas <= v_pre:
-                    x = x_feas
-                if verbose:
-                    print(
-                        f"    feasibility stage: violation² {v_pre:.4g} → {v_feas:.4g}"
-                    )
-            if slsqp_constrained:
-                x_opt, breakdown_opt = _slsqp_polish_constrained(
-                    ctx,
-                    x,
-                    max_iter=slsqp_max_iter,
-                    method=polish_method,
-                )
-            else:
-                x_opt, breakdown_opt = _slsqp_polish(ctx, x, max_iter=slsqp_max_iter)
-
-            cand = _build_plan_candidate(
-                x_opt,
+            cand = _inner_solve_one(
                 ctx,
-                breakdown_opt,
+                x0,
                 ha=ha,
                 aa=aa,
                 n_arcs=n_arcs,
+                use_cma=use_cma,
+                cma_population=cma_population,
+                cma_generations=cma_generations,
+                cma_sigma=cma_sigma,
+                cma_stage_multipliers=cma_stage_multipliers,
+                slsqp_max_iter=slsqp_max_iter,
+                slsqp_constrained=slsqp_constrained,
+                two_stage_inner=two_stage_inner,
+                feasibility_max_iter=feasibility_max_iter,
+                final_feasibility_cleanup=final_feasibility_cleanup,
+                polish_method=polish_method,
+                feasibility_threshold=feasibility_threshold,
+                verbose=verbose,
             )
-            # Stage C: feasibility cleanup. Stage B's coverage polish can
-            # drift off the feasibility tube because the coverage gradient
-            # pulls probes off-bore; re-solve from x_opt and keep
-            # whichever result has the better lex key. Cheap (one extra
-            # bounded SLSQP call) and never produces a worse candidate.
-            if slsqp_constrained and final_feasibility_cleanup and not cand.feasible:
-                x_clean, v_clean = _feasibility_solve(
-                    ctx, x_opt, max_iter=feasibility_max_iter
-                )
-                breakdown_clean = evaluate_objective(x_clean, ctx)
-                cand_clean = _build_plan_candidate(
-                    x_clean,
-                    ctx,
-                    breakdown_clean,
-                    ha=ha,
-                    aa=aa,
-                    n_arcs=n_arcs,
-                )
-                if cand_clean.lex_key(feasibility_threshold) < cand.lex_key(
-                    feasibility_threshold
-                ):
-                    if verbose:
-                        print(
-                            f"    Stage C: max_viol "
-                            f"{cand.max_violation:.4g} → "
-                            f"{cand_clean.max_violation:.4g}, "
-                            f"coverage {cand.coverage:.3f} → "
-                            f"{cand_clean.coverage:.3f}"
-                        )
-                    cand = cand_clean
             candidates.append(cand)
-            if verbose:
-                print(
-                    f"    inner cost={breakdown_opt.total:.3f}  "
-                    f"(coverage={breakdown_opt.coverage_total:.3f}, "
-                    f"thread={breakdown_opt.threading_penalty:.3f}, "
-                    f"clear={breakdown_opt.clearance_penalty:.3f}, "
-                    f"kin={breakdown_opt.kinematic_penalty:.3f})"
-                    f"  feas={'Y' if cand.feasible else 'N'}"
-                    f" max_viol={cand.max_violation:.4g}"
-                )
 
     if not candidates:
         return None
