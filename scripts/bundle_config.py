@@ -139,7 +139,15 @@ def _rewrite_paths_block(
     for key, val in raw_paths.items():
         rval = resolved.get(key)
         if isinstance(rval, str) and rval.startswith("/"):
-            new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}"
+            p = Path(rval)
+            # When the root resolves to a single file (vs a directory) the
+            # bundle places it at ``data/<key>/<basename>`` so the
+            # extension survives — loader inference downstream needs
+            # ``.nrrd`` / ``.obj`` etc. on the path.
+            if p.is_file():
+                new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}/{p.name}"
+            else:
+                new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}"
         else:
             new_paths[key] = val
     return new_paths
@@ -266,7 +274,20 @@ def main() -> int:  # noqa: C901
             raw = yaml.safe_load(f)
         cfg_to_raw[cp] = raw
         cfg_to_roots[cp] = _named_roots_from_paths(raw.get("paths", {}) or {})
-        cfg_to_namespace[cp] = cp.stem if multi else None
+    # When every config resolves the same ``paths`` block we can drop
+    # per-config namespacing — the staged files live under a single
+    # ``data/<key>/`` tree and every config's rewrite can point to the
+    # same location. Without this check each config's ``paths`` rewrite
+    # uses its own ``data/<stem>/<key>/`` prefix while staging picks
+    # the first config's stem as the winner, leaving every other config
+    # pointing at an empty subdirectory.
+    shared_paths = multi and all(
+        _resolve_paths_block(cfg_to_raw[cp].get("paths", {}) or {})
+        == _resolve_paths_block(cfg_to_raw[args.config[0]].get("paths", {}) or {})
+        for cp in args.config[1:]
+    )
+    for cp in args.config:
+        cfg_to_namespace[cp] = cp.stem if (multi and not shared_paths) else None
 
     # 3. Decide bundle-relative target for every file. Use the longest
     #    matching named root from any config; fall back to ``_misc``.
@@ -290,6 +311,11 @@ def main() -> int:  # noqa: C901
             except ValueError:
                 continue
             prefix = "data" if ns is None else f"data/{ns}"
+            # Single-file root: ``relative_to`` returns ``.`` which would
+            # land the file at ``data/<key>`` with no basename. Use the
+            # original filename so the suffix is preserved.
+            if str(rel) == ".":
+                rel = Path(abs_path.name)
             file_to_bundle_rel[abs_path] = f"{prefix}/{key}/{rel}"
             matched = True
             break
