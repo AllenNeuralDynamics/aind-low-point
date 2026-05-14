@@ -30,7 +30,6 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-
 # Map CSV's ``probe_type`` strings (with bank suffixes) to the kind
 # strings recognised by ``RECORDING_GEOMETRY``. Bank info is dropped at
 # this layer; the user can re-introduce it once we extend the kind
@@ -38,15 +37,16 @@ import yaml
 KIND_MAP: dict[str, str] = {
     "2.1": "2.1",
     "2.4": "2.4",
-    # All quadbase variants collapse to the same registered kind.
-    "quadbase0": "quadbase",
-    "quadbase1": "quadbase",
-    "quadbase2": "quadbase",
-    "quadbase3": "quadbase",
-    "quadbase_dovetail0": "quadbase",
-    "quadbase_dovetail1": "quadbase",
-    "quadbase_dovetail2": "quadbase",
-    "quadbase_dovetail3": "quadbase",
+    # Custom-holder (alpha) and dovetail variants now map to distinct
+    # kinds so the catalog can render the right holder mesh per probe.
+    "quadbase0": "quadbase-alpha",
+    "quadbase1": "quadbase-alpha",
+    "quadbase2": "quadbase-alpha",
+    "quadbase3": "quadbase-alpha",
+    "quadbase_dovetail0": "quadbase-dovetail",
+    "quadbase_dovetail1": "quadbase-dovetail",
+    "quadbase_dovetail2": "quadbase-dovetail",
+    "quadbase_dovetail3": "quadbase-dovetail",
 }
 
 
@@ -86,6 +86,8 @@ N_SHANKS_BY_KIND: dict[str, int] = {
     "2.1": 1,
     "2.4": 4,
     "quadbase": 4,
+    "quadbase-alpha": 4,
+    "quadbase-dovetail": 4,
 }
 SHANK_PITCH_MM = 0.25  # AIND probes use 250 µm shank-row pitch.
 
@@ -98,6 +100,41 @@ ACTIVE_CENTER_MM: dict[str, float] = {
     "2.1": 1.6325,
     "2.4": 0.5525,
     "quadbase": 1.6325,
+    "quadbase-alpha": 1.6325,
+    "quadbase-dovetail": 1.6325,
+}
+
+
+# Spin offset (degrees) added to the CSV's raw spin per probe_type.
+#
+# Reference's QB_Centering customHolder + dovetail OBJs have their shank
+# row extending in raw +z; our main-dir variants
+# (``_moreacuratewidth.obj``) have it in raw −z. After canonicalization
+# the two meshes are mirrored about the shaft axis in canonical local
+# y. Adding 180° about the shaft compensates: with the *same* CSV ap/ml
+# and a 180°-shifted spin, our pipeline produces the same physical
+# placement for ALL four shanks (not just the named one — the named
+# shank already matched under the OLD_CENTERED_SHANK_INDEX flip alone,
+# because the converter shifts ``target_pt`` to land that shank at
+# the right spot; the OTHER shanks were on the wrong side of it).
+#
+# The companion ``target_lps`` shift in :func:`build_probes` is rotated
+# by the post-offset spin, so it self-consistently re-anchors the
+# named shank at the CSV's ``target_pt`` even after the 180° rotation.
+#
+# Default: 0° for everything. Quadbase variants are flipped on the
+# assumption that both reference mesh families share the raw +z row
+# convention. If a future CSV references a probe model that does NOT
+# follow this pattern, override here.
+SPIN_OFFSET_BY_PROBE_TYPE: dict[str, float] = {
+    "quadbase0": 180.0,
+    "quadbase1": 180.0,
+    "quadbase2": 180.0,
+    "quadbase3": 180.0,
+    "quadbase_dovetail0": 180.0,
+    "quadbase_dovetail1": 180.0,
+    "quadbase_dovetail2": 180.0,
+    "quadbase_dovetail3": 180.0,
 }
 
 
@@ -203,12 +240,15 @@ def build_probes(
 
         ap_deg = float(row["ap_angle"])
         ml_deg = float(row["ml_angle"])
-        # Use the *same* spin the YAML writes (raw, just wrapped to
-        # [-180, 180]). The shift vector lives in the probe's local
-        # frame, so it has to be rotated by the same R the runtime
-        # will use when it reads back the YAML.
+        # Use the *same* spin the YAML writes (raw + per-variant offset,
+        # wrapped to [-180, 180]). The shift vector lives in the probe's
+        # local frame, so it has to be rotated by the same R the runtime
+        # will use when it reads back the YAML. ``SPIN_OFFSET_BY_PROBE_TYPE``
+        # accounts for the 180° row-direction mismatch between the
+        # reference QB_Centering meshes and our main-dir variants.
         raw_spin_deg = float(row["spin"])
-        wrapped_spin = ((raw_spin_deg + 180.0) % 360.0) - 180.0
+        spin_offset = SPIN_OFFSET_BY_PROBE_TYPE.get(row["probe_type"], 0.0)
+        wrapped_spin = ((raw_spin_deg + spin_offset + 180.0) % 360.0) - 180.0
         R = arc_angles_to_affine(ap_deg, ml_deg, wrapped_spin)
         n_shanks = N_SHANKS_BY_KIND.get(kind, 1)
         centroid_y = (n_shanks - 1) * SHANK_PITCH_MM / 2.0
@@ -278,20 +318,15 @@ def build_probes(
                 "key": f"target:{hemi}:{structure}",
             }
             offsets_RA = [
-                round(
-                    float(row["ideal_pt_R"]) - float(row["target_pt_R"]), 4
-                ),
-                round(
-                    float(row["ideal_pt_A"]) - float(row["target_pt_A"]), 4
-                ),
+                round(float(row["ideal_pt_R"]) - float(row["target_pt_R"]), 4),
+                round(float(row["ideal_pt_A"]) - float(row["target_pt_A"]), 4),
             ]
-        # No spin offset. The reference's per-variant OBJ frames carry
-        # whatever 0/180 / mirror corrections the rig physically needs;
-        # by lifting the variant suffix onto ``position_bearing_shank``
-        # (and inverting customHolder via OLD_CENTERED_SHANK_INDEX) we
-        # absorb everything that's not the true rig spin. The runtime
-        # spin passed through ``arc_angles_to_affine`` is the raw CSV
-        # value, just wrapped to [-180, 180] for readability.
+        # ``wrapped_spin`` already includes ``SPIN_OFFSET_BY_PROBE_TYPE``
+        # (180° for quadbase variants) so that all four shanks — not
+        # just the named one — land in their physically-correct
+        # positions vs the reference k3d rendering. The variant suffix
+        # is still lifted onto ``position_bearing_shank`` via
+        # ``OLD_CENTERED_SHANK_INDEX`` for the GUI's tip-RAS readout.
         probes[probe_name] = {
             "kind": kind,
             "arc": arc_letter,
@@ -343,9 +378,7 @@ def emit_plan_only(
 ) -> str:
     rows = parse_csv(csv_path)
     arcs, arc_id_to_letter = build_arcs(rows)
-    probes, hole_notes = build_probes(
-        rows, arc_id_to_letter, target_mode=target_mode
-    )
+    probes, hole_notes = build_probes(rows, arc_id_to_letter, target_mode=target_mode)
     structures = sorted({r["structure"] for r in rows})
     body = yaml.safe_dump(
         {"plan": {"arcs": arcs, "probes": probes}},
@@ -354,8 +387,7 @@ def emit_plan_only(
         width=120,
     )
     out = (
-        header_comments(csv_path, arcs, arc_id_to_letter, structures, hole_notes)
-        + body
+        header_comments(csv_path, arcs, arc_id_to_letter, structures, hole_notes) + body
     )
     if output is not None:
         output.write_text(out)
@@ -363,7 +395,7 @@ def emit_plan_only(
     return out
 
 
-def emit_full_config(
+def emit_full_config(  # noqa: C901
     csv_path: Path,
     base_config_path: Path,
     output: Path,
@@ -434,9 +466,7 @@ def emit_full_config(
             for k, v in paths_dict.items():
                 if not isinstance(v, str):
                     continue
-                new_s = new_s.replace(
-                    "${paths." + str(k) + "}", v
-                )
+                new_s = new_s.replace("${paths." + str(k) + "}", v)
             if new_s == s:
                 return s
             s = new_s
@@ -467,8 +497,7 @@ def emit_full_config(
     # Rewrite if the modern variant exists.
     if annotations_path:
         modern_rabies = (
-            Path(annotations_path)
-            / f"{mouse}_rabies_pts_from_698928_LPS.csv"
+            Path(annotations_path) / f"{mouse}_rabies_pts_from_698928_LPS.csv"
         )
         if modern_rabies.exists():
             for asset in config.get("assets", []):
@@ -496,7 +525,8 @@ def emit_full_config(
         return Path(resolved).exists()
 
     config["assets"] = [
-        a for a in config.get("assets", [])
+        a
+        for a in config.get("assets", [])
         if not isinstance(a, dict) or asset_src_exists(a)
     ]
 
@@ -506,9 +536,7 @@ def emit_full_config(
     # This is strictly nicer than relying on pre-extracted per-region
     # mask NRRDs (which 836656 doesn't have).
     ccf_anno_rel = "ccfv3/ccf_annotation_in_subject.nii.gz"
-    ccf_anno_abs = (
-        Path(annotations_path) / ccf_anno_rel if annotations_path else None
-    )
+    ccf_anno_abs = Path(annotations_path) / ccf_anno_rel if annotations_path else None
     has_ccf_annotation = ccf_anno_abs is not None and ccf_anno_abs.exists()
 
     # ``auto`` defaults to inline so each probe lands at exactly the
@@ -529,9 +557,7 @@ def emit_full_config(
         )
 
     # Build probes with the resolved target mode.
-    probes, hole_notes = build_probes(
-        rows, arc_id_to_letter, target_mode=target_mode
-    )
+    probes, hole_notes = build_probes(rows, arc_id_to_letter, target_mode=target_mode)
 
     # Drop the base config's structure-mask asset entries and
     # structure-derived target groups before adding new ones —
@@ -541,7 +567,8 @@ def emit_full_config(
     # re-adds them in ``node`` target mode when the warped annotation
     # volume exists.
     config["assets"] = [
-        a for a in config.get("assets", [])
+        a
+        for a in config.get("assets", [])
         if not (
             isinstance(a, dict)
             and (
@@ -554,15 +581,13 @@ def emit_full_config(
                     )
                 )
                 # Single-key form (what we emit): ``key: structure:A``
-                or (
-                    isinstance(a.get("key"), str)
-                    and a["key"].startswith("structure:")
-                )
+                or (isinstance(a.get("key"), str) and a["key"].startswith("structure:"))
             )
         )
     ]
     config["targets"] = [
-        t for t in config.get("targets", [])
+        t
+        for t in config.get("targets", [])
         if not (
             isinstance(t, dict)
             and isinstance(t.get("derive_from"), list)
@@ -581,9 +606,7 @@ def emit_full_config(
     # ``target:R:STRUCTURE`` from the UI; they just don't *start*
     # there.
     if has_ccf_annotation:
-        config["paths"]["ccf_annotation_path"] = (
-            "${.annotations_path}/" + ccf_anno_rel
-        )
+        config["paths"]["ccf_annotation_path"] = "${.annotations_path}/" + ccf_anno_rel
         # Look up the per-region CCF colors from the bundled ontology
         # so each structure renders in its Allen colour (matching
         # ``use_ccf_color: true`` on the atlas-mesh-pack spec).
@@ -631,9 +654,7 @@ def emit_full_config(
     config["plan"]["arcs"] = arcs
     config["plan"]["probes"] = probes
 
-    body = yaml.safe_dump(
-        config, sort_keys=False, default_flow_style=False, width=120
-    )
+    body = yaml.safe_dump(config, sort_keys=False, default_flow_style=False, width=120)
     header = (
         f"# Auto-generated from {base_config_path.name} + "
         f"{csv_path.name} for mouse {mouse}.\n"
@@ -650,20 +671,31 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("csv_path", type=Path, help="Old-style insertion-plan CSV")
     p.add_argument(
-        "-o", "--output", type=Path, default=None,
-        help="Output YAML (default: stdout for fragment mode, required for --base mode)",
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help=(
+            "Output YAML (default: stdout for fragment mode, required for --base mode)"
+        ),
     )
     p.add_argument(
-        "--base", type=Path, default=None,
+        "--base",
+        type=Path,
+        default=None,
         help="Base config to splice the plan into (e.g. examples/786864-config.yml). "
-             "Without --base, only the plan fragment is emitted.",
+        "Without --base, only the plan fragment is emitted.",
     )
     p.add_argument(
-        "--mouse", type=str, default=None,
+        "--mouse",
+        type=str,
+        default=None,
         help="Override mouse id (default: inferred from CSV filename's leading digits)",
     )
     p.add_argument(
-        "--targets", choices=["auto", "inline", "node"], default="auto",
+        "--targets",
+        choices=["auto", "inline", "node"],
+        default="auto",
         help=(
             "How each probe's *initial* target is encoded. "
             "``auto`` (default) → ``inline`` (uses CSV's ``ideal_pt_RAS``"
@@ -681,7 +713,9 @@ def main():
 
     if args.base is None:
         text = emit_plan_only(
-            args.csv_path, output=args.output, target_mode=args.targets,
+            args.csv_path,
+            output=args.output,
+            target_mode=args.targets,
         )
         if args.output is None:
             sys.stdout.write(text)
@@ -689,8 +723,11 @@ def main():
         if args.output is None:
             raise SystemExit("--base mode requires --output PATH")
         emit_full_config(
-            args.csv_path, args.base, args.output,
-            mouse=args.mouse, target_mode=args.targets,
+            args.csv_path,
+            args.base,
+            args.output,
+            mouse=args.mouse,
+            target_mode=args.targets,
         )
 
 

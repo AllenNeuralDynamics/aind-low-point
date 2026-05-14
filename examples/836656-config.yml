@@ -207,8 +207,12 @@ assets:
   src: ${paths.model_path}/Centered_Newscale_2pt0.obj
   templates:
   - probe
-- key: probe:quadbase
-  src: ${paths.model_path}/Quadbase_customHolder_centeredOnShank0.obj
+- key: probe:quadbase-alpha
+  src: ${paths.model_path}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj
+  templates:
+  - probe
+- key: probe:quadbase-dovetail
+  src: ${paths.model_path}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj
   templates:
   - probe
 - key: probe:2.4
@@ -389,9 +393,9 @@ plan:
     c: -43.0
   probes:
     MD:
-      kind: quadbase
+      kind: quadbase-alpha
       arc: a
-      spin: 141
+      spin: -39
       slider_ml: -12.0
       past_target_mm: 0.0675
       offsets_RA:
@@ -400,13 +404,13 @@ plan:
       target:
         kind: inline
         point_RAS:
-        - -0.4792
-        - -0.4335
-        - -3.2575
+        - -0.0175
+        - -0.9793
+        - -3.0308
     BLA:
-      kind: quadbase
+      kind: quadbase-dovetail
       arc: b
-      spin: 180
+      spin: 0
       slider_ml: 27.0
       past_target_mm: -1.1325
       offsets_RA:
@@ -416,12 +420,12 @@ plan:
         kind: inline
         point_RAS:
         - -3.1213
-        - -1.4293
-        - -5.0133
+        - -2.1679
+        - -5.1435
     PL:
-      kind: quadbase
+      kind: quadbase-alpha
       arc: b
-      spin: -49
+      spin: 131
       slider_ml: -30.0
       past_target_mm: -0.9325
       offsets_RA:
@@ -430,9 +434,9 @@ plan:
       target:
         kind: inline
         point_RAS:
-        - -0.1498
-        - 2.1703
-        - -2.0588
+        - 0.3404
+        - 1.6366
+        - -1.8655
     VM:
       kind: '2.1'
       arc: c

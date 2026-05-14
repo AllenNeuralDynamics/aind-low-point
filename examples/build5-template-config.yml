@@ -141,8 +141,12 @@ assets:
     src: "${paths.probe_models_dir}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
-  - key: probe:quadbase
-    src: "${paths.probe_models_dir}/Quadbase_customHolder_centeredOnShank0.obj"
+  - key: probe:quadbase-alpha
+    src: "${paths.probe_models_dir}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj"
+    templates: [probe]
+
+  - key: probe:quadbase-dovetail
+    src: "${paths.probe_models_dir}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj"
     templates: [probe]
 
 targets:
@@ -175,14 +179,14 @@ plan:
     b: -9.0
     c: -25.0
 
-  # Six-probe insertion mixing quadbase (1×), 4-shank NP 2.0 (4×), and
-  # single-shank NP 2.0 / fiber (1×). Geometry pulled from
+  # Six-probe insertion mixing quadbase-alpha (1×), 4-shank NP 2.0 (4×),
+  # and single-shank NP 2.0 / fiber (1×). Geometry pulled from
   # build5-template-config.plan.yml. Probe-name suffixes are user
   # labels — the catalog key on each ``target:`` is what actually
   # drives placement.
   probes:
     P1_ACB:
-      kind: quadbase
+      kind: quadbase-alpha
       arc: b
       slider_ml: 25.0
       spin: 180.0

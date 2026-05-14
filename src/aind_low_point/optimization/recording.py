@@ -85,6 +85,16 @@ RECORDING_GEOMETRY: dict[str, RecordingGeometry] = {
         active_ranges_mm=tuple([(0.200, 3.065)] * 4),
         shank_pitch_mm=0.25,
     ),
+    # Quad-base custom-holder (alpha) — same NP 2.0 four-shank silicon
+    "quadbase-alpha": RecordingGeometry(
+        active_ranges_mm=tuple([(0.200, 3.065)] * 4),
+        shank_pitch_mm=0.25,
+    ),
+    # Quad-base dovetail-holder variant — same NP 2.0 four-shank silicon
+    "quadbase-dovetail": RecordingGeometry(
+        active_ranges_mm=tuple([(0.200, 3.065)] * 4),
+        shank_pitch_mm=0.25,
+    ),
 }
 
 

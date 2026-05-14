@@ -7,7 +7,7 @@ arc_angles_deg:
   c: -25.0
 probes:
   P1_ACB:
-    kind: quadbase
+    kind: quadbase-alpha
     target:
       key: target:L:ACB
       position_RAS_mm:
