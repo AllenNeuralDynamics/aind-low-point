@@ -75,10 +75,11 @@ class ArcAssignment:
 
 
 def required_aps_deg_for_assignment(
-    probe_to_hole: dict[str, int], holes: Iterable[Hole]
+    probe_to_hole: dict[str, int],
+    holes: Iterable[Hole],
 ) -> dict[str, float]:
     """For each probe, look up the assigned hole and compute its
-    required-AP angle (degrees).
+    subject-frame required-AP angle (degrees).
 
     Returns a dict ``probe_name -> required_ap_deg`` matching the
     input dict's keys.

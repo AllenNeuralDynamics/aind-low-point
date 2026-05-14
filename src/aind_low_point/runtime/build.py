@@ -17,12 +17,14 @@ from aind_low_point.config import (
     BaseSpecModel,
     CollisionPolicyModel,
     ConfigModel,
+    HeadMountModel,
     MaterialModel,
     ResourceModel,
     TargetSpecModel,
     _merge_dict_shallow,
 )
 from aind_low_point.core import (
+    AffineTransform,
     Float3,
     Material,
     MeshTransformable,
@@ -45,6 +47,39 @@ from aind_low_point.runtime.loaders import (
 from aind_low_point.runtime.reducers import _REDUCER_REGISTRY
 from aind_low_point.runtime.transforms import compile_all_transforms
 from aind_low_point.scene import NodeInstance, Scene, resolve_base_geometry
+
+
+def _build_subject_from_rig(model: HeadMountModel) -> AffineTransform:
+    """Build an AffineTransform rotation from a HeadMountModel.
+
+    The model carries an axis-angle in subject-LPS basis. When the angle
+    is zero (default), returns identity.
+    """
+    angle_deg = float(model.angle_deg)
+    if abs(angle_deg) < 1e-12:
+        return AffineTransform.identity()
+    axis = np.asarray(model.axis_LPS, dtype=np.float64)
+    n = float(np.linalg.norm(axis))
+    if n < 1e-12:
+        return AffineTransform.identity()
+    axis = axis / n
+    angle_rad = np.deg2rad(angle_deg)
+    # Rodrigues' formula. R = I + sin(θ)K + (1-cos(θ))K² where K is the
+    # cross-product matrix of `axis`.
+    K = np.array(
+        [
+            [0.0, -axis[2], axis[1]],
+            [axis[2], 0.0, -axis[0]],
+            [-axis[1], axis[0], 0.0],
+        ],
+        dtype=np.float64,
+    )
+    R = (
+        np.eye(3, dtype=np.float64)
+        + np.sin(angle_rad) * K
+        + (1.0 - np.cos(angle_rad)) * (K @ K)
+    )
+    return AffineTransform(rotation=R)
 
 
 def _compile_collision_labels(labels_in_use: Iterable[str]) -> dict[str, int]:
@@ -445,7 +480,10 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
             target_index[key] = transformed.raw
 
     # 6) kinematics, calibrations, plans (build PlanningState)
-    kinematics = Kinematics(arc_angles=dict(cfg.plan.arcs))
+    kinematics = Kinematics(
+        arc_angles=dict(cfg.plan.arcs),
+        subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
+    )
     calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
     probes: dict[str, ProbePlan] = {}
     for probe_name, probe_decl in cfg.plan.probes.items():

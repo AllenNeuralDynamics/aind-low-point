@@ -59,6 +59,14 @@ def pose_from_optimizer_vars(
     [0, 0, -past_target_mm]``. When ``None`` (default), the legacy
     "tip-on-target" formula is used — used by tests that pre-date the
     pivot redesign.
+
+    ``(ap_deg, ml_deg, spin_deg)`` are interpreted in subject anatomical
+    LPS, matching the legacy convention: ``ap=0, ml=0, spin=0`` means
+    "probe vertical in subject LPS." The rig's head-tilt offset
+    (``Kinematics.subject_from_rig``) only impacts the *reachable* set
+    of subject-frame angles (via the optimizer's bounds and rig-limit
+    constraints); it does not change what a given (ap, ml, spin) value
+    means geometrically.
     """
     R = arc_angles_to_affine(float(ap_deg), float(ml_deg), float(spin_deg))
     off_RAS = np.array([float(offset_R_mm), float(offset_A_mm), 0.0], dtype=np.float64)
@@ -147,16 +155,17 @@ def pose_at_hole_best_fit(
 
 
 def required_ap_deg(hole_axis_LPS: ArrayLike) -> float:
-    """Approximate AP angle that aligns the probe shaft with a bore.
+    """Approximate subject-frame AP angle that aligns the probe shaft with a bore.
 
     Used as the clustering key for the middle layer's probe→arc
     assignment and as the initial guess for ``ap_arc_deg``. Defined as
     the angle (in degrees) between the world ``+z`` axis (probe nominal
     "pointing down" direction) and ``hole_axis``, projected onto the
-    LPS ``(y, z)`` plane — a reasonable proxy for the AIND rig's
-    AP rotation plane. The clustering is invariant to the exact rig
-    convention as long as this function is monotonic in true required-AP
-    across the relevant range.
+    subject-LPS ``(y, z)`` plane.
+
+    Returns subject-frame AP — the head-tilt offset between rig and
+    subject only affects the *reachable* AP range (via the optimizer's
+    bounds), not the interpretation of stored angles.
     """
     a = np.asarray(hole_axis_LPS, dtype=np.float64)
     a = a / np.linalg.norm(a)

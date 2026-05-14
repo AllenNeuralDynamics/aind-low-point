@@ -391,6 +391,17 @@ plan:
     a: 13.0
     b: -10.0
     c: -43.0
+  # Subject anatomical LPS is rotated wrt the rig's mechanical frame by
+  # -14° about the R axis (= +14° about the L axis, since L = LPS +x).
+  # Physically: the headframe mounts the mouse with the nose pitched
+  # down 14°. The axis below is in subject-LPS basis, so [1, 0, 0] is L
+  # and angle_deg=+14 encodes a +14° right-handed rotation about L.
+  # With this set, (ap, ml, spin) are interpreted as rig-frame angles,
+  # so the rig's ±60° AP/ML limits and ≥16° separations are checked in
+  # mechanical coordinates while all geometry stays in subject LPS.
+  subject_from_rig:
+    axis_LPS: [1.0, 0.0, 0.0]
+    angle_deg: 14.0
   probes:
     MD:
       kind: quadbase-alpha

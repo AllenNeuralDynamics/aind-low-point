@@ -119,6 +119,15 @@ class Kinematics:
     - limits: mechanical/operational joint limits
     - coupled_axes: which DOFs are shared by all probes on the same arc
       (names match ProbePose fields: ap_deg, ml_deg, spin_deg, x_mm, y_mm, z_mm)
+    - subject_from_rig: rotation taking rig-frame vectors to subject
+      anatomical LPS. Default identity. Encodes the mounted mouse's head
+      tilt so that (ap, ml, spin) variables are interpreted in the rig's
+      mechanical frame while all geometry stays in subject LPS. Composed
+      as ``R_in_subject = subject_from_rig.rotation @
+      arc_angles_to_affine(ap, ml, spin)``. The inverse,
+      ``rig_from_subject = subject_from_rig.invert()``, is used to
+      project subject-frame quantities (e.g. hole axes) into the rig
+      frame for required-AP/ML scoring.
     """
 
     arc_angles: dict[str, float] = field(
@@ -128,10 +137,22 @@ class Kinematics:
     coupled_axes: Set[str] = field(
         default_factory=lambda: {"ap_deg"}
     )  # today: AP tilt is arc-coupled
+    subject_from_rig: AffineTransform = field(default_factory=AffineTransform.identity)
 
     # convenience helpers
     def get_arc(self, arc_id: str) -> float:
         return float(self.arc_angles[arc_id])
+
+    @property
+    def rig_from_subject_rotation(self) -> "NDArray":
+        """3×3 rotation taking subject-LPS vectors into the rig frame.
+
+        Computed as the transpose of ``subject_from_rig.rotation`` since
+        the transform is rigid (rotation only on this axis). Cached
+        re-computation per call is fine — it's a single matrix transpose.
+        """
+        R, _ = self.subject_from_rig.rotate_translate
+        return np.asarray(R, dtype=np.float64).T
 
     def set_arc(self, arc_id: str, ap_deg: float) -> float:
         """Clamp and store AP for an arc; return the value actually stored."""
@@ -261,19 +282,23 @@ def _resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]
 # Run time
 @dataclass(slots=True)
 class ProbePose:
-    # rig convention: positive is mouse pitch down (CW looking into right ML
-    # axis), 0 is vertical
+    # subject anatomical LPS frame: positive ap = mouse pitch down
+    # (CW looking into right ML axis), 0 = probe vertical in subject LPS.
     ap: float = 0.0
-    # rig convention: positive is mouse roll right (CCW looking into the front
-    # AP axis), 0 is midline
+    # subject anatomical LPS frame: positive ml = mouse roll right
+    # (CCW looking into front AP axis), 0 = midline.
     ml: float = 0.0
-    # rig convention: positive is mouse yaw right, 0 is sites facing (left?)
-    # (CW looking into superior DV axis)
+    # subject anatomical LPS frame: positive spin = mouse yaw right
+    # (CW looking into superior DV axis), 0 = sites facing left.
     spin: float = 0.0
     tip: NDArray = field(default_factory=lambda: np.zeros(3))  # LPS
 
     def transform(self) -> AffineTransform:
-        # Compute the transformation matrix from the probe's location
+        # ``(ap, ml, spin)`` interpreted in subject anatomical LPS:
+        # ap=0, ml=0, spin=0 means probe vertical in subject coordinates.
+        # The rig's head-tilt offset (``Kinematics.subject_from_rig``)
+        # does not enter here — it only constrains which (ap, ml, spin)
+        # values are mechanically reachable on the rig.
         R = arc_angles_to_affine(self.ap, self.ml, self.spin)
         t = self.tip
         return AffineTransform(R, t)
@@ -359,6 +384,12 @@ class ProbePose:
             pivot_local = recording_center_local_for_kind(plan.kind)
 
         # --- tip from depth, orientation, and pivot ---
+        # ``(ap, ml, spin)`` are subject-frame angles; pose composition
+        # is the legacy ``arc_angles_to_affine`` directly. The rig's
+        # head-tilt offset (``ps.kinematics.subject_from_rig``) only
+        # affects which subject-frame values are mechanically reachable
+        # on the rig (handled in the optimizer's bounds + rig-limit
+        # checks), not the meaning of stored angles.
         R_probe = arc_angles_to_affine(ap_deg, ml_deg, spin_deg)
         insertion_vec = R_probe @ np.array(
             [0.0, 0.0, -float(plan.past_target_mm)], dtype=np.float64

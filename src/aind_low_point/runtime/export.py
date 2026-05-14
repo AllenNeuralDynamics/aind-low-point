@@ -94,6 +94,7 @@ def planning_state_to_plan_model(
 
     return PlanningModel(
         arcs=dict(state.kinematics.arc_angles),
+        subject_from_rig=original.subject_from_rig,
         probes=probes,
         reticles=original.reticles,
         calibrations=original.calibrations,
@@ -166,6 +167,16 @@ def export_plan_geometry(
 
     from aind_low_point.runtime.shanks import detect_shank_tips_local
 
+    # Head-tilt offset between subject-anatomical AP and rig-mechanical AP.
+    # See ``_head_pitch_about_L_deg`` in optimization/optimize.py for the
+    # same derivation. Pulled from kinematics so per-mouse head pitch
+    # propagates into the rig-frame angle readout below.
+    R_sfr, _ = plan_state.kinematics.subject_from_rig.rotate_translate
+    R_sfr_arr = np.asarray(R_sfr, dtype=np.float64)
+    head_pitch_about_L = float(
+        np.rad2deg(np.arctan2(R_sfr_arr[2, 1], R_sfr_arr[1, 1]))
+    )
+
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():
         pose = ProbePose.from_planning_state(plan_state, name, catalog=catalog)
@@ -205,6 +216,14 @@ def export_plan_geometry(
             # Depth measured from the named shank's tip along the shaft.
             depth = _depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
 
+        # Subject-anatomical angles: (ap, ml, spin) as stored on the plan.
+        # ap=0, ml=0, spin=0 means the probe is vertical in subject LPS.
+        #
+        # Rig-mechanical angles: what an experimenter dials into the rig.
+        # Differs from subject by the head pitch (head mounted nose-down):
+        # ``rig_ap = subject_ap − head_pitch_about_L``. ML/spin are
+        # unaffected by a pure-R-axis head pitch.
+        ap_rig = float(pose.ap) - head_pitch_about_L
         probes_out[name] = {
             "kind": plan.kind,
             "target": {
@@ -212,8 +231,13 @@ def export_plan_geometry(
                 "position_RAS_mm": target_ras,
             },
             "arc": {"id": plan.arc_id} if plan.arc_id else None,
-            "angles_deg": {
+            "angles_subject_deg": {
                 "ap": float(pose.ap),
+                "ml": float(pose.ml),
+                "spin": float(pose.spin),
+            },
+            "angles_rig_deg": {
+                "ap": ap_rig,
                 "ml": float(pose.ml),
                 "spin": float(pose.spin),
             },
@@ -223,11 +247,21 @@ def export_plan_geometry(
             "depth_from_brain_surface_mm": depth,
         }
 
+    # v2: per-probe angles split into ``angles_subject_deg`` (anatomical,
+    # ap=0=probe vertical in subject) and ``angles_rig_deg`` (mechanical,
+    # the dial values an experimenter would set on the rig — differs
+    # from subject AP by the head pitch). v1 had a single ``angles_deg``
+    # block that conflated the two.
     return {
-        "plan_export_version": 1,
+        "plan_export_version": 2,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "source_config": source_config,
-        "arc_angles_deg": dict(plan_state.kinematics.arc_angles),
+        "head_pitch_about_L_deg": head_pitch_about_L,
+        "arc_angles_subject_deg": dict(plan_state.kinematics.arc_angles),
+        "arc_angles_rig_deg": {
+            arc_id: float(ap) - head_pitch_about_L
+            for arc_id, ap in plan_state.kinematics.arc_angles.items()
+        },
         "probes": probes_out,
     }
 

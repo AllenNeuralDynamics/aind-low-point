@@ -1356,11 +1356,49 @@ class CalibrationsModel(BaseModel):
         return self
 
 
+class HeadMountModel(BaseModel):
+    """Rotation from the rig's mechanical frame to subject anatomical LPS.
+
+    Encodes the head-tilt of the mounted mouse. When the mouse is bolted
+    to the headframe, the rig's mechanical axes typically don't align
+    with the subject's anatomical axes — there's a fixed pitch about
+    the right-left (R) axis from how the headframe holds the head.
+
+    The rotation is applied as
+    ``R_probe_in_subject = R_subject_from_rig @ arc_angles_to_affine(ap, ml, spin)``
+    so the optimizer's ``(ap, ml, spin)`` variables are interpreted in
+    the rig's frame (and so are the rig's angular limits / separation
+    thresholds), while all geometry stays in subject anatomical LPS.
+
+    Specified as axis-angle in subject-LPS basis (so ``[1, 0, 0]`` is
+    L, ``[0, 1, 0]`` is P, ``[0, 0, 1]`` is S). Right-hand rule about
+    the axis. For the AIND headframe (mouse mounted nose-down 14°),
+    use ``axis_LPS=(1, 0, 0), angle_deg=14`` — equivalent to a -14°
+    rotation about the R-axis (since R = -L).
+
+    Default ``(axis_LPS=(1, 0, 0), angle_deg=0)`` = identity, which
+    matches the legacy behaviour where rig and subject were silently
+    assumed to coincide.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    axis_LPS: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    angle_deg: float = 0.0
+
+
 class PlanningModel(BaseModel):
     model_config = {"extra": "forbid"}
 
     arcs: dict[str, float] = Field(
         default_factory=dict, description="arc_id → AP angle (deg)"
+    )
+    subject_from_rig: HeadMountModel = Field(
+        default_factory=HeadMountModel,
+        description=(
+            "Rotation from rig mechanical frame to subject anatomical LPS. "
+            "Encodes the mounted mouse's head tilt. See HeadMountModel."
+        ),
     )
     probes: dict[str, ProbeDeclModel] = Field(
         default_factory=dict, description="probe_name → probe declaration"
