@@ -262,23 +262,55 @@ def test_required_ap_zero_for_vertical_axis():
 
 
 def test_required_ap_sign_convention():
-    """Bore tilted in +y direction (anterior) → positive required AP."""
+    """Bore tilted in +y direction (subject posterior) → negative
+    required AP. Rationale: ``arc_angles_to_affine(ap, 0, 0) @
+    [0, 0, -1] = (0, sin ap, -cos ap)``; aligning the shaft with
+    bore-into-brain ``-axis = (0, -axis_y, -axis_z)`` for a
+    +y-tilted bore (``axis_y > 0``) requires ``sin ap < 0``, hence
+    a *negative* AP.
+    """
     axis = np.array([0.0, 0.5, np.sqrt(0.75)])  # tilted ~30° toward +y
-    ap = required_ap_deg(axis)
-    assert ap == pytest.approx(30.0, abs=0.5)
-
-
-def test_required_ap_negative_y_tilt():
-    """Bore tilted in -y direction → negative required AP."""
-    axis = np.array([0.0, -0.5, np.sqrt(0.75)])  # tilted ~30° toward -y
     ap = required_ap_deg(axis)
     assert ap == pytest.approx(-30.0, abs=0.5)
 
 
+def test_required_ap_negative_y_tilt():
+    """Bore tilted in -y direction → positive required AP (mirror
+    of the +y case)."""
+    axis = np.array([0.0, -0.5, np.sqrt(0.75)])  # tilted ~30° toward -y
+    ap = required_ap_deg(axis)
+    assert ap == pytest.approx(+30.0, abs=0.5)
+
+
 def test_required_ap_monotonic_in_y_component():
-    """For increasing y component, required AP monotonically increases."""
+    """For increasing y component, required AP monotonically *decreases*
+    (because the corrected convention uses ``atan2(-axis_y, axis_z)``).
+    """
     aps = []
     for ydir in np.linspace(-0.6, 0.6, 13):
         axis = np.array([0.1, ydir, np.sqrt(max(0.0, 1 - 0.01 - ydir**2))])
         aps.append(required_ap_deg(axis))
-    assert all(a < b for a, b in zip(aps, aps[1:]))
+    assert all(a > b for a, b in zip(aps, aps[1:]))
+
+
+def test_required_ap_aligns_shaft_with_bore_into_brain():
+    """End-to-end check: feeding ``required_ap_deg(axis)`` into
+    ``arc_angles_to_affine`` produces a shaft direction aligned with
+    ``-axis`` (bore-into-brain)."""
+    from aind_mri_utils.arc_angles import arc_angles_to_affine
+
+    for axis_unnorm in [
+        [0.0, +0.5, np.sqrt(0.75)],
+        [0.0, -0.5, np.sqrt(0.75)],
+        [0.0, +0.3, np.sqrt(0.91)],
+        [0.0, +0.7, np.sqrt(0.51)],
+    ]:
+        axis = np.asarray(axis_unnorm, dtype=np.float64)
+        axis = axis / np.linalg.norm(axis)
+        ap = required_ap_deg(axis)
+        R = arc_angles_to_affine(ap, 0, 0)
+        shaft = R @ np.array([0.0, 0.0, -1.0])
+        # Shaft along bore-into-brain = -axis
+        assert np.allclose(shaft, -axis, atol=1e-8), (
+            f"axis={axis.tolist()}, ap={ap:.3f}, shaft={shaft.tolist()}"
+        )

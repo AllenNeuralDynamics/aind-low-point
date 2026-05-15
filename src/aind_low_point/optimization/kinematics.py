@@ -155,18 +155,34 @@ def pose_at_hole_best_fit(
 
 
 def required_ap_deg(hole_axis_LPS: ArrayLike) -> float:
-    """Approximate subject-frame AP angle that aligns the probe shaft with a bore.
+    """Subject-frame AP angle that aligns the probe shaft with a bore.
 
     Used as the clustering key for the middle layer's probe→arc
-    assignment and as the initial guess for ``ap_arc_deg``. Defined as
-    the angle (in degrees) between the world ``+z`` axis (probe nominal
-    "pointing down" direction) and ``hole_axis``, projected onto the
-    subject-LPS ``(y, z)`` plane.
+    assignment and as the warm-start for ``ap_arc_deg``. The returned
+    value satisfies ::
+
+        arc_angles_to_affine(ap, 0, 0) @ [0, 0, -1] ≈ -hole_axis_LPS
+
+    i.e. it is the AP that points the probe's local ``-z`` axis along
+    the bore-into-brain direction. Derived from
+    ``arc_angles_to_affine(AP, 0, 0) @ [0, 0, -1] = (0, sin AP, -cos AP)``
+    in LPS: matching the bore-into-brain ``(0, -axis_y, -axis_z)`` gives
+    ``sin AP = -axis_y``, so ``AP = atan2(-axis_y, axis_z)``.
 
     Returns subject-frame AP — the head-tilt offset between rig and
     subject only affects the *reachable* AP range (via the optimizer's
     bounds), not the interpretation of stored angles.
+
+    Note: prior to commit 46e7cd8 this function returned ``atan2(axis_y,
+    axis_z)``, the bore-axis polar angle from world ``+z``. That value
+    has the *opposite sign* of the rig AP needed to align with the
+    bore. Downstream consumers (arc partitioner centroids, optimizer
+    warm starts) inherited the sign flip and ended up in the
+    mirror-image AP basin from the manual T12 plan. The corrected
+    convention matches ``pose_features.required_ap_ml_for_target``,
+    which independently computes the closed-form rig (AP, ML) pair
+    for a target.
     """
     a = np.asarray(hole_axis_LPS, dtype=np.float64)
     a = a / np.linalg.norm(a)
-    return float(np.rad2deg(np.arctan2(a[1], a[2])))
+    return float(np.rad2deg(np.arctan2(-a[1], a[2])))

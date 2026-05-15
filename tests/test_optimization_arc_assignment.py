@@ -31,7 +31,9 @@ def _make_hole(hole_id: int, axis) -> Hole:
 
 
 def test_required_aps_for_assignment_basic():
-    """Vertical hole → required AP ≈ 0; tilted hole → matches y-tilt."""
+    """Vertical hole → required AP ≈ 0; tilted hole → negative y-tilt
+    (per the corrected ``required_ap_deg`` sign convention; see
+    ``test_optimization_kinematics.test_required_ap_sign_convention``)."""
     holes = [
         _make_hole(0, axis=(0, 0, 1)),
         _make_hole(1, axis=(0, 0.5, np.sqrt(0.75))),
@@ -39,7 +41,7 @@ def test_required_aps_for_assignment_basic():
     probe_to_hole = {"vertical_probe": 0, "tilted_probe": 1}
     aps = required_aps_deg_for_assignment(probe_to_hole, holes)
     assert aps["vertical_probe"] == pytest.approx(0.0, abs=0.5)
-    assert aps["tilted_probe"] == pytest.approx(30.0, abs=0.5)
+    assert aps["tilted_probe"] == pytest.approx(-30.0, abs=0.5)
 
 
 def test_required_aps_unknown_hole_id_raises():

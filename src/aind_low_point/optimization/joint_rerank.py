@@ -606,10 +606,11 @@ def _build_starts(
     # Start 1: partitioner centroid + slot-major spin + ml=0.
     # Matches ``_build_initial_x`` in ``optimize.py`` so the joint
     # reranker has a faithful baseline that re-creates the existing
-    # warm-start. The partitioner's centroid uses
-    # ``required_ap_deg(hole.axis)``, which is sign-flipped relative
-    # to the strict rig formula in :mod:`pose_features` but matches
-    # the existing optimizer's convention.
+    # warm-start. ``arc_centroids_deg`` from the partitioner uses
+    # ``kinematics.required_ap_deg`` whose convention now matches
+    # the rig-frame AP that aligns the shaft with the bore
+    # (``atan2(-axis_y, axis_z)``) — same sign as the closed form in
+    # :mod:`pose_features`.
     start1 = np.zeros(n_vars, dtype=np.float64)
     for a in range(n_arcs):
         start1[a] = float(aa.arc_centroids_deg[a])
