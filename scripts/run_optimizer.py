@@ -115,22 +115,44 @@ def _probe_static_info(plan_state, runtime, name: str) -> ProbeStaticInfo:
     )
 
 
-def _apply_result_to_plan_state(plan_state, result: OptimizationResult) -> None:
-    """Mutate ``plan_state`` in place to reflect the optimizer's output.
-
-    Maps the optimizer's flat variable vector to per-probe ProbePlan
-    fields and per-arc kinematic angles. Arc letters are assigned
-    a/b/c/... in the order arcs appear in ``result``.
+def _apply_candidate_to_plan_state(plan_state, cand: PlanCandidate) -> None:
+    """Mutate ``plan_state`` in place to reflect one PlanCandidate's
+    arc angles + per-probe pose. Arc letters assigned a/b/c/... in
+    ascending arc-index order so the mapping is reproducible.
     """
-    n_arcs = result.n_arcs
-    arc_aps = result.x[:n_arcs]
-    # Assign deterministic arc letters by ascending arc-index so the
-    # mapping is reproducible.
+    n_arcs = cand.n_arcs
+    arc_aps = cand.x[:n_arcs]
     arc_letters = [chr(ord("a") + i) for i in range(n_arcs)]
     plan_state.kinematics.arc_angles = {
         arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
     }
+    layout_probe_names = sorted(cand.probe_to_hole.keys())
+    for probe_idx, name in enumerate(layout_probe_names):
+        offset = n_arcs + 5 * probe_idx
+        ml, spin, off_R, off_A, depth = cand.x[offset : offset + 5]
+        plan = plan_state.probes[name]
+        plan.arc_id = arc_letters[cand.probe_to_arc_idx[name]]
+        plan.bind_ap_to_arc = True
+        plan.ap_local = 0.0
+        plan.ml_local = float(ml)
+        plan.spin = float(spin)
+        plan.offsets_RA = (float(off_R), float(off_A))
+        plan.past_target_mm = float(depth)
 
+
+def _apply_result_to_plan_state(plan_state, result: OptimizationResult) -> None:
+    """Apply the lex-best plan from ``result`` to ``plan_state``.
+
+    Thin wrapper around :func:`_apply_candidate_to_plan_state` that
+    constructs a ``PlanCandidate``-shaped view of the result's top
+    fields. Preserved for back-compat with the result-based callsite.
+    """
+    n_arcs = result.n_arcs
+    arc_aps = result.x[:n_arcs]
+    arc_letters = [chr(ord("a") + i) for i in range(n_arcs)]
+    plan_state.kinematics.arc_angles = {
+        arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
+    }
     layout_probe_names = sorted(result.probe_to_hole.keys())
     for probe_idx, name in enumerate(layout_probe_names):
         offset = n_arcs + 5 * probe_idx
@@ -143,6 +165,68 @@ def _apply_result_to_plan_state(plan_state, result: OptimizationResult) -> None:
         plan.spin = float(spin)
         plan.offsets_RA = (float(off_R), float(off_A))
         plan.past_target_mm = float(depth)
+
+
+def _save_alternatives(
+    plan_state,
+    cfg: ConfigModel,
+    result: OptimizationResult,
+    out_dir: Path,
+) -> Path:
+    """Write every alternative as a full ConfigModel YAML in ``out_dir``.
+
+    Files are named ``plan-NN-cov-V-viol-V.yml`` where NN is the lex
+    rank (01 = best) and V is the candidate's coverage and max
+    violation (zero-padded for sortability). Also writes
+    ``summary.md`` with a markdown table of the alternatives' metrics
+    for quick scanning.
+
+    Returns the directory path. The caller is responsible for ordering
+    this call so that ``plan_state``'s final state matches the lex-best
+    plan (see callsite in ``main``).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary_lines: list[str] = [
+        "# Alternative plans",
+        "",
+        "Each row is a candidate from the optimizer's lex-ranked list. "
+        "`plan-01-...yml` is the best plan (also written to the main "
+        "`--output` path); the rest are alternatives. All files are full "
+        "ConfigModel YAMLs and can be re-opened in trame.",
+        "",
+        "| # | feasible? | max viol | coverage | min clearance (mm) | "
+        "min AP sep (°) | min ML sep (°) | dominant group | file |",
+        "|---|---|---:|---:|---:|---:|---:|---|---|",
+    ]
+    for rank, cand in enumerate(result.alternatives, start=1):
+        cov = cand.coverage
+        viol = cand.max_violation
+        # Snapshot of plan_state into a candidate state, then serialise.
+        _apply_candidate_to_plan_state(plan_state, cand)
+        candidate_cfg = save_plan_to_config(plan_state, cfg)
+        fname = (
+            f"plan-{rank:02d}-cov-{cov:06.2f}-viol-{viol:.4g}.yml"
+        )
+        path = out_dir / fname
+        with open(path, "w") as f:
+            yaml.safe_dump(
+                candidate_cfg.model_dump(mode="json"),
+                f,
+                sort_keys=False,
+                default_flow_style=False,
+            )
+        summary_lines.append(
+            f"| {rank} | {'yes' if cand.feasible else 'no'} | "
+            f"{viol:.4g} | {cov:.3f} | "
+            f"{cand.min_headstage_clearance_mm:.3f} | "
+            f"{cand.min_arc_ap_sep_deg:.2f} | "
+            f"{cand.min_intra_arc_ml_sep_deg:.2f} | "
+            f"{cand.dominant_violation_group} | "
+            f"`{fname}` |"
+        )
+    summary_path = out_dir / "summary.md"
+    summary_path.write_text("\n".join(summary_lines) + "\n")
+    return out_dir
 
 
 def _run_seed_polish(
@@ -525,6 +609,16 @@ def main():
         help="(--joint-rerank only) Max iterations for the reduced "
         "SLSQP scoring stage. Default 50.",
     )
+    p.add_argument(
+        "--save-alternatives",
+        type=Path,
+        default=None,
+        help="If set, write every alternative plan (lex-ranked) as its "
+        "own full ConfigModel YAML in this directory. Useful for "
+        "eyeballing multiple feasible plans in trame side-by-side; "
+        "the main --output still receives the lex-best plan. Also "
+        "writes a `summary.md` with each plan's metrics.",
+    )
     p.add_argument("--verbose", action="store_true", help="Verbose log")
     args = p.parse_args()
 
@@ -721,6 +815,16 @@ def main():
             f"\n{feasible_count}/{len(result.alternatives)} candidates feasible. "
             f"Best plan is "
             f"{'feasible' if result.alternatives[0].feasible else 'INFEASIBLE'}."
+        )
+
+    # Save alternatives FIRST (each call mutates plan_state to that
+    # candidate's pose); the subsequent _apply_result_to_plan_state
+    # restores plan_state to the lex-best plan for the main --output.
+    if args.save_alternatives is not None and result.alternatives:
+        alts_dir = _save_alternatives(plan_state, cfg, result, args.save_alternatives)
+        print(
+            f"\nWrote {len(result.alternatives)} alternative plan(s) to "
+            f"{alts_dir} (see summary.md)."
         )
 
     _apply_result_to_plan_state(plan_state, result)
