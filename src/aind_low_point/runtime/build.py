@@ -309,11 +309,7 @@ def build_asset_spec(
     # region (above the shanks); pipettes / degenerate fixtures return
     # ``None`` and are skipped from pairwise clearance checks.
     headstage_hull = None
-    if (
-        isinstance(a.key, str)
-        and a.key.startswith("probe:")
-        and mesh_tf is not None
-    ):
+    if isinstance(a.key, str) and a.key.startswith("probe:") and mesh_tf is not None:
         headstage_hull = build_headstage_hull(mesh_tf.raw)
 
     return AssetSpec(
@@ -504,7 +500,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     for probe_name, probe_decl in cfg.plan.probes.items():
         probe_calibrated = probe_name in calibrations
         if probe_calibrated:
-            ap, ml = find_probe_angle(calibrations[probe_name])
+            ap, ml = find_probe_angle(calibrations[probe_name].rotation)
         elif probe_decl.ap_local is not None:
             ap = probe_decl.ap_local
             ml = probe_decl.slider_ml

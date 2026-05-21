@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -42,7 +43,40 @@ from aind_low_point.runtime import (
 )
 from aind_low_point.runtime.export import apply_plan_model_to_state
 from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_low_point.scene import resolve_base_geometry
 from aind_low_point.state_change import PlanStore
+
+
+def _maybe_build_sdfs(probes, runtime):
+    """Build (or load-from-cache) the per-probe SDFs for the
+    ``--sdf-clearance`` path. Returns a ``{probe_name: ProbeSDF}`` dict.
+    """
+    from aind_low_point.optimization.sdf import build_probe_sdf
+
+    sdf_by_name: dict = {}
+    print("Building SDFs for clearance backend...")
+    for p in probes:
+        mesh = runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
+        sdf_by_name[p.name] = build_probe_sdf(mesh)
+    return sdf_by_name
+
+
+@dataclass(frozen=True)
+class RetroDensityOpts:
+    """When set, the optimizer's per-probe target becomes a masked
+    point cloud drawn from a labelled-cell asset (e.g. retro/rabies
+    points), clipped to the intersection of brain and structure masks.
+
+    The per-probe density switches from a single-point Gaussian on the
+    centroid to an equally-weighted Gaussian mixture on the masked
+    points with bandwidth ``sigma_mm``. ``target_LPS`` is set to the
+    centroid of the masked cloud for LSAP pose-bank anchoring.
+    """
+
+    retro_asset_key: str = "retro-targets"
+    common_mask_keys: tuple[str, ...] = ("brain",)
+    per_probe_mask_fmt: str = "structure:{probe}"
+    sigma_mm: float = 0.3
 
 
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
@@ -70,48 +104,94 @@ def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Ho
     return out
 
 
-def _probe_static_info(plan_state, runtime, name: str) -> ProbeStaticInfo:
+def _resolve_masked_retro_points(
+    runtime, probe_name: str, opts: RetroDensityOpts
+) -> np.ndarray:
+    """Return the retro-asset points in world LPS, clipped to the
+    intersection of all configured masks. Raises with a clear message
+    if any asset is missing or the masked cloud is empty."""
+    catalog, scene = runtime.asset_catalog, runtime.scene
+    retro_t = resolve_base_geometry(catalog, scene, opts.retro_asset_key)
+    if retro_t is None:
+        raise RuntimeError(
+            f"--retro-density: asset {opts.retro_asset_key!r} not in scene"
+        )
+    points = np.asarray(retro_t.raw, dtype=np.float64)
+    mask_keys = list(opts.common_mask_keys) + [
+        opts.per_probe_mask_fmt.format(probe=probe_name)
+    ]
+    keep = np.ones(len(points), dtype=bool)
+    for mk in mask_keys:
+        mt = resolve_base_geometry(catalog, scene, mk)
+        if mt is None:
+            raise RuntimeError(f"--retro-density: mask asset {mk!r} not in scene")
+        keep &= np.asarray(mt.raw.contains(points), dtype=bool)
+    masked = points[keep]
+    if masked.shape[0] == 0:
+        raise RuntimeError(
+            f"--retro-density: probe {probe_name!r} has zero points in "
+            f"{' ∩ '.join(mask_keys)} — check mask alignment"
+        )
+    return masked
+
+
+def _probe_static_info(
+    plan_state,
+    runtime,
+    name: str,
+    retro_opts: RetroDensityOpts | None = None,
+) -> ProbeStaticInfo:
     """Build a ProbeStaticInfo for one probe by pulling its target,
-    kind, and shank tips from the runtime."""
+    kind, and shank tips from the runtime.
+
+    When ``retro_opts`` is provided, the target switches from a single
+    point (centroid or inline) to a masked retro-point cloud with the
+    centroid serving as ``target_LPS`` for LSAP pose-bank anchoring.
+    """
     plan = plan_state.probes[name]
     target_lps = None
-    if plan.target_key is not None:
-        target_pts = plan_state.target_index.get(plan.target_key)
-        if target_pts is not None:
-            target_lps = np.asarray(target_pts, dtype=np.float64).reshape(-1, 3).mean(0)
-    if target_lps is None and plan.target_point_RAS is not None:
-        from aind_anatomical_utils.coordinate_systems import (
-            convert_coordinate_system,
-        )
+    target_points = None
+    if retro_opts is not None:
+        target_points = _resolve_masked_retro_points(runtime, name, retro_opts)
+        target_lps = target_points.mean(0)
+    else:
+        if plan.target_key is not None:
+            target_pts = plan_state.target_index.get(plan.target_key)
+            if target_pts is not None:
+                target_lps = (
+                    np.asarray(target_pts, dtype=np.float64).reshape(-1, 3).mean(0)
+                )
+        if target_lps is None and plan.target_point_RAS is not None:
+            from aind_anatomical_utils.coordinate_systems import (
+                convert_coordinate_system,
+            )
 
-        ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
-        target_lps = convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
-    if target_lps is None:
-        raise RuntimeError(
-            f"Probe {name}: no target_key or target_point_RAS — optimizer "
-            f"needs an LPS target."
-        )
+            ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
+            target_lps = convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
+        if target_lps is None:
+            raise RuntimeError(
+                f"Probe {name}: no target_key or target_point_RAS — optimizer "
+                f"needs an LPS target."
+            )
 
     asset_key = f"probe:{plan.kind}"
     geom = runtime.asset_catalog.get_geometry(asset_key)
     # geom.raw is the canonicalized probe mesh (LPS-mm, shank 1 tip at origin)
     if hasattr(geom, "raw"):
         tips_local = detect_shank_tips_local(geom.raw)
+        collision_mesh = geom.raw  # full probe mesh, used as BVH for clearance
     else:
         tips_local = np.zeros((1, 3), dtype=np.float64)
-    # Pull the per-kind body hull built at runtime-build time. ``None``
-    # for pipettes and any kind whose body region is too degenerate to
-    # hull; those probes are skipped from the pairwise clearance check.
-    asset_spec = runtime.asset_catalog.assets.get(asset_key)
-    headstage_hull = (
-        asset_spec.headstage_hull if asset_spec is not None else None
-    )
+        collision_mesh = None
+    sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
     return ProbeStaticInfo(
         name=name,
         target_LPS=target_lps,
         kind=plan.kind,
         shank_tips_local=tips_local,
-        headstage_hull=headstage_hull,
+        density_sigma_mm=sigma,
+        collision_mesh=collision_mesh,
+        target_points=target_points,
     )
 
 
@@ -119,6 +199,13 @@ def _apply_candidate_to_plan_state(plan_state, cand: PlanCandidate) -> None:
     """Mutate ``plan_state`` in place to reflect one PlanCandidate's
     arc angles + per-probe pose. Arc letters assigned a/b/c/... in
     ascending arc-index order so the mapping is reproducible.
+
+    The optimizer's ``x`` is laid out in input-probes order (the order
+    of the ``probes`` list passed to :func:`optimize`, preserved on
+    ``cand.probe_to_hole.keys()`` via dict insertion order). Reading in
+    any other order — e.g. alphabetical — assigns one probe's optimized
+    ``(ml, spin, offsets, depth)`` to a different probe and silently
+    corrupts the saved plan.
     """
     n_arcs = cand.n_arcs
     arc_aps = cand.x[:n_arcs]
@@ -126,7 +213,7 @@ def _apply_candidate_to_plan_state(plan_state, cand: PlanCandidate) -> None:
     plan_state.kinematics.arc_angles = {
         arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
     }
-    layout_probe_names = sorted(cand.probe_to_hole.keys())
+    layout_probe_names = list(cand.probe_to_hole.keys())
     for probe_idx, name in enumerate(layout_probe_names):
         offset = n_arcs + 5 * probe_idx
         ml, spin, off_R, off_A, depth = cand.x[offset : offset + 5]
@@ -153,7 +240,7 @@ def _apply_result_to_plan_state(plan_state, result: OptimizationResult) -> None:
     plan_state.kinematics.arc_angles = {
         arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
     }
-    layout_probe_names = sorted(result.probe_to_hole.keys())
+    layout_probe_names = list(result.probe_to_hole.keys())
     for probe_idx, name in enumerate(layout_probe_names):
         offset = n_arcs + 5 * probe_idx
         ml, spin, off_R, off_A, depth = result.x[offset : offset + 5]
@@ -204,9 +291,7 @@ def _save_alternatives(
         # Snapshot of plan_state into a candidate state, then serialise.
         _apply_candidate_to_plan_state(plan_state, cand)
         candidate_cfg = save_plan_to_config(plan_state, cfg)
-        fname = (
-            f"plan-{rank:02d}-cov-{cov:06.2f}-viol-{viol:.4g}.yml"
-        )
+        fname = f"plan-{rank:02d}-cov-{cov:06.2f}-viol-{viol:.4g}.yml"
         path = out_dir / fname
         with open(path, "w") as f:
             yaml.safe_dump(
@@ -353,10 +438,7 @@ def _run_seed_polish(
 
     print("\nPer-probe x: seed → after polish (units: deg, deg, mm, mm, mm):")
     print(f"  arc AP angles seed : {[f'{a:+.2f}' for a in arc_centroids_deg]}")
-    print(
-        f"  arc AP angles final: "
-        f"{[f'{cand.x[i]:+.2f}' for i in range(n_arcs)]}"
-    )
+    print(f"  arc AP angles final: {[f'{cand.x[i]:+.2f}' for i in range(n_arcs)]}")
     for p_idx, name in enumerate(probe_names):
         off = n_arcs + 5 * p_idx
         seed_vars = x0[off : off + 5]
@@ -613,14 +695,127 @@ def main():
         "--save-alternatives",
         type=Path,
         default=None,
-        help="If set, write every alternative plan (lex-ranked) as its "
-        "own full ConfigModel YAML in this directory. Useful for "
-        "eyeballing multiple feasible plans in trame side-by-side; "
-        "the main --output still receives the lex-best plan. Also "
-        "writes a `summary.md` with each plan's metrics.",
+        help="Directory to write every alternative plan (lex-ranked) "
+        "as its own full ConfigModel YAML. Default: write to "
+        "``<output_stem>_alternatives/`` next to --output. The main "
+        "--output still receives the lex-best plan. Also writes a "
+        "`summary.md` with each plan's metrics. Pass "
+        "--no-save-alternatives to disable.",
+    )
+    p.add_argument(
+        "--no-save-alternatives",
+        action="store_true",
+        help="Disable writing alternative plans. By default the "
+        "optimizer writes alternatives next to --output.",
+    )
+    p.add_argument(
+        "--retro-density",
+        action="store_true",
+        help="Replace each probe's single-point target with the masked "
+        "retro/labelled-cell cloud (brain ∩ structure mesh). Switches "
+        "the optimizer's coverage density to a Gaussian mixture over "
+        "those points. See --retro-* flags for tunables.",
+    )
+    p.add_argument(
+        "--retro-asset",
+        default="retro-targets",
+        help="(--retro-density) Scene asset key for the cell-point cloud. "
+        "Default 'retro-targets'.",
+    )
+    p.add_argument(
+        "--retro-common-masks",
+        nargs="*",
+        default=["brain"],
+        help="(--retro-density) Asset keys whose mesh.contains() AND-filters "
+        "the cloud for every probe. Default ['brain'].",
+    )
+    p.add_argument(
+        "--retro-per-probe-mask-fmt",
+        default="structure:{probe}",
+        help="(--retro-density) Per-probe extra mask key with {probe} "
+        "substituted to the probe's name. Default 'structure:{probe}'.",
+    )
+    p.add_argument(
+        "--retro-density-sigma-mm",
+        type=float,
+        default=0.3,
+        help="(--retro-density) Gaussian mixture kernel bandwidth (mm). Default 0.3.",
+    )
+    p.add_argument(
+        "--sdf-clearance",
+        action="store_true",
+        help="Use SDF-based pairwise probe clearance (JAX, analytic "
+        "Jacobian) instead of FCL BVH + finite-diff. Faster + smooth "
+        "gradients through overlap. Pre-builds a voxel SDF per probe "
+        "kind (~5 s/kind, cached to ~/.cache/aind_low_point/sdfs/).",
+    )
+    p.add_argument(
+        "--atlas-stage1",
+        action="store_true",
+        help="(--joint-rerank only) Replace Stage 1 LSAP with the target-"
+        "aligned pose-feasibility atlas. Each (probe, hole) is gated by "
+        "whether the probe can thread the hole AND reach its target. "
+        "Cuts the H pool from ~1000 to ~50-100 for typical K=7 problems. "
+        "See `dev/minlp_assignment_brief.md`.",
+    )
+    p.add_argument(
+        "--n-workers",
+        type=int,
+        default=None,
+        help="(--joint-rerank only) Number of parallel workers for the "
+        "inner SLSQP stage. Default = os.cpu_count() - 2. Set to 1 for "
+        "sequential debugging.",
+    )
+    p.add_argument(
+        "--batched-stage2",
+        action="store_true",
+        help="(--joint-rerank only) Replace the sequential per-candidate "
+        "scipy SLSQP polish with a JAX-batched Adam optimizer. Polishes "
+        "ALL (HA, AA) candidates in parallel; trades absolute precision "
+        "for throughput (~10-100× speedup at large pools). Stage 3 full "
+        "SLSQP still runs on top-K. See dev/target_valid_atlas_design.md "
+        "Phase 5.",
+    )
+    p.add_argument(
+        "--batched-adam-steps",
+        type=int,
+        default=2000,
+        help="(--batched-stage2 only) Adam iteration count per polish.",
+    )
+    p.add_argument(
+        "--batched-adam-lr",
+        type=float,
+        default=0.05,
+        help="(--batched-stage2 only) Adam learning rate.",
+    )
+    p.add_argument(
+        "--device",
+        choices=["auto", "cpu", "gpu"],
+        default="auto",
+        help="JAX device for the SDF clearance + reduced objective. "
+        "'auto' picks GPU when --sdf-clearance is on (kernel work "
+        "dominates and GPU is ~10x faster steady-state), else CPU. "
+        "Has no effect when --sdf-clearance is off.",
+    )
+    p.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print per-stage wall-time breakdown after the run.",
     )
     p.add_argument("--verbose", action="store_true", help="Verbose log")
     args = p.parse_args()
+
+    # JAX device selection must happen before any jax import.
+    import os
+    resolved_device = args.device
+    if resolved_device == "auto":
+        resolved_device = "gpu" if args.sdf_clearance else "cpu"
+    if resolved_device == "gpu":
+        os.environ["JAX_PLATFORMS"] = "cuda"
+        os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    else:
+        os.environ["JAX_PLATFORMS"] = "cpu"
+    print(f"JAX device: {resolved_device}")
 
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
@@ -647,9 +842,31 @@ def main():
     print(f"Loaded {len(holes)} hole spec(s) from {args.holes}")
     print(f"Loaded {len(plan_state.probes)} probe(s) from {args.config}")
 
+    retro_opts: RetroDensityOpts | None = None
+    if args.retro_density:
+        retro_opts = RetroDensityOpts(
+            retro_asset_key=args.retro_asset,
+            common_mask_keys=tuple(args.retro_common_masks),
+            per_probe_mask_fmt=args.retro_per_probe_mask_fmt,
+            sigma_mm=args.retro_density_sigma_mm,
+        )
+        print(
+            f"Retro-density mode: asset={retro_opts.retro_asset_key}, "
+            f"common_masks={list(retro_opts.common_mask_keys)}, "
+            f"per-probe={retro_opts.per_probe_mask_fmt}, "
+            f"sigma={retro_opts.sigma_mm} mm"
+        )
     probes = [
-        _probe_static_info(plan_state, runtime, name) for name in plan_state.probes
+        _probe_static_info(plan_state, runtime, name, retro_opts=retro_opts)
+        for name in plan_state.probes
     ]
+    if retro_opts is not None:
+        for p in probes:
+            n = 0 if p.target_points is None else p.target_points.shape[0]
+            print(
+                f"  probe {p.name}: N={n} masked retro pts, "
+                f"centroid={p.target_LPS.round(2).tolist()}"
+            )
 
     stage_mults_str = args.cma_stage_multipliers.strip()
     if stage_mults_str:
@@ -663,9 +880,7 @@ def main():
     if np.allclose(subject_from_rig_rot, np.eye(3)):
         subject_from_rig_rot = None
     else:
-        print(
-            "Using subject_from_rig rotation from config (non-identity head tilt)."
-        )
+        print("Using subject_from_rig rotation from config (non-identity head tilt).")
 
     if args.seed_plan is not None:
         return _run_seed_polish(
@@ -705,9 +920,7 @@ def main():
             sorted_letters_seed = sorted(
                 tmp_seed_a_letters, key=lambda k: tmp_seed_a_letters[k]
             )
-            letter_to_idx_seed = {
-                L: i for i, L in enumerate(sorted_letters_seed)
-            }
+            letter_to_idx_seed = {L: i for i, L in enumerate(sorted_letters_seed)}
             tmp_seed_a: dict[str, int] = {}
             for ps in probes:
                 plan_n = plan_state.probes[ps.name]
@@ -730,6 +943,8 @@ def main():
             f"k_holes_pool={args.k_holes_pool}, k_arcs_pool={args.k_arcs_pool}, "
             f"k_joint={args.k_joint})..."
         )
+        import time as _time
+        _t_opt_start = _time.perf_counter()
         result = optimize_joint(
             probes,
             holes,
@@ -760,8 +975,52 @@ def main():
             reduced_slsqp_max_iter=args.reduced_slsqp_max_iter,
             seed_to_hole=seed_to_hole,
             seed_to_arc_idx=seed_to_arc_idx,
+            n_workers=args.n_workers,
+            sdf_by_name=(
+                _maybe_build_sdfs(probes, runtime) if args.sdf_clearance else None
+            ),
+            use_atlas_stage1=args.atlas_stage1,
+            batched_stage2=args.batched_stage2,
+            batched_adam_steps=args.batched_adam_steps,
+            batched_adam_lr=args.batched_adam_lr,
             verbose=args.verbose,
         )
+        _t_opt_end = _time.perf_counter()
+        if args.profile:
+            print(f"[profile] optimize_joint wall: {_t_opt_end - _t_opt_start:.2f}s")
+            try:
+                from aind_low_point.optimization.joint_rerank_jax import (
+                    cache_stats as _jax_stats_2,
+                )
+                s2 = _jax_stats_2()
+                print(
+                    f"[profile] Stage2 JAX cache: {s2['entries']} entries, "
+                    f"{s2['hits']} hits, {s2['misses']} misses"
+                )
+            except Exception:
+                pass
+            try:
+                from aind_low_point.optimization.stage3_jax import (
+                    cache_stats as _jax_stats_3,
+                )
+                s3 = _jax_stats_3()
+                print(
+                    f"[profile] Stage3 JAX cache: {s3['entries']} entries, "
+                    f"{s3['hits']} hits, {s3['misses']} misses"
+                )
+            except Exception:
+                pass
+            try:
+                from aind_low_point.optimization.joint_rerank import (
+                    stage2_timings as _s2_t,
+                )
+                t = _s2_t()
+                total = sum(t.values()) or 1.0
+                print("[profile] Stage 2 component breakdown:")
+                for k in sorted(t, key=lambda k: -t[k]):
+                    print(f"  {k:<20} {t[k]:7.2f}s  ({100 * t[k] / total:4.1f}%)")
+            except Exception:
+                pass
     else:
         print(
             f"Running optimizer (max_num_arcs={args.max_num_arcs}, "
@@ -817,11 +1076,24 @@ def main():
             f"{'feasible' if result.alternatives[0].feasible else 'INFEASIBLE'}."
         )
 
+    # Resolve the main --output path first so we can derive a default
+    # alternatives directory next to it.
+    out_path = args.output
+    if out_path is None:
+        out_path = args.config.with_stem(args.config.stem + "_opt")
+
     # Save alternatives FIRST (each call mutates plan_state to that
     # candidate's pose); the subsequent _apply_result_to_plan_state
     # restores plan_state to the lex-best plan for the main --output.
-    if args.save_alternatives is not None and result.alternatives:
-        alts_dir = _save_alternatives(plan_state, cfg, result, args.save_alternatives)
+    alts_target: Path | None = None
+    if not args.no_save_alternatives and result.alternatives:
+        alts_target = (
+            args.save_alternatives
+            if args.save_alternatives is not None
+            else out_path.with_name(out_path.stem + "_alternatives")
+        )
+    if alts_target is not None:
+        alts_dir = _save_alternatives(plan_state, cfg, result, alts_target)
         print(
             f"\nWrote {len(result.alternatives)} alternative plan(s) to "
             f"{alts_dir} (see summary.md)."
@@ -829,10 +1101,6 @@ def main():
 
     _apply_result_to_plan_state(plan_state, result)
     new_cfg = save_plan_to_config(plan_state, cfg)
-
-    out_path = args.output
-    if out_path is None:
-        out_path = args.config.with_stem(args.config.stem + "_opt")
     with open(out_path, "w") as f:
         yaml.safe_dump(
             new_cfg.model_dump(mode="json"),

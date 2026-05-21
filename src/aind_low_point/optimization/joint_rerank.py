@@ -37,10 +37,13 @@ them.)
 
 from __future__ import annotations
 
+import concurrent.futures
+import os
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Iterable
 
+import fcl
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize
@@ -49,7 +52,8 @@ from aind_low_point.optimization.arc_assignment import (
     ArcAssignment,
     solve_top_k_arc_assignments,
 )
-from aind_low_point.optimization.geometry import cap_basis, shaft_section_oval_value
+from aind_low_point.optimization.geometry import cap_basis
+from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.hole_assignment import (
     AssignmentProbe,
     CostWeights,
@@ -60,7 +64,6 @@ from aind_low_point.optimization.hole_assignment import (
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
-    shank_capsules_from_pose,
 )
 from aind_low_point.optimization.objective import (
     ObjectiveWeights,
@@ -82,7 +85,6 @@ from aind_low_point.optimization.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )
-
 
 # ---------------------------------------------------------------------------
 # Configuration + outputs
@@ -111,13 +113,18 @@ class JointWeights:
     lambda_arc_ap: float = 100.0
     lambda_ml: float = 100.0
     lambda_bounds: float = 1.0
-    lambda_clearance: float = 0.0
+    lambda_clearance: float = 100.0
     lambda_coverage: float = 0.0
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
     min_arc_ap_sep_deg: float = 16.0
     min_intra_arc_ml_sep_deg: float = 16.0
     threading_oval_tolerance: float = 0.0
+    # Minimum signed clearance (mm) between any pair of probe-mesh BVHs.
+    # The clearance penalty is ``λ_clearance · Σ ReLU(min_clearance_mm − d)²``
+    # per pair, using the same hybrid (fcl.distance for d>0, fcl.collide
+    # for penetration depth in overlap) that the full inner solve uses.
+    min_clearance_mm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -144,19 +151,28 @@ class JointRerankMetrics:
     max_violation_threading: float
     max_violation_arc_ap_sep: float
     max_violation_intra_arc_ml_sep: float
+    max_violation_clearance: float
     approximate_coverage: float
     bounds_softpenalty: float
     original_lsap_cost: float
 
     def lex_key(self, feasibility_threshold: float = 0.0) -> tuple[float, float, float]:
-        """Lex-rank tuple ``(eff_viol, sum_viol_sq, -coverage)``.
+        """Lex-rank tuple ``(eff_viol, sum_viol_sq, bounds_softpenalty)``.
+
+        Under the reduced reranker's rotation-only pose convention,
+        ``recording_center_local`` is constructed to land on the target
+        regardless of ``(ap, ml, spin)`` — so any rigid distance-to-
+        target metric (including the prior ``approximate_coverage``) is
+        rotation-invariant. Coverage can't break ties at this stage.
+        We use ``bounds_softpenalty`` (a soft preference for comfortable
+        ap/ml angles) instead — lower = better rig comfort.
 
         Mirrors :meth:`PlanCandidate.lex_key`: an ``ε``-collapse on
         ``max_violation`` so any candidate at or below the slop budget
-        ranks among "feasible enough"; coverage breaks ties.
+        ranks among "feasible enough".
         """
         eff = max(0.0, self.max_violation - feasibility_threshold)
-        return (eff, self.sum_violation_sq, -self.approximate_coverage)
+        return (eff, self.sum_violation_sq, self.bounds_softpenalty)
 
 
 @dataclass(frozen=True)
@@ -222,6 +238,55 @@ class _ProbeStatic:
     section_sin_theta: NDArray  # shape (S,) — sin(theta)
     section_a: NDArray  # shape (S,) — major half-extent
     section_b: NDArray  # shape (S,) — minor half-extent
+    # FCL BVH collision object on the canonical-local probe mesh; the
+    # reduced objective updates its transform each iteration to query
+    # pairwise probe clearance. ``None`` for probes without a
+    # ``collision_mesh`` (those pairs drop from the clearance check).
+    bvh_obj: fcl.CollisionObject | None = None
+    # Optional SDF data for this probe (grid, origin, spacing, surface
+    # points — already converted to jnp arrays). When present, the
+    # reduced objective queries the JAX SDF kernel for pairwise
+    # clearance instead of FCL BVH+collide.
+    sdf_data: dict | None = None
+
+
+_SDF_JNP_CACHE: dict[int, dict] = {}
+
+
+_STAGE2_TIMINGS: dict[str, float] = {
+    "build_probe_static": 0.0,
+    "build_starts": 0.0,
+    "spin_restore": 0.0,
+    "slsqp": 0.0,
+    "metric_eval": 0.0,
+}
+
+
+def stage2_timings() -> dict[str, float]:
+    """Return accumulated wall-time per Stage 2 component (for profiling)."""
+    return dict(_STAGE2_TIMINGS)
+
+
+def _sdf_jnp_payload(sdf) -> dict:
+    """Return the jnp-array form of a ``ProbeSDF``, keyed on the
+    object's id so repeated calls in the same process share the
+    GPU-resident arrays. Stage 2 calls ``_build_probe_static`` once
+    per (H, A) candidate — caching the conversion saves the per-call
+    ``jnp.asarray`` Python overhead × probe count × candidate count.
+    """
+    key = id(sdf)
+    cached = _SDF_JNP_CACHE.get(key)
+    if cached is not None:
+        return cached
+    import jax.numpy as jnp
+    payload = dict(
+        grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
+        origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
+        spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
+        surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
+    )
+    _SDF_JNP_CACHE[key] = payload
+    return payload
 
 
 def _build_probe_static(
@@ -229,8 +294,23 @@ def _build_probe_static(
     holes: list[Hole],
     ha: HoleAssignment,
     aa: ArcAssignment,
+    bvh_cache: dict[str, fcl.CollisionObject | None] | None = None,
+    sdf_by_name: dict | None = None,
 ) -> list[_ProbeStatic]:
-    """Build the per-probe static cache for the reduced objective."""
+    """Build the per-probe static cache for the reduced objective.
+
+    ``bvh_cache`` (optional) is a ``probe_name → CollisionObject`` map
+    of pre-built BVHs. When provided, this avoids the ~100 ms / 46k-face
+    cost of building a fresh FCL BVH per (H, A) candidate (and we
+    score hundreds of candidates per run, so the waste compounds). The
+    BVH is intrinsic to the probe mesh and reusable across all
+    candidates — only its world transform changes per pose.
+
+    ``sdf_by_name`` (optional) is a ``probe_name → ProbeSDF`` map.
+    When provided, each probe's SDF arrays are packed into a dict and
+    attached as ``_ProbeStatic.sdf_data`` for the reduced objective's
+    JAX clearance backend.
+    """
     holes_by_id = {h.id: h for h in holes}
     fallback_geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
     out: list[_ProbeStatic] = []
@@ -250,29 +330,33 @@ def _build_probe_static(
                 dtype=np.float64,
             )
         else:
-            pivot = np.array(
-                [0.0, 0.0, float(geom.active_center_mm)], dtype=np.float64
-            )
+            pivot = np.array([0.0, 0.0, float(geom.active_center_mm)], dtype=np.float64)
         hole_id = ha.probe_to_hole[p.name]
         arc_idx = aa.probe_to_arc_idx[p.name]
         hole = holes_by_id[hole_id]
         # Precompute per-section basis vectors / centres / oval params.
         sections = hole.sections
-        s_axes = np.array(
-            [np.asarray(s.axis, dtype=np.float64) for s in sections]
-        )
+        s_axes = np.array([np.asarray(s.axis, dtype=np.float64) for s in sections])
         s_e1 = np.empty_like(s_axes)
         s_e2 = np.empty_like(s_axes)
         for k, s in enumerate(sections):
             e1, e2 = cap_basis(s.axis)
             s_e1[k] = e1
             s_e2[k] = e2
-        s_centers = np.array(
-            [np.asarray(s.center, dtype=np.float64) for s in sections]
-        )
+        s_centers = np.array([np.asarray(s.center, dtype=np.float64) for s in sections])
         s_thetas = np.array([float(s.theta) for s in sections])
         s_a = np.array([float(s.a) for s in sections])
         s_b = np.array([float(s.b) for s in sections])
+        if bvh_cache is not None and p.name in bvh_cache:
+            bvh_obj = bvh_cache[p.name]
+        else:
+            bvh_obj = (
+                make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+            )
+        sdf_payload = None
+        if sdf_by_name is not None and p.name in sdf_by_name:
+            sdf = sdf_by_name[p.name]
+            sdf_payload = _sdf_jnp_payload(sdf)
         out.append(
             _ProbeStatic(
                 name=p.name,
@@ -289,6 +373,8 @@ def _build_probe_static(
                 section_sin_theta=np.sin(s_thetas),
                 section_a=s_a,
                 section_b=s_b,
+                bvh_obj=bvh_obj,
+                sdf_data=sdf_payload,
             )
         )
     return out
@@ -364,6 +450,129 @@ def _max_g_threading(
         g = np.where(np.abs(denom) < 1e-12, np.inf, g)
         out[:, k] = g
     return out.reshape(-1)
+
+
+def _signed_pair_clearance(
+    obj_a: fcl.CollisionObject, obj_b: fcl.CollisionObject
+) -> float:
+    """Hybrid signed distance between two BVH probes.
+
+    Returns positive when clear (``fcl.distance``), negative when
+    overlapping (``-penetration_depth`` from ``fcl.collide``). Matches
+    the convention used by :func:`pairwise_headstage_clearances` so the
+    reduced reranker and the full inner solve see consistent
+    clearance signals.
+    """
+    d_req = fcl.DistanceRequest(enable_signed_distance=True)
+    d_res = fcl.DistanceResult()
+    fcl.distance(obj_a, obj_b, d_req, d_res)
+    d = float(d_res.min_distance)
+    if d > 0.0:
+        return d
+    c_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
+    c_res = fcl.CollisionResult()
+    fcl.collide(obj_a, obj_b, c_req, c_res)
+    if c_res.contacts:
+        return -float(max(c.penetration_depth for c in c_res.contacts))
+    return 0.0
+
+
+def _update_pose_and_pairwise_clearances(
+    y: NDArray,
+    statics: list[_ProbeStatic],
+    n_arcs: int,
+) -> list[float]:
+    """Refresh every probe's BVH transform from the reduced vector ``y``
+    and return the list of pairwise signed clearances (length
+    ``K*(K-1)/2`` for ``K`` probes-with-BVH, in lex order).
+
+    Probes without a ``bvh_obj`` are skipped from the pairwise list.
+
+    When the statics' ``sdf_data`` is populated, uses the JAX SDF
+    backend for clearance instead of FCL BVH+collide. Smooth + signed
+    through overlap (FCL clamps at 0 on overlap, then needs a separate
+    collide call for depth).
+    """
+    arc_aps = np.asarray(y[:n_arcs], dtype=np.float64)
+    valid: list[int] = []
+    # When SDF backend is active, store world poses for each probe so
+    # the pair queries can reuse them without redundant pose math.
+    poses_world: dict[int, tuple] = {}
+    use_sdf = any(st.sdf_data is not None for st in statics)
+    for i, st in enumerate(statics):
+        if st.bvh_obj is None:
+            continue
+        ml_i, spin_i = _ml_spin_from_y(y, n_arcs, i)
+        ap_i = float(arc_aps[st.arc_idx])
+        R, pose_tip = pose_from_optimizer_vars(
+            target_LPS=st.target_LPS,
+            ap_deg=ap_i,
+            ml_deg=ml_i,
+            spin_deg=spin_i,
+            offset_R_mm=0.0,
+            offset_A_mm=0.0,
+            past_target_mm=0.0,
+            recording_center_local=st.pivot_local,
+        )
+        # FCL setTransform is only needed for the BVH fallback path
+        # below. SDF backend (when active) consumes (R, pose_tip)
+        # directly via poses_world, so the setTransform is wasted work.
+        if not use_sdf:
+            st.bvh_obj.setTransform(
+                fcl.Transform(
+                    np.ascontiguousarray(R, dtype=np.float64),
+                    np.ascontiguousarray(pose_tip, dtype=np.float64),
+                )
+            )
+        valid.append(i)
+        if use_sdf:
+            poses_world[i] = (R, pose_tip)
+    out: list[float] = []
+    if use_sdf:
+        # SDF backend: query JAX kernel per pair. Uses the same probe
+        # poses computed above; surface points + SDF grids come from
+        # each probe's ``sdf_data``.
+        import jax.numpy as jnp
+
+        from aind_low_point.optimization.sdf_jax import (
+            pairwise_signed_clearance_jit,
+        )
+
+        for a in range(len(valid)):
+            ia = valid[a]
+            R_a, t_a = poses_world[ia]
+            sa = statics[ia].sdf_data
+            for b in range(a + 1, len(valid)):
+                ib = valid[b]
+                R_b, t_b = poses_world[ib]
+                sb = statics[ib].sdf_data
+                if sa is None or sb is None:
+                    # Probe with no SDF falls back to BVH for that pair.
+                    out.append(
+                        _signed_pair_clearance(
+                            statics[ia].bvh_obj, statics[ib].bvh_obj
+                        )
+                    )
+                    continue
+                d = float(
+                    pairwise_signed_clearance_jit(
+                        jnp.asarray(R_a, dtype=jnp.float32),
+                        jnp.asarray(t_a, dtype=jnp.float32),
+                        jnp.asarray(R_b, dtype=jnp.float32),
+                        jnp.asarray(t_b, dtype=jnp.float32),
+                        sa["grid"], sa["origin"], sa["spacing"],
+                        sb["grid"], sb["origin"], sb["spacing"],
+                        sa["surface"], sb["surface"],
+                    )
+                )
+                out.append(d)
+        return out
+    for a in range(len(valid)):
+        ia = valid[a]
+        for b in range(a + 1, len(valid)):
+            ib = valid[b]
+            out.append(_signed_pair_clearance(statics[ia].bvh_obj, statics[ib].bvh_obj))
+    return out
 
 
 def _softplus_squared(values: NDArray) -> float:
@@ -444,13 +653,23 @@ def _reduced_objective(
     j_bounds_ml = _softplus_squared(np.abs(ml_vals) - weights.comfortable_ml_deg)
     j_bounds = j_bounds_ap + j_bounds_ml
 
-    # Clearance / coverage terms are placeholders (λ defaults to 0); skip
-    # the work entirely when unused.
+    # Pairwise clearance penalty (BVH-based hybrid). Skipped entirely
+    # when λ_clearance = 0 to save the FCL traffic for runs that don't
+    # want this signal.
+    j_clearance = 0.0
+    if weights.lambda_clearance > 0.0:
+        clearances = _update_pose_and_pairwise_clearances(y, statics, n_arcs)
+        for c in clearances:
+            short = max(0.0, weights.min_clearance_mm - c)
+            j_clearance += short * short
+
+    # Coverage placeholder (λ defaults to 0); skip the work when unused.
     total = (
         weights.lambda_thread * j_thread
         + weights.lambda_arc_ap * j_arc_ap
         + weights.lambda_ml * j_ml
         + weights.lambda_bounds * j_bounds
+        + weights.lambda_clearance * j_clearance
     )
     return float(total)
 
@@ -485,28 +704,17 @@ def _evaluate_reduced_metrics(
             excess = np.maximum(0.0, gs - weights.threading_oval_tolerance)
             sum_thread_sq += float(np.sum(excess * excess))
             max_thread = max(max_thread, float(excess.max(initial=0.0)))
-        # Approximate coverage proxy: gaussian distance from target to the
-        # shaft tip after pose. Higher = closer.
-        R, pose_tip = pose_from_optimizer_vars(
-            target_LPS=st.target_LPS,
-            ap_deg=ap_i,
-            ml_deg=ml_i,
-            spin_deg=spin_i,
-            offset_R_mm=0.0,
-            offset_A_mm=0.0,
-            past_target_mm=0.0,
-            recording_center_local=st.pivot_local,
-        )
-        if st.shank_tips_local.shape[0] > 0:
-            # Centre of mass of shanks lands at target by construction
-            # (pivot_local subtraction); use the distance the centre
-            # actually achieves as the coverage proxy.
-            shank_centroid_world = (
-                R @ np.asarray(st.shank_tips_local, dtype=np.float64).mean(axis=0)
-                + pose_tip
-            )
-            d = float(np.linalg.norm(shank_centroid_world - st.target_LPS))
-            approx_cov += float(np.exp(-(d**2)))
+        # Coverage was a per-probe Gaussian-density line integral here,
+        # but the reduced reranker uses rotation-only pose construction
+        # — ``pose_from_optimizer_vars`` with ``offset=0, past_target=0``
+        # pins the recording center on target. Any rigid distance-to-
+        # target metric is then rotation-invariant: every candidate
+        # produces the same coverage. We leave ``approximate_coverage``
+        # at 0.0 here and rank by ``bounds_softpenalty`` instead (see
+        # ``JointRerankMetrics.lex_key``). A useful coverage surrogate
+        # would need a region-based target (mixture density) or to
+        # include offsets in the reduced problem — both are Stage 3
+        # concerns.
 
     max_arc_ap = 0.0
     sum_arc_ap_sq = 0.0
@@ -540,14 +748,26 @@ def _evaluate_reduced_metrics(
     )
     bounds_pen += _softplus_squared(np.abs(ml_vals) - weights.comfortable_ml_deg)
 
-    max_viol = max(max_thread, max_arc_ap, max_ml)
-    sum_viol_sq = sum_thread_sq + sum_arc_ap_sq + sum_ml_sq
+    # Pairwise clearance violations from BVH signed distance.
+    max_clear = 0.0
+    sum_clear_sq = 0.0
+    if weights.lambda_clearance > 0.0:
+        clearances = _update_pose_and_pairwise_clearances(y, statics, n_arcs)
+        for c in clearances:
+            short = max(0.0, weights.min_clearance_mm - c)
+            sum_clear_sq += short * short
+            if short > max_clear:
+                max_clear = short
+
+    max_viol = max(max_thread, max_arc_ap, max_ml, max_clear)
+    sum_viol_sq = sum_thread_sq + sum_arc_ap_sq + sum_ml_sq + sum_clear_sq
     return JointRerankMetrics(
         max_violation=float(max_viol),
         sum_violation_sq=float(sum_viol_sq),
         max_violation_threading=float(max_thread),
         max_violation_arc_ap_sep=float(max_arc_ap),
         max_violation_intra_arc_ml_sep=float(max_ml),
+        max_violation_clearance=float(max_clear),
         approximate_coverage=float(approx_cov),
         bounds_softpenalty=float(bounds_pen),
         original_lsap_cost=float(original_lsap_cost),
@@ -643,9 +863,7 @@ def _build_starts(
                 # No overlap; fall back to required-AP of probe closest
                 # to the partitioner's centroid for this arc.
                 target_ap = float(aa.arc_centroids_deg[a])
-                idx = int(
-                    np.argmin([abs(rap - target_ap) for rap in required_aps])
-                )
+                idx = int(np.argmin([abs(rap - target_ap) for rap in required_aps]))
                 start2[a] = float(required_aps[idx])
             else:
                 start2[a] = float(aa.arc_centroids_deg[a])
@@ -681,6 +899,13 @@ def _reduced_bounds(
     """Box bounds matching :func:`_default_bounds` for the reduced vector.
 
     AP bound shifted by head pitch; ML clamped to ±60°; spin to ±180°.
+
+    NB: scipy SLSQP uses bounds for internal step-size scaling; widening
+    the spin range causes immediate stagnation (observed 2026-05-19).
+    The bound is kept at ±180° for the scipy path. The batched Adam
+    path (``batched_static.py``) uses loose ±720° spin bounds because
+    Adam needs continuous gradient flow across the spin=±180°
+    wraparound; that path doesn't share scipy's step-scaling logic.
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(n_arcs):
@@ -692,11 +917,11 @@ def _reduced_bounds(
 
 
 def _wrap_spin_to_bounds(y: NDArray, n_arcs: int, n_probes: int) -> NDArray:
-    """Wrap spin angles into ``[-180, 180]`` before passing to SLSQP.
+    """Normalize spin angles to ``[-180, 180]`` for human-readable output.
 
-    SLSQP enforces box bounds but starts may have spin = +(slot+180°)
-    which can land outside ``[-180, 180]``. Wrap rather than clip so the
-    geometric rotation is preserved.
+    Bounds are loose (±720°); this helper is used to canonicalize spin
+    values for plan files and metric printouts. SLSQP no longer needs
+    this clamp.
     """
     out = np.asarray(y, dtype=np.float64).copy()
     for i in range(n_probes):
@@ -721,6 +946,29 @@ def _slsqp_reduced(
     decides whether to retry from a different start.
     """
     y0 = _wrap_spin_to_bounds(y0, n_arcs, len(statics))
+
+    use_jax = any(st.sdf_data is not None for st in statics)
+    if use_jax:
+        from aind_low_point.optimization.joint_rerank_jax import (
+            make_jax_reduced_objective,
+        )
+
+        fn, jac = make_jax_reduced_objective(statics, n_arcs, weights)
+        try:
+            # ftol=1e-4 (was 1e-6): the reduced reranker only needs to
+            # rank-order candidates, not polish to machine precision.
+            # Tighter ftol burns SLSQP iters on convergence we don't use.
+            result = minimize(
+                fn,
+                y0,
+                method="SLSQP",
+                jac=jac,
+                bounds=bounds,
+                options={"maxiter": max_iter, "ftol": 1e-4, "disp": False},
+            )
+        except Exception:
+            return y0
+        return np.asarray(result.x, dtype=np.float64)
 
     def fn(v):
         return _reduced_objective(
@@ -756,24 +1004,67 @@ def score_joint(
     head_pitch_deg: float = 0.0,
     reduced_slsqp_max_iter: int = 50,
     original_lsap_cost: float = float("nan"),
+    bvh_cache: dict[str, fcl.CollisionObject | None] | None = None,
+    sdf_by_name: dict | None = None,
+    y0_override: NDArray | None = None,
+    skip_spin_restore: bool = False,
 ) -> JointCandidate:
     """Run the reduced-SLSQP scoring for one (hole, arc) candidate.
 
-    Tries three warm starts (see module docstring) and returns the
-    candidate with the lex-best metrics.
+    By default, tries three warm starts (see module docstring) and
+    returns the candidate with the lex-best metrics.
+
+    When ``y0_override`` is supplied, uses ONLY that single warm-start
+    vector (skipping ``_build_starts``'s multi-seed logic). Useful when
+    the caller has already produced a high-quality starting point —
+    e.g., from a batched spin-restoration pass over all candidates.
+
+    When ``skip_spin_restore=True``, the per-start spin-restoration
+    step is bypassed entirely (the y0 is assumed already restored or
+    intentionally not restored). Combine with ``y0_override`` to give
+    each candidate a pre-spin-restored seed and skip the per-candidate
+    ~500 ms spin-restore cost — a ~40% speedup on the full polish run.
     """
     n_probes = len(probes)
     n_arcs = max(aa.probe_to_arc_idx.values()) + 1 if aa.probe_to_arc_idx else 1
-    statics = _build_probe_static(probes, holes, ha, aa)
-    starts = _build_starts(statics, aa, pose_features, n_arcs)
+    _t0 = time.perf_counter()
+    statics = _build_probe_static(
+        probes, holes, ha, aa, bvh_cache=bvh_cache, sdf_by_name=sdf_by_name
+    )
+    _STAGE2_TIMINGS["build_probe_static"] += time.perf_counter() - _t0
+    _t0 = time.perf_counter()
+    if y0_override is not None:
+        starts = [np.asarray(y0_override, dtype=np.float64)]
+    else:
+        starts = _build_starts(statics, aa, pose_features, n_arcs)
+    _STAGE2_TIMINGS["build_starts"] += time.perf_counter() - _t0
     bounds = _reduced_bounds(n_arcs, n_probes, head_pitch_deg)
 
     best_y: NDArray | None = None
     best_metrics: JointRerankMetrics | None = None
+    use_jax_spin = all(s.sdf_data is not None for s in statics)
     for y0 in starts:
+        # Spin-only feasibility restoration: rotate overlapping probes
+        # about their shafts so flat profiles face each other. When SDF
+        # data is available, use the vmapped JAX kernel (coarse 4×4 +
+        # fine 4×4) — ~10× faster than the FCL 8×8 brute sweep and
+        # reuses the cached SDF arrays.
+        _t0 = time.perf_counter()
+        if not skip_spin_restore:
+            if use_jax_spin:
+                from aind_low_point.optimization.spin_restore_jax import (
+                    spin_restore_jax,
+                )
+                y0 = spin_restore_jax(y0, statics, n_arcs)
+            else:
+                y0 = _spin_restore_starts(y0, statics, n_arcs)
+        _STAGE2_TIMINGS["spin_restore"] += time.perf_counter() - _t0
+        _t0 = time.perf_counter()
         y_opt = _slsqp_reduced(
             y0, statics, n_arcs, weights, bounds=bounds, max_iter=reduced_slsqp_max_iter
         )
+        _STAGE2_TIMINGS["slsqp"] += time.perf_counter() - _t0
+        _t0 = time.perf_counter()
         m = _evaluate_reduced_metrics(
             y_opt,
             statics,
@@ -781,6 +1072,7 @@ def score_joint(
             weights,
             original_lsap_cost=original_lsap_cost,
         )
+        _STAGE2_TIMINGS["metric_eval"] += time.perf_counter() - _t0
         if best_metrics is None or m.lex_key() < best_metrics.lex_key():
             best_metrics = m
             best_y = y_opt
@@ -828,6 +1120,300 @@ def expand_reduced_solution_to_full_x(
         x[off + 3] = 0.0
         x[off + 4] = 0.0
     return x
+
+
+def _push_restore_full_x(  # noqa: C901
+    x: NDArray,
+    *,
+    ctx,
+    max_iter: int = 30,
+    margin_mm: float = 0.02,
+    off_bound_mm: float = 0.5,
+    depth_bound_mm: float = 3.0,
+) -> NDArray:
+    """Bounded offset/depth push to resolve residual overlap after spin
+    restoration. Operates on the *full* ``x`` (offsets and depth are
+    not in the reduced ``y``).
+
+    Same algorithm as the spin restoration but operating in translation
+    space: find the worst pair, push each probe along the line between
+    their pose tips by half the penetration (+ margin), realised as
+    deltas in ``(off_R, off_A, past_target_mm)`` and clamped to bounds.
+
+    The push slightly violates kinematic intent (offsets move the
+    recording-array centre away from the target; depth re-aligns it
+    along the shaft). Use only as a fallback when spin alone cannot
+    fully clear all pairs.
+    """
+    x = np.array(x, dtype=np.float64, copy=True)
+    probes = ctx.probes
+    headstage_objs = ctx.headstage_fcl_objs
+    n_arcs = ctx.layout.num_arcs
+    n_probes = len(probes)
+    if n_probes < 2 or any(o is None for o in headstage_objs):
+        return x
+
+    def _project(R: NDArray, d_world: NDArray) -> tuple[float, float, float]:
+        """``d_world`` in LPS → ``(δoff_R, δoff_A, δdepth)`` that
+        translate pose_tip by ``d_world``."""
+        shaft = R @ np.array([0.0, 0.0, 1.0])
+        d_shaft = float(np.dot(d_world, shaft))
+        # off_LPS = (-off_R, -off_A, 0). Cover xy via offsets; shaft via depth.
+        return -float(d_world[0]), -float(d_world[1]), -d_shaft
+
+    def _refresh_all() -> list[NDArray]:
+        arc_aps = np.asarray(x[:n_arcs], dtype=np.float64)
+        pose_tips: list[NDArray] = []
+        for i, p in enumerate(probes):
+            offset = n_arcs + 5 * i
+            ml = float(x[offset + 0])
+            spin = float(x[offset + 1])
+            off_R = float(x[offset + 2])
+            off_A = float(x[offset + 3])
+            depth = float(x[offset + 4])
+            ap = float(arc_aps[ctx.layout.arc_ids.index(p.arc_id)])
+            tips = np.asarray(p.shank_tips_local, dtype=np.float64)
+            geom = p.recording_geom
+            if tips.shape[0] > 0:
+                pivot = np.array(
+                    [tips[:, 0].mean(), tips[:, 1].mean(), geom.active_center_mm],
+                    dtype=np.float64,
+                )
+            else:
+                pivot = np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
+            R, pose_tip = pose_from_optimizer_vars(
+                target_LPS=p.target_LPS,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=off_R,
+                offset_A_mm=off_A,
+                past_target_mm=depth,
+                recording_center_local=pivot,
+            )
+            R = np.asarray(R, dtype=np.float64)
+            pose_tip = np.asarray(pose_tip, dtype=np.float64)
+            obj = headstage_objs[i]
+            if obj is not None:
+                obj.setTransform(fcl.Transform(R, pose_tip))
+            pose_tips.append(pose_tip)
+        return pose_tips
+
+    dist_req = fcl.DistanceRequest(enable_signed_distance=True)
+    coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
+
+    def _signed_clear(a, b) -> float:
+        oa, ob = headstage_objs[a], headstage_objs[b]
+        if oa is None or ob is None:
+            return float("inf")
+        d_res = fcl.DistanceResult()
+        fcl.distance(oa, ob, dist_req, d_res)
+        d = float(d_res.min_distance)
+        if d > 0.0:
+            return d
+        c_res = fcl.CollisionResult()
+        fcl.collide(oa, ob, coll_req, c_res)
+        if c_res.contacts:
+            return -float(max(c.penetration_depth for c in c_res.contacts))
+        return 0.0
+
+    for _ in range(max_iter):
+        pose_tips = _refresh_all()
+        worst_a, worst_b, worst_d = -1, -1, 1e9
+        for i in range(n_probes):
+            if headstage_objs[i] is None:
+                continue
+            for j in range(i + 1, n_probes):
+                if headstage_objs[j] is None:
+                    continue
+                d = _signed_clear(i, j)
+                if d < worst_d:
+                    worst_d, worst_a, worst_b = d, i, j
+        if worst_d > margin_mm or worst_a < 0:
+            return x
+        push = pose_tips[worst_b] - pose_tips[worst_a]
+        nrm = float(np.linalg.norm(push))
+        push = push / nrm if nrm > 1e-9 else np.array([1.0, 0.0, 0.0])
+        half_shift = (max(0.0, -worst_d) + margin_mm) / 2.0
+        # Apply per-probe; compute R in-line from current x for chain rule.
+        arc_aps = np.asarray(x[:n_arcs], dtype=np.float64)
+        prev_x = x.copy()
+        for sign, idx in ((-1.0, worst_a), (+1.0, worst_b)):
+            p = probes[idx]
+            offset = n_arcs + 5 * idx
+            ap = float(arc_aps[ctx.layout.arc_ids.index(p.arc_id)])
+            ml = float(x[offset + 0])
+            spin = float(x[offset + 1])
+            tips = np.asarray(p.shank_tips_local, dtype=np.float64)
+            geom = p.recording_geom
+            pivot = (
+                np.array(
+                    [tips[:, 0].mean(), tips[:, 1].mean(), geom.active_center_mm],
+                    dtype=np.float64,
+                )
+                if tips.shape[0] > 0
+                else np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
+            )
+            R, _ = pose_from_optimizer_vars(
+                target_LPS=p.target_LPS,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=float(x[offset + 2]),
+                offset_A_mm=float(x[offset + 3]),
+                past_target_mm=float(x[offset + 4]),
+                recording_center_local=pivot,
+            )
+            R = np.asarray(R, dtype=np.float64)
+            d_off_R, d_off_A, d_depth = _project(R, sign * half_shift * push)
+            x[offset + 2] = float(
+                np.clip(x[offset + 2] + d_off_R, -off_bound_mm, off_bound_mm)
+            )
+            x[offset + 3] = float(
+                np.clip(x[offset + 3] + d_off_A, -off_bound_mm, off_bound_mm)
+            )
+            x[offset + 4] = float(
+                np.clip(x[offset + 4] + d_depth, -depth_bound_mm, depth_bound_mm)
+            )
+        # Halt if clamping zeroed out all motion (otherwise we'd loop).
+        if np.allclose(x, prev_x):
+            return x
+    return x
+
+
+def _spin_restore_starts(  # noqa: C901
+    y: NDArray,
+    statics: list[_ProbeStatic],
+    n_arcs: int,
+    *,
+    n_grid: int = 8,
+    max_outer_iter: int = 3,
+    margin_mm: float = 0.02,
+) -> NDArray:
+    """Pair-greedy spin-only feasibility restoration on a reduced vector.
+
+    Probe bodies are flat (PCB + silicon), so rotating about the shaft
+    axis (the ``spin`` DOF) presents a thinner profile to a neighbour
+    with no positional change — preserving threading and recording-array
+    placement. This is the same trick the manual workflow uses: when
+    two probes are close, spin them so they face each other.
+
+    Algorithm: on each outer iteration, find the most-penetrating pair
+    ``(i, j)``; sweep their spin values on a ``n_grid × n_grid``
+    coarse grid; pick the combination that maximises pairwise clearance;
+    stop when the worst pair clears ``margin_mm`` or ``max_outer_iter``
+    is exhausted. Other probes' poses are not touched.
+
+    Operates on the reduced vector ``y = [arc_aps, (ml, spin)_0, ...]``.
+    """
+    y = np.array(y, dtype=np.float64, copy=True)
+    n_probes = len(statics)
+    if n_probes < 2:
+        return y
+    probes_with_bvh = [i for i, st in enumerate(statics) if st.bvh_obj is not None]
+    if len(probes_with_bvh) < 2:
+        return y
+
+    arc_aps = np.asarray(y[:n_arcs], dtype=np.float64)
+    spin_grid = np.linspace(-180.0, 180.0, n_grid, endpoint=False)
+
+    def _set_probe_transform(i: int, spin_deg: float) -> None:
+        st = statics[i]
+        assert st.bvh_obj is not None
+        ml_i, _ = _ml_spin_from_y(y, n_arcs, i)
+        ap_i = float(arc_aps[st.arc_idx])
+        R, pose_tip = pose_from_optimizer_vars(
+            target_LPS=st.target_LPS,
+            ap_deg=ap_i,
+            ml_deg=ml_i,
+            spin_deg=spin_deg,
+            offset_R_mm=0.0,
+            offset_A_mm=0.0,
+            past_target_mm=0.0,
+            recording_center_local=st.pivot_local,
+        )
+        st.bvh_obj.setTransform(
+            fcl.Transform(
+                np.ascontiguousarray(R, dtype=np.float64),
+                np.ascontiguousarray(pose_tip, dtype=np.float64),
+            )
+        )
+
+    def _refresh_all() -> None:
+        for i in probes_with_bvh:
+            _, spin_i = _ml_spin_from_y(y, n_arcs, i)
+            _set_probe_transform(i, spin_i)
+
+    dist_req = fcl.DistanceRequest(enable_signed_distance=True)
+    coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
+
+    def _signed_clear(a: int, b: int) -> float:
+        obj_a = statics[a].bvh_obj
+        obj_b = statics[b].bvh_obj
+        assert obj_a is not None and obj_b is not None
+        d_res = fcl.DistanceResult()
+        fcl.distance(obj_a, obj_b, dist_req, d_res)
+        d = float(d_res.min_distance)
+        if d > 0.0:
+            return d
+        c_res = fcl.CollisionResult()
+        fcl.collide(obj_a, obj_b, coll_req, c_res)
+        if c_res.contacts:
+            return -float(max(c.penetration_depth for c in c_res.contacts))
+        return 0.0
+
+    for _outer in range(max_outer_iter):
+        _refresh_all()
+        worst_a, worst_b, worst_d = -1, -1, 1e9
+        for ii, ia in enumerate(probes_with_bvh):
+            for ib in probes_with_bvh[ii + 1 :]:
+                d = _signed_clear(ia, ib)
+                if d < worst_d:
+                    worst_d, worst_a, worst_b = d, ia, ib
+        if worst_d > margin_mm:
+            return y
+
+        # Sweep (spin_a, spin_b) on n_grid × n_grid; score each combo
+        # by the MIN clearance over every pair touching either probe,
+        # not just the (a, b) pair — otherwise we'd "fix" (a, b)
+        # overlap by spinning probe a into a worse position relative
+        # to some other probe k.
+        def _min_clearance_involving(a: int, b: int) -> float:
+            mn = float("inf")
+            for k in probes_with_bvh:
+                if k == a or k == b:
+                    continue
+                # Pair (a, k) and (b, k) — clearance only depends on a/b
+                # transforms relative to the (already-cached) k transform.
+                d_ak = _signed_clear(a, k) if a != k else float("inf")
+                d_bk = _signed_clear(b, k) if b != k else float("inf")
+                mn = min(mn, d_ak, d_bk)
+            mn = min(mn, _signed_clear(a, b))
+            return mn
+
+        best_score = _min_clearance_involving(worst_a, worst_b)
+        best_pair = (
+            float(y[n_arcs + 2 * worst_a + 1]),
+            float(y[n_arcs + 2 * worst_b + 1]),
+        )
+        for sa in spin_grid:
+            _set_probe_transform(worst_a, float(sa))
+            for sb in spin_grid:
+                _set_probe_transform(worst_b, float(sb))
+                score = _min_clearance_involving(worst_a, worst_b)
+                if score > best_score:
+                    best_score = score
+                    best_pair = (float(sa), float(sb))
+        # Commit the best (spin_a, spin_b) and restore transforms.
+        y[n_arcs + 2 * worst_a + 1] = best_pair[0]
+        y[n_arcs + 2 * worst_b + 1] = best_pair[1]
+        _set_probe_transform(worst_a, best_pair[0])
+        _set_probe_transform(worst_b, best_pair[1])
+        # If grid couldn't improve the worst pair, stop to avoid spinning
+        # forever on a fundamentally infeasible candidate.
+        if best_score <= worst_d:
+            return y
+    return y
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +1464,148 @@ def _lookup_seed_equivalent_rank(
     return -1
 
 
+# ---------------------------------------------------------------------------
+# Inner-solve worker (for ProcessPoolExecutor)
+# ---------------------------------------------------------------------------
+#
+# The inner SLSQP for each surviving JointCandidate is independent of the
+# others — each builds its own ``OptimizerContext`` (FCL CollisionObjects
+# can't cross process boundaries anyway) and runs its own multi-stage
+# SLSQP. Run them in parallel via a ProcessPool to use all cores.
+
+_INNER_WORKER_STATE: dict = {}
+
+
+def _inner_solve_worker_init(
+    probes,
+    holes,
+    weights,
+    probe_names,
+    threading_oval_tolerance,
+    clearance_overlap_allowance_mm,
+    subject_from_rig_rot,
+    use_cma,
+    cma_population,
+    cma_generations,
+    cma_sigma,
+    cma_stage_multipliers,
+    slsqp_max_iter,
+    slsqp_constrained,
+    two_stage_inner,
+    feasibility_max_iter,
+    final_feasibility_cleanup,
+    polish_method,
+    feasibility_threshold,
+    verbose,
+    sdf_by_name=None,
+) -> None:
+    """Set up per-worker shared state from the parent process. On Linux
+    (fork start method) this is essentially free — the parent's memory
+    is copy-on-write. On spawn-mode platforms (macOS/Windows) the args
+    get pickled once per worker; trimesh meshes are the bulky bit but
+    still tolerable (~few MB per probe kind)."""
+    # Stage 3 is FCL-only and never imports JAX, but spawn workers
+    # inherit the parent's ``JAX_PLATFORMS=cuda`` env and would each
+    # try to acquire the GPU on first import — guaranteed OOM with 15
+    # workers. Pin workers to CPU before any JAX import gets pulled in.
+    import os as _os
+    _os.environ["JAX_PLATFORMS"] = "cpu"
+    global _INNER_WORKER_STATE
+    # Build per-worker BVH cache ONCE here. Each worker may handle
+    # multiple candidates; without this they'd each rebuild BVHs per
+    # candidate (7 × ~100 ms × N_candidates_per_worker waste).
+    bvh_cache = {
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+        )
+        for p in probes
+    }
+    _INNER_WORKER_STATE = dict(
+        probes=probes,
+        holes=holes,
+        weights=weights,
+        probe_names=probe_names,
+        threading_oval_tolerance=threading_oval_tolerance,
+        clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
+        subject_from_rig_rot=subject_from_rig_rot,
+        use_cma=use_cma,
+        cma_population=cma_population,
+        cma_generations=cma_generations,
+        cma_sigma=cma_sigma,
+        cma_stage_multipliers=cma_stage_multipliers,
+        slsqp_max_iter=slsqp_max_iter,
+        slsqp_constrained=slsqp_constrained,
+        two_stage_inner=two_stage_inner,
+        feasibility_max_iter=feasibility_max_iter,
+        final_feasibility_cleanup=final_feasibility_cleanup,
+        polish_method=polish_method,
+        feasibility_threshold=feasibility_threshold,
+        verbose=verbose,
+        bvh_cache=bvh_cache,
+        sdf_by_name=sdf_by_name,
+    )
+
+
+def _inner_solve_worker(jc: JointCandidate) -> PlanCandidate:
+    """Top-level worker function for ProcessPoolExecutor — must be
+    pickleable, hence not a closure."""
+    s = _INNER_WORKER_STATE
+    ctx = _build_inner_context(
+        s["probes"],
+        s["holes"],
+        jc.ha,
+        jc.aa,
+        s["weights"],
+        threading_oval_tolerance=s["threading_oval_tolerance"],
+        clearance_overlap_allowance_mm=s["clearance_overlap_allowance_mm"],
+        subject_from_rig_rot=s["subject_from_rig_rot"],
+        bvh_cache=s.get("bvh_cache"),
+    )
+    x0 = expand_reduced_solution_to_full_x(
+        jc, ctx.layout, probe_names_in_order=s["probe_names"]
+    )
+    x0 = _push_restore_full_x(x0, ctx=ctx)
+
+    # Optional SDF-based clearance constraint + analytic Jacobian.
+    sdf_fun = None
+    sdf_jac = None
+    sdf_by_name = s.get("sdf_by_name")
+    if sdf_by_name is not None:
+        from aind_low_point.optimization.sdf_clearance import (
+            build_probe_jax_data_for_context,
+            build_sdf_clearance_callbacks,
+        )
+
+        jax_data = build_probe_jax_data_for_context(ctx, sdf_by_name)
+        sdf_fun, sdf_jac = build_sdf_clearance_callbacks(
+            n_arcs=ctx.layout.num_arcs,
+            probe_data=jax_data,
+            clearance_overlap_allowance_mm=s["clearance_overlap_allowance_mm"],
+        )
+    return _inner_solve_one(
+        ctx,
+        x0,
+        ha=jc.ha,
+        aa=jc.aa,
+        n_arcs=jc.n_arcs,
+        use_cma=s["use_cma"],
+        cma_population=s["cma_population"],
+        cma_generations=s["cma_generations"],
+        cma_sigma=s["cma_sigma"],
+        cma_stage_multipliers=s["cma_stage_multipliers"],
+        slsqp_max_iter=s["slsqp_max_iter"],
+        slsqp_constrained=s["slsqp_constrained"],
+        two_stage_inner=s["two_stage_inner"],
+        feasibility_max_iter=s["feasibility_max_iter"],
+        final_feasibility_cleanup=s["final_feasibility_cleanup"],
+        polish_method=s["polish_method"],
+        feasibility_threshold=s["feasibility_threshold"],
+        verbose=s["verbose"],
+        sdf_clearance_fun=sdf_fun,
+        sdf_clearance_jac=sdf_jac,
+    )
+
+
 def optimize_joint(  # noqa: C901
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
@@ -914,6 +1642,15 @@ def optimize_joint(  # noqa: C901
     ap_sweep_step_deg: float = 1.0,
     seed_to_hole: dict[str, int] | None = None,
     seed_to_arc_idx: dict[str, int] | None = None,
+    n_workers: int | None = None,
+    sdf_by_name: dict | None = None,
+    use_atlas_stage1: bool = False,
+    atlas_ap_step_deg: float = 2.0,
+    atlas_max_excursion_deg: float = 15.0,
+    atlas_max_target_miss_mm: float = 1.0,
+    batched_stage2: bool = False,
+    batched_adam_steps: int = 2000,
+    batched_adam_lr: float = 0.05,
     verbose: bool = False,
 ) -> OptimizationResult | None:
     """Three-level optimizer with a joint (H, A) reranking stage.
@@ -986,17 +1723,65 @@ def optimize_joint(  # noqa: C901
     holes_id_to_col = {h.id: j for j, h in enumerate(holes)}
     probe_name_to_row = {p.name: i for i, p in enumerate(probes)}
 
-    if verbose:
-        print(f"[optimize_joint] Stage 1: solving top-{k_holes_pool} LSAP...")
-    hole_assignments = solve_top_k_assignments(
-        assignment_probes, holes, k=k_holes_pool, weights=cost_weights
-    )
-    t_lsap = time.time()
-    if verbose:
-        print(
-            f"[optimize_joint] solve_top_k_assignments: {t_lsap - t_pose:.2f}s "
-            f"({len(hole_assignments)} HAs)"
+    # Build BVH per probe ONCE — its geometry doesn't depend on (H, A),
+    # only its world transform does. Avoids ~7k redundant BVH builds
+    # across the score_joint loop (Stage 2) for typical pool sizes.
+    bvh_cache: dict[str, fcl.CollisionObject | None] = {
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
         )
+        for p in probes
+    }
+
+    if use_atlas_stage1:
+        if verbose:
+            print(f"[optimize_joint] Stage 1: building target-aligned atlas "
+                  f"(step={atlas_ap_step_deg}°, excursion=±{atlas_max_excursion_deg}°)...")
+        from aind_low_point.optimization.atlas import atlas_stage1 as _atlas_stage1
+        from aind_low_point.optimization.hole_assignment import (
+            build_cost_matrix as _build_cost_matrix,
+        )
+        # Per-cell viol matrix to apply LSAP's hard-reject in addition
+        # to atlas non-empty check.
+        cost_mat_for_atlas = _build_cost_matrix(
+            assignment_probes, holes, weights=cost_weights
+        )
+        # Per-cell viol — extract from multi_pose_evaluate. Cheap to redo.
+        from aind_low_point.optimization.hole_assignment import multi_pose_evaluate
+        K_p = len(assignment_probes)
+        N_h = len(holes)
+        viol_for_atlas = np.zeros((K_p, N_h))
+        for ii, pp in enumerate(assignment_probes):
+            for jj, hh in enumerate(holes):
+                viol_for_atlas[ii, jj] = multi_pose_evaluate(pp, hh).min_violation_sq
+        _atlas, hole_assignments = _atlas_stage1(
+            probes, holes,
+            ap_step_deg=atlas_ap_step_deg,
+            ap_max_excursion_deg=atlas_max_excursion_deg,
+            max_target_miss_mm=atlas_max_target_miss_mm,
+            viol_mat=viol_for_atlas,
+            cost_for_ordering=cost_mat_for_atlas,
+            cap_hole_assignments=k_holes_pool,
+            min_arc_sep_deg=min_arc_ap_sep_deg,
+            max_arcs=max_num_arcs,
+            verbose=verbose,
+        )
+        t_lsap = time.time()
+        if verbose:
+            print(f"[optimize_joint] atlas Stage 1: {t_lsap - t_pose:.2f}s "
+                  f"({len(hole_assignments)} HAs)")
+    else:
+        if verbose:
+            print(f"[optimize_joint] Stage 1: solving top-{k_holes_pool} LSAP...")
+        hole_assignments = solve_top_k_assignments(
+            assignment_probes, holes, k=k_holes_pool, weights=cost_weights
+        )
+        t_lsap = time.time()
+        if verbose:
+            print(
+                f"[optimize_joint] solve_top_k_assignments: {t_lsap - t_pose:.2f}s "
+                f"({len(hole_assignments)} HAs)"
+            )
 
     if not hole_assignments:
         if verbose:
@@ -1012,6 +1797,9 @@ def optimize_joint(  # noqa: C901
             f"[optimize_joint] Stage 2: arc enumeration + reduced SLSQP "
             f"(k_arcs_pool={k_arcs_pool})..."
         )
+    # Collect all (ha, aa, lsap_cost) tuples first; if batched_stage2 is
+    # on we polish them as one batch instead of one-by-one.
+    pending_candidates: list[tuple[HoleAssignment, ArcAssignment, float]] = []
     for ha in hole_assignments:
         arc_assignments = solve_top_k_arc_assignments(
             ha.probe_to_hole,
@@ -1025,28 +1813,47 @@ def optimize_joint(  # noqa: C901
         )
         if not arc_assignments:
             continue
-        # LSAP cost for this HA (Σ matrix cells along the assignment).
         lsap_cost = 0.0
         for name, hole_id in ha.probe_to_hole.items():
             lsap_cost += float(
                 cost_matrix[probe_name_to_row[name], holes_id_to_col[hole_id]]
             )
-
         for aa in arc_assignments:
+            pending_candidates.append((ha, aa, lsap_cost))
+
+    eff_weights = replace(
+        joint_weights,
+        threading_oval_tolerance=threading_oval_tolerance,
+        min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+    )
+
+    if batched_stage2 and pending_candidates:
+        # Batched JAX Adam path (Phase 5 wiring of the batched Stage 2)
+        from aind_low_point.optimization.batched_score import (
+            batched_score_all,
+        )
+        cand_pairs = [(ha, aa) for ha, aa, _ in pending_candidates]
+        lsap_costs = [c for _, _, c in pending_candidates]
+        joint_candidates = batched_score_all(
+            cand_pairs, probes, holes,
+            weights=eff_weights,
+            sdf_by_name=sdf_by_name,
+            head_pitch_deg=head_pitch_deg,
+            original_lsap_costs=lsap_costs,
+            adam_steps=batched_adam_steps,
+            adam_lr=batched_adam_lr,
+            verbose=verbose,
+        )
+    else:
+        for ha, aa, lsap_cost in pending_candidates:
             jc = score_joint(
-                ha,
-                aa,
-                probes,
-                holes,
-                pose_features,
-                weights=replace(
-                    joint_weights,
-                    threading_oval_tolerance=threading_oval_tolerance,
-                    min_arc_ap_sep_deg=min_arc_ap_sep_deg,
-                ),
+                ha, aa, probes, holes, pose_features,
+                weights=eff_weights,
                 head_pitch_deg=head_pitch_deg,
                 reduced_slsqp_max_iter=reduced_slsqp_max_iter,
                 original_lsap_cost=lsap_cost,
+                bvh_cache=bvh_cache,
+                sdf_by_name=sdf_by_name,
             )
             joint_candidates.append(jc)
 
@@ -1080,59 +1887,71 @@ def optimize_joint(  # noqa: C901
                 f"[optimize_joint] seed-equivalent (H, A) NOT FOUND in "
                 f"joint pool ({len(joint_candidates)} candidates)"
             )
-        print(f"[optimize_joint] top-15 JointCandidates:")
+        print("[optimize_joint] top-15 JointCandidates:")
         for rank, jc in enumerate(joint_candidates[:15], start=1):
             print(_format_candidate_row(rank, jc))
 
     survivors = joint_candidates[:k_joint]
 
     # 4. Run the full inner solve on each survivor, warm-started from
-    #    the reduced solution.
+    #    the reduced solution. Parallelised via ProcessPoolExecutor —
+    #    each candidate's SLSQP is independent (its own OptimizerContext,
+    #    FCL BVHs, scipy state). Initargs piggy-back on Linux's fork
+    #    so the bulky mesh data isn't re-pickled per worker.
+    if n_workers is None:
+        n_workers = max(1, (os.cpu_count() or 2) - 2)
+    n_workers = max(1, min(n_workers, len(survivors)))
+    # Process-pool startup is ~1–2 s per worker (fork + module load).
+    # For tiny survivor lists the overhead dominates; run sequential.
+    if len(survivors) <= 2:
+        n_workers = 1
     if verbose:
         print(
             f"[optimize_joint] Stage 3: full inner solve on "
-            f"{len(survivors)} survivors..."
+            f"{len(survivors)} survivors using {n_workers} workers..."
         )
-    plan_candidates: list[PlanCandidate] = []
-    for jc in survivors:
-        ctx = _build_inner_context(
-            probes,
-            holes,
-            jc.ha,
-            jc.aa,
-            weights,
-            threading_oval_tolerance=threading_oval_tolerance,
-            clearance_overlap_allowance_mm=clearance_overlap_allowance_mm,
-            subject_from_rig_rot=subject_from_rig_rot,
-        )
-        # The layout's probe order is taken from the probes list (see
-        # _build_inner_context), so the reduced y aligns 1:1 with x.
-        x0 = expand_reduced_solution_to_full_x(
-            jc,
-            ctx.layout,
-            probe_names_in_order=probe_names,
-        )
-        cand = _inner_solve_one(
-            ctx,
-            x0,
-            ha=jc.ha,
-            aa=jc.aa,
-            n_arcs=jc.n_arcs,
-            use_cma=use_cma,
-            cma_population=cma_population,
-            cma_generations=cma_generations,
-            cma_sigma=cma_sigma,
-            cma_stage_multipliers=cma_stage_multipliers,
-            slsqp_max_iter=slsqp_max_iter,
-            slsqp_constrained=slsqp_constrained,
-            two_stage_inner=two_stage_inner,
-            feasibility_max_iter=feasibility_max_iter,
-            final_feasibility_cleanup=final_feasibility_cleanup,
-            polish_method=polish_method,
-            feasibility_threshold=feasibility_threshold,
-            verbose=verbose,
-        )
-        plan_candidates.append(cand)
+    init_args = (
+        probes,
+        holes,
+        weights,
+        probe_names,
+        threading_oval_tolerance,
+        clearance_overlap_allowance_mm,
+        subject_from_rig_rot,
+        use_cma,
+        cma_population,
+        cma_generations,
+        cma_sigma,
+        cma_stage_multipliers,
+        slsqp_max_iter,
+        slsqp_constrained,
+        two_stage_inner,
+        feasibility_max_iter,
+        final_feasibility_cleanup,
+        polish_method,
+        feasibility_threshold,
+        verbose,
+        sdf_by_name,
+    )
+    if n_workers == 1:
+        # Sequential path — useful for debugging and avoids the worker
+        # startup overhead for tiny survivor lists.
+        _inner_solve_worker_init(*init_args)
+        plan_candidates: list[PlanCandidate] = [
+            _inner_solve_worker(jc) for jc in survivors
+        ]
+    else:
+        # 'spawn' avoids inheriting CUDA contexts from JAX-GPU used in
+        # Stage 2 — fork() leaves CUDA contexts in an unusable state.
+        import multiprocessing as _mp
+        _spawn_ctx = _mp.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=n_workers,
+            initializer=_inner_solve_worker_init,
+            initargs=init_args,
+            mp_context=_spawn_ctx,
+        ) as pool:
+            plan_candidates = list(pool.map(_inner_solve_worker, survivors))
 
     t_inner = time.time()
     if verbose:

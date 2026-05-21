@@ -1,0 +1,170 @@
+arcs:
+  a: 13.0
+  b: -10.0
+  c: -43.0
+probes:
+  MD:
+    kind: quadbase-alpha
+    arc: a
+    slider_ml: -12.0
+    spin: -34.0
+    ap_local: 13.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -0.7583
+      - -0.6963
+      - -3.1442
+    past_target_mm: 0.0675
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  BLA:
+    kind: quadbase-dovetail
+    arc: b
+    slider_ml: 27.0
+    spin: 0.0
+    ap_local: -10.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -3.8413
+      - -1.4986
+      - -5.0784
+    past_target_mm: -1.1325
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  PL:
+    kind: quadbase-alpha
+    arc: b
+    slider_ml: -30.0
+    spin: 131.0
+    ap_local: -10.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -0.3647
+      - 2.5734
+      - -1.9622
+    past_target_mm: -0.9325
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 4
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  VM:
+    kind: '2.1'
+    arc: c
+    slider_ml: -8.0
+    spin: -180.0
+    ap_local: -43.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -1.3185
+      - -0.4781
+      - -4.2672
+    past_target_mm: -1.5325
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  RSP:
+    kind: '2.1'
+    arc: c
+    slider_ml: 8.0
+    spin: 4.0
+    ap_local: -43.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -1.3512
+      - -3.0413
+      - -0.4436
+    past_target_mm: 0.3675
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  CA1:
+    kind: '2.1'
+    arc: b
+    slider_ml: 3.5
+    spin: 87.0
+    ap_local: -10.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -3.5644
+      - -3.2709
+      - -4.4218
+    past_target_mm: -0.6325
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+  CLA:
+    kind: '2.1'
+    arc: c
+    slider_ml: -24.0
+    spin: 171.0
+    ap_local: -43.0
+    bind_ap_to_arc: true
+    target:
+      kind: inline
+      point_RAS:
+      - -2.1695
+      - 2.0614
+      - -3.7451
+    past_target_mm: -1.0325
+    offsets_RA:
+    - 0.0
+    - 0.0
+    position_bearing_shank: 1
+    calibrated: false
+    auto_scene: true
+    scene_tags:
+    - probe
+    - dynamic
+reticles: {}
+calibrations:
+  files: {}
+  probe_to_ref: {}

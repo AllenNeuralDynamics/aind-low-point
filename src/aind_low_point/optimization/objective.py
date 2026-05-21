@@ -383,15 +383,30 @@ def pairwise_headstage_clearances(
     if m < 2:
         return np.zeros(0, dtype=np.float64)
     out = np.empty(m * (m - 1) // 2, dtype=np.float64)
-    req = fcl.DistanceRequest(enable_signed_distance=True)
+    dist_req = fcl.DistanceRequest(enable_signed_distance=True)
+    # When BVH-BVH ``fcl.distance`` reports 0 the meshes overlap; in
+    # that case we need the actual penetration depth so SLSQP has a
+    # gradient out of the overlap region. ``fcl.collide`` with
+    # ``enable_contact=True`` gives us contact points + depths.
+    coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
     k = 0
     for a in range(m):
         ia = valid_indices[a]
         for b in range(a + 1, m):
             ib = valid_indices[b]
             res = fcl.DistanceResult()
-            fcl.distance(fcl_objs[ia], fcl_objs[ib], req, res)
-            out[k] = float(res.min_distance)
+            fcl.distance(fcl_objs[ia], fcl_objs[ib], dist_req, res)
+            d = float(res.min_distance)
+            if d <= 0.0:
+                # GJK couldn't separate → meshes overlap. Re-query for
+                # penetration depth.
+                cres = fcl.CollisionResult()
+                fcl.collide(fcl_objs[ia], fcl_objs[ib], coll_req, cres)
+                if cres.contacts:
+                    d = -float(max(c.penetration_depth for c in cres.contacts))
+                else:
+                    d = 0.0
+            out[k] = d
             k += 1
     return out
 

@@ -326,7 +326,10 @@ def main():
     probe_contexts: list[ProbeContext] = []
     probe_to_arc_idx: dict[str, int] = {}
     headstage_objs: list[object] = []  # fcl.CollisionObject | None
-    from aind_low_point.optimization.headstages import make_fcl_convex  # noqa: E402
+    from aind_low_point.optimization.headstages import (  # noqa: E402
+        make_fcl_bvh,
+        make_fcl_convex,
+    )
 
     for ps in probe_static_list:
         name = ps.name
@@ -350,8 +353,14 @@ def main():
                 recording_geom=geom,
             )
         )
-        if ps.headstage_hull is not None:
-            headstage_objs.append(make_fcl_convex(ps.headstage_hull))
+        hh = getattr(ps, "headstage_hull", None)
+        if hh is not None:
+            headstage_objs.append(make_fcl_convex(hh))
+        elif ps.collision_mesh is not None:
+            # Match optimize.py: use full-mesh BVH when no headstage hull
+            # is set, so we get the exact pairwise clearance the SLSQP
+            # path is constrained against.
+            headstage_objs.append(make_fcl_bvh(ps.collision_mesh))
         else:
             headstage_objs.append(None)
     ctx = OptimizerContext(
@@ -396,6 +405,13 @@ def main():
         aa=aa,
         n_arcs=n_arcs,
     )
+
+    import itertools as _it
+    print("\nPer-pair clearance (signed mm, negative = penetration):")
+    pair_idx = list(_it.combinations(range(len(probe_names)), 2))
+    for (i, j), c in zip(pair_idx, np.asarray(cv.clearance, dtype=np.float64)):
+        marker = " ✗" if c < 0 else ""
+        print(f"  {probe_names[i]:>5} – {probe_names[j]:<5}  clear={c:+7.3f}{marker}")
 
     print("\nConstraint slack summary (slack >= 0 ⇒ feasible):")
     for name, arr in (

@@ -15,7 +15,9 @@ from aind_low_point.optimization.density import (
     DensityFn,
     coverage,
     gaussian_density,
+    gaussian_mixture_density,
     integrate_density_along_shank,
+    voxel_kde_density,
 )
 from aind_low_point.optimization.geometry import (
     Capsule,
@@ -30,6 +32,7 @@ from aind_low_point.optimization.geometry import (
 from aind_low_point.optimization.headstages import (
     build_headstage_hull,
     detect_body_region,
+    make_fcl_bvh,
     make_fcl_convex,
 )
 from aind_low_point.optimization.hole_assignment import (
@@ -62,11 +65,6 @@ from aind_low_point.optimization.kinematics import (
     required_ap_deg,
     shank_capsules_from_pose,
 )
-from aind_low_point.optimization.pose_features import (
-    PoseFeatures,
-    precompute_pose_features,
-    required_ap_ml_for_target,
-)
 from aind_low_point.optimization.objective import (
     ObjectiveBreakdown,
     ObjectiveWeights,
@@ -90,6 +88,11 @@ from aind_low_point.optimization.optimize import (
     format_plan_table,
     optimize,
     polish_seed,
+)
+from aind_low_point.optimization.pose_features import (
+    PoseFeatures,
+    precompute_pose_features,
+    required_ap_ml_for_target,
 )
 from aind_low_point.optimization.recording import (
     RECORDING_GEOMETRY,
@@ -136,11 +139,13 @@ __all__ = [
     "find_hole_by_id",
     "format_plan_table",
     "gaussian_density",
+    "gaussian_mixture_density",
     "get_recording_geometry",
     "headstage_capsule",
     "integrate_density_along_shank",
     "kinematic_separations",
     "load_holes",
+    "make_fcl_bvh",
     "make_fcl_convex",
     "make_objective",
     "optimize",
@@ -165,4 +170,5 @@ __all__ = [
     "solve_top_k_arc_assignments",
     "solve_top_k_assignments",
     "static_threading_max_g",
+    "voxel_kde_density",
 ]

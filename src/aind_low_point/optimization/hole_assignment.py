@@ -620,6 +620,8 @@ def solve_top_k_assignments(
     k: int,
     *,
     weights: CostWeights = CostWeights(),
+    min_hamming_distance: int = 0,
+    explore_multiplier: int = 8,
 ) -> list[HoleAssignment]:
     """Murty's algorithm: top-``k`` probe→hole assignments ranked by cost.
 
@@ -635,6 +637,23 @@ def solve_top_k_assignments(
        forbidden (and earlier edges of the same partition forced).
        Solve each sub-problem and push its result on the queue.
     3. Stop after ``k`` results or when the queue is empty.
+
+    Parameters
+    ----------
+    min_hamming_distance
+        When > 0, *diversified* Murty: reject popped candidates whose
+        Hamming distance to all already-accepted results is below this
+        threshold (number of probes that map to different holes).
+        Trivial 1-edge swap variants are filtered out, opening the
+        enumeration to structurally distinct configurations. Rejected
+        candidates still partition the search space so we don't lose
+        the branch — they're just not returned. With probe count
+        ``K``, ``min_hamming_distance=2`` filters single-probe swaps;
+        ``3+`` filters 2-cycle (a↔b) swaps too.
+    explore_multiplier
+        When ``min_hamming_distance > 0``, expand the candidate budget
+        to ``k × explore_multiplier`` to compensate for rejections.
+        Stops early once ``k`` diverse results are found.
     """
     if k <= 0:
         return []
@@ -646,6 +665,12 @@ def solve_top_k_assignments(
         mapping = {probes[r].name: holes[c].id for r, c in edges}
         return HoleAssignment(probe_to_hole=mapping, cost=total)
 
+    def hamming(a: dict[str, int], b: dict[str, int]) -> int:
+        return sum(1 for n in a if a[n] != b.get(n))
+
+    diverse = min_hamming_distance > 0
+    max_explore = k * explore_multiplier if diverse else k
+
     # Priority queue: (cost, tiebreaker, forced_edges, forbidden_edges, edges)
     counter = 0
     heap: list[tuple[float, int, list, list, list]] = []
@@ -654,15 +679,28 @@ def solve_top_k_assignments(
         return []
     heapq.heappush(heap, (total, counter, [], [], edges))
     results: list[HoleAssignment] = []
+    explored = 0
 
-    while heap and len(results) < k:
+    while heap and len(results) < k and explored < max_explore:
         cost_val, _, forced, forbidden, edges = heapq.heappop(heap)
-        results.append(make_assignment(edges, cost_val))
-        if len(results) == k:
-            break
-        # Partition: for each edge in `edges` not already forced,
-        # generate a child by forbidding it (with earlier edges in
-        # the partition forced).
+        explored += 1
+        candidate = make_assignment(edges, cost_val)
+
+        # Diversity filter: reject if too close to any accepted result.
+        accept = True
+        if diverse and results:
+            min_d = min(
+                hamming(candidate.probe_to_hole, r.probe_to_hole) for r in results
+            )
+            if min_d < min_hamming_distance:
+                accept = False
+        if accept:
+            results.append(candidate)
+            if len(results) == k:
+                break
+        # Always partition — even rejected candidates contribute their
+        # branch's children, so we don't lose access to deeper diverse
+        # variants reachable through this branch.
         forced_extension: list[tuple[int, int]] = []
         for e in edges:
             if e in forced:

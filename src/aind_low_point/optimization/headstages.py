@@ -174,3 +174,25 @@ def make_fcl_convex(hull: trimesh.Trimesh) -> fcl.CollisionObject:
     convex = fcl.Convex(verts, len(faces), polygons)
     tf = fcl.Transform(np.eye(3), np.zeros(3))
     return fcl.CollisionObject(convex, tf)
+
+
+def make_fcl_bvh(mesh: trimesh.Trimesh) -> fcl.CollisionObject:
+    """Wrap an arbitrary (potentially non-convex) trimesh as an
+    :class:`fcl.CollisionObject` backed by a :class:`fcl.BVHModel`.
+
+    Use this for exact probe-vs-probe clearance: the body-region
+    convex hull misses the silicon-body / connector region between
+    the shanks and the wide PCB headstage, and the convex hull of
+    the *whole* probe over-estimates collisions in concavities. The
+    BVH gives the true signed distance via FCL's mesh-mesh GJK.
+
+    Identity transform; callers must ``setTransform(...)`` per pose.
+    """
+    v = np.ascontiguousarray(mesh.vertices, dtype=np.float64)
+    f = np.ascontiguousarray(mesh.faces, dtype=np.int32)
+    bvh = fcl.BVHModel()
+    bvh.beginModel(v.shape[0], f.shape[0])
+    bvh.addSubModel(v, f)
+    bvh.endModel()
+    tf = fcl.Transform(np.eye(3), np.zeros(3))
+    return fcl.CollisionObject(bvh, tf)

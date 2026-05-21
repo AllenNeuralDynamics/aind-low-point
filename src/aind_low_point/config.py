@@ -1335,6 +1335,22 @@ class CalibrationSourceModel(BaseModel):
 
 
 class CalibrationsModel(BaseModel):
+    """Two equivalent ways to wire calibrations:
+
+    **Legacy mode** — ``files`` is a named dict of sources and
+    ``probe_to_ref`` picks one ``(cal_id, probe_code)`` per probe.
+
+    **Stacked mode** — ``sources`` is an ordered list (mix of manual
+    files and parallax dirs); ``probe_to_code`` maps each probe name
+    to a probe code. All sources are merged into a single
+    ``code → (R, t)`` bank with **last source wins** semantics, then
+    each probe's code is looked up in the merged bank. Use this when
+    you have multiple calibration runs and want to layer them.
+
+    Exactly one mode at a time: stacked-mode fields and legacy-mode
+    fields cannot both be non-empty.
+    """
+
     model_config = {"extra": "forbid"}
 
     files: dict[str, CalibrationSourceModel] = Field(default_factory=dict)
@@ -1342,9 +1358,11 @@ class CalibrationsModel(BaseModel):
     probe_to_ref: dict[str, Union[CalibrationRefModel, str]] = Field(
         default_factory=dict
     )
+    sources: list[CalibrationSourceModel] = Field(default_factory=list)
+    probe_to_code: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _normalize_refs(self):
+    def _normalize_refs_and_check_modes(self):
         # convert any string refs to CalibrationRefModel
         normalized: dict[str, CalibrationRefModel] = {}
         for probe_name, ref in self.probe_to_ref.items():
@@ -1353,6 +1371,24 @@ class CalibrationsModel(BaseModel):
             else:
                 normalized[probe_name] = ref
         object.__setattr__(self, "probe_to_ref", normalized)
+
+        legacy_set = bool(self.files) or bool(self.probe_to_ref)
+        stacked_set = bool(self.sources) or bool(self.probe_to_code)
+        if legacy_set and stacked_set:
+            raise ValueError(
+                "calibrations: cannot mix legacy (files/probe_to_ref) and "
+                "stacked (sources/probe_to_code) modes — pick one."
+            )
+        # In stacked mode the two fields must agree on presence: an
+        # empty probe_to_code with non-empty sources is just dead config,
+        # and vice versa. Fail loudly so the user notices.
+        if bool(self.sources) != bool(self.probe_to_code):
+            raise ValueError(
+                "calibrations: in stacked mode, 'sources' and "
+                "'probe_to_code' must both be non-empty (got "
+                f"sources={len(self.sources)}, "
+                f"probe_to_code={len(self.probe_to_code)})."
+            )
         return self
 
 

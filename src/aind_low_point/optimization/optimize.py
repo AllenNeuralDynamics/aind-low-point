@@ -37,19 +37,22 @@ from aind_low_point.optimization.arc_assignment import (
     ArcAssignment,
     solve_top_k_arc_assignments,
 )
-from aind_low_point.optimization.density import gaussian_density
+from aind_low_point.optimization.density import (
+    gaussian_density,
+    voxel_kde_density,
+)
+from aind_low_point.optimization.geometry import shaft_section_oval_value
+from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.hole_assignment import (
     AssignmentProbe,
     HoleAssignment,
     solve_top_k_assignments,
 )
-from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
     shank_capsules_from_pose,
 )
-from aind_low_point.optimization.headstages import make_fcl_convex
 from aind_low_point.optimization.objective import (
     ObjectiveBreakdown,
     ObjectiveWeights,
@@ -79,10 +82,18 @@ class ProbeStaticInfo:
 
     Combines what the outer + inner layers each need: target, kind,
     detected shank tips. ``density_sigma_mm`` controls the coverage
-    objective's Gaussian width. ``headstage_hull`` (optional) is the
-    canonical-local convex hull of the probe body; when provided, the
-    inner-loop clearance constraint uses FCL Convex / GJK on it
-    instead of the legacy capsule.
+    objective's Gaussian width / mixture bandwidth. ``collision_mesh``
+    (optional) is the probe's canonical-local mesh used for the
+    inner-loop pairwise clearance constraint via FCL BVH / GJK; pass
+    the full probe mesh (not just the headstage region) so the silicon
+    body and connector regions are included.
+
+    ``target_points`` (optional) holds an ``(N, 3)`` point cloud (in
+    world LPS mm) that, when set, switches the coverage density from a
+    single-point Gaussian on ``target_LPS`` to an equally-weighted
+    Gaussian mixture over the cloud. ``target_LPS`` is still used for
+    LSAP target-anchored pose-bank construction and should be the
+    cloud's centroid in that case.
     """
 
     name: str
@@ -90,7 +101,8 @@ class ProbeStaticInfo:
     kind: str
     shank_tips_local: NDArray[np.floating]
     density_sigma_mm: float = 0.5
-    headstage_hull: trimesh.Trimesh | None = field(default=None, compare=False)
+    collision_mesh: trimesh.Trimesh | None = field(default=None, compare=False)
+    target_points: NDArray[np.floating] | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +237,14 @@ def _build_inner_context(
     threading_oval_tolerance: float = 0.0,
     clearance_overlap_allowance_mm: float = 0.0,
     subject_from_rig_rot: NDArray | None = None,
+    bvh_cache=None,  # dict[probe_name, fcl.CollisionObject | None] | None
 ) -> OptimizerContext:
-    """Build :class:`OptimizerContext` from the discrete assignments."""
+    """Build :class:`OptimizerContext` from the discrete assignments.
+
+    ``bvh_cache`` (optional) lets the caller pre-build the per-probe
+    FCL BVH objects once and reuse them across multiple inner-solve
+    runs — saves ~100 ms / probe / call on 46k-face meshes.
+    """
     n_arcs = max(arc_assignment.probe_to_arc_idx.values()) + 1
     arc_ids = tuple(f"arc_{i}" for i in range(n_arcs))
     probe_names = tuple(p.name for p in probes)
@@ -244,6 +262,10 @@ def _build_inner_context(
             geom = get_recording_geometry(p.kind)
         else:
             geom = fallback_geom
+        if p.target_points is not None:
+            density_fn = voxel_kde_density(p.target_points, sigma_mm=p.density_sigma_mm)
+        else:
+            density_fn = gaussian_density(p.target_LPS, p.density_sigma_mm)
         probe_contexts.append(
             ProbeContext(
                 name=p.name,
@@ -252,16 +274,22 @@ def _build_inner_context(
                 arc_id=f"arc_{arc_idx}",
                 shank_tips_local=np.asarray(p.shank_tips_local, dtype=np.float64),
                 assigned_hole=holes_by_id[hole_id],
-                density_fn=gaussian_density(p.target_LPS, p.density_sigma_mm),
+                density_fn=density_fn,
                 recording_geom=geom,
             )
         )
-        # Build a fresh FCL Convex CollisionObject per probe. The hull
+        # Build a fresh FCL BVH CollisionObject per probe. The mesh
         # vertices live in the canonical-local frame; per-iteration the
         # objective updates each object's transform from the optimizer's
-        # current (R, pose_tip).
-        if p.headstage_hull is not None:
-            headstage_objs.append(make_fcl_convex(p.headstage_hull))
+        # current (R, pose_tip). BVH (full mesh) rather than Convex hull
+        # — the convex hull of a probe body fills concavities and the
+        # body-region hull misses the silicon-body / connector stretch
+        # between shanks and PCB, both of which break the pairwise
+        # clearance check on real plans.
+        if bvh_cache is not None and p.name in bvh_cache:
+            headstage_objs.append(bvh_cache[p.name])
+        elif p.collision_mesh is not None:
+            headstage_objs.append(make_fcl_bvh(p.collision_mesh))
         else:
             headstage_objs.append(None)
 
@@ -476,6 +504,10 @@ def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
     for _ in range(ctx.layout.num_probes):
         bounds.append((-60.0, +60.0))  # ml_local deg — rig mechanical limit
         bounds.append((-180.0, +180.0))  # spin deg
+        # NB: scipy SLSQP uses bounds for internal step-size scaling; do not
+        # widen these (verified 2026-05-19: widening to ±720° caused
+        # immediate stagnation). The batched Adam path uses loose bounds
+        # in its own static; only scipy stays at ±180°.
         # Lateral offsets must stay within the slot's half-extent so
         # the probe physically fits through the bore. Bounding to
         # ±0.5 mm keeps the threading constraint inside the optimizer's
@@ -554,6 +586,8 @@ def _slsqp_polish_constrained(
     *,
     max_iter: int,
     method: str = "SLSQP",
+    sdf_clearance_fun=None,
+    sdf_clearance_jac=None,
 ) -> tuple[NDArray, ObjectiveBreakdown]:
     """SLSQP (or trust-constr) polish with native inequality constraints.
 
@@ -593,10 +627,36 @@ def _slsqp_polish_constrained(
         "arc_ap_separation",
         "intra_arc_ml_separation",
     )
+    # When the SDF/JAX backend is engaged for clearance, also use the
+    # JAX threading + AP-sep + intra-ML-sep with analytic Jacobians.
+    # The three groups share their JIT cache via stage3_jax — Stage 3
+    # polishes the survivors with stable hole/arc assignments, so cache
+    # hits dominate after the first call.
+    jax_stage3: dict | None = None
+    if sdf_clearance_fun is not None:
+        from aind_low_point.optimization import stage3_jax as _s3
+        jax_stage3 = _s3.make_stage3_constraints(ctx)
     if method == "SLSQP":
-        constraints = [
-            {"type": "ineq", "fun": make_constraint(name)} for name in field_names
-        ]
+        constraints = []
+        for name in field_names:
+            if name == "clearance" and sdf_clearance_fun is not None:
+                # Use SDF-backed clearance with analytic Jacobian.
+                # Smooth gradient through overlap; SLSQP gets a reliable
+                # constraint Jacobian instead of finite-diff on noisy
+                # FCL distance.
+                d = {"type": "ineq", "fun": sdf_clearance_fun}
+                if sdf_clearance_jac is not None:
+                    d["jac"] = sdf_clearance_jac
+                constraints.append(d)
+            elif jax_stage3 is not None and name in jax_stage3:
+                d = {
+                    "type": "ineq",
+                    "fun": jax_stage3[name]["fun"],
+                    "jac": jax_stage3[name]["jac"],
+                }
+                constraints.append(d)
+            else:
+                constraints.append({"type": "ineq", "fun": make_constraint(name)})
         options = {"maxiter": max_iter, "ftol": 1e-6, "disp": False}
     elif method == "trust-constr":
         from scipy.optimize import NonlinearConstraint
@@ -787,7 +847,9 @@ def best_fit_hole_id_at_pose(
             dtype=np.float64,
         )
     else:
-        from aind_low_point.optimization.recording import recording_center_local_for_kind
+        from aind_low_point.optimization.recording import (
+            recording_center_local_for_kind,
+        )
 
         pivot_local = recording_center_local_for_kind(probe.kind)
     R, pose_tip = pose_from_optimizer_vars(
@@ -844,6 +906,8 @@ def _inner_solve_one(
     polish_method: str,
     feasibility_threshold: float,
     verbose: bool,
+    sdf_clearance_fun=None,
+    sdf_clearance_jac=None,
 ) -> PlanCandidate:
     """Run the inner solve for one (hole, arc) combination from a warm start.
 
@@ -882,14 +946,17 @@ def _inner_solve_one(
             print(f"    feasibility stage: violation² {v_pre:.4g} → {v_feas:.4g}")
     if slsqp_constrained:
         x_opt, breakdown_opt = _slsqp_polish_constrained(
-            ctx, x, max_iter=slsqp_max_iter, method=polish_method
+            ctx,
+            x,
+            max_iter=slsqp_max_iter,
+            method=polish_method,
+            sdf_clearance_fun=sdf_clearance_fun,
+            sdf_clearance_jac=sdf_clearance_jac,
         )
     else:
         x_opt, breakdown_opt = _slsqp_polish(ctx, x, max_iter=slsqp_max_iter)
 
-    cand = _build_plan_candidate(
-        x_opt, ctx, breakdown_opt, ha=ha, aa=aa, n_arcs=n_arcs
-    )
+    cand = _build_plan_candidate(x_opt, ctx, breakdown_opt, ha=ha, aa=aa, n_arcs=n_arcs)
     if slsqp_constrained and final_feasibility_cleanup and not cand.feasible:
         x_clean, _v_clean = _feasibility_solve(
             ctx, x_opt, max_iter=feasibility_max_iter
@@ -951,6 +1018,8 @@ def polish_seed(
     clearance_overlap_allowance_mm: float = 0.0,
     min_arc_ap_sep_deg: float = 16.0,
     subject_from_rig_rot: NDArray | None = None,
+    sdf_clearance_fun=None,
+    sdf_clearance_jac=None,
     verbose: bool = False,
 ) -> PlanCandidate:
     """Run the inner solve from a caller-supplied seed.
@@ -1026,6 +1095,8 @@ def polish_seed(
         polish_method=polish_method,
         feasibility_threshold=feasibility_threshold,
         verbose=verbose,
+        sdf_clearance_fun=sdf_clearance_fun,
+        sdf_clearance_jac=sdf_clearance_jac,
     )
 
 
@@ -1034,7 +1105,7 @@ def polish_seed(
 # ---------------------------------------------------------------------------
 
 
-def optimize(  # noqa: C901
+def optimize(
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
     *,

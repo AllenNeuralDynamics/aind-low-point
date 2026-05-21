@@ -39,18 +39,61 @@ def _load_calibration_bank(
     return {str(k): v for k, v in cal_by_probe.items()}
 
 
+def _merge_stacked_sources(
+    sources: list[CalibrationSourceModel],
+    reticles: dict[str, CalibrationReticleModel],
+) -> dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """Load each ``CalibrationSourceModel`` in order and merge their
+    probe banks with **last source wins** on per-code conflicts.
+
+    Returns a single ``probe_code → (R, t)`` mapping.
+    """
+    merged: dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    for src in sources:
+        bank = _load_calibration_bank(src, reticles)
+        merged.update(bank)  # later sources overwrite earlier ones
+    return merged
+
+
 def _get_calibration_rt(
     calibrations: CalibrationsModel,
     reticles: dict[str, CalibrationReticleModel] = {},
 ) -> dict[str, "AffineTransform"]:
     """
-    For each domain probe name, resolve (cal_id → path) then (probe_code → R,t).
-    Cache each file load so it's read once.
+    For each domain probe name, resolve to ``(R, t)``.
+
+    Two config shapes are supported:
+
+    - **Stacked mode** (``sources`` + ``probe_to_code``): merge all
+      sources into one bank (last source wins per probe code), then
+      look up each probe's code.
+    - **Legacy mode** (``files`` + ``probe_to_ref``): per-probe choice
+      of ``(cal_id, probe_code)``; each file is loaded once and cached.
     """
+    out: dict[str, AffineTransform] = {}
+
+    if calibrations.sources:
+        merged = _merge_stacked_sources(calibrations.sources, reticles)
+        for probe_name, code in calibrations.probe_to_code.items():
+            code = str(code)
+            if code not in merged:
+                avail = ", ".join(sorted(merged.keys())[:8])
+                raise KeyError(
+                    f"Calibration probe_code '{code}' for probe '{probe_name}' "
+                    f"not found in any of the {len(calibrations.sources)} "
+                    f"stacked source(s). Examples available: {avail}"
+                    f"{' …' if len(merged) > 8 else ''}"
+                )
+            R, t = merged[code]
+            out[probe_name] = AffineTransform(
+                rotation=np.asarray(R, float), translation=np.asarray(t, float)
+            )
+        return out
+
+    # Legacy mode.
     cal_files = calibrations.files
     probe_to_ref = calibrations.probe_to_ref
     cache: dict[str, dict[str, Tuple[np.ndarray, np.ndarray]]] = {}
-    out: dict[str, AffineTransform] = {}
 
     for probe_name, ref in probe_to_ref.items():
         # load or reuse the bank

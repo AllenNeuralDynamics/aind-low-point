@@ -9,8 +9,8 @@ version: 1
 paths:
   template_dir: "/mnt/Data/MRI/templates/AIND-MRI-T1-template-47-brain-mirror-2026-04-13"
   atlas_dir: "${.template_dir}/brainglobe_meshes_in_build5"
-  hardware_dir: "/home/galen.lynch/Downloads"
   probe_models_dir: "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels"
+  hardware_dir: "${.probe_models_dir}"
 
 # (no `imaging:` block — chem-shift correction is N/A in template space)
 
@@ -115,19 +115,19 @@ assets:
     scene_tags: [fixture, implant]
 
   - key: well
-    src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well/0160-075-01-_DHC HF Well.obj"
+    src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
     scene_tags: [fixture, well]
 
   - key: probe-guard
-    src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard/0304-P-004-_DHC HF Probeguard.obj"
+    src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard.obj"
     templates: [hardware]
     canonicalization_ref: "identity-lps-meters"
     scene_tags: [fixture, probe-guard]
 
   - key: headframe
-    src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2/0160-100-57-_Dual Hemisphere Headframe V2.obj"
+    src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
     scene_tags: [static, headframe]

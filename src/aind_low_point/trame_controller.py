@@ -27,6 +27,7 @@ from aind_low_point.collisions import CollisionHandler
 from aind_low_point.commands import (
     AssignProbeArc,
     SetArcAngle,
+    SetProbeCalibrated,
     SetProbeKind,
     SetProbeLocalAngles,
     SetProbeOffsetsRA,
@@ -325,6 +326,19 @@ class TrameController:
             state.ml_tilt = 0.0
             state.spin = 0
 
+            # Calibration / NewScale UI state. ``probe_has_calibration``
+            # gates the entire NewScale section; ``probe_calibrated``
+            # mirrors ``plan.calibrated`` and drives the toggle. Inputs
+            # are pre-zeroed; readouts update on probe/plan changes.
+            state.probe_has_calibration = False
+            state.probe_calibrated = False
+            state.probe_newscale_apply_x = 0.0
+            state.probe_newscale_apply_y = 0.0
+            state.probe_newscale_apply_z = 0.0
+            state.probe_newscale_readout_x = "—"
+            state.probe_newscale_readout_y = "—"
+            state.probe_newscale_readout_z = "—"
+
         # Centering is built into the kinematic chain: any probe with
         # ``past_target_mm = 0`` and ``offsets_RA = (0, 0)`` already has
         # the recording-array center on the target. No init-time fix-up
@@ -469,6 +483,26 @@ class TrameController:
                 )
             )
 
+        @state.change("probe_calibrated")
+        def on_probe_calibrated(**_):
+            if not state.probe:
+                return
+            plan = self.store.state.probes.get(state.probe)
+            if plan is None:
+                return
+            want = bool(state.probe_calibrated)
+            if plan.calibrated == want:
+                return
+            # Only allow toggling on when a calibration is actually loaded.
+            cal_present = state.probe in self.store.state.calibrations
+            if want and not cal_present:
+                state.probe_calibrated = False
+                return
+            self.store.dispatch(SetProbeCalibrated(name=state.probe, calibrated=want))
+            # Re-sync slider readouts: flipping calibration on/off changes
+            # the resolved AP/ML (locked to calibration vs free).
+            self._load_probe_state(state)
+
         for skey, _label, include, exclude in VISIBILITY_GROUPS:
             self._wire_visibility_handlers(state, skey, include, exclude)
 
@@ -549,7 +583,14 @@ class TrameController:
 
     def _on_ap_change(self, state, probe: str, ap: float) -> None:
         plan = self.store.state.probes.get(probe)
-        if plan and plan.arc_id and plan.bind_ap_to_arc:
+        if plan is None:
+            return
+        # When the probe is locked to its calibration, AP comes from
+        # find_probe_angle(cal.rotation) — silently ignore slider events
+        # so the stored arc/ap_local is preserved for un-toggling later.
+        if plan.calibrated and probe in self.store.state.calibrations:
+            return
+        if plan.arc_id and plan.bind_ap_to_arc:
             self.store.dispatch(SetArcAngle(arc_id=plan.arc_id, ap_deg=ap))
         else:
             self.store.dispatch(SetProbeLocalAngles(name=probe, ap_local=ap))
@@ -558,8 +599,9 @@ class TrameController:
         plan = self.store.state.probes.get(probe)
         if not plan:
             return
+        # Same as AP: when calibrated, ML is locked to the calibration;
+        # don't mutate stored ml_local.
         if plan.calibrated and probe in self.store.state.calibrations:
-            state.ml_tilt = float(plan.ml_local)
             return
         if self.couple_ml:
             arc_id = plan.arc_id
@@ -836,6 +878,7 @@ class TrameController:
         tip_str, depth_str, overins_str = self._compute_probe_readouts(probe_name)
         kin_str = self._kinematic_status_for_probe(probe_name)
         coll_local, coll_scene = self._compute_collision_strs(probe_name)
+        has_cal, is_cal, nx, ny, nz = self._compute_newscale_readout(probe_name)
         with state:
             state.probe_tip_str = tip_str
             state.probe_depth_str = depth_str
@@ -843,6 +886,133 @@ class TrameController:
             state.probe_kinematic_str = kin_str
             state.probe_collision_str = coll_local
             state.scene_collision_str = coll_scene
+            state.probe_has_calibration = has_cal
+            state.probe_calibrated = is_cal
+            state.probe_newscale_readout_x = nx
+            state.probe_newscale_readout_y = ny
+            state.probe_newscale_readout_z = nz
+
+    def _apply_newscale_to_probe(self, state) -> None:
+        """Convert the NewScale-input ``(x, y, z)`` to a subject-LPS target
+        and dispatch commands so the position-bearing shank's tip lands
+        there with ``past_target_mm = 0`` and zero offsets.
+
+        Math (per :func:`ProbePose.from_planning_state`):
+        ``pose.tip = adjusted_target − R @ pivot_local``,
+        position-bearing shank world ≈ ``pose.tip + R @ shank_pb_local``.
+        With ``past_target=0`` and offsets zero, setting the target so
+        that ``adjusted_target = newscale_lps + R @ (pivot_local −
+        shank_pb_local)`` lands shank_pb at ``newscale_lps``.
+
+        Silently no-ops when the probe isn't calibrated.
+        """
+        from aind_anatomical_utils.coordinate_systems import (
+            convert_coordinate_system,
+        )
+
+        from aind_low_point.calibration_conversion import newscale_to_lps
+        from aind_low_point.optimization.recording import (
+            recording_center_local_for_kind,
+        )
+
+        if not state.probe:
+            return
+        plan = self.store.state.probes.get(state.probe)
+        if plan is None or not plan.calibrated:
+            return
+        cal = self.store.state.calibrations.get(state.probe)
+        if cal is None:
+            return
+        try:
+            x = float(state.probe_newscale_apply_x)
+            y = float(state.probe_newscale_apply_y)
+            z = float(state.probe_newscale_apply_z)
+        except (TypeError, ValueError):
+            return
+        newscale_xyz = np.array([x, y, z], dtype=np.float64)
+        pb_world_lps = newscale_to_lps(newscale_xyz, cal)
+
+        # Resolve probe rotation R from the (already locked-by-cal) pose.
+        pose = ProbePose.from_planning_state(
+            self.store.state, state.probe, catalog=self.assets
+        )
+        R = pose.transform().rotation
+
+        tips_local = self._shank_tips_local(f"probe:{plan.kind}")
+        pb_idx = max(0, int(plan.position_bearing_shank) - 1)
+        if len(tips_local) > 0:
+            pb_local = np.asarray(
+                tips_local[min(pb_idx, len(tips_local) - 1)], dtype=np.float64
+            )
+        else:
+            pb_local = np.zeros(3, dtype=np.float64)
+        # Pivot in canonical local frame — same source as
+        # ProbePose.from_planning_state's tip computation.
+        asset_key = f"probe:{plan.kind}"
+        spec = self.assets.assets.get(asset_key)
+        if spec is not None and spec.pivot_LPS is not None:
+            pivot_local = np.asarray(spec.pivot_LPS, dtype=np.float64)
+        else:
+            pivot_local = recording_center_local_for_kind(plan.kind)
+
+        target_lps = pb_world_lps + R @ (pivot_local - pb_local)
+        target_ras = convert_coordinate_system(
+            target_lps.reshape(1, 3), "LPS", "RAS"
+        ).reshape(3)
+
+        self.store.dispatch(
+            SetProbeTarget(
+                name=state.probe,
+                target_point_RAS=(
+                    float(target_ras[0]),
+                    float(target_ras[1]),
+                    float(target_ras[2]),
+                ),
+            )
+        )
+        self.store.dispatch(SetProbePastTarget(name=state.probe, past_target_mm=0.0))
+        self.store.dispatch(SetProbeOffsetsRA(name=state.probe, R_mm=0.0, A_mm=0.0))
+
+    def _compute_newscale_readout(
+        self, probe_name: str
+    ) -> tuple[bool, bool, str, str, str]:
+        """Compute calibration availability + NewScale (x, y, z) the rig
+        should read for the currently planned pose of ``probe_name``.
+
+        Returns (has_calibration, is_calibrated, nx, ny, nz). The three
+        x/y/z strings are formatted with 3 decimal places, or "—" when
+        no calibration is available.
+        """
+        plan = self.store.state.probes.get(probe_name)
+        if plan is None:
+            return False, False, "—", "—", "—"
+        cal = self.store.state.calibrations.get(probe_name)
+        has = cal is not None
+        is_cal = bool(plan.calibrated and has)
+        if not has:
+            return False, bool(plan.calibrated), "—", "—", "—"
+        try:
+            from aind_low_point.calibration_conversion import lps_to_newscale
+            from aind_low_point.planning import ProbePose
+
+            pose = ProbePose.from_planning_state(
+                self.store.state, probe_name, catalog=self.assets
+            )
+            tips_local = self._shank_tips_local(f"probe:{plan.kind}")
+            pb_idx = max(0, int(plan.position_bearing_shank) - 1)
+            if len(tips_local) > 0:
+                pb_local = np.asarray(
+                    tips_local[min(pb_idx, len(tips_local) - 1)],
+                    dtype=np.float64,
+                )
+            else:
+                pb_local = np.zeros(3, dtype=np.float64)
+            R = pose.transform().rotation
+            pb_world = np.asarray(pose.tip, dtype=np.float64) + R @ pb_local
+            ns = lps_to_newscale(pb_world, cal)
+            return (True, is_cal, f"{ns[0]:.3f}", f"{ns[1]:.3f}", f"{ns[2]:.3f}")
+        except Exception:
+            return has, is_cal, "—", "—", "—"
 
     def _on_collision_state_changed(
         self,
@@ -1321,8 +1491,12 @@ class TrameController:
         self._slider_row("offset_a", "A (mm)", -7.5, 7.5, 0.05)
         self._slider_row("depth", "Depth (mm)", -10, 10, 0.1)
         vuetify3.VDivider(classes="my-2")
-        self._slider_row("ap_tilt", "AP tilt (°)", -60, 60, 0.5)
-        self._slider_row("ml_tilt", "ML tilt (°)", -60, 60, 0.5)
+        self._slider_row(
+            "ap_tilt", "AP tilt (°)", -60, 60, 0.5, disabled="probe_calibrated"
+        )
+        self._slider_row(
+            "ml_tilt", "ML tilt (°)", -60, 60, 0.5, disabled="probe_calibrated"
+        )
         self._slider_row("spin", "Spin (°)", -180, 180, 1)
         vuetify3.VDivider(classes="my-2")
         vuetify3.VSelect(
@@ -1338,6 +1512,94 @@ class TrameController:
             click=on_set_target,
             classes="mt-2",
         )
+        vuetify3.VDivider(classes="my-2")
+        self._build_newscale_section()
+
+    def _build_newscale_section(self) -> None:
+        """NewScale machine-coords ↔ probe-pose tools.
+
+        The whole section is shown only when a calibration is loaded for
+        the current probe. The Apply inputs + button are disabled when
+        the probe isn't currently using calibration (so AP/ML aren't
+        locked to the cal). Readouts show the inverse conversion of the
+        current pose's position-bearing shank tip.
+        """
+        with vuetify3.VCard(classes="mt-2", flat=True):
+            vuetify3.VCardSubtitle("NewScale")
+            with vuetify3.VCardText():
+                vuetify3.VSwitch(
+                    v_model=("probe_calibrated",),
+                    label="Use calibration (lock AP/ML)",
+                    hide_details=True,
+                    density="compact",
+                    disabled=("!probe_has_calibration",),
+                )
+                vuetify3.VLabel(
+                    "Calibrated shank = 'Reported shank' above.",
+                    classes="text-caption text-medium-emphasis mb-2",
+                )
+                vuetify3.VDivider(classes="my-2")
+                vuetify3.VLabel(
+                    "Apply reading (probe-frame mm) → tip",
+                    classes="text-caption mb-1",
+                )
+                with vuetify3.VRow(dense=True, classes="mb-1"):
+                    with vuetify3.VCol(cols=4):
+                        vuetify3.VTextField(
+                            v_model_number=("probe_newscale_apply_x",),
+                            label="x",
+                            type="number",
+                            step=0.01,
+                            density="compact",
+                            hide_details=True,
+                            disabled=("!probe_calibrated",),
+                        )
+                    with vuetify3.VCol(cols=4):
+                        vuetify3.VTextField(
+                            v_model_number=("probe_newscale_apply_y",),
+                            label="y",
+                            type="number",
+                            step=0.01,
+                            density="compact",
+                            hide_details=True,
+                            disabled=("!probe_calibrated",),
+                        )
+                    with vuetify3.VCol(cols=4):
+                        vuetify3.VTextField(
+                            v_model_number=("probe_newscale_apply_z",),
+                            label="z",
+                            type="number",
+                            step=0.01,
+                            density="compact",
+                            hide_details=True,
+                            disabled=("!probe_calibrated",),
+                        )
+                vuetify3.VBtn(
+                    "Apply NewScale → tip",
+                    color="primary",
+                    density="compact",
+                    disabled=("!probe_calibrated",),
+                    click=self._on_apply_newscale_click,
+                )
+                vuetify3.VDivider(classes="my-2")
+                vuetify3.VLabel(
+                    "Current pose NewScale readout",
+                    classes="text-caption mb-1",
+                )
+                vuetify3.VLabel(
+                    "x: {{ probe_newscale_readout_x }}   "
+                    "y: {{ probe_newscale_readout_y }}   "
+                    "z: {{ probe_newscale_readout_z }}",
+                    classes="text-body-2",
+                )
+
+    def _on_apply_newscale_click(self) -> None:
+        """Server-side click handler for the Apply NewScale button."""
+        if self._readout_state is None:
+            return
+        self._apply_newscale_to_probe(self._readout_state)
+        # Refresh readouts to reflect the new pose.
+        self._refresh_readouts(self._readout_state, self._readout_state.probe)
 
     def _apply_plan_yaml_bytes(self, content) -> None:
         """Parse plan-only YAML bytes from a browser upload and apply.
@@ -1431,8 +1693,14 @@ class TrameController:
         min_val: float,
         max_val: float,
         step: float,
+        disabled: str | None = None,
     ) -> None:
-        """Slider + editable number field bound to the same state variable."""
+        """Slider + editable number field bound to the same state variable.
+
+        ``disabled`` is an optional Vue expression (e.g. ``"probe_calibrated"``)
+        used to gray out both controls when truthy.
+        """
+        kwargs = {"disabled": (disabled,)} if disabled else {}
         with vuetify3.VRow(align="center", no_gutters=True, dense=True):
             with vuetify3.VCol():
                 vuetify3.VSlider(
@@ -1442,6 +1710,7 @@ class TrameController:
                     step=step,
                     label=label,
                     hide_details=True,
+                    **kwargs,
                 )
             with vuetify3.VCol(cols="auto"):
                 vuetify3.VTextField(
@@ -1451,6 +1720,7 @@ class TrameController:
                     density="compact",
                     hide_details=True,
                     style="width:80px",
+                    **kwargs,
                 )
 
     def _build_readouts(self) -> None:
@@ -1835,18 +2105,30 @@ class TrameController:
             return
 
         r_mm, a_mm = plan.offsets_RA
-        ap_tilt = (
-            float(self.store.state.kinematics.arc_angles.get(plan.arc_id, 0.0))
-            if plan.arc_id and plan.bind_ap_to_arc
-            else float(plan.ap_local)
-        )
+        # Resolved angles. When the probe is calibrated, AP/ML come from
+        # the calibration rotation (find_probe_angle), not from arc/ml_local
+        # — match what ProbePose actually renders.
+        cal = self.store.state.calibrations.get(state.probe)
+        if plan.calibrated and cal is not None:
+            from aind_mri_utils.reticle_calibrations import find_probe_angle
+
+            ap_tilt, ml_tilt = find_probe_angle(cal.rotation)
+            ap_tilt = float(ap_tilt)
+            ml_tilt = float(ml_tilt)
+        else:
+            ap_tilt = (
+                float(self.store.state.kinematics.arc_angles.get(plan.arc_id, 0.0))
+                if plan.arc_id and plan.bind_ap_to_arc
+                else float(plan.ap_local)
+            )
+            ml_tilt = float(plan.ml_local)
         n_shanks = max(1, len(self._shank_tips_local(f"probe:{plan.kind}")))
         with state:
             state.offset_r = float(r_mm)
             state.offset_a = float(a_mm)
             state.depth = float(plan.past_target_mm)
             state.ap_tilt = ap_tilt
-            state.ml_tilt = float(plan.ml_local)
+            state.ml_tilt = ml_tilt
             state.spin = int(round(float(plan.spin)))
             if plan.arc_id:
                 state.arc = plan.arc_id
