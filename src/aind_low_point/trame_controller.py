@@ -6,11 +6,13 @@ Calls store.dispatch() directly — PlanStore is the shared abstraction.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
 import pyvista as pv
+import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 from pyvista.trame.ui import plotter_ui
@@ -32,7 +34,8 @@ from aind_low_point.commands import (
     SetProbePositionBearingShank,
     SetProbeTarget,
 )
-from aind_low_point.planning import ProbePose, kinematic_violations
+from aind_low_point.core import MeshTransformable
+from aind_low_point.planning import PoseResolver, ProbePose, kinematic_violations
 from aind_low_point.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_low_point.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_low_point.state_change import PlanStore
@@ -213,6 +216,7 @@ class TrameController:
     # ``ctrl.view_update`` to push the new camera state to the browser.
     # The renderer's normal flush only runs when actors change.
     _ctrl: object | None = field(default=None, repr=False)
+    _last_click_time: float = field(default=0.0, repr=False)
     _scene_loaded_once: bool = field(default=False, repr=False)
 
     def build_app(self, server=None):
@@ -1233,6 +1237,8 @@ class TrameController:
                             view = plotter_ui(
                                 self.plotter,
                                 mode="client",
+                                picking_modes=("['click']",),
+                                click=(self._on_view_click, "[$event]"),
                                 after_scene_loaded=self._on_scene_loaded,
                             )
                             ctrl.view_update = view.update
@@ -1594,6 +1600,54 @@ class TrameController:
         backend.set_edge_highlight(nid, on=True)
         backend._highlighted = nid
         self._flush_view()
+
+    def _on_view_click(self, event) -> None:
+        now = time.monotonic()
+        prev = self._last_click_time
+        self._last_click_time = now
+        if now - prev > 0.4:
+            return
+        if not event:
+            return
+        wp = event.get("worldPosition") if isinstance(event, dict) else None
+        if not wp or len(wp) < 3:
+            return
+        world_pt = np.asarray(wp[:3], dtype=float)
+        name = self._resolve_probe_at_point(world_pt)
+        if name is None:
+            return
+        state = getattr(self, "_readout_state", None)
+        if state is None or state.probe == name:
+            return
+        with state:
+            state.probe = name
+
+    def _resolve_probe_at_point(
+        self, world_pt: np.ndarray, *, threshold_mm: float = 0.5
+    ) -> str | None:
+        resolver = PoseResolver(
+            scene=self.render_adapter.scene,
+            plan=self.store.state,
+            catalog=self.assets,
+        )
+        best_name: str | None = None
+        best_dist = float("inf")
+        for nid, node in self.render_adapter.scene.nodes.items():
+            if not nid.startswith("probe:") or not node.enabled:
+                continue
+            geom = self.assets.get_geometry(node.asset_key)
+            if not isinstance(geom, MeshTransformable):
+                continue
+            R, t = resolver.world_rt_for_node(node)
+            local_pt = R.T @ (world_pt - t)
+            _, dists, _ = trimesh.proximity.closest_point(geom.raw, [local_pt])
+            d = float(dists[0])
+            if d < best_dist:
+                best_dist = d
+                best_name = nid.removeprefix("probe:")
+        if best_dist > threshold_mm:
+            return None
+        return best_name
 
     def _flush_view(self) -> None:
         """Push the current plotter state (camera, actors) to the
