@@ -60,6 +60,8 @@ class PyVistaBackend:
     _flush_callback: Callable[[], None] | None = None
     _actors: dict[str, pv.Actor] = field(default_factory=dict)
     _kinds: dict[str, str] = field(default_factory=dict)
+    _highlighted: str | None = None
+    _edge_orig: dict[str, bool] = field(default_factory=dict)
 
     def create_mesh(
         self,
@@ -168,3 +170,40 @@ class PyVistaBackend:
     def flush(self) -> None:
         if self._flush_callback:
             self._flush_callback()
+
+    def set_edge_highlight(
+        self,
+        node_id: str,
+        on: bool,
+        *,
+        color: str = "#ffffff",
+        width: float = 3.0,
+    ) -> None:
+        actor = self._actors.get(node_id)
+        if actor is None or self._kinds.get(node_id) != "mesh":
+            return
+        prop = actor.prop
+        if on:
+            if node_id not in self._edge_orig:
+                self._edge_orig[node_id] = bool(prop.show_edges)
+            prop.show_edges = True
+            prop.edge_color = color
+            prop.line_width = width
+        else:
+            orig = self._edge_orig.pop(node_id, False)
+            prop.show_edges = orig
+
+    def highlight(
+        self,
+        node_id: str | None,
+        *,
+        color: str = "#ffffff",
+        width: float = 3.0,
+    ) -> None:
+        if self._highlighted == node_id:
+            return
+        if self._highlighted is not None:
+            self.set_edge_highlight(self._highlighted, on=False)
+        if node_id is not None:
+            self.set_edge_highlight(node_id, on=True, color=color, width=width)
+        self._highlighted = node_id

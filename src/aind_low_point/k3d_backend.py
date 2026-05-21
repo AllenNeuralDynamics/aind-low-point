@@ -97,6 +97,17 @@ class K3DBackend(RenderBackend):
     def flush(self) -> None:
         pass  # K3D auto-syncs via ipywidgets traits
 
+    def highlight(
+        self,
+        node_id: str | None,
+        *,
+        color: str = "#ffffff",
+        width: float = 3.0,
+    ) -> None:
+        # K3D frontend doesn't expose per-actor edge visibility the same
+        # way PyVista does; selection highlight is trame-only for now.
+        pass
+
     def remove(self, node_ids: Iterable[str]) -> None:
         for nid in node_ids:
             h = self._handles.pop(nid, None)

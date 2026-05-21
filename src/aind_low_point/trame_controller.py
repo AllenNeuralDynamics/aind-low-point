@@ -213,6 +213,7 @@ class TrameController:
     # ``ctrl.view_update`` to push the new camera state to the browser.
     # The renderer's normal flush only runs when actors change.
     _ctrl: object | None = field(default=None, repr=False)
+    _scene_loaded_once: bool = field(default=False, repr=False)
 
     def build_app(self, server=None):
         """Build trame app with Vuetify3 UI + PyVista 3D view.
@@ -227,6 +228,12 @@ class TrameController:
 
         self._init_state(state)
         self._wire_handlers(state)
+        # Set edge highlight on the initial probe BEFORE the view widget
+        # is created, so the first scene serialization picks it up. Skip
+        # the view-update flush here — ctrl.view_update isn't assigned
+        # until _build_layout runs.
+        nid = f"probe:{state.probe}" if state.probe else None
+        self.render_adapter.backend.highlight(nid)
         self._build_layout(server, ctrl)
 
         return server
@@ -381,6 +388,7 @@ class TrameController:
         @state.change("probe")
         def on_probe_change(**kwargs):
             self._load_probe_state(state)
+            self._update_probe_highlight(state)
 
         @state.change("offset_r", "offset_a")
         def on_offsets(**kwargs):
@@ -1222,7 +1230,11 @@ class TrameController:
                     with vuetify3.VRow(classes="fill-height"):
                         self._build_controls(on_set_target)
                         with vuetify3.VCol(cols=9, classes="fill-height"):
-                            view = plotter_ui(self.plotter, mode="client")
+                            view = plotter_ui(
+                                self.plotter,
+                                mode="client",
+                                after_scene_loaded=self._on_scene_loaded,
+                            )
                             ctrl.view_update = view.update
 
             # Help dialog — bound to state.kb_help_open (toggled by '?').
@@ -1558,6 +1570,30 @@ class TrameController:
                         color="primary",
                         click="kb_help_open = false",
                     )
+
+    def _update_probe_highlight(self, state) -> None:
+        nid = f"probe:{state.probe}" if state.probe else None
+        self.render_adapter.backend.highlight(nid)
+        self._flush_view()
+
+    def _on_scene_loaded(self, *args, **kwargs) -> None:
+        # The client emits ``afterSceneLoaded`` on every scene push, but
+        # we only need to force the initial-highlight delta once — when
+        # the client first mounts. Without the off→on flip, the very
+        # first scene snapshot reaches the client but vtk.js doesn't
+        # apply ``edgeVisibility`` until a property delta arrives.
+        if self._scene_loaded_once:
+            return
+        self._scene_loaded_once = True
+        state = getattr(self, "_readout_state", None)
+        if state is None or not state.probe:
+            return
+        nid = f"probe:{state.probe}"
+        backend = self.render_adapter.backend
+        backend.set_edge_highlight(nid, on=False)
+        backend.set_edge_highlight(nid, on=True)
+        backend._highlighted = nid
+        self._flush_view()
 
     def _flush_view(self) -> None:
         """Push the current plotter state (camera, actors) to the

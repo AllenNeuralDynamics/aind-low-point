@@ -197,6 +197,13 @@ class RenderBackend(Protocol):
     def remove(self, node_ids: Iterable[str]) -> None: ...
     def has_node(self, node_id: str) -> bool: ...
     def flush(self) -> None: ...
+    def highlight(
+        self,
+        node_id: str | None,
+        *,
+        color: str = "#ffffff",
+        width: float = 3.0,
+    ) -> None: ...
 
 
 def _rt_to_matrix(R: np.ndarray, t: np.ndarray) -> np.ndarray:
