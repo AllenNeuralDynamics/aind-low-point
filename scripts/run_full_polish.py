@@ -44,7 +44,7 @@ from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import JointWeights
 from aind_low_point.optimization.parallel_stage2 import polish_all_adaptive
 from aind_low_point.optimization.pose_features import precompute_pose_features
-from aind_low_point.optimization.sdf import build_probe_sdf
+from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
@@ -71,6 +71,17 @@ def main() -> int:
     p.add_argument("--boundary-hi", type=float, default=2.0)
     p.add_argument("--no-adaptive", action="store_true",
                    help="Skip the adaptive retry phase; single-seed polish only")
+    p.add_argument("--n-cands", type=int, default=None,
+                   help="Limit to the first N candidates after enumeration; "
+                        "for small probes/smoke tests")
+    p.add_argument("--spin-restore-chunk", type=str, default="auto",
+                   help="Batched-spin-restore chunk size (GPU memory knob). "
+                        "Default 'auto' queries free VRAM and picks a safe "
+                        "value. Pass an int to override.")
+    p.add_argument("--vram-safety-margin", type=float, default=0.2,
+                   help="Auto-chunk reserves this fraction of TOTAL VRAM as "
+                        "headroom (default 0.2 = 20%%). Only used when "
+                        "--spin-restore-chunk=auto.")
     args = p.parse_args()
 
     t_total0 = time.perf_counter()
@@ -109,9 +120,26 @@ def main() -> int:
     manual_rank = find_target_in_candidates(candidates, MANUAL_H_836656_T12)
     print(f"  manual rank in deduped pool: {manual_rank}", flush=True)
 
+    if args.n_cands is not None and args.n_cands < len(candidates):
+        # Keep manual rank in scope when probing
+        keep_idxs = list(range(args.n_cands))
+        if manual_rank is not None and manual_rank >= args.n_cands:
+            keep_idxs[-1] = manual_rank
+            print(f"  swapped slot {args.n_cands - 1} for manual (rank "
+                  f"{manual_rank}) so the probe still includes it")
+        candidates = [candidates[i] for i in keep_idxs]
+        manual_rank = next(
+            (i for i, c in enumerate(candidates)
+             if MANUAL_H_836656_T12 == {p: c.ha.probe_to_hole[p]
+                                         for p in MANUAL_H_836656_T12}),
+            None,
+        )
+        print(f"  limited to {len(candidates)} candidates for probe run "
+              f"(manual is rank {manual_rank} in probe)", flush=True)
+
     print("Building SDFs + pose features...", flush=True)
     t0 = time.perf_counter()
-    sdf_by_name = {p.name: build_probe_sdf(
+    sdf_by_name = {p.name: build_probe_sdf_from_alpha_wrap(
         runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
     ) for p in probes}
     pose_features = precompute_pose_features(probes, holes_list)
@@ -119,6 +147,20 @@ def main() -> int:
           flush=True)
 
     weights = replace(JointWeights(), min_arc_ap_sep_deg=16.0)
+
+    if args.spin_restore_chunk == "auto":
+        from aind_low_point.optimization.parallel_stage2 import (
+            estimate_spin_restore_chunk,
+        )
+        chunk = estimate_spin_restore_chunk(
+            n_surf=int(sdf_by_name[probes[0].name].surface_points.shape[0]),
+            K=len(probes), total_B=len(candidates),
+            safety_margin=args.vram_safety_margin,
+        )
+        print(f"  spin_restore_chunk=auto → {chunk} "
+              f"(from free VRAM probe)")
+    else:
+        chunk = int(args.spin_restore_chunk)
 
     print()
     print("=" * 70)
@@ -135,6 +177,7 @@ def main() -> int:
             reduced_slsqp_max_iter=args.reduced_slsqp_max_iter,
             sdf_by_name=sdf_by_name,
             n_workers=args.n_workers,
+            spin_restore_chunk=chunk,
             n_arcs=3,
             verbose=True,
         )
@@ -147,6 +190,7 @@ def main() -> int:
             n_workers=args.n_workers,
             boundary_lo=args.boundary_lo,
             boundary_hi=args.boundary_hi,
+            spin_restore_chunk=chunk,
             n_arcs=3,
             verbose=True,
         )

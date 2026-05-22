@@ -80,8 +80,8 @@ class BatchedProbeStatic:
     sdf_surface_points: jnp.ndarray       # (N_kinds, N_surf, 3)
 
     # ---- Optimization bounds (per candidate) ----
-    bounds_lo: jnp.ndarray                # (B, n_arcs + 2*K)
-    bounds_hi: jnp.ndarray                # (B, n_arcs + 2*K)
+    bounds_lo: jnp.ndarray                # (B, n_arcs + 3*K) — (ml, sx, sy)
+    bounds_hi: jnp.ndarray                # (B, n_arcs + 3*K)
 
     # ---- Static dims ----
     K: int
@@ -243,28 +243,29 @@ def build_batched_probe_static(
 
     sdf_kind_id_np = -np.ones((B, K), dtype=np.int32)
 
-    n_vars = n_arcs + 2 * K
+    n_vars = n_arcs + 3 * K   # (ml, sx, sy) per probe under Patch B
     bounds_lo = np.zeros((B, n_vars), dtype=np.float32)
     bounds_hi = np.zeros((B, n_vars), dtype=np.float32)
     ap_lo, ap_hi = _ap_bounds_deg(head_pitch_deg)
-    # ML / spin bounds. Spin bounded loosely at ±720°: the rotation
-    # matrix is periodic in spin, so wide bounds let Adam flow across
-    # ±180° wraparound without hitting a clip. Canonicalized to ±180°
-    # in plan output.
+    # ML / (sx, sy) bounds. Spin is parameterized as a 2D unit-circle
+    # vector to remove the ±180° angle wrap; each component bounded
+    # to ±1.5 (loose around the unit circle).
     ml_lo, ml_hi = -55.0, 55.0
-    spin_lo, spin_hi = -720.0, 720.0
+    sxy_lo, sxy_hi = -1.5, 1.5
 
     for b, (ha, aa) in enumerate(candidates):
         # Per-arc AP bounds
         for a in range(n_arcs):
             bounds_lo[b, a] = ap_lo
             bounds_hi[b, a] = ap_hi
-        # Per-probe ml/spin bounds + arc index + section data
+        # Per-probe ml + (sx, sy) bounds + arc index + section data
         for i, p in enumerate(probes):
-            bounds_lo[b, n_arcs + 2 * i] = ml_lo
-            bounds_hi[b, n_arcs + 2 * i] = ml_hi
-            bounds_lo[b, n_arcs + 2 * i + 1] = spin_lo
-            bounds_hi[b, n_arcs + 2 * i + 1] = spin_hi
+            bounds_lo[b, n_arcs + 3 * i] = ml_lo
+            bounds_hi[b, n_arcs + 3 * i] = ml_hi
+            bounds_lo[b, n_arcs + 3 * i + 1] = sxy_lo
+            bounds_hi[b, n_arcs + 3 * i + 1] = sxy_hi
+            bounds_lo[b, n_arcs + 3 * i + 2] = sxy_lo
+            bounds_hi[b, n_arcs + 3 * i + 2] = sxy_hi
             probe_arc_idx[b, i] = aa.probe_to_arc_idx.get(p.name, 0)
 
             hole_id = ha.probe_to_hole.get(p.name)
@@ -367,9 +368,13 @@ def initial_y_from_aa(
     """
     B = len(candidates)
     K = len(probes)
-    y0 = np.zeros((B, n_arcs + 2 * K), dtype=np.float32)
+    # (ml, sx, sy) per probe under Patch B; default spin = 0° → (sx, sy) = (1, 0).
+    y0 = np.zeros((B, n_arcs + 3 * K), dtype=np.float32)
     for b, (_ha, aa) in enumerate(candidates):
         ap_seq = aa.arc_centroids_deg
         for a in range(min(n_arcs, len(ap_seq))):
             y0[b, a] = float(ap_seq[a])
+        for k in range(K):
+            y0[b, n_arcs + 3 * k + 1] = 1.0  # sx
+            y0[b, n_arcs + 3 * k + 2] = 0.0  # sy
     return y0

@@ -311,6 +311,55 @@ def polish_all(
 # ---------------------------------------------------------------------------
 
 
+def estimate_spin_restore_chunk(
+    *,
+    n_surf: int = 5000,
+    K: int = 7,
+    n_spins: int = 8,
+    total_B: int,
+    safety_margin: float = 0.2,
+    fallback: int = 100,
+) -> int:
+    """Estimate a safe per-call chunk size from free GPU memory.
+
+    The peak allocation during batched spin restore scales with
+    ``B × K × n_surf × n_spins`` (transformed surface points + grad
+    intermediates). Empirically ~70 MB/cand at K=7, n_surf=20000,
+    n_spins=8. We scale linearly in (n_surf × K × n_spins).
+
+    Budget = ``free_VRAM − safety_margin × total_VRAM``. Reserving a
+    fixed fraction of *total* VRAM (rather than scaling with free)
+    keeps the headroom stable when other processes grow/shrink during
+    the run.
+
+    Clamps the resulting chunk to the actual batch size ``total_B``.
+    Falls back to ``fallback`` if pynvml is unavailable (CPU-only
+    runs, or driverless containers) or the budget comes out negative.
+    """
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        free_bytes = int(info.free)
+        total_bytes = int(info.total)
+        pynvml.nvmlShutdown()
+    except Exception:
+        return min(fallback, total_B)
+    budget = free_bytes - safety_margin * total_bytes
+    if budget <= 0:
+        return min(fallback, total_B)
+    # Empirical bytes/cand, scaled by the four dimensions that drive
+    # the peak allocation. The 140e6 base is calibrated for n_surf=20000
+    # with the dual-rep clearance + shank OBBs + (sx, sy) reparam (Patch
+    # B): the OOM at chunk=399 + n_surf=5000 implied ~22 MB/cand actual,
+    # so the base scales to 140e6 * (5000/20000) = 35 MB/cand at
+    # n_surf=5000 — ~60% headroom above the observed peak.
+    mem_per_cand = 140e6 * (n_surf / 20000.0) * (K / 7.0) * (n_spins / 8.0)
+    chunk = int(budget / max(mem_per_cand, 1.0))
+    return max(1, min(chunk, total_B))
+
+
 def polish_all_with_batched_spin_restore(
     candidates,                 # list of ArcFirstCandidate
     probes: list[ProbeStaticInfo],
@@ -369,17 +418,21 @@ def polish_all_with_batched_spin_restore(
 
     B = len(candidates)
     K = len(probes)
-    n_vars = n_arcs + 2 * K
+    n_vars = n_arcs + 3 * K   # (ml, sx, sy) per probe under Patch B
     probe_names_order = [p.name for p in probes]
 
-    # Pre-build full y0 batch (cheap numpy work — no JAX state)
+    # Pre-build full y0 batch (cheap numpy work — no JAX state). Spin
+    # seed in degrees is converted to (sx, sy) on the unit circle.
     y0_np = np.zeros((B, n_vars), dtype=np.float32)
     for b, cand in enumerate(candidates):
         for arc_idx in range(min(n_arcs, len(cand.aa.arc_centroids_deg))):
             y0_np[b, arc_idx] = float(cand.aa.arc_centroids_deg[arc_idx])
         for k, name in enumerate(probe_names_order):
-            y0_np[b, n_arcs + 2 * k] = float(cand.ml_seed.get(name, 0.0))
-            y0_np[b, n_arcs + 2 * k + 1] = float(cand.spin_seed.get(name, 0.0))
+            spin_deg = float(cand.spin_seed.get(name, 0.0))
+            spin_rad = np.deg2rad(spin_deg)
+            y0_np[b, n_arcs + 3 * k] = float(cand.ml_seed.get(name, 0.0))
+            y0_np[b, n_arcs + 3 * k + 1] = float(np.cos(spin_rad))  # sx
+            y0_np[b, n_arcs + 3 * k + 2] = float(np.sin(spin_rad))  # sy
 
     import jax
     import jax.numpy as jnp
@@ -540,6 +593,7 @@ def polish_all_adaptive(
     boundary_hi: float = 2.0,
     extra_quantiles: tuple[float, ...] = (0.25, 0.75),
     n_arcs: int = 3,
+    spin_restore_chunk: int = 100,
     verbose: bool = False,
 ) -> list[JointCandidate]:
     """Single-seed full polish + adaptive retry for boundary candidates.
@@ -585,6 +639,7 @@ def polish_all_adaptive(
             weights=weights, head_pitch_deg=head_pitch_deg,
             reduced_slsqp_max_iter=reduced_slsqp_max_iter,
             sdf_by_name=sdf_by_name, n_workers=n_workers,
+            spin_restore_chunk=spin_restore_chunk,
             n_arcs=n_arcs, executor=pool, verbose=verbose,
         )
 
@@ -628,6 +683,7 @@ def polish_all_adaptive(
             weights=weights, head_pitch_deg=head_pitch_deg,
             reduced_slsqp_max_iter=reduced_slsqp_max_iter,
             sdf_by_name=sdf_by_name, n_workers=n_workers,
+            spin_restore_chunk=spin_restore_chunk,
             n_arcs=n_arcs, executor=pool, verbose=verbose,
         )
 

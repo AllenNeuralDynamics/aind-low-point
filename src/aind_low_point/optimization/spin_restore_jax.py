@@ -192,19 +192,23 @@ def spin_restore_jax(
     max_outer_iter: int = 3,
     margin_mm: float = 0.02,
 ) -> NDArray:
-    """JAX-SDF replacement for ``_spin_restore_starts``.
+    """JAX-SDF spin restoration.
 
-    Same outer-loop semantics: each iteration finds the worst pair,
-    sweeps their spin values, commits the best, stops when min
-    clearance > margin. The sweep is coarse-to-fine: a ``coarse_grid``
-    full-circle scan, then ``fine_grid`` refinement in a
-    ``fine_window_deg`` window around the coarse winner.
+    Under Patch B (sx, sy) layout this is currently a no-op
+    pass-through. The batched spin-restore path
+    (:func:`make_batched_spin_restore_chunked` in
+    :mod:`batched_spin_restore`) handles spin initialisation under the
+    new layout. The per-cand 2D sweep here would need a 4D sweep
+    (sx_a, sy_a, sx_b, sy_b) which is not yet implemented.
 
     Probes without SDF data fall back to the FCL caller (the reduced
     SLSQP path requires SDF anyway, so this is the only case)."""
     has_sdf = all(s.sdf_data is not None for s in statics)
     if not has_sdf or len(statics) < 2:
         return np.asarray(y, dtype=np.float64)
+    # No-op under (sx, sy) layout — see docstring.
+    return np.asarray(y, dtype=np.float64)
+    # pylint: disable=unreachable
 
     sig = _signature(statics, n_arcs)
     if sig not in _JIT_CACHE:

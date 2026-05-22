@@ -41,7 +41,10 @@ from aind_low_point.optimization.joint_rerank_jax import (
     MAX_SHANKS_PAD,
     threading_g_matrix,
 )
-from aind_low_point.optimization.sdf_jax import pose_from_optimizer_vars
+from aind_low_point.optimization.sdf_jax import (
+    pose_from_optimizer_vars,
+    smooth_abs,
+)
 
 _JIT_CACHE: dict[Hashable, dict[str, tuple[Callable, Callable]]] = {}
 _CACHE_STATS = {"hits": 0, "misses": 0}
@@ -163,7 +166,9 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
         arc_aps = x[:n_arcs]
         if arc_pairs.shape[0] == 0:
             return jnp.zeros(0, dtype=x.dtype)
-        diffs = jnp.abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
+        diffs = smooth_abs(
+            arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
+        )
         return diffs - min_arc_ap_sep
 
     def _intra_ml_sep_slack(x):
@@ -172,7 +177,7 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
         # Vectorised gather of ml values via strided indexing.
         ml_idx = n_arcs + 5 * jnp.arange(n_probes)
         mls = x[ml_idx]
-        diffs = jnp.abs(mls[ml_pair_arr[:, 0]] - mls[ml_pair_arr[:, 1]])
+        diffs = smooth_abs(mls[ml_pair_arr[:, 0]] - mls[ml_pair_arr[:, 1]])
         return diffs - min_intra_ml_sep
 
     return {

@@ -48,16 +48,21 @@ from aind_low_point.state_change import PlanStore
 
 
 def _maybe_build_sdfs(probes, runtime):
-    """Build (or load-from-cache) the per-probe SDFs for the
-    ``--sdf-clearance`` path. Returns a ``{probe_name: ProbeSDF}`` dict.
+    """Build (or load-from-cache) the per-probe dual-rep clearance data
+    for the ``--sdf-clearance`` path.
+
+    Returns ``{probe_name: ProbeSDF}`` where each ``ProbeSDF`` bundles:
+      - body voxel SDF built on the α-wrap envelope (PSEUDONORMAL signs)
+      - body envelope surface samples (20000 by default)
+      - per-shank OBB centers/halves (literature-floored to 24 × 70 µm)
     """
-    from aind_low_point.optimization.sdf import build_probe_sdf
+    from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 
     sdf_by_name: dict = {}
-    print("Building SDFs for clearance backend...")
+    print("Building α-wrap envelopes + shank OBBs for clearance backend...")
     for p in probes:
         mesh = runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        sdf_by_name[p.name] = build_probe_sdf(mesh)
+        sdf_by_name[p.name] = build_probe_sdf_from_alpha_wrap(mesh)
     return sdf_by_name
 
 

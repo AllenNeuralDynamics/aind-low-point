@@ -20,6 +20,7 @@ dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.10,<2",
   "cma>=4.4.4",
+  "coacd>=1.0.11",
   "ipyevents>=2,<3",
   "jax[cuda12]>=0.4.30",
   "jaxlib>=0.4.30",
@@ -30,6 +31,7 @@ dependencies = [
   "omegaconf>=2,<3",
   "pandas>=2,<3",
   "pydantic>=2,<3",
+  "pymeshfix>=0.17.2",
   "pynrrd>=1,<2",
   "python-fcl>=0.7,<0.8",
   "pyvista>=0.46.5",
@@ -50,7 +52,15 @@ Changelog = "https://github.com/AllenNeuralDynamics/aind-low-point/blob/main/CHA
 
 
 [dependency-groups]
-dev = ["codespell", "pytest", "pytest-cov", "ruff", "interrogate"]
+dev = [
+    "codespell",
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "interrogate",
+    "pymeshlab>=2025.7.post1",
+    "pynvml>=13.0.1",
+]
 vscode = [{ include-group = "dev" }, "ipykernel", "pip", "ipympl"]
 docs = [
   { include-group = "dev" },

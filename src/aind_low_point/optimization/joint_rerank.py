@@ -152,9 +152,15 @@ class JointRerankMetrics:
     max_violation_arc_ap_sep: float
     max_violation_intra_arc_ml_sep: float
     max_violation_clearance: float
-    approximate_coverage: float
-    bounds_softpenalty: float
-    original_lsap_cost: float
+    # Diagnostic-only (Stage 2): max probe-vs-fixture penetration
+    # (cone/well/headframe), measured via raw-mesh FCL. Zero when no
+    # fixture BVHs were threaded into the metrics call. Not included in
+    # ``max_violation`` to keep lex-ordering backward-compatible; use
+    # ``lex_key_with_fixtures`` for fixture-aware ranking.
+    max_violation_fixture: float = 0.0
+    approximate_coverage: float = 0.0
+    bounds_softpenalty: float = 0.0
+    original_lsap_cost: float = 0.0
 
     def lex_key(self, feasibility_threshold: float = 0.0) -> tuple[float, float, float]:
         """Lex-rank tuple ``(eff_viol, sum_viol_sq, bounds_softpenalty)``.
@@ -173,6 +179,21 @@ class JointRerankMetrics:
         """
         eff = max(0.0, self.max_violation - feasibility_threshold)
         return (eff, self.sum_violation_sq, self.bounds_softpenalty)
+
+    def lex_key_with_fixtures(
+        self, feasibility_threshold: float = 0.0
+    ) -> tuple[float, float, float, float]:
+        """Lex key that includes the fixture max-violation as the
+        primary tiebreak after probe-probe / threading / kinematic
+        violations.
+
+        Use this when the metrics were computed with fixture BVHs
+        threaded in (otherwise ``max_violation_fixture == 0`` and it's
+        a no-op vs :meth:`lex_key`).
+        """
+        eff = max(0.0, self.max_violation - feasibility_threshold)
+        eff_fix = max(0.0, self.max_violation_fixture - feasibility_threshold)
+        return (eff, eff_fix, self.sum_violation_sq, self.bounds_softpenalty)
 
 
 @dataclass(frozen=True)
@@ -194,20 +215,36 @@ class JointCandidate:
 def _reduced_layout(n_arcs: int, n_probes: int) -> dict[str, slice]:
     """Slice indices for the reduced variable vector ``y``.
 
-    ``y = [ap_arc_0, ..., ap_arc_{n_arcs-1}, (ml_0, spin_0), ...,
-    (ml_{K-1}, spin_{K-1})]``. Returns a small dict of slices for
-    each named block.
+    ``y = [ap_arc_0, ..., ap_arc_{n_arcs-1}, (ml_0, sx_0, sy_0), ...,
+    (ml_{K-1}, sx_{K-1}, sy_{K-1})]``. Spin is parameterized as a 2D
+    unit-circle vector ``(sx, sy) ∝ (cos θ, sin θ)`` to avoid the
+    ±180° wraparound discontinuity that bound-clipped SLSQP on the
+    scalar-angle layout (Patch B, 2026-05-21).
     """
     return {
         "arc_aps": slice(0, n_arcs),
-        "probe_vars": slice(n_arcs, n_arcs + 2 * n_probes),
+        "probe_vars": slice(n_arcs, n_arcs + 3 * n_probes),
     }
 
 
+def _ml_sxy_from_y(
+    y: NDArray, n_arcs: int, probe_idx: int
+) -> tuple[float, float, float]:
+    """Return ``(ml, sx, sy)`` for probe ``probe_idx`` from the reduced
+    vector. See :func:`_reduced_layout` for the layout."""
+    offset = n_arcs + 3 * probe_idx
+    return float(y[offset]), float(y[offset + 1]), float(y[offset + 2])
+
+
 def _ml_spin_from_y(y: NDArray, n_arcs: int, probe_idx: int) -> tuple[float, float]:
-    """Return ``(ml, spin)`` for probe ``probe_idx`` from the reduced vector."""
-    offset = n_arcs + 2 * probe_idx
-    return float(y[offset]), float(y[offset + 1])
+    """Return ``(ml, spin_deg)`` for probe ``probe_idx``.
+
+    Convenience wrapper for the (sx, sy) layout that recovers a
+    scalar spin angle via ``atan2(sy, sx)``. Used at boundaries
+    (Stage 3 handoff, plan export) where downstream code wants degrees.
+    """
+    ml, sx, sy = _ml_sxy_from_y(y, n_arcs, probe_idx)
+    return ml, float(np.degrees(np.arctan2(sy, sx)))
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +287,7 @@ class _ProbeStatic:
     sdf_data: dict | None = None
 
 
-_SDF_JNP_CACHE: dict[int, dict] = {}
+_SDF_JNP_CACHE: dict[tuple, dict] = {}
 
 
 _STAGE2_TIMINGS: dict[str, float] = {
@@ -268,13 +305,15 @@ def stage2_timings() -> dict[str, float]:
 
 
 def _sdf_jnp_payload(sdf) -> dict:
-    """Return the jnp-array form of a ``ProbeSDF``, keyed on the
-    object's id so repeated calls in the same process share the
-    GPU-resident arrays. Stage 2 calls ``_build_probe_static`` once
-    per (H, A) candidate — caching the conversion saves the per-call
-    ``jnp.asarray`` Python overhead × probe count × candidate count.
+    """Return the jnp-array form of a ``ProbeSDF`` (body voxel grid +
+    surface samples + shank OBBs), keyed on the object's id so repeated
+    calls in the same process share the GPU-resident arrays.
+
+    Stage 2 calls ``_build_probe_static`` once per (H, A) candidate —
+    caching the conversion saves per-call ``jnp.asarray`` Python overhead
+    times probe count times candidate count.
     """
-    key = id(sdf)
+    key = (id(sdf),)
     cached = _SDF_JNP_CACHE.get(key)
     if cached is not None:
         return cached
@@ -284,6 +323,8 @@ def _sdf_jnp_payload(sdf) -> dict:
         origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
         spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
         surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
+        shank_centers=jnp.asarray(sdf.shank_centers, dtype=jnp.float32),
+        shank_halves=jnp.asarray(sdf.shank_halves, dtype=jnp.float32),
     )
     _SDF_JNP_CACHE[key] = payload
     return payload
@@ -307,9 +348,9 @@ def _build_probe_static(
     candidates — only its world transform changes per pose.
 
     ``sdf_by_name`` (optional) is a ``probe_name → ProbeSDF`` map.
-    When provided, each probe's SDF arrays are packed into a dict and
-    attached as ``_ProbeStatic.sdf_data`` for the reduced objective's
-    JAX clearance backend.
+    When provided, each probe's SDF arrays (body grid + surface samples
+    + shank OBBs) are packed into a dict and attached as
+    ``_ProbeStatic.sdf_data`` for the dual-rep JAX clearance backend.
     """
     holes_by_id = {h.id: h for h in holes}
     fallback_geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
@@ -535,7 +576,7 @@ def _update_pose_and_pairwise_clearances(
         import jax.numpy as jnp
 
         from aind_low_point.optimization.sdf_jax import (
-            pairwise_signed_clearance_jit,
+            pairwise_signed_clearance_dual,
         )
 
         for a in range(len(valid)):
@@ -554,18 +595,18 @@ def _update_pose_and_pairwise_clearances(
                         )
                     )
                     continue
-                d = float(
-                    pairwise_signed_clearance_jit(
-                        jnp.asarray(R_a, dtype=jnp.float32),
-                        jnp.asarray(t_a, dtype=jnp.float32),
-                        jnp.asarray(R_b, dtype=jnp.float32),
-                        jnp.asarray(t_b, dtype=jnp.float32),
-                        sa["grid"], sa["origin"], sa["spacing"],
-                        sb["grid"], sb["origin"], sb["spacing"],
-                        sa["surface"], sb["surface"],
-                    )
+                (hbb, _), (hbs, _), (hss, _) = pairwise_signed_clearance_dual(
+                    jnp.asarray(R_a, dtype=jnp.float32),
+                    jnp.asarray(t_a, dtype=jnp.float32),
+                    jnp.asarray(R_b, dtype=jnp.float32),
+                    jnp.asarray(t_b, dtype=jnp.float32),
+                    sa["grid"], sa["origin"], sa["spacing"],
+                    sb["grid"], sb["origin"], sb["spacing"],
+                    sa["surface"], sb["surface"],
+                    sa["shank_centers"], sa["shank_halves"],
+                    sb["shank_centers"], sb["shank_halves"],
                 )
-                out.append(d)
+                out.append(float(jnp.minimum(jnp.minimum(hbb, hbs), hss)))
         return out
     for a in range(len(valid)):
         ia = valid[a]
@@ -648,7 +689,7 @@ def _reduced_objective(
     arc_bound_vals = np.abs(arc_aps) - weights.comfortable_ap_deg
     j_bounds_ap = _softplus_squared(arc_bound_vals)
     ml_vals = np.array(
-        [float(y[n_arcs + 2 * i]) for i in range(n_probes)], dtype=np.float64
+        [float(y[n_arcs + 3 * i]) for i in range(n_probes)], dtype=np.float64
     )
     j_bounds_ml = _softplus_squared(np.abs(ml_vals) - weights.comfortable_ml_deg)
     j_bounds = j_bounds_ap + j_bounds_ml
@@ -674,6 +715,33 @@ def _reduced_objective(
     return float(total)
 
 
+def compute_fixture_max_violation(
+    y: NDArray,
+    statics: list[_ProbeStatic],
+    n_arcs: int,
+    fixture_bvhs: list[fcl.CollisionObject],
+) -> float:
+    """Refresh probe BVH transforms at ``y``, then return the max
+    probe-vs-fixture penetration via raw-mesh FCL signed distance.
+
+    Diagnostic-only — Stage 2 doesn't use this as an optimization
+    signal. Use post-polish to flag candidates whose polished pose
+    happens to clash with cone / well / headframe geometry.
+    """
+    if not fixture_bvhs or len(statics) == 0:
+        return 0.0
+    _update_pose_and_pairwise_clearances(y, statics, n_arcs)
+    max_viol = 0.0
+    for st in statics:
+        if st.bvh_obj is None:
+            continue
+        for fx in fixture_bvhs:
+            d = _signed_pair_clearance(st.bvh_obj, fx)
+            if d < 0.0 and -d > max_viol:
+                max_viol = -d
+    return float(max_viol)
+
+
 def _evaluate_reduced_metrics(
     y: NDArray,
     statics: list[_ProbeStatic],
@@ -681,6 +749,7 @@ def _evaluate_reduced_metrics(
     weights: JointWeights,
     *,
     original_lsap_cost: float,
+    fixture_bvhs: list[fcl.CollisionObject] | None = None,
 ) -> JointRerankMetrics:
     """Compute lex-ranking metrics for a reduced-vector outcome.
 
@@ -744,7 +813,7 @@ def _evaluate_reduced_metrics(
     arc_bound_vals = np.abs(arc_aps) - weights.comfortable_ap_deg
     bounds_pen += _softplus_squared(arc_bound_vals)
     ml_vals = np.array(
-        [float(y[n_arcs + 2 * i]) for i in range(n_probes)], dtype=np.float64
+        [float(y[n_arcs + 3 * i]) for i in range(n_probes)], dtype=np.float64
     )
     bounds_pen += _softplus_squared(np.abs(ml_vals) - weights.comfortable_ml_deg)
 
@@ -759,6 +828,29 @@ def _evaluate_reduced_metrics(
             if short > max_clear:
                 max_clear = short
 
+    # Diagnostic-only: probe-vs-fixture worst penetration via raw-mesh
+    # FCL. Reports the per-cand max overlap with cone/well/headframe
+    # at the polished pose. Stage 2 doesn't use this as an optimization
+    # signal (the JAX kernel doesn't see fixtures), but ranking pipelines
+    # downstream can lex-sort by it via ``lex_key_with_fixtures``.
+    max_fixture_viol = 0.0
+    if fixture_bvhs:
+        # ``_update_pose_and_pairwise_clearances`` already set probe BVH
+        # transforms while computing probe-probe clearances. If that
+        # path was disabled (lambda_clearance == 0), refresh transforms
+        # here so the FCL distance below is meaningful.
+        if weights.lambda_clearance <= 0.0:
+            # Recompute probe pose transforms without computing pair
+            # clearances (we only need the transforms set).
+            _update_pose_and_pairwise_clearances(y, statics, n_arcs)
+        for st in statics:
+            if st.bvh_obj is None:
+                continue
+            for fx_bvh in fixture_bvhs:
+                d = _signed_pair_clearance(st.bvh_obj, fx_bvh)
+                if d < 0.0 and -d > max_fixture_viol:
+                    max_fixture_viol = float(-d)
+
     max_viol = max(max_thread, max_arc_ap, max_ml, max_clear)
     sum_viol_sq = sum_thread_sq + sum_arc_ap_sq + sum_ml_sq + sum_clear_sq
     return JointRerankMetrics(
@@ -768,6 +860,7 @@ def _evaluate_reduced_metrics(
         max_violation_arc_ap_sep=float(max_arc_ap),
         max_violation_intra_arc_ml_sep=float(max_ml),
         max_violation_clearance=float(max_clear),
+        max_violation_fixture=float(max_fixture_viol),
         approximate_coverage=float(approx_cov),
         bounds_softpenalty=float(bounds_pen),
         original_lsap_cost=float(original_lsap_cost),
@@ -791,18 +884,23 @@ def _build_starts(
     :func:`_reduced_layout`.
     """
     n_probes = len(statics)
-    n_vars = n_arcs + 2 * n_probes
+    n_vars = n_arcs + 3 * n_probes  # (ml, sx, sy) per probe under Patch B
 
     # Per-arc on-arc probe lists for the AP-interval intersection.
     on_arc: dict[int, list[int]] = {a: [] for a in range(n_arcs)}
     for i, st in enumerate(statics):
         on_arc[st.arc_idx].append(i)
 
-    # Helper: slot-major-axis spin (deg) per probe.
+    # Helper: slot-major-axis spin (deg) per probe, plus its (sx, sy)
+    # form for the reduced y vector.
     spin_warm: list[float] = []
+    spin_warm_xy: list[tuple[float, float]] = []
     for st in statics:
         spin_rad = float(np.pi / 2 - st.assigned_hole.slot_theta_rad)
         spin_warm.append(float(np.rad2deg(spin_rad)))
+        spin_warm_xy.append(
+            (float(np.cos(spin_rad)), float(np.sin(spin_rad)))
+        )
 
     # Helper: required ML at a given ap_arc for probe i.
     def _ml_at_ap(probe_idx: int, ap: float) -> float:
@@ -835,8 +933,9 @@ def _build_starts(
     for a in range(n_arcs):
         start1[a] = float(aa.arc_centroids_deg[a])
     for i, st in enumerate(statics):
-        start1[n_arcs + 2 * i] = 0.0  # ml
-        start1[n_arcs + 2 * i + 1] = spin_warm[i]
+        start1[n_arcs + 3 * i] = 0.0          # ml
+        start1[n_arcs + 3 * i + 1] = spin_warm_xy[i][0]  # sx
+        start1[n_arcs + 3 * i + 2] = spin_warm_xy[i][1]  # sy
 
     # Start 2: AP-interval midpoint per arc (across on-arc probes) + slot spin.
     start2 = np.zeros(n_vars, dtype=np.float64)
@@ -871,17 +970,19 @@ def _build_starts(
             start2[a] = float(aa.arc_centroids_deg[a])
     for i, st in enumerate(statics):
         ap_i = float(start2[st.arc_idx])
-        start2[n_arcs + 2 * i] = _ml_at_ap(i, ap_i)
-        start2[n_arcs + 2 * i + 1] = spin_warm[i]
+        start2[n_arcs + 3 * i] = _ml_at_ap(i, ap_i)            # ml
+        start2[n_arcs + 3 * i + 1] = spin_warm_xy[i][0]         # sx
+        start2[n_arcs + 3 * i + 2] = spin_warm_xy[i][1]         # sy
 
     # Start 3: same APs as start 2, alternating spin offsets per on-arc
-    # neighbour (odd-indexed gets spin + 180°).
+    # neighbour (odd-indexed gets spin + 180°, i.e. (sx, sy) negated).
     start3 = start2.copy()
     for a in range(n_arcs):
         members = on_arc.get(a, [])
         for k, i in enumerate(members):
             if k % 2 == 1:
-                start3[n_arcs + 2 * i + 1] = spin_warm[i] + 180.0
+                start3[n_arcs + 3 * i + 1] = -spin_warm_xy[i][0]
+                start3[n_arcs + 3 * i + 2] = -spin_warm_xy[i][1]
 
     return [start1, start2, start3]
 
@@ -896,38 +997,41 @@ def _reduced_bounds(
     n_probes: int,
     head_pitch_deg: float,
 ) -> list[tuple[float, float]]:
-    """Box bounds matching :func:`_default_bounds` for the reduced vector.
+    """Box bounds for the reduced ``y = (arc_aps, (ml, sx, sy) × P)``.
 
-    AP bound shifted by head pitch; ML clamped to ±60°; spin to ±180°.
-
-    NB: scipy SLSQP uses bounds for internal step-size scaling; widening
-    the spin range causes immediate stagnation (observed 2026-05-19).
-    The bound is kept at ±180° for the scipy path. The batched Adam
-    path (``batched_static.py``) uses loose ±720° spin bounds because
-    Adam needs continuous gradient flow across the spin=±180°
-    wraparound; that path doesn't share scipy's step-scaling logic.
+    AP bound shifted by head pitch; ML clamped to ±60°. Spin is
+    parameterized as ``(sx, sy) ∝ (cos θ, sin θ)`` on the unit circle
+    (Patch B): bounds are box-uniform ``[-1.5, +1.5]`` on each
+    component, which excludes the ``(0, 0)`` ``atan2`` singularity and
+    keeps SLSQP's internal step-size scaling well-conditioned (vs
+    angle-space ±180° bounds which clip the wraparound and bound
+    SLSQP's ability to flow across spin=±180°).
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(n_arcs):
         bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-60.0, +60.0))  # ml
-        bounds.append((-180.0, +180.0))  # spin
+        bounds.append((-60.0, +60.0))    # ml
+        bounds.append((-1.5, +1.5))       # sx
+        bounds.append((-1.5, +1.5))       # sy
     return bounds
 
 
 def _wrap_spin_to_bounds(y: NDArray, n_arcs: int, n_probes: int) -> NDArray:
-    """Normalize spin angles to ``[-180, 180]`` for human-readable output.
+    """No-op pass-through (kept for backward compat with callers).
 
-    Bounds are loose (±720°); this helper is used to canonicalize spin
-    values for plan files and metric printouts. SLSQP no longer needs
-    this clamp.
+    Under the (sx, sy) reduced layout (Patch B), the wraparound issue
+    is gone — both components live in a continuous bounded box. This
+    helper is retained so existing callers (``_slsqp_reduced``) don't
+    need to change, but it just returns a copy of ``y``.
     """
-    out = np.asarray(y, dtype=np.float64).copy()
-    for i in range(n_probes):
-        idx = n_arcs + 2 * i + 1
-        out[idx] = ((out[idx] + 180.0) % 360.0) - 180.0
-    return out
+    return np.asarray(y, dtype=np.float64).copy()
+
+
+def _spin_deg_to_sxy(spin_deg: float) -> tuple[float, float]:
+    """Convert a spin angle in degrees to (sx, sy) on the unit circle."""
+    rad = np.radians(float(spin_deg))
+    return float(np.cos(rad)), float(np.sin(rad))
 
 
 def _slsqp_reduced(
@@ -1006,6 +1110,7 @@ def score_joint(
     original_lsap_cost: float = float("nan"),
     bvh_cache: dict[str, fcl.CollisionObject | None] | None = None,
     sdf_by_name: dict | None = None,
+    fixture_bvhs: list[fcl.CollisionObject] | None = None,
     y0_override: NDArray | None = None,
     skip_spin_restore: bool = False,
 ) -> JointCandidate:
@@ -1071,6 +1176,7 @@ def score_joint(
             n_arcs,
             weights,
             original_lsap_cost=original_lsap_cost,
+            fixture_bvhs=fixture_bvhs,
         )
         _STAGE2_TIMINGS["metric_eval"] += time.perf_counter() - _t0
         if best_metrics is None or m.lex_key() < best_metrics.lex_key():
@@ -1109,10 +1215,13 @@ def expand_reduced_solution_to_full_x(
     x = np.zeros(layout.n_vars, dtype=np.float64)
     x[:n_arcs] = np.asarray(jc.reduced_y[:n_arcs], dtype=np.float64)
     for i, _name in enumerate(probe_names_in_order):
-        ml = float(jc.reduced_y[n_arcs + 2 * i])
-        spin = float(jc.reduced_y[n_arcs + 2 * i + 1])
-        # Wrap spin into [-180, 180] for the full SLSQP bounds.
-        spin = ((spin + 180.0) % 360.0) - 180.0
+        # Stage 2 reduced y stores spin as (sx, sy) (Patch B); convert
+        # back to scalar spin_deg in [-180, 180] for the Stage 3 full
+        # x layout, which still uses the angle parameterization.
+        ml = float(jc.reduced_y[n_arcs + 3 * i])
+        sx = float(jc.reduced_y[n_arcs + 3 * i + 1])
+        sy = float(jc.reduced_y[n_arcs + 3 * i + 2])
+        spin = float(np.degrees(np.arctan2(sy, sx)))
         off = layout.num_arcs + 5 * i
         x[off + 0] = ml
         x[off + 1] = spin
@@ -1391,11 +1500,10 @@ def _spin_restore_starts(  # noqa: C901
             mn = min(mn, _signed_clear(a, b))
             return mn
 
+        _, spin_a_cur = _ml_spin_from_y(y, n_arcs, worst_a)
+        _, spin_b_cur = _ml_spin_from_y(y, n_arcs, worst_b)
         best_score = _min_clearance_involving(worst_a, worst_b)
-        best_pair = (
-            float(y[n_arcs + 2 * worst_a + 1]),
-            float(y[n_arcs + 2 * worst_b + 1]),
-        )
+        best_pair = (spin_a_cur, spin_b_cur)
         for sa in spin_grid:
             _set_probe_transform(worst_a, float(sa))
             for sb in spin_grid:
@@ -1404,9 +1512,14 @@ def _spin_restore_starts(  # noqa: C901
                 if score > best_score:
                     best_score = score
                     best_pair = (float(sa), float(sb))
-        # Commit the best (spin_a, spin_b) and restore transforms.
-        y[n_arcs + 2 * worst_a + 1] = best_pair[0]
-        y[n_arcs + 2 * worst_b + 1] = best_pair[1]
+        # Commit the best (spin_a, spin_b) as (sx, sy) in the new layout
+        # and restore transforms.
+        sxa, sya = _spin_deg_to_sxy(best_pair[0])
+        sxb, syb = _spin_deg_to_sxy(best_pair[1])
+        y[n_arcs + 3 * worst_a + 1] = sxa
+        y[n_arcs + 3 * worst_a + 2] = sya
+        y[n_arcs + 3 * worst_b + 1] = sxb
+        y[n_arcs + 3 * worst_b + 2] = syb
         _set_probe_transform(worst_a, best_pair[0])
         _set_probe_transform(worst_b, best_pair[1])
         # If grid couldn't improve the worst pair, stop to avoid spinning

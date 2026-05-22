@@ -23,6 +23,7 @@ from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
 from aind_low_point.optimization.sdf_jax import (
     pairwise_signed_clearance,
     pose_from_optimizer_vars,
+    spin_deg_from_sxy,
 )
 
 
@@ -152,14 +153,18 @@ def make_batched_reduced_objective(
         arc_aps = y[:n_arcs]
 
         # Per-probe pose + threading penalty (unrolled Python loop —
-        # K is small (7); unrolling keeps the JIT trace flat).
+        # K is small (7); unrolling keeps the JIT trace flat). y layout
+        # per probe is (ml, sx, sy) under Patch B's (sx, sy)
+        # reparameterization.
         j_thread = jnp.float32(0.0)
         Rs: list[jnp.ndarray] = []
         ts: list[jnp.ndarray] = []
         for i in range(K):
-            off = n_arcs + 2 * i
+            off = n_arcs + 3 * i
             ml = y[off]
-            spin = y[off + 1]
+            sx = y[off + 1]
+            sy = y[off + 2]
+            spin = spin_deg_from_sxy(sx, sy)
             ap = arc_aps[arc_idx[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
@@ -189,8 +194,9 @@ def make_batched_reduced_objective(
 
         # Intra-arc ML separation. same_arc_mask is (K, K) upper triangle
         # where probes i, j share an arc. Compute inline since arc_idx
-        # varies per candidate.
-        ml_vals = y[n_arcs::2][:K]
+        # varies per candidate. y per probe is (ml, sx, sy) → ml at
+        # stride 3.
+        ml_vals = y[n_arcs::3][:K]
         ml_diff = jnp.abs(ml_vals[:, None] - ml_vals[None, :])
         same = (arc_idx[:, None] == arc_idx[None, :])
         upper = jnp.triu(jnp.ones((K, K), dtype=jnp.float32), k=1)

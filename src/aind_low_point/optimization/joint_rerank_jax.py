@@ -48,8 +48,10 @@ except Exception:
     pass
 
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance,
+    pairwise_signed_clearance_dual,
     pose_from_optimizer_vars,
+    smooth_abs,
+    spin_deg_from_sxy,
 )
 
 MAX_SHANKS_PAD = 4
@@ -84,22 +86,31 @@ def _weights_key(weights) -> tuple:
 def _signature(statics, n_arcs: int, weights) -> tuple:
     """Cache key encoding everything the trace depends on, including the
     per-probe SDF grid shapes (which vary across probe kinds since each
-    grid is sized to its probe bbox)."""
+    grid is sized to its probe bbox) and per-probe shank-OBB counts.
+    """
     has_sdf = any(s.sdf_data is not None for s in statics)
     per_probe_sdf_shapes: tuple = ()
+    per_probe_shank_counts: tuple = ()
     n_surf = 0
     if has_sdf:
         shapes = []
+        counts = []
         for s in statics:
             if s.sdf_data is None:
                 shapes.append(None)
+                counts.append(0)
             else:
                 shapes.append(
                     tuple(int(x) for x in np.asarray(s.sdf_data["grid"]).shape)
                 )
                 if n_surf == 0:
                     n_surf = int(np.asarray(s.sdf_data["surface"]).shape[0])
+                centers = s.sdf_data.get("shank_centers")
+                counts.append(
+                    int(np.asarray(centers).shape[0]) if centers is not None else 0
+                )
         per_probe_sdf_shapes = tuple(shapes)
+        per_probe_shank_counts = tuple(counts)
     return (
         len(statics),
         int(n_arcs),
@@ -107,6 +118,7 @@ def _signature(statics, n_arcs: int, weights) -> tuple:
         MAX_SECTIONS_PAD,
         has_sdf,
         per_probe_sdf_shapes,
+        per_probe_shank_counts,
         n_surf,
         _weights_key(weights),
     )
@@ -142,6 +154,12 @@ def threading_g_matrix(
     denom = s_axes @ line_d
     rel_centers = tip_world[None, :, :] - s_centers[:, None, :]
     num = jnp.einsum("skd,sd->sk", rel_centers, s_axes)
+    # ``denom`` is the dot product of shaft direction with section axis.
+    # For typical bounds (ap, ml ≤ 60°) it's in [0.25, 1.0]; the
+    # ``shaft ⊥ section`` case (denom → 0) is geometrically unreachable
+    # in our problem. The where here is a defensive guard for exact-zero
+    # division; the gradient flows through the ``denom`` branch
+    # everywhere ``|denom| ≥ 1e-12`` (i.e., always in practice).
     safe_denom = jnp.where(jnp.abs(denom) < 1e-12, 1.0, denom)
     t = -num / safe_denom[:, None]
     pts = tip_world[None, :, :] + t[..., None] * line_d
@@ -150,18 +168,18 @@ def threading_g_matrix(
     v_w = jnp.einsum("skd,sd->sk", rel_to_center, s_e2)
     u = s_cos[:, None] * u_w + s_sin[:, None] * v_w
     v = -s_sin[:, None] * u_w + s_cos[:, None] * v_w
-    g = (u / s_a[:, None]) ** 2 + (v / s_b[:, None]) ** 2 - 1.0
-    # Parallel-to-section ⇒ +inf so the caller can treat it as
-    # "always outside the oval" (a no-op for slack: -inf, harmless
-    # for the penalty: huge positive squared, but the mask cancels).
-    return jnp.where(jnp.abs(denom)[:, None] < 1e-12, jnp.inf, g)
+    # No more ``where(parallel, inf, g)`` override (removed Patch B):
+    # the ``+inf`` branch's gradient was NaN, corrupting SLSQP. With
+    # safe_denom protecting the division, ``g`` is finite everywhere.
+    return (u / s_a[:, None]) ** 2 + (v / s_b[:, None]) ** 2 - 1.0
 
 
 def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
     """Construct the JIT'd objective + grad for one signature."""
     (
         n_probes, n_arcs, max_shanks, max_sections,
-        has_sdf, per_probe_sdf_shapes, n_surf, _w_key,
+        has_sdf, per_probe_sdf_shapes, per_probe_shank_counts,
+        n_surf, _w_key,
     ) = signature
     sdf_pair_list: list[tuple[int, int]] = []
     if has_sdf:
@@ -223,17 +241,23 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # When has_sdf=False these are empty tuples; the pair loop is also
         # empty so they aren't referenced.
         sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces,
+        shank_obb_centers, shank_obb_halves,
     ):
         arc_aps = y[:n_arcs]
 
-        # Per-probe pose + threading penalty
+        # Per-probe pose + threading penalty. y layout is
+        # ``(arc_aps, (ml, sx, sy) × P)`` — spin parameterized as a 2D
+        # unit-circle vector to avoid the ±180° wraparound discontinuity
+        # that bound-clipped SLSQP on the scalar-angle layout (Patch B).
         j_thread = jnp.float32(0.0)
         Rs = []
         ts = []
         for i in range(n_probes):
-            off = n_arcs + 2 * i
+            off = n_arcs + 3 * i
             ml = y[off]
-            spin = y[off + 1]
+            sx = y[off + 1]
+            sy = y[off + 2]
+            spin = spin_deg_from_sxy(sx, sy)
             ap = arc_aps[arc_idx[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
@@ -252,39 +276,51 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
                 s_cos[i], s_sin[i], s_a[i], s_b[i], section_mask[i],
             )
 
-        # AP separation across arc pairs
+        # AP separation across arc pairs. ``smooth_abs`` keeps the
+        # gradient continuous as ap_i, ap_j pass through equality (vs
+        # jnp.abs which flips sign at zero).
         if arc_pairs.shape[0] > 0:
-            ap_diffs = jnp.abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
+            ap_diffs = smooth_abs(
+                arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
+            )
             short_ap = jnp.maximum(0.0, min_arc_ap_sep - ap_diffs)
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
             j_arc_ap = jnp.float32(0.0)
 
-        # Intra-arc ML separation: pre-built mask of same-arc pairs (P, P)
-        ml_vals = y[n_arcs::2][:n_probes]  # broadcast-safe slice
-        ml_diff = jnp.abs(ml_vals[:, None] - ml_vals[None, :])
+        # Intra-arc ML separation: pre-built mask of same-arc pairs (P, P).
+        # y layout per probe is (ml, sx, sy) → ml at stride 3.
+        ml_vals = y[n_arcs::3][:n_probes]  # broadcast-safe slice
+        ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
         short_ml = jnp.maximum(0.0, min_intra_ml_sep - ml_diff)
         # Use upper triangle only (each pair once)
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds
-        j_bounds = _softplus_squared(jnp.abs(arc_aps) - comfortable_ap)
-        j_bounds = j_bounds + _softplus_squared(jnp.abs(ml_vals) - comfortable_ml)
+        j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
+        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
-        # SDF clearance: unroll at trace time over the static pair list.
-        # Per-probe grids have heterogeneous shapes (sized to each probe's
-        # bbox), so vmap-over-stacked-grids isn't possible; the unrolled
-        # Python loop bakes each grid's shape into the trace.
+        # Dual-rep clearance per pair: body voxel SDF + analytic shank OBBs.
+        # Three categories (body-body, body-shank, shank-shank) → three
+        # independent ReLU-squared penalties → sum. Per-category soft min
+        # gives each category its own gradient signal (avoiding the
+        # sample-count bias of a pooled softmin where body samples crowd
+        # out shank samples in top-k).
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
-            d = pairwise_signed_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                sdf_surfaces[ia], sdf_surfaces[ib],
+            (_hbb, sbb), (_hbs, sbs), (_hss, sss) = (
+                pairwise_signed_clearance_dual(
+                    Rs[ia], ts[ia], Rs[ib], ts[ib],
+                    sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
+                    sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
+                    sdf_surfaces[ia], sdf_surfaces[ib],
+                    shank_obb_centers[ia], shank_obb_halves[ia],
+                    shank_obb_centers[ib], shank_obb_halves[ib],
+                )
             )
-            short = jnp.maximum(0.0, min_clearance - d)
-            j_clear = j_clear + short * short
+            for d_soft in (sbb, sbs, sss):
+                short = jnp.maximum(0.0, min_clearance - d_soft)
+                j_clear = j_clear + short * short
 
         return (
             lambda_thread * j_thread
@@ -369,26 +405,43 @@ def _pack_statics(
     )
     # Per-probe SDF data: keep as tuples-of-arrays since each probe's
     # grid is sized to its own bbox. The trace bakes the shapes in.
+    # Shank OBBs follow the same per-probe-static-shape pattern.
     sdf_grids = []
     sdf_origins = []
     sdf_spacings = []
     sdf_surfaces = []
+    shank_centers_tuple = []
+    shank_halves_tuple = []
     for s in statics:
         if has_sdf and s.sdf_data is not None:
             sdf_grids.append(jnp.asarray(s.sdf_data["grid"], dtype=jnp.float32))
             sdf_origins.append(jnp.asarray(s.sdf_data["origin"], dtype=jnp.float32))
             sdf_spacings.append(jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32))
             sdf_surfaces.append(jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32))
+            shank_centers_tuple.append(
+                jnp.asarray(s.sdf_data.get("shank_centers",
+                                            np.zeros((0, 3), dtype=np.float32)),
+                            dtype=jnp.float32)
+            )
+            shank_halves_tuple.append(
+                jnp.asarray(s.sdf_data.get("shank_halves",
+                                            np.zeros((0, 3), dtype=np.float32)),
+                            dtype=jnp.float32)
+            )
         else:
             # Placeholder so positional indexing stays valid; never read.
             sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
             sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))
             sdf_spacings.append(jnp.float32(1.0))
             sdf_surfaces.append(jnp.zeros((1, 3), dtype=jnp.float32))
+            shank_centers_tuple.append(jnp.zeros((0, 3), dtype=jnp.float32))
+            shank_halves_tuple.append(jnp.zeros((0, 3), dtype=jnp.float32))
     out["sdf_grids"] = tuple(sdf_grids)
     out["sdf_origins"] = tuple(sdf_origins)
     out["sdf_spacings"] = tuple(sdf_spacings)
     out["sdf_surfaces"] = tuple(sdf_surfaces)
+    out["shank_obb_centers"] = tuple(shank_centers_tuple)
+    out["shank_obb_halves"] = tuple(shank_halves_tuple)
     return out
 
 
@@ -409,7 +462,7 @@ def make_jax_reduced_objective(
     packed = _pack_statics(
         statics, n_arcs,
         MAX_SHANKS_PAD, MAX_SECTIONS_PAD,
-        has_sdf=sig[4], sdf_grid_shape=sig[5], n_surf=sig[6],
+        has_sdf=sig[4], sdf_grid_shape=sig[5], n_surf=sig[7],
     )
 
     def fun(y: NDArray) -> float:
