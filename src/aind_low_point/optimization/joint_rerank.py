@@ -496,35 +496,40 @@ def _max_g_threading(
 def _signed_pair_clearance(
     obj_a: fcl.CollisionObject, obj_b: fcl.CollisionObject
 ) -> float:
-    """Signed distance between two BVH probes via ``fcl.distance``.
+    """Signed clearance between two BVH probes.
 
-    Returns positive when separated, ``0.0`` when touching, and
-    *approximately* the (negative) penetration depth when overlapping.
+    python-fcl's BVH-vs-BVH FCL has two limitations:
 
-    Important: ``fcl.collide``'s ``penetration_depth`` field is
-    **unreliable** for thin BVH-vs-BVH meshes (silicon shanks, PCB
-    sheets). It can report multi-mm depths for meshes that
-    ``fcl.distance`` correctly says are merely touching (signed
-    distance = 0), and direct vertex-vs-BVH checks confirm no actual
-    overlap. We saw 4 mm spurious depths on quadbase-vs-quadbase at
-    cand 2962 where the meshes barely touch.
+    1. ``fcl.distance(enable_signed_distance=True)`` returns ``0`` when
+       the meshes either touch OR overlap. It does NOT distinguish:
+       verified empirically that identical-pose probes give 0, and
+       probes offset by 0.5 mm (still overlapping) also give 0; only
+       fully separated meshes return positive.
+    2. ``fcl.collide.penetration_depth`` is essentially garbage for
+       thin BVH-vs-BVH meshes. Multi-mm depths for clearly-touching
+       meshes; small or zero depths for severe overlap. Don't trust
+       these values as actual penetration depth.
 
-    So this helper only uses ``fcl.distance(enable_signed_distance)``:
-    it returns the signed distance directly (positive or negative or
-    0). For thin meshes that *just* touch, the report is 0.0 — treat
-    that as borderline, not a deep penetration.
+    Reliable signals: positive ``fcl.distance`` (true clearance) and
+    boolean ``fcl.collide`` (has contacts ⇒ colliding).
 
-    A small penetration tolerance ``ε`` (= 0.05 mm) is applied so
-    fcl.distance returning -ε to +ε is reported as 0 — fcl.distance's
-    sign near zero is numerically noisy on thin sheets.
+    Return convention:
+      - positive value: actual clearance in mm
+      - ``-1.0``: colliding (sentinel; depth unknown)
+      - ``0.0``: touching exactly (rare; fcl.distance=0, no contacts)
     """
     d_req = fcl.DistanceRequest(enable_signed_distance=True)
     d_res = fcl.DistanceResult()
     fcl.distance(obj_a, obj_b, d_req, d_res)
     d = float(d_res.min_distance)
-    if abs(d) < 0.05:
-        return 0.0
-    return d
+    if d > 0.0:
+        return d
+    c_req = fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
+    c_res = fcl.CollisionResult()
+    fcl.collide(obj_a, obj_b, c_req, c_res)
+    if c_res.contacts:
+        return -1.0  # collision sentinel
+    return 0.0
 
 
 def _update_pose_and_pairwise_clearances(

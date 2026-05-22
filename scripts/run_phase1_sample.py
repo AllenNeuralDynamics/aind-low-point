@@ -254,19 +254,29 @@ def final_feasibility_report(
 
     manager.setup()
 
-    # Pairwise: distance for every (probe, probe) and (probe, fixture)
+    # Pairwise: feasibility for every (probe, probe) and (probe, fixture)
     # pair, but NOT (fixture, fixture).
     #
-    # Important: only ``fcl.distance(enable_signed_distance=True)`` is
-    # used here. ``fcl.collide``'s ``penetration_depth`` is unreliable
-    # for thin BVH-vs-BVH meshes (silicon shanks, PCB sheets) — it
-    # can report multi-mm depths when ``fcl.distance`` correctly says
-    # signed distance ≈ 0 (just touching). Direct vertex-vs-BVH
-    # checks confirm those reports are spurious. Treating |d| < 0.05
-    # as borderline-zero suppresses the resulting false alarms.
+    # python-fcl's BVH-vs-BVH FCL has two reliability issues:
+    #   - ``fcl.distance(enable_signed_distance=True)`` returns 0
+    #     whenever the meshes touch OR overlap — it does NOT
+    #     distinguish them. So a returned 0 means "potentially
+    #     colliding", not "touching".
+    #   - ``fcl.collide.penetration_depth`` is essentially meaningless
+    #     for thin BVH-vs-BVH meshes — it can report 4 mm depth for
+    #     meshes that are just touching, or 0 depth for meshes at
+    #     identical poses. We don't use it.
+    #
+    # The only reliable signals from FCL on BVH:
+    #   - boolean ``fcl.collide`` has contacts → colliding
+    #   - positive ``fcl.distance`` → that's the true signed distance
+    #
+    # Report scheme: positive number = clearance in mm; -1.0 sentinel
+    # = "colliding (depth not known)".
     pair_results: list[tuple[str, str, float]] = []
     keys_list = list(objs_by_key.keys())
     dist_req = fcl.DistanceRequest(enable_signed_distance=True)
+    coll_req = fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
     for i, ka in enumerate(keys_list):
         for kb in keys_list[i + 1 :]:
             # Skip fixture-fixture pairs.
@@ -275,9 +285,18 @@ def final_feasibility_report(
             d_res = fcl.DistanceResult()
             fcl.distance(objs_by_key[ka], objs_by_key[kb], dist_req, d_res)
             d = float(d_res.min_distance)
-            if abs(d) < 0.05:
-                d = 0.0
-            pair_results.append((ka, kb, d))
+            if d > 0:
+                # Separated — fcl.distance is reliable.
+                pair_results.append((ka, kb, d))
+            else:
+                # fcl.distance returned 0 — could be touching OR
+                # overlapping. Use fcl.collide as a boolean test.
+                c_res = fcl.CollisionResult()
+                fcl.collide(objs_by_key[ka], objs_by_key[kb], coll_req, c_res)
+                if c_res.contacts:
+                    pair_results.append((ka, kb, -1.0))   # colliding
+                else:
+                    pair_results.append((ka, kb, 0.0))    # touching only
 
     overlaps = [(ka, kb, d) for ka, kb, d in pair_results if d < 0.0]
     return {
