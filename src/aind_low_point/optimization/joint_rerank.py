@@ -496,26 +496,35 @@ def _max_g_threading(
 def _signed_pair_clearance(
     obj_a: fcl.CollisionObject, obj_b: fcl.CollisionObject
 ) -> float:
-    """Hybrid signed distance between two BVH probes.
+    """Signed distance between two BVH probes via ``fcl.distance``.
 
-    Returns positive when clear (``fcl.distance``), negative when
-    overlapping (``-penetration_depth`` from ``fcl.collide``). Matches
-    the convention used by :func:`pairwise_headstage_clearances` so the
-    reduced reranker and the full inner solve see consistent
-    clearance signals.
+    Returns positive when separated, ``0.0`` when touching, and
+    *approximately* the (negative) penetration depth when overlapping.
+
+    Important: ``fcl.collide``'s ``penetration_depth`` field is
+    **unreliable** for thin BVH-vs-BVH meshes (silicon shanks, PCB
+    sheets). It can report multi-mm depths for meshes that
+    ``fcl.distance`` correctly says are merely touching (signed
+    distance = 0), and direct vertex-vs-BVH checks confirm no actual
+    overlap. We saw 4 mm spurious depths on quadbase-vs-quadbase at
+    cand 2962 where the meshes barely touch.
+
+    So this helper only uses ``fcl.distance(enable_signed_distance)``:
+    it returns the signed distance directly (positive or negative or
+    0). For thin meshes that *just* touch, the report is 0.0 — treat
+    that as borderline, not a deep penetration.
+
+    A small penetration tolerance ``ε`` (= 0.05 mm) is applied so
+    fcl.distance returning -ε to +ε is reported as 0 — fcl.distance's
+    sign near zero is numerically noisy on thin sheets.
     """
     d_req = fcl.DistanceRequest(enable_signed_distance=True)
     d_res = fcl.DistanceResult()
     fcl.distance(obj_a, obj_b, d_req, d_res)
     d = float(d_res.min_distance)
-    if d > 0.0:
-        return d
-    c_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
-    c_res = fcl.CollisionResult()
-    fcl.collide(obj_a, obj_b, c_req, c_res)
-    if c_res.contacts:
-        return -float(max(c.penetration_depth for c in c_res.contacts))
-    return 0.0
+    if abs(d) < 0.05:
+        return 0.0
+    return d
 
 
 def _update_pose_and_pairwise_clearances(

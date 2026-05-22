@@ -184,10 +184,14 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
         mesh = getattr(geom_wrap, "raw", None)
         if mesh is None:
             continue
-        # Fixtures are large + smooth — a 0.5 mm SDF voxel size is plenty
-        # (vs probes' default ~0.05 mm). Keeps memory at <1 MB/fixture.
+        # Fixtures get 0.2 mm SDF spacing (same as probes) — coarser
+        # 0.5 mm gave trilinear-interp errors up to ~0.5 mm at voxel
+        # boundaries, which silently reported probe-vs-well contacts
+        # as clear when FCL on raw mesh said 1 mm penetration. Grid
+        # is ~140×140×70 ≈ 1.4M cells per fixture (~5 MB at fp32):
+        # cheap, built once at startup.
         sdf = build_probe_sdf_from_alpha_wrap(
-            mesh, spacing_mm=0.5, strip_shanks_first=False,
+            mesh, spacing_mm=0.2, strip_shanks_first=False,
         )
         out.append(FixtureSDFData(
             name=key,
@@ -252,10 +256,17 @@ def final_feasibility_report(
 
     # Pairwise: distance for every (probe, probe) and (probe, fixture)
     # pair, but NOT (fixture, fixture).
+    #
+    # Important: only ``fcl.distance(enable_signed_distance=True)`` is
+    # used here. ``fcl.collide``'s ``penetration_depth`` is unreliable
+    # for thin BVH-vs-BVH meshes (silicon shanks, PCB sheets) — it
+    # can report multi-mm depths when ``fcl.distance`` correctly says
+    # signed distance ≈ 0 (just touching). Direct vertex-vs-BVH
+    # checks confirm those reports are spurious. Treating |d| < 0.05
+    # as borderline-zero suppresses the resulting false alarms.
     pair_results: list[tuple[str, str, float]] = []
     keys_list = list(objs_by_key.keys())
     dist_req = fcl.DistanceRequest(enable_signed_distance=True)
-    coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
     for i, ka in enumerate(keys_list):
         for kb in keys_list[i + 1 :]:
             # Skip fixture-fixture pairs.
@@ -264,11 +275,8 @@ def final_feasibility_report(
             d_res = fcl.DistanceResult()
             fcl.distance(objs_by_key[ka], objs_by_key[kb], dist_req, d_res)
             d = float(d_res.min_distance)
-            if d <= 0.0:
-                c_res = fcl.CollisionResult()
-                fcl.collide(objs_by_key[ka], objs_by_key[kb], coll_req, c_res)
-                if c_res.contacts:
-                    d = -float(max(c.penetration_depth for c in c_res.contacts))
+            if abs(d) < 0.05:
+                d = 0.0
             pair_results.append((ka, kb, d))
 
     overlaps = [(ka, kb, d) for ka, kb, d in pair_results if d < 0.0]
