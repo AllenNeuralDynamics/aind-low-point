@@ -16,22 +16,20 @@ classifiers = ["Programming Language :: Python :: 3"]
 readme = "README.md"
 version = "0.1.0"
 
+# Core dependencies — everything needed for loading, visualising,
+# and interactively editing plans (the trame app, Jupyter K3D
+# controllers, config + asset loading, runtime). Excludes the
+# placement-optimizer stack; install ``[optimization]`` for that.
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.10,<2",
-  "cma>=4.4.4",
-  "coacd>=1.0.11",
   "ipyevents>=2,<3",
-  "jax[cuda12]>=0.4.30",
-  "jaxlib>=0.4.30",
   "k3d>=2,<3",
   "mapbox-earcut>=2.0.0",
-  "mesh2sdf>=1.1.0",
   "numpy>=1.20,<3",
   "omegaconf>=2,<3",
   "pandas>=2,<3",
   "pydantic>=2,<3",
-  "pymeshfix>=0.17.2",
   "pynrrd>=1,<2",
   "python-fcl>=0.7,<0.8",
   "pyvista>=0.46.5",
@@ -43,6 +41,24 @@ dependencies = [
   "trame-vuetify>=3.2.1",
   "trimesh[recommend]>=4,<5",
   "vtk>=9.5.2",
+]
+
+[project.optional-dependencies]
+# Placement-optimizer stack: differentiable SDFs (JAX with CUDA),
+# alpha-wrap (pymeshlab), CMA-ES, mesh decomposition helpers, NVIDIA
+# monitoring. Adds ~1 GB of dependencies, mostly Linux+NVIDIA-oriented
+# (jax[cuda12] doesn't install on Windows; substitute plain ``jax``
+# there if a Windows collaborator wants the CPU optimizer path).
+optimization = [
+  "cma>=4.4.4",
+  "coacd>=1.0.11",
+  "jax[cuda12]>=0.4.30",
+  "jaxlib>=0.4.30",
+  "libigl>=2.5,<3",
+  "mesh2sdf>=1.1.0",
+  "pymeshfix>=0.17.2",
+  "pymeshlab>=2025.7.post1",
+  "pynvml>=13.0.1",
 ]
 
 [project.urls]
@@ -58,8 +74,6 @@ dev = [
     "pytest-cov",
     "ruff",
     "interrogate",
-    "pymeshlab>=2025.7.post1",
-    "pynvml>=13.0.1",
 ]
 vscode = [{ include-group = "dev" }, "ipykernel", "pip", "ipympl"]
 docs = [
