@@ -1,10 +1,9 @@
 """Three-level optimizer driver.
 
 Glues the outer layer (probe→hole, ``hole_assignment``), the middle
-layer (probe→arc, ``arc_assignment``), and the inner continuous
-optimization (CMA-ES warm-start → SLSQP polish on the
-:func:`evaluate_objective` scalar) into a single ``optimize()`` entry
-point.
+layer (probe→arc, ``arc_assignment``), and the inner SLSQP polish on
+the :func:`evaluate_objective` scalar into a single ``optimize()``
+entry point.
 
 ::
 
@@ -13,18 +12,13 @@ point.
       enumerate top-K_a probe→arc assignments
       for each:
         warm-start variable vector x0
-        CMA-ES global → SLSQP polish (or SLSQP-only if cma missing)
+        SLSQP polish
         record (cost, x, ObjectiveBreakdown)
     return the (hole, arc, x) combination with the best inner cost
-
-CMA-ES via the ``cma`` PyPI package is optional at v1: when not
-installed the driver runs SLSQP from the warm start only and prints a
-note. Install ``cma`` to enable the global stage.
 """
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -340,119 +334,6 @@ def _build_initial_x(
         x[off + 2] = 0.0
         x[off + 3] = 0.0
         x[off + 4] = 0.0
-    return x
-
-
-def _try_cma_es(
-    ctx: OptimizerContext,
-    x0: NDArray,
-    *,
-    population: int,
-    generations: int,
-    sigma: float,
-) -> NDArray | None:
-    """Run CMA-ES if the ``cma`` package is available; return the best
-    ``x`` or ``None`` if the package is missing."""
-    try:
-        import cma  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    es = cma.CMAEvolutionStrategy(
-        x0.tolist(),
-        sigma,
-        {
-            "popsize": population,
-            "maxiter": generations,
-            "verbose": -9,
-        },
-    )
-    es.optimize(lambda v: scalar_objective(np.asarray(v, dtype=np.float64), ctx))
-    return np.asarray(es.result.xbest, dtype=np.float64)
-
-
-def _scale_weights(w: ObjectiveWeights, mult: float) -> ObjectiveWeights:
-    """Return a new :class:`ObjectiveWeights` with feasibility-penalty
-    lambdas multiplied by ``mult``. Coverage / margin terms unchanged."""
-    return ObjectiveWeights(
-        lambda_threading=w.lambda_threading * mult,
-        lambda_clearance=w.lambda_clearance * mult,
-        lambda_kinematic=w.lambda_kinematic * mult,
-        lambda_margin=w.lambda_margin,
-        margin_softmin_beta=w.margin_softmin_beta,
-        safety_clearance_mm=w.safety_clearance_mm,
-    )
-
-
-def _ctx_with_weights(ctx: OptimizerContext, w: ObjectiveWeights) -> OptimizerContext:
-    """Return a copy of ``ctx`` with replaced ``weights``."""
-    return OptimizerContext(
-        layout=ctx.layout,
-        probes=ctx.probes,
-        arc_for_probe=ctx.arc_for_probe,
-        weights=w,
-        shaft_length_mm=ctx.shaft_length_mm,
-        shank_radius_mm=ctx.shank_radius_mm,
-        headstage_fcl_objs=ctx.headstage_fcl_objs,
-        headstage_base_along_shaft_mm=ctx.headstage_base_along_shaft_mm,
-        headstage_length_mm=ctx.headstage_length_mm,
-        headstage_radius_mm=ctx.headstage_radius_mm,
-        min_arc_ap_sep_deg=ctx.min_arc_ap_sep_deg,
-        min_within_arc_ml_sep_deg=ctx.min_within_arc_ml_sep_deg,
-        coverage_n_samples=ctx.coverage_n_samples,
-        threading_oval_tolerance=ctx.threading_oval_tolerance,
-        clearance_overlap_allowance_mm=ctx.clearance_overlap_allowance_mm,
-        subject_from_rig_rot=ctx.subject_from_rig_rot,
-    )
-
-
-def _multistage_cma_es(
-    ctx: OptimizerContext,
-    x0: NDArray,
-    *,
-    population: int,
-    total_generations: int,
-    sigma: float,
-    stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
-) -> NDArray | None:
-    """Run CMA-ES in stages with a homotopy schedule on the feasibility
-    penalties. Each stage scales ``lambda_threading``, ``lambda_clearance``,
-    and ``lambda_kinematic`` by the corresponding multiplier, warm-starting
-    from the previous stage's best ``x``.
-
-    Early stages (low multiplier) let CMA-ES explore — the search space
-    is smoother and coverage / global geometry can dominate. Late stages
-    (high multiplier) clamp down on threading / kinematic violations,
-    forcing the optimizer to find genuinely feasible solutions.
-
-    Generations are split evenly across stages.
-    """
-    try:
-        import cma  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    n_stages = len(stage_multipliers)
-    gens_per_stage = max(1, total_generations // n_stages)
-    sigma_per_stage = sigma
-    x = np.asarray(x0, dtype=np.float64).copy()
-    for mult in stage_multipliers:
-        stage_ctx = _ctx_with_weights(ctx, _scale_weights(ctx.weights, mult))
-        es = cma.CMAEvolutionStrategy(
-            x.tolist(),
-            sigma_per_stage,
-            {
-                "popsize": population,
-                "maxiter": gens_per_stage,
-                "verbose": -9,
-            },
-        )
-        es.optimize(
-            lambda v: scalar_objective(np.asarray(v, dtype=np.float64), stage_ctx)
-        )
-        x = np.asarray(es.result.xbest, dtype=np.float64)
-        # Tighten sigma between stages so later stages refine rather
-        # than re-explore. Keep enough room for non-trivial moves
-        # since the penalty landscape is also changing.
-        sigma_per_stage = max(sigma_per_stage * 0.5, 0.5)
     return x
 
 
@@ -893,11 +774,6 @@ def _inner_solve_one(
     ha: HoleAssignment,
     aa: ArcAssignment,
     n_arcs: int,
-    use_cma: bool,
-    cma_population: int,
-    cma_generations: int,
-    cma_sigma: float,
-    cma_stage_multipliers: tuple[float, ...],
     slsqp_max_iter: int,
     slsqp_constrained: bool,
     two_stage_inner: bool,
@@ -911,32 +787,12 @@ def _inner_solve_one(
 ) -> PlanCandidate:
     """Run the inner solve for one (hole, arc) combination from a warm start.
 
-    Encapsulates CMA-ES (optional) → Stage A feasibility solve (optional) →
-    Stage B coverage polish → Stage C feasibility cleanup (optional). Used
-    by both :func:`optimize` and :func:`polish_seed`; the only difference
-    between callers is how ``x0`` is chosen.
+    Encapsulates Stage A feasibility solve (optional) → Stage B coverage
+    polish → Stage C feasibility cleanup (optional). Used by both
+    :func:`optimize` and :func:`polish_seed`; the only difference between
+    callers is how ``x0`` is chosen.
     """
     x = np.asarray(x0, dtype=np.float64)
-    if use_cma:
-        if cma_stage_multipliers:
-            x_cma = _multistage_cma_es(
-                ctx,
-                x,
-                population=cma_population,
-                total_generations=cma_generations,
-                sigma=cma_sigma,
-                stage_multipliers=cma_stage_multipliers,
-            )
-        else:
-            x_cma = _try_cma_es(
-                ctx,
-                x,
-                population=cma_population,
-                generations=cma_generations,
-                sigma=cma_sigma,
-            )
-        if x_cma is not None:
-            x = x_cma
     if slsqp_constrained and two_stage_inner:
         v_pre = feasibility_violation_squared(x, ctx)
         x_feas, v_feas = _feasibility_solve(ctx, x, max_iter=feasibility_max_iter)
@@ -1002,11 +858,6 @@ def polish_seed(
     arc_centroids_deg: tuple[float, ...],
     x0: NDArray,
     weights: ObjectiveWeights = ObjectiveWeights(),
-    use_cma: bool = False,
-    cma_population: int = 30,
-    cma_generations: int = 100,
-    cma_sigma: float = 5.0,
-    cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
     slsqp_max_iter: int = 100,
     slsqp_constrained: bool = True,
     two_stage_inner: bool = True,
@@ -1027,10 +878,6 @@ def polish_seed(
     Bypasses the LSAP and arc-partition layers — feeds the given
     ``(probe_to_hole, probe_to_arc_idx, arc_centroids_deg, x0)`` straight
     into the same inner solve ``optimize`` runs for each (hole, arc) pair.
-
-    Defaults differ from :func:`optimize` in one place: ``use_cma`` is
-    ``False`` here so the seed pose isn't trampled by a global restart.
-    Flip it on to test how the warm start interacts with CMA-ES.
 
     Used to diagnose where the optimizer falls short of a known plan:
     if the polish from a manual plan stays near the manual's metrics,
@@ -1082,11 +929,6 @@ def polish_seed(
         ha=ha,
         aa=aa,
         n_arcs=n_arcs,
-        use_cma=use_cma,
-        cma_population=cma_population,
-        cma_generations=cma_generations,
-        cma_sigma=cma_sigma,
-        cma_stage_multipliers=cma_stage_multipliers,
         slsqp_max_iter=slsqp_max_iter,
         slsqp_constrained=slsqp_constrained,
         two_stage_inner=two_stage_inner,
@@ -1115,11 +957,6 @@ def optimize(
     k_arcs: int = 3,
     weights: ObjectiveWeights = ObjectiveWeights(),
     arc_count_penalty_deg2: float = 25.0,
-    use_cma: bool = True,
-    cma_population: int = 30,
-    cma_generations: int = 100,
-    cma_sigma: float = 5.0,
-    cma_stage_multipliers: tuple[float, ...] = (0.1, 1.0, 10.0),
     slsqp_max_iter: int = 100,
     slsqp_constrained: bool = True,
     two_stage_inner: bool = True,
@@ -1158,17 +995,6 @@ def optimize(
         if verbose:
             print("[optimize] No feasible hole assignment.")
         return None
-
-    if use_cma:
-        try:
-            import cma  # noqa: F401
-        except ImportError:
-            warnings.warn(
-                "cma package not installed; running SLSQP-only inner loop. "
-                "Install via `uv add cma` to enable the global CMA-ES stage.",
-                stacklevel=2,
-            )
-            use_cma = False
 
     candidates: list[PlanCandidate] = []
     for ha_idx, ha in enumerate(hole_assignments):
@@ -1219,11 +1045,6 @@ def optimize(
                 ha=ha,
                 aa=aa,
                 n_arcs=n_arcs,
-                use_cma=use_cma,
-                cma_population=cma_population,
-                cma_generations=cma_generations,
-                cma_sigma=cma_sigma,
-                cma_stage_multipliers=cma_stage_multipliers,
                 slsqp_max_iter=slsqp_max_iter,
                 slsqp_constrained=slsqp_constrained,
                 two_stage_inner=two_stage_inner,

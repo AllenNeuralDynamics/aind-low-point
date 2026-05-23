@@ -320,7 +320,7 @@ def _save_alternatives(
 
 
 def _run_seed_polish(
-    probes, plan_state, holes, *, args, stage_mults, subject_from_rig_rot=None
+    probes, plan_state, holes, *, args, subject_from_rig_rot=None
 ):
     """Run the inner solve from a seed plan that was already applied to
     ``plan_state`` by the caller. Skips outer + middle layers entirely.
@@ -398,8 +398,7 @@ def _run_seed_polish(
 
     print(
         f"\nRunning seed polish "
-        f"(cma={'on' if args.seed_use_cma else 'off'}, "
-        f"two_stage={not args.no_two_stage_inner}, "
+        f"(two_stage={not args.no_two_stage_inner}, "
         f"polish_method={args.polish_method}, "
         f"final_cleanup={not args.no_final_feasibility_cleanup})..."
     )
@@ -410,8 +409,6 @@ def _run_seed_polish(
         probe_to_arc_idx=probe_to_arc_idx,
         arc_centroids_deg=arc_centroids_deg,
         x0=x0,
-        use_cma=args.seed_use_cma,
-        cma_stage_multipliers=stage_mults,
         slsqp_max_iter=args.slsqp_max_iter,
         slsqp_constrained=not args.slsqp_soft,
         two_stage_inner=not args.no_two_stage_inner,
@@ -540,11 +537,6 @@ def main():
         help="Top-K arc assignments per hole assignment",
     )
     p.add_argument(
-        "--no-cma",
-        action="store_true",
-        help="Skip CMA-ES global stage; SLSQP polish only",
-    )
-    p.add_argument(
         "--slsqp-soft",
         action="store_true",
         help="Use soft penalties (legacy) instead of native SLSQP "
@@ -602,14 +594,6 @@ def main():
         "AP/ML-sep margin is fine in practice).",
     )
     p.add_argument(
-        "--cma-stage-multipliers",
-        type=str,
-        default="0.1,1.0,10.0",
-        help="Comma-separated feasibility-penalty multipliers per CMA stage. "
-        "Empty string disables homotopy and runs single-stage. "
-        "Default '0.1,1.0,10.0' = 3 stages from soft to hard.",
-    )
-    p.add_argument(
         "--min-arc-ap-sep-deg",
         type=float,
         default=16.0,
@@ -652,14 +636,6 @@ def main():
         "by static threading max_g). Use to diagnose whether the optimizer "
         "is search-bound (manual seed stays put after polish) or polish-"
         "bound (manual seed drifts away).",
-    )
-    p.add_argument(
-        "--seed-use-cma",
-        action="store_true",
-        help="When using --seed-plan, run CMA-ES around the seed before "
-        "the SLSQP polish. Default is to skip CMA so the seed pose is "
-        "preserved into the polish; flip on to test how a CMA restart "
-        "interacts with a known-good warm start.",
     )
     p.add_argument(
         "--joint-rerank",
@@ -851,12 +827,6 @@ def main():
                 f"centroid={p.target_LPS.round(2).tolist()}"
             )
 
-    stage_mults_str = args.cma_stage_multipliers.strip()
-    if stage_mults_str:
-        stage_mults = tuple(float(x) for x in stage_mults_str.split(","))
-    else:
-        stage_mults = ()
-
     # Subject-to-rig rotation from the planning state (built from config).
     subject_from_rig_rot, _ = plan_state.kinematics.subject_from_rig.rotate_translate
     subject_from_rig_rot = np.asarray(subject_from_rig_rot, dtype=np.float64)
@@ -871,7 +841,6 @@ def main():
             plan_state,
             holes,
             args=args,
-            stage_mults=stage_mults,
             subject_from_rig_rot=subject_from_rig_rot,
         )
 
@@ -941,8 +910,6 @@ def main():
             final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
             polish_method=args.polish_method,
             feasibility_threshold=args.feasibility_threshold,
-            use_cma=not args.no_cma,
-            cma_stage_multipliers=stage_mults,
             slsqp_constrained=not args.slsqp_soft,
             two_stage_inner=not args.no_two_stage_inner,
             feasibility_max_iter=args.feasibility_max_iter,
@@ -1021,8 +988,6 @@ def main():
             final_feasibility_cleanup=not args.no_final_feasibility_cleanup,
             polish_method=args.polish_method,
             feasibility_threshold=args.feasibility_threshold,
-            use_cma=not args.no_cma,
-            cma_stage_multipliers=stage_mults,
             slsqp_constrained=not args.slsqp_soft,
             two_stage_inner=not args.no_two_stage_inner,
             feasibility_max_iter=args.feasibility_max_iter,
