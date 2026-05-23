@@ -48,7 +48,7 @@ except Exception:
     pass
 
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance_dual,
+    pairwise_signed_clearance_dual_world,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -306,14 +306,23 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # gives each category its own gradient signal (avoiding the
         # sample-count bias of a pooled softmin where body samples crowd
         # out shank samples in top-k).
+        # Pre-compute world-frame body surface samples once per probe so
+        # the dual-rep call doesn't re-do ``surface @ R.T + t`` for every
+        # pair iteration (XLA CSE does not consolidate it across the
+        # unrolled pair loop — HLO dump 2026-05-23).
+        world_surfaces = [
+            sdf_surfaces[i] @ Rs[i].T + ts[i]
+            if per_probe_sdf_shapes[i] is not None else None
+            for i in range(n_probes)
+        ]
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
             (_hbb, sbb), (_hbs, sbs), (_hss, sss) = (
-                pairwise_signed_clearance_dual(
+                pairwise_signed_clearance_dual_world(
                     Rs[ia], ts[ia], Rs[ib], ts[ib],
                     sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                     sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                    sdf_surfaces[ia], sdf_surfaces[ib],
+                    world_surfaces[ia], world_surfaces[ib],
                     shank_obb_centers[ia], shank_obb_halves[ia],
                     shank_obb_centers[ib], shank_obb_halves[ib],
                 )

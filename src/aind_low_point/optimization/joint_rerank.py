@@ -290,6 +290,16 @@ class _ProbeStatic:
 _SDF_JNP_CACHE: dict[tuple, dict] = {}
 
 
+# Catastrophic-infeasibility shortcut for ``score_joint``: when SLSQP's
+# final objective exceeds this, the cand's lex_key is already worst-bucket
+# and the FCL pair-clearance sweep in metric_eval is wasted work.
+# Threshold sized for λ_thread = λ_clearance = 100 and a 10-unit per-element
+# violation → fn ≈ 100 × (10)² = 10 000. Below this the polish endpoint is
+# interesting enough to evaluate fully.
+_CATASTROPHIC_FN_THRESHOLD: float = 1.0e4
+_CATASTROPHIC_MAX_VIOL_SENTINEL: float = 1.0e6
+
+
 _STAGE2_TIMINGS: dict[str, float] = {
     "build_probe_static": 0.0,
     "build_starts": 0.0,
@@ -1050,12 +1060,14 @@ def _slsqp_reduced(
     *,
     bounds: list[tuple[float, float]],
     max_iter: int,
-) -> NDArray:
-    """Run a single SLSQP polish from ``y0`` and return the optimum.
+) -> tuple[NDArray, float]:
+    """Run a single SLSQP polish from ``y0`` and return ``(y_opt, fn_opt)``.
 
-    Returns ``y0`` when SLSQP fails to make progress (e.g. zero
-    gradient at the start). Failure here doesn't raise — the caller
-    decides whether to retry from a different start.
+    ``fn_opt`` is the final objective value at ``y_opt`` (or ``inf`` if
+    SLSQP raised). Callers use it as a cheap catastrophic-infeasibility
+    signal — a huge ``fn_opt`` means the polish couldn't reduce
+    threading/clearance/sep violations meaningfully, and downstream
+    metric eval can be skipped.
     """
     y0 = _wrap_spin_to_bounds(y0, n_arcs, len(statics))
 
@@ -1079,8 +1091,8 @@ def _slsqp_reduced(
                 options={"maxiter": max_iter, "ftol": 1e-4, "disp": False},
             )
         except Exception:
-            return y0
-        return np.asarray(result.x, dtype=np.float64)
+            return y0, float("inf")
+        return np.asarray(result.x, dtype=np.float64), float(result.fun)
 
     def fn(v):
         return _reduced_objective(
@@ -1096,8 +1108,8 @@ def _slsqp_reduced(
             options={"maxiter": max_iter, "ftol": 1e-6, "disp": False},
         )
     except Exception:
-        return y0
-    return np.asarray(result.x, dtype=np.float64)
+        return y0, float("inf")
+    return np.asarray(result.x, dtype=np.float64), float(result.fun)
 
 
 # ---------------------------------------------------------------------------
@@ -1165,19 +1177,39 @@ def score_joint(
     # backward-compat kwarg only; it has no effect.
     for y0 in starts:
         _t0 = time.perf_counter()
-        y_opt = _slsqp_reduced(
+        y_opt, fn_opt = _slsqp_reduced(
             y0, statics, n_arcs, weights, bounds=bounds, max_iter=reduced_slsqp_max_iter
         )
         _STAGE2_TIMINGS["slsqp"] += time.perf_counter() - _t0
         _t0 = time.perf_counter()
-        m = _evaluate_reduced_metrics(
-            y_opt,
-            statics,
-            n_arcs,
-            weights,
-            original_lsap_cost=original_lsap_cost,
-            fixture_bvhs=fixture_bvhs,
-        )
+        # Catastrophic-infeasibility shortcut: when SLSQP exits with a
+        # huge objective, the cand will sort to the bottom of any lex
+        # ranking regardless of detailed metrics. Skip the full FCL
+        # pair-clearance sweep in metric_eval; use a sentinel max_viol
+        # so the cand still has a comparable lex_key.
+        # Threshold: ``λ × max_viol²`` with λ ≈ 100 and max_viol = 10 gives
+        # ``fn ≈ 10000``. Anything above this is genuinely uncoverable;
+        # below this and the polish endpoint is interesting enough to
+        # measure exactly.
+        if fn_opt > _CATASTROPHIC_FN_THRESHOLD:
+            m = JointRerankMetrics(
+                max_violation=_CATASTROPHIC_MAX_VIOL_SENTINEL,
+                sum_violation_sq=fn_opt,
+                max_violation_threading=_CATASTROPHIC_MAX_VIOL_SENTINEL,
+                max_violation_arc_ap_sep=0.0,
+                max_violation_intra_arc_ml_sep=0.0,
+                max_violation_clearance=0.0,
+                original_lsap_cost=float(original_lsap_cost),
+            )
+        else:
+            m = _evaluate_reduced_metrics(
+                y_opt,
+                statics,
+                n_arcs,
+                weights,
+                original_lsap_cost=original_lsap_cost,
+                fixture_bvhs=fixture_bvhs,
+            )
         _STAGE2_TIMINGS["metric_eval"] += time.perf_counter() - _t0
         if best_metrics is None or m.lex_key() < best_metrics.lex_key():
             best_metrics = m

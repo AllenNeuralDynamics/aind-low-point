@@ -469,26 +469,28 @@ def pairwise_signed_clearance_dual_hard_mins_jit(
     return hbb, hbs, hss
 
 
-_SHANK_SAMPLES_PER_BOX = 24  # 8 corners + 16 long-edge interior samples
+_SHANK_SAMPLES_PER_BOX = 8  # 8 corners only
 
 # 4 long-edge XY positions (one per long edge of the box)
 _SHANK_LONG_EDGE_XY = jnp.array(
     [[-1, -1], [+1, -1], [-1, +1], [+1, +1]], dtype=jnp.float32
 )  # (4, 2)
-# 6 Z fractions: 2 corners at ±1 plus 4 interior samples
-_SHANK_Z_FRACS = jnp.array(
-    [-1.0, -0.6, -0.2, 0.2, 0.6, 1.0], dtype=jnp.float32
-)  # (6,)
-# Build (24, 3) sign matrix: 4 XY positions × 6 Z positions = 24 samples per box.
+# Just the 2 Z corners (±1). Earlier versions had 4 long-edge interior
+# samples (Z ∈ {-0.6, -0.2, 0.2, 0.6}) to catch edge-interior closest-pair
+# cases on tilted crossings, but shank-shank now uses exact OBB-OBB SAT so
+# the interior samples no longer add coverage — they only inflate the
+# body-shank "shank corners in other-body's SDF" cost.
+_SHANK_Z_FRACS = jnp.array([-1.0, 1.0], dtype=jnp.float32)  # (2,)
+# Build (8, 3) sign matrix: 4 XY positions × 2 Z corners = 8 samples per box.
 # Pre-computed module-level so each call avoids the gather setup.
 _SHANK_SAMPLE_SIGNS = jnp.stack(
     [
-        jnp.broadcast_to(_SHANK_LONG_EDGE_XY[:, None, 0], (4, 6)),
-        jnp.broadcast_to(_SHANK_LONG_EDGE_XY[:, None, 1], (4, 6)),
-        jnp.broadcast_to(_SHANK_Z_FRACS[None, :], (4, 6)),
+        jnp.broadcast_to(_SHANK_LONG_EDGE_XY[:, None, 0], (4, 2)),
+        jnp.broadcast_to(_SHANK_LONG_EDGE_XY[:, None, 1], (4, 2)),
+        jnp.broadcast_to(_SHANK_Z_FRACS[None, :], (4, 2)),
     ],
     axis=-1,
-).reshape(-1, 3)  # (24, 3)
+).reshape(-1, 3)  # (8, 3)
 
 
 def _obb_sample_points_local(
@@ -692,16 +694,64 @@ def pairwise_signed_clearance_dual(
     β=20/mm default → 50 µm smoothing window. Per-category top_k caps
     the bias at ``log(top_k)/β`` (~0.14 mm body-body, ~0.10 mm shank).
     """
+    # Hoist the local→world surface transforms to ONE per probe by
+    # computing them and delegating to the world-frame variant. Callers
+    # in tight loops over many pairs should call that variant directly
+    # to skip the K(K-1) per-pair redundancy XLA's CSE pass leaves in
+    # (verified 2026-05-23 via HLO dump).
+    world_surface_a = surface_a @ R_a.T + t_a
+    world_surface_b = surface_b @ R_b.T + t_b
+    return pairwise_signed_clearance_dual_world(
+        R_a, t_a, R_b, t_b,
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
+        world_surface_a, world_surface_b,
+        shank_centers_a, shank_halves_a,
+        shank_centers_b, shank_halves_b,
+        beta=beta,
+        top_k_body_body=top_k_body_body,
+        top_k_body_shank=top_k_body_shank,
+        top_k_shank_shank=top_k_shank_shank,
+        interp=interp,
+    )
+
+
+def pairwise_signed_clearance_dual_world(
+    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
+    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    world_surface_a: Array,    # (Nbody, 3) body envelope samples in WORLD
+    world_surface_b: Array,    # (Nbody, 3) body envelope samples in WORLD
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k_body_body: int = 16,
+    top_k_body_shank: int = 8,
+    top_k_shank_shank: int = 8,
+    interp: str = "trilinear",
+) -> tuple[
+    tuple[Array, Array],
+    tuple[Array, Array],
+    tuple[Array, Array],
+]:
+    """Same as :func:`pairwise_signed_clearance_dual` but takes
+    pre-transformed world-frame body surface samples. Caller is
+    responsible for computing ``world_surface[i] = surface[i] @ R[i].T
+    + t[i]`` once per probe outside the pair loop. Avoids O(K(K-1))
+    redundant transforms across a probe set with K probes' pairs
+    (CSE doesn't catch the duplication — HLO inspection 2026-05-23).
+    """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
 
-    # 1+2: body-body (per-sample, not min-reduced)
-    world_b = surface_b @ R_b.T + t_b
-    local_in_a = (world_b - t_a) @ R_a
+    # 1+2: body-body (per-sample, not min-reduced).
+    local_in_a = (world_surface_b - t_a) @ R_a
     d_body_b_in_a = sdf_lookup(
         sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a
     )
-    world_a = surface_a @ R_a.T + t_a
-    local_in_b = (world_a - t_b) @ R_b
+    local_in_b = (world_surface_a - t_b) @ R_b
     d_body_a_in_b = sdf_lookup(
         sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b
     )
@@ -714,58 +764,44 @@ def pairwise_signed_clearance_dual(
     corners_a_world = (
         _shank_world_samples(R_a, t_a, shank_centers_a, shank_halves_a)
         if Sa > 0
-        else jnp.zeros((0, 3), dtype=surface_a.dtype)
+        else jnp.zeros((0, 3), dtype=world_surface_a.dtype)
     )
     corners_b_world = (
         _shank_world_samples(R_b, t_b, shank_centers_b, shank_halves_b)
         if Sb > 0
-        else jnp.zeros((0, 3), dtype=surface_b.dtype)
+        else jnp.zeros((0, 3), dtype=world_surface_b.dtype)
     )
 
-    # 3+4: body-shank — both directions:
-    #   (a) shank-corner samples → other body's SDF
-    #   (b) body-surface samples → other shank's OBB SDF (analytic)
-    # The OBB-surface direction (a) has corner blind spots for crossings,
-    # but the body-surface direction (b) is dense (5000 samples) and OBB
-    # SDF is exact, so together they catch all body-vs-shank cases.
+    # 3+4: body-shank — both directions (see pairwise_signed_clearance_dual).
     body_shank_chunks = []
     if Sa > 0:
-        # (a) A's shank corners in B's body
         ca_in_b = (corners_a_world - t_b) @ R_b
         d_corners_a_in_b = sdf_lookup(
             sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
         )
         body_shank_chunks.append(d_corners_a_in_b.reshape(-1))
-        # (b) B's body surface samples in each of A's shank OBBs
-        # (analytic OBB SDF; one query per OBB × body sample).
-        # Push B's body samples to world via (R_b, t_b), then evaluate
-        # each A OBB's SDF at those world points.
-        world_surface_b = surface_b @ R_b.T + t_b
         d_body_b_vs_a_obbs = jax.vmap(
             lambda c, h: _obb_sdf_world_to_local(
                 world_surface_b, R_a, t_a, c, h
             )
-        )(shank_centers_a, shank_halves_a)  # (Sa, Nbody)
+        )(shank_centers_a, shank_halves_a)
         body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
     if Sb > 0:
-        # (a) B's shank corners in A's body
         cb_in_a = (corners_b_world - t_a) @ R_a
         d_corners_b_in_a = sdf_lookup(
             sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
         )
         body_shank_chunks.append(d_corners_b_in_a.reshape(-1))
-        # (b) A's body surface samples in each of B's shank OBBs
-        world_surface_a = surface_a @ R_a.T + t_a
         d_body_a_vs_b_obbs = jax.vmap(
             lambda c, h: _obb_sdf_world_to_local(
                 world_surface_a, R_b, t_b, c, h
             )
-        )(shank_centers_b, shank_halves_b)  # (Sb, Nbody)
+        )(shank_centers_b, shank_halves_b)
         body_shank_chunks.append(d_body_a_vs_b_obbs.reshape(-1))
     body_shank_pool = (
         jnp.concatenate(body_shank_chunks, axis=0)
         if body_shank_chunks
-        else jnp.zeros((0,), dtype=surface_a.dtype)
+        else jnp.zeros((0,), dtype=world_surface_a.dtype)
     )
 
     # 5+6: shank-shank via exact OBB-OBB SAT (no sampling). Returns one
@@ -788,7 +824,7 @@ def pairwise_signed_clearance_dual(
     shank_shank_pool = (
         jnp.concatenate(shank_shank_chunks, axis=0)
         if shank_shank_chunks
-        else jnp.zeros((0,), dtype=surface_a.dtype)
+        else jnp.zeros((0,), dtype=world_surface_a.dtype)
     )
 
     return (
