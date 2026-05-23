@@ -21,10 +21,11 @@ from aind_low_point.optimization.batched_static import BatchedProbeStatic
 from aind_low_point.optimization.joint_rerank import JointWeights
 from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance,
+    pairwise_signed_clearance_dual,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
+from aind_low_point.optimization.joint_rerank_jax import smooth_abs
 
 
 def _softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
@@ -62,7 +63,6 @@ def _threading_g_for_probe(
     )  # shape (S, SH); g <= 0 ⇒ inside oval
     valid = section_mask[:, None] * shank_mask[None, :]  # (S, SH)
     excess = jnp.maximum(0.0, g - threading_tol)
-    excess = jnp.where(jnp.isinf(g), 0.0, excess)
     return jnp.sum(valid * excess * excess)
 
 
@@ -117,6 +117,8 @@ def make_batched_reduced_objective(
     sdf_origins = static.sdf_origins                # (N_kinds, 3)
     sdf_spacings = static.sdf_spacings              # (N_kinds,)
     sdf_surface_points = static.sdf_surface_points  # (N_kinds, N_surf, 3)
+    sdf_shank_centers = static.sdf_shank_centers_table  # tuple[(Sa_k, 3), ...]
+    sdf_shank_halves = static.sdf_shank_halves_table    # tuple[(Sa_k, 3), ...]
 
     # Pre-compute arc-pair index list (for AP separation)
     arc_pairs = jnp.asarray(
@@ -184,9 +186,13 @@ def make_batched_reduced_objective(
                 threading_tol,
             )
 
-        # AP separation
+        # AP separation. ``smooth_abs`` (Patch A) keeps the gradient
+        # continuous as ap_i, ap_j pass through equality (vs jnp.abs which
+        # flips sign at zero).
         if arc_pairs.shape[0] > 0:
-            ap_diffs = jnp.abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
+            ap_diffs = smooth_abs(
+                arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
+            )
             short_ap = jnp.maximum(0.0, min_arc_ap_sep - ap_diffs)
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
@@ -197,7 +203,7 @@ def make_batched_reduced_objective(
         # varies per candidate. y per probe is (ml, sx, sy) → ml at
         # stride 3.
         ml_vals = y[n_arcs::3][:K]
-        ml_diff = jnp.abs(ml_vals[:, None] - ml_vals[None, :])
+        ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
         same = (arc_idx[:, None] == arc_idx[None, :])
         upper = jnp.triu(jnp.ones((K, K), dtype=jnp.float32), k=1)
         same_arc_mask = same.astype(jnp.float32) * upper
@@ -205,22 +211,30 @@ def make_batched_reduced_objective(
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds
-        j_bounds = _softplus_squared(jnp.abs(arc_aps) - comfortable_ap)
-        j_bounds = j_bounds + _softplus_squared(jnp.abs(ml_vals) - comfortable_ml)
+        j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
+        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
-        # SDF clearance over fixed pair list
+        # Dual-rep SDF clearance over fixed pair list. Three categories
+        # (body-body, body-shank, shank-shank) each get an independent
+        # ReLU-squared penalty — same structure as the per-cand path in
+        # joint_rerank_jax to keep gradient signals comparable.
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
             ka = int(sdf_kind_id[ia])
             kb = int(sdf_kind_id[ib])
-            d = pairwise_signed_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
-                sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
-                sdf_surface_points[ka], sdf_surface_points[kb],
+            (_hbb, sbb), (_hbs, sbs), (_hss, sss) = (
+                pairwise_signed_clearance_dual(
+                    Rs[ia], ts[ia], Rs[ib], ts[ib],
+                    sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
+                    sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
+                    sdf_surface_points[ka], sdf_surface_points[kb],
+                    sdf_shank_centers[ka], sdf_shank_halves[ka],
+                    sdf_shank_centers[kb], sdf_shank_halves[kb],
+                )
             )
-            short = jnp.maximum(0.0, min_clearance - d)
-            j_clear = j_clear + short * short
+            for d_soft in (sbb, sbs, sss):
+                short = jnp.maximum(0.0, min_clearance - d_soft)
+                j_clear = j_clear + short * short
 
         return (
             lambda_thread * j_thread

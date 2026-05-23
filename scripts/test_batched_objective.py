@@ -38,7 +38,7 @@ from aind_low_point.optimization.joint_rerank import (
 from aind_low_point.optimization.joint_rerank_jax import (
     make_jax_reduced_objective,
 )
-from aind_low_point.optimization.sdf import build_probe_sdf
+from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
@@ -97,7 +97,7 @@ def main() -> int:
     sdf_by_name = {}
     for p in probes:
         mesh = runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        sdf_by_name[p.name] = build_probe_sdf(mesh)
+        sdf_by_name[p.name] = build_probe_sdf_from_alpha_wrap(mesh)
 
     # ---- Build batched static (B=1) ----
     batched = build_batched_probe_static(
@@ -108,7 +108,14 @@ def main() -> int:
     )
 
     # ---- Build the two objectives ----
+    import os as _os
+    diag_zero = _os.environ.get("DIAG_ZERO")
     weights = JointWeights()
+    if diag_zero:
+        from dataclasses import replace
+        kwargs = {k: 0.0 for k in diag_zero.split(",")}
+        weights = replace(weights, **kwargs)
+        print(f"  [diag] zeroed: {list(kwargs.keys())}")
     print("Building batched objective...")
     obj_batched, grad_batched = make_batched_reduced_objective(batched, weights)
 
@@ -154,9 +161,15 @@ def main() -> int:
         g_ref.block_until_ready()
     g_batched_np = np.asarray(g_batched[0])
     g_ref_np = np.asarray(g_ref)
-    max_abs_err = float(np.max(np.abs(g_batched_np - g_ref_np)))
-    rel_err = max_abs_err / max(float(np.max(np.abs(g_ref_np))), 1e-6)
-    print(f"  max |Δgrad|: {max_abs_err:.4e}  rel: {rel_err:.4e}")
+    n_nan_b = int(np.sum(np.isnan(g_batched_np)))
+    n_nan_r = int(np.sum(np.isnan(g_ref_np)))
+    print(f"  NaN counts: batched={n_nan_b}/{g_batched_np.size}, "
+          f"ref={n_nan_r}/{g_ref_np.size}")
+    max_abs_err = float(np.nanmax(np.abs(g_batched_np - g_ref_np)))
+    rel_err = max_abs_err / max(float(np.nanmax(np.abs(g_ref_np))), 1e-6)
+    print(f"  max |Δgrad| (nan-skipped): {max_abs_err:.4e}  rel: {rel_err:.4e}")
+    print(f"  ref grad[:10]: {g_ref_np[:10]}")
+    print(f"  bat grad[:10]: {g_batched_np[:10]}")
     if rel_err > 1e-3:
         print(f"  ⚠ Gradient mismatch — check per-probe pose path")
         print(f"  ref grad : {g_ref_np[:8]} ...")

@@ -78,6 +78,11 @@ class BatchedProbeStatic:
     sdf_origins: jnp.ndarray              # (N_kinds, 3)
     sdf_spacings: jnp.ndarray             # (N_kinds,)
     sdf_surface_points: jnp.ndarray       # (N_kinds, N_surf, 3)
+    # Per-kind analytic shank OBB tables for dual-rep clearance.
+    # Shape varies per kind (Sa_k), so kept as Python tuples and
+    # looked up by Python-static kind_id at trace time.
+    sdf_shank_centers_table: tuple[jnp.ndarray, ...]
+    sdf_shank_halves_table: tuple[jnp.ndarray, ...]
 
     # ---- Optimization bounds (per candidate) ----
     bounds_lo: jnp.ndarray                # (B, n_arcs + 3*K) — (ml, sx, sy)
@@ -128,6 +133,8 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
     origins = np.zeros((len(kind_sdfs), 3), dtype=np.float32)
     spacings = np.zeros((len(kind_sdfs),), dtype=np.float32)
     surfs = np.zeros((len(kind_sdfs), max_surf, 3), dtype=np.float32)
+    shank_centers: list[jnp.ndarray] = []
+    shank_halves: list[jnp.ndarray] = []
 
     for kid, sdf in enumerate(kind_sdfs):
         gx, gy, gz = sdf.grid.shape
@@ -137,6 +144,12 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
         spacings[kid] = float(sdf.spacing)
         n_surf = sdf.surface_points.shape[0]
         surfs[kid, :n_surf] = sdf.surface_points.astype(np.float32)
+        shank_centers.append(
+            jnp.asarray(sdf.shank_centers, dtype=jnp.float32)
+        )
+        shank_halves.append(
+            jnp.asarray(sdf.shank_halves, dtype=jnp.float32)
+        )
 
     table = dict(
         grids=jnp.asarray(grids),
@@ -144,6 +157,8 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
         origins=jnp.asarray(origins),
         spacings=jnp.asarray(spacings),
         surfs=jnp.asarray(surfs),
+        shank_centers=tuple(shank_centers),
+        shank_halves=tuple(shank_halves),
     )
     return table, name_to_kind
 
@@ -315,6 +330,8 @@ def build_batched_probe_static(
         sdf_origins = jnp.zeros((1, 3), dtype=jnp.float32)
         sdf_spacings = jnp.zeros((1,), dtype=jnp.float32)
         sdf_surface_points = jnp.zeros((1, 1, 3), dtype=jnp.float32)
+        sdf_shank_centers_table: tuple[jnp.ndarray, ...] = ()
+        sdf_shank_halves_table: tuple[jnp.ndarray, ...] = ()
     else:
         n_kinds = int(sdf_table["grids"].shape[0])
         sdf_grids = sdf_table["grids"]
@@ -322,6 +339,8 @@ def build_batched_probe_static(
         sdf_origins = sdf_table["origins"]
         sdf_spacings = sdf_table["spacings"]
         sdf_surface_points = sdf_table["surfs"]
+        sdf_shank_centers_table = sdf_table["shank_centers"]
+        sdf_shank_halves_table = sdf_table["shank_halves"]
 
     return BatchedProbeStatic(
         probe_arc_idx=jnp.asarray(probe_arc_idx),
@@ -345,6 +364,8 @@ def build_batched_probe_static(
         sdf_origins=sdf_origins,
         sdf_spacings=sdf_spacings,
         sdf_surface_points=sdf_surface_points,
+        sdf_shank_centers_table=sdf_shank_centers_table,
+        sdf_shank_halves_table=sdf_shank_halves_table,
         bounds_lo=jnp.asarray(bounds_lo),
         bounds_hi=jnp.asarray(bounds_hi),
         K=K,
