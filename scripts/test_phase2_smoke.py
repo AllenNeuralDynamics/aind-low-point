@@ -1,18 +1,15 @@
-"""Smoke test for Stage 3 Phase 2 hard-constrained polish.
+"""Smoke test for Stage 3 Phase 1 → Phase 2 → Phase 3 chain.
 
 Pipeline:
-  1. Load Stage 2 polish pkl; pick the rank-#112 cand (the FCL-feasible
-     one in the 2026-05-22 stratified sample).
-  2. Phase 1 SLSQP from its Stage 2 reduced_y; this gets us a feasible
-     warm start with offsets + depth + coverage active.
-  3. Phase 2 SLSQP with the same x layout, but feasibility moved into
-     hard inequality constraints. Coverage + bounds + saturating margin
-     rewards stay in the objective.
-  4. Report:
-       - SLSQP success / nit / objective delta
-       - Slack vector min (should be >= 0 if truly feasible)
-       - Coverage delta
-       - FCL feasibility check on the Phase 2 endpoint
+  1. Load Stage 2 polish pkl; pick a cand.
+  2. Phase 1 SLSQP (soft-penalty): warm-starts with offsets + depth +
+     coverage active.
+  3. Phase 2 SLSQP (hard-constrained on JAX SDF): refines toward
+     JAX-feasibility.
+  4. Phase 3 SLSQP (hard-constrained on FCL raw mesh): final polish
+     against true geometry, FD Jacobian for FCL constraints.
+  5. Report per-phase: SLSQP status, min slack, coverage delta,
+     wall time, and final FCL feasibility check.
 
 Run::
 
@@ -49,6 +46,11 @@ from aind_low_point.optimization.stage3_phase2_jax import (
     make_phase2,
     Phase2Weights,
 )
+from aind_low_point.optimization.stage3_phase3_fcl import (
+    make_phase3,
+    Phase3Weights,
+)
+from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
@@ -68,6 +70,7 @@ def main() -> int:
     p.add_argument("--cand", type=int, default=1405)
     p.add_argument("--phase1-iter", type=int, default=80)
     p.add_argument("--phase2-iter", type=int, default=80)
+    p.add_argument("--phase3-iter", type=int, default=40)
     args = p.parse_args()
 
     cfg = ConfigModel.from_yaml(args.config)
@@ -157,10 +160,63 @@ def main() -> int:
 
     # Are all slacks ≥ 0 ?
     if slacks_end.min() >= -1e-4:
-        print("[VERDICT] Phase 2 produced a feasible point (slacks ≥ ~0).")
+        print("[Phase 2 verdict] feasible point (slacks ≥ ~0).")
     else:
-        print(f"[VERDICT] Phase 2 left {int(np.sum(slacks_end < 0))} "
+        print(f"[Phase 2 verdict] left {int(np.sum(slacks_end < 0))} "
               f"constraints violated (min slack {slacks_end.min():+.4f}).")
+
+    # ---- Phase 3: FCL hard-constrained polish from x2 ----
+    print("\n[Phase 3] Building FCL BVHs for fixtures...")
+    fixture_bvhs = {}
+    for f in fixtures:
+        mesh = runtime.asset_catalog.get_geometry(f.name).raw
+        fixture_bvhs[f.name] = make_fcl_bvh(mesh)
+
+    p3 = make_phase3(
+        statics, n_arcs,
+        coverage_data=coverage_data, fixtures=fixtures,
+        fixture_bvhs=fixture_bvhs, weights=Phase3Weights(),
+    )
+    print(f"[Phase 3] n_fcl_pair={p3['n_fcl_pair']}, "
+          f"n_fcl_fixture_pair={p3['n_fcl_fixture_pair']}, "
+          f"n_constraint_dicts={len(p3['constraints'])}")
+
+    # Pre-call diagnostics
+    obj_p3_start = float(p3["fun"](x2))
+    analytic_s = p3["constraints"][0]["fun"](x2)
+    print(f"[Phase 3] obj at x2 (Phase 2 endpoint): {obj_p3_start:.4f}")
+    print(f"          analytic slacks: min={analytic_s.min():+.4f}, "
+          f"n_violating={int(np.sum(analytic_s < 0))}/{len(analytic_s)}")
+    if len(p3["constraints"]) > 1:
+        fcl_s = p3["constraints"][1]["fun"](x2)
+        print(f"          FCL slacks: min={fcl_s.min():+.4f}, "
+              f"n_violating={int(np.sum(fcl_s < 0))}/{len(fcl_s)}")
+
+    import time
+    t0 = time.time()
+    res3 = minimize(
+        p3["fun"], x2, jac=p3["jac"], method="SLSQP",
+        bounds=bounds, constraints=p3["constraints"],
+        options=dict(maxiter=args.phase3_iter, ftol=1e-6),
+    )
+    t_p3 = time.time() - t0
+    x3 = np.asarray(res3.x, dtype=np.float64)
+    obj_p3_end = float(p3["fun"](x3))
+    analytic_end = p3["constraints"][0]["fun"](x3)
+    print(f"[Phase 3] fn={obj_p3_end:.4f}, iter={res3.nit}, "
+          f"success={res3.success}, status={res3.status}, wall={t_p3:.1f}s")
+    print(f"          message: {res3.message}")
+    print(f"[Phase 3] analytic slacks: min={analytic_end.min():+.4f}, "
+          f"n_violating={int(np.sum(analytic_end < 0))}/{len(analytic_end)}")
+    if len(p3["constraints"]) > 1:
+        fcl_end = p3["constraints"][1]["fun"](x3)
+        print(f"          FCL slacks: min={fcl_end.min():+.4f}, "
+              f"n_violating={int(np.sum(fcl_end < 0))}/{len(fcl_end)}")
+        if fcl_end.min() >= -1e-4:
+            print("[Phase 3 verdict] FCL-feasible.")
+        else:
+            print(f"[Phase 3 verdict] {int(np.sum(fcl_end < 0))} FCL "
+                  f"violations (min {fcl_end.min():+.4f}).")
 
     return 0
 
