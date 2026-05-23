@@ -1775,9 +1775,6 @@ def optimize_joint(  # noqa: C901
     atlas_ap_step_deg: float = 2.0,
     atlas_max_excursion_deg: float = 15.0,
     atlas_max_target_miss_mm: float = 1.0,
-    batched_stage2: bool = False,
-    batched_adam_steps: int = 2000,
-    batched_adam_lr: float = 0.05,
     verbose: bool = False,
 ) -> OptimizationResult | None:
     """Three-level optimizer with a joint (H, A) reranking stage.
@@ -1924,9 +1921,12 @@ def optimize_joint(  # noqa: C901
             f"[optimize_joint] Stage 2: arc enumeration + reduced SLSQP "
             f"(k_arcs_pool={k_arcs_pool})..."
         )
-    # Collect all (ha, aa, lsap_cost) tuples first; if batched_stage2 is
-    # on we polish them as one batch instead of one-by-one.
-    pending_candidates: list[tuple[HoleAssignment, ArcAssignment, float]] = []
+    eff_weights = replace(
+        joint_weights,
+        threading_oval_tolerance=threading_oval_tolerance,
+        min_arc_ap_sep_deg=min_arc_ap_sep_deg,
+    )
+
     for ha in hole_assignments:
         arc_assignments = solve_top_k_arc_assignments(
             ha.probe_to_hole,
@@ -1946,33 +1946,6 @@ def optimize_joint(  # noqa: C901
                 cost_matrix[probe_name_to_row[name], holes_id_to_col[hole_id]]
             )
         for aa in arc_assignments:
-            pending_candidates.append((ha, aa, lsap_cost))
-
-    eff_weights = replace(
-        joint_weights,
-        threading_oval_tolerance=threading_oval_tolerance,
-        min_arc_ap_sep_deg=min_arc_ap_sep_deg,
-    )
-
-    if batched_stage2 and pending_candidates:
-        # Batched JAX Adam path (Phase 5 wiring of the batched Stage 2)
-        from aind_low_point.optimization.batched_score import (
-            batched_score_all,
-        )
-        cand_pairs = [(ha, aa) for ha, aa, _ in pending_candidates]
-        lsap_costs = [c for _, _, c in pending_candidates]
-        joint_candidates = batched_score_all(
-            cand_pairs, probes, holes,
-            weights=eff_weights,
-            sdf_by_name=sdf_by_name,
-            head_pitch_deg=head_pitch_deg,
-            original_lsap_costs=lsap_costs,
-            adam_steps=batched_adam_steps,
-            adam_lr=batched_adam_lr,
-            verbose=verbose,
-        )
-    else:
-        for ha, aa, lsap_cost in pending_candidates:
             jc = score_joint(
                 ha, aa, probes, holes, pose_features,
                 weights=eff_weights,

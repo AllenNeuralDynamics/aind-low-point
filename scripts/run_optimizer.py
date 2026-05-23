@@ -772,28 +772,6 @@ def main():
         "sequential debugging.",
     )
     p.add_argument(
-        "--batched-stage2",
-        action="store_true",
-        help="(--joint-rerank only) Replace the sequential per-candidate "
-        "scipy SLSQP polish with a JAX-batched Adam optimizer. Polishes "
-        "ALL (HA, AA) candidates in parallel; trades absolute precision "
-        "for throughput (~10-100× speedup at large pools). Stage 3 full "
-        "SLSQP still runs on top-K. See dev/target_valid_atlas_design.md "
-        "Phase 5.",
-    )
-    p.add_argument(
-        "--batched-adam-steps",
-        type=int,
-        default=2000,
-        help="(--batched-stage2 only) Adam iteration count per polish.",
-    )
-    p.add_argument(
-        "--batched-adam-lr",
-        type=float,
-        default=0.05,
-        help="(--batched-stage2 only) Adam learning rate.",
-    )
-    p.add_argument(
         "--device",
         choices=["auto", "cpu", "gpu"],
         default="auto",
@@ -985,9 +963,6 @@ def main():
                 _maybe_build_sdfs(probes, runtime) if args.sdf_clearance else None
             ),
             use_atlas_stage1=args.atlas_stage1,
-            batched_stage2=args.batched_stage2,
-            batched_adam_steps=args.batched_adam_steps,
-            batched_adam_lr=args.batched_adam_lr,
             verbose=args.verbose,
         )
         _t_opt_end = _time.perf_counter()
