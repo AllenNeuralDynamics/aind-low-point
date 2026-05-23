@@ -108,27 +108,31 @@ def strip_shanks(mesh: trimesh.Trimesh) -> tuple[trimesh.Trimesh, int]:
 
 def extract_shank_obbs(
     mesh: trimesh.Trimesh,
-    *,
-    dedup_xy_tol_mm: float = 0.1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Extract shank-zone OBBs from a probe mesh.
 
     Returns ``(centers, half_extents)`` of shape ``(n_obbs, 3)`` in the
-    probe's canonical local frame. The shank zone is split into two
-    kinds of OBB:
+    probe's canonical local frame. Up to **two OBBs per probe**:
 
-    1. **One OBB per silicon shank**, derived from the components that
-       satisfy :func:`is_shank_component` (long, thin, near-origin in
-       z). Duplicate shank sheets (front/back face) merged by XY
-       centroid clustering (``dedup_xy_tol_mm``).
-    2. **A single union OBB for the transition zone** — the bounding
-       box over every component that's :func:`is_in_shank_zone` but
-       NOT :func:`is_shank_component`. These are the small flat caps
-       at the shank-PCB junction that would otherwise fall between
-       the per-shank OBB (too thin in xy) and the body envelope (which
-       starts above z=``SHANK_ZONE_Z_MAX_MM``).
+    1. **Shank-group union OBB** — single AABB enclosing every
+       :func:`is_shank_component` component (the silicon shanks). For a
+       4-shank quadbase this collapses the 4 thin shanks into one wider
+       OBB (~1 mm × 70 µm × 10 mm) that also covers the 250-µm air gaps
+       between shanks. **Loses the ability to detect inter-shank
+       weaving between two probes** — intentional per the 2026-05-23
+       design decision: such configs are mechanically infeasible to
+       insert anyway, so we don't optimize for them.
+    2. **Transition-zone union OBB** — bounding box over every
+       :func:`is_in_shank_zone` component that is NOT a silicon shank
+       AND has ``z_max >= SHANK_JUNCTION_MIN_Z_MAX_MM``. Catches the
+       small flat caps at the shank-PCB junction that otherwise fall
+       between the per-shank zone and the body envelope (which starts
+       at ``z >= SHANK_ZONE_Z_MAX_MM = 10.5``). Added in the 2026-05-22
+       envelope+OBB parity fix and kept under the union scheme.
 
-    Total OBB count is ``n_shanks + (1 if any junctions else 0)``.
+    Total OBB count is ``(1 if any silicon shank else 0) + (1 if any
+    junction caps else 0)`` — at most 2, uniform across multi- and
+    single-shank probes.
 
     Raw CAD often represents shanks as zero-thickness sheets; the
     bbox-derived half-extent is ``0`` on those axes. Use
@@ -136,42 +140,24 @@ def extract_shank_obbs(
     before using for collision.
     """
     comps = mesh.split(only_watertight=False)
-    silicon_centers: list[np.ndarray] = []
-    silicon_halves: list[np.ndarray] = []
+    silicon_vertices: list[np.ndarray] = []
     junction_vertices: list[np.ndarray] = []
     for c in comps:
         if is_shank_component(c):
-            bmin, bmax = c.bounds
-            silicon_centers.append(0.5 * (bmin + bmax))
-            silicon_halves.append(0.5 * (bmax - bmin))
+            silicon_vertices.append(np.asarray(c.vertices, dtype=np.float64))
         elif is_in_shank_zone(c) and c.bounds[1, 2] >= SHANK_JUNCTION_MIN_Z_MAX_MM:
             junction_vertices.append(np.asarray(c.vertices, dtype=np.float64))
 
     out_centers: list[np.ndarray] = []
     out_halves: list[np.ndarray] = []
 
-    # Per-silicon-shank OBBs with XY-centroid dedup.
-    if silicon_centers:
-        sc = np.stack(silicon_centers, axis=0)
-        sh = np.stack(silicon_halves, axis=0)
-        if dedup_xy_tol_mm <= 0:
-            out_centers.extend(sc)
-            out_halves.extend(sh)
-        else:
-            cluster: list[list[int]] = []
-            for i, c_xy in enumerate(sc[:, :2]):
-                for members in cluster:
-                    ref_xy = sc[members[0], :2]
-                    if np.linalg.norm(c_xy - ref_xy) <= dedup_xy_tol_mm:
-                        members.append(i)
-                        break
-                else:
-                    cluster.append([i])
-            for members in cluster:
-                sub_min = (sc[members] - sh[members]).min(axis=0)
-                sub_max = (sc[members] + sh[members]).max(axis=0)
-                out_centers.append(0.5 * (sub_min + sub_max))
-                out_halves.append(0.5 * (sub_max - sub_min))
+    # Single union OBB over all silicon-shank components.
+    if silicon_vertices:
+        all_v = np.vstack(silicon_vertices)
+        bmin = all_v.min(axis=0)
+        bmax = all_v.max(axis=0)
+        out_centers.append(0.5 * (bmin + bmax))
+        out_halves.append(0.5 * (bmax - bmin))
 
     # Single union OBB over all junction-zone components.
     if junction_vertices:
