@@ -61,7 +61,9 @@ from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars as np_pose_from_optimizer_vars,
 )
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance_dual,
+    body_body_pair_clearance,
+    body_shank_corners_pair_clearance,
+    shank_only_pair_clearance,
     pairwise_signed_clearance_probe_fixture_body,
     pose_from_optimizer_vars,
     smooth_abs,
@@ -355,18 +357,35 @@ def _build_jit(
             thread_slacks_flat.append(slack.reshape(-1))
             thread_masks_flat.append(valid.reshape(-1))
 
+        # 3-helper dual-rep (matches Stage 2 + Phase 1/2).
+        world_surfaces = [
+            sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)
+        ]
         pair_hard_clearances: list[jnp.ndarray] = []
         for ia, ib in sdf_pair_list:
-            (hbb, _), (hbs, _), (hss, _) = pairwise_signed_clearance_dual(
+            hbb, _ = body_body_pair_clearance(
                 Rs[ia], ts[ia], Rs[ib], ts[ib],
                 sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                 sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                sdf_surfaces[ia], sdf_surfaces[ib],
+                world_surfaces[ia], world_surfaces[ib],
+                beta=beta, top_k=tk_bb,
+            )
+            hbs_corners, _ = body_shank_corners_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
+                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 shank_obb_centers[ia], shank_obb_halves[ia],
                 shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k_body_body=tk_bb,
-                top_k_body_shank=tk_bs, top_k_shank_shank=tk_ss,
+                beta=beta, top_k=tk_bs,
             )
+            (hbs_obb, _), (hss, _) = shank_only_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                world_surfaces[ia], world_surfaces[ib],
+                shank_obb_centers[ia], shank_obb_halves[ia],
+                shank_obb_centers[ib], shank_obb_halves[ib],
+                beta=beta, top_k_body_shank=tk_bs, top_k_shank_shank=tk_ss,
+            )
+            hbs = jnp.minimum(hbs_corners, hbs_obb)
             pair_hard_clearances.append(jnp.minimum(jnp.minimum(hbb, hbs), hss))
 
         fixture_hard_clearances: list[jnp.ndarray] = []

@@ -21,7 +21,9 @@ from aind_low_point.optimization.batched_static import BatchedProbeStatic
 from aind_low_point.optimization.joint_rerank import JointWeights
 from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance_dual,
+    body_body_pair_clearance,
+    body_shank_corners_pair_clearance,
+    shank_only_pair_clearance,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
@@ -214,25 +216,38 @@ def make_batched_reduced_objective(
         j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
         j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
-        # Dual-rep SDF clearance over fixed pair list. Three categories
-        # (body-body, body-shank, shank-shank) each get an independent
-        # ReLU-squared penalty — same structure as the per-cand path in
-        # joint_rerank_jax to keep gradient signals comparable.
+        # Dual-rep clearance via 3-helper split (matches per-cand
+        # joint_rerank_jax for shared XLA cache + per-call perf).
+        # Pre-compute world-frame surface samples per probe (hoists
+        # ``surface @ R.T + t`` out of the per-pair Python loop).
+        world_surfaces = [
+            sdf_surface_points[int(sdf_kind_id[i])] @ Rs[i].T + ts[i]
+            for i in range(K)
+        ]
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
             ka = int(sdf_kind_id[ia])
             kb = int(sdf_kind_id[ib])
-            (_hbb, sbb), (_hbs, sbs), (_hss, sss) = (
-                pairwise_signed_clearance_dual(
-                    Rs[ia], ts[ia], Rs[ib], ts[ib],
-                    sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
-                    sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
-                    sdf_surface_points[ka], sdf_surface_points[kb],
-                    sdf_shank_centers[ka], sdf_shank_halves[ka],
-                    sdf_shank_centers[kb], sdf_shank_halves[kb],
-                )
+            _hbb, sbb = body_body_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
+                sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
+                world_surfaces[ia], world_surfaces[ib],
             )
-            for d_soft in (sbb, sbs, sss):
+            _hbs_corners, sbs_corners = body_shank_corners_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
+                sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
+                sdf_shank_centers[ka], sdf_shank_halves[ka],
+                sdf_shank_centers[kb], sdf_shank_halves[kb],
+            )
+            (_hbs_obb, sbs_obb), (_hss, sss) = shank_only_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                world_surfaces[ia], world_surfaces[ib],
+                sdf_shank_centers[ka], sdf_shank_halves[ka],
+                sdf_shank_centers[kb], sdf_shank_halves[kb],
+            )
+            for d_soft in (sbb, sbs_corners, sbs_obb, sss):
                 short = jnp.maximum(0.0, min_clearance - d_soft)
                 j_clear = j_clear + short * short
 
