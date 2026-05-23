@@ -1042,12 +1042,6 @@ def _wrap_spin_to_bounds(y: NDArray, n_arcs: int, n_probes: int) -> NDArray:
     return np.asarray(y, dtype=np.float64).copy()
 
 
-def _spin_deg_to_sxy(spin_deg: float) -> tuple[float, float]:
-    """Convert a spin angle in degrees to (sx, sy) on the unit circle."""
-    rad = np.radians(float(spin_deg))
-    return float(np.cos(rad)), float(np.sin(rad))
-
-
 def _slsqp_reduced(
     y0: NDArray,
     statics: list[_ProbeStatic],
@@ -1161,23 +1155,15 @@ def score_joint(
 
     best_y: NDArray | None = None
     best_metrics: JointRerankMetrics | None = None
-    use_jax_spin = all(s.sdf_data is not None for s in statics)
+    # Per-cand spin restore is intentionally NOT done here. Production
+    # polish (``polish_all_with_batched_spin_restore``) does a GPU-
+    # batched spin sweep upstream; direct ``score_joint`` callers rely
+    # on the spin seed from ``_build_starts``. The legacy per-cand FCL
+    # brute sweep + JAX 2D-angle sweep were both removed when Patch B
+    # made the JAX path a no-op and the FCL fallback dead in production
+    # (SDFs are always present). ``skip_spin_restore`` is kept as a
+    # backward-compat kwarg only; it has no effect.
     for y0 in starts:
-        # Spin-only feasibility restoration: rotate overlapping probes
-        # about their shafts so flat profiles face each other. When SDF
-        # data is available, use the vmapped JAX kernel (coarse 4×4 +
-        # fine 4×4) — ~10× faster than the FCL 8×8 brute sweep and
-        # reuses the cached SDF arrays.
-        _t0 = time.perf_counter()
-        if not skip_spin_restore:
-            if use_jax_spin:
-                from aind_low_point.optimization.spin_restore_jax import (
-                    spin_restore_jax,
-                )
-                y0 = spin_restore_jax(y0, statics, n_arcs)
-            else:
-                y0 = _spin_restore_starts(y0, statics, n_arcs)
-        _STAGE2_TIMINGS["spin_restore"] += time.perf_counter() - _t0
         _t0 = time.perf_counter()
         y_opt = _slsqp_reduced(
             y0, statics, n_arcs, weights, bounds=bounds, max_iter=reduced_slsqp_max_iter
@@ -1402,146 +1388,6 @@ def _push_restore_full_x(  # noqa: C901
         if np.allclose(x, prev_x):
             return x
     return x
-
-
-def _spin_restore_starts(  # noqa: C901
-    y: NDArray,
-    statics: list[_ProbeStatic],
-    n_arcs: int,
-    *,
-    n_grid: int = 8,
-    max_outer_iter: int = 3,
-    margin_mm: float = 0.02,
-) -> NDArray:
-    """Pair-greedy spin-only feasibility restoration on a reduced vector.
-
-    Probe bodies are flat (PCB + silicon), so rotating about the shaft
-    axis (the ``spin`` DOF) presents a thinner profile to a neighbour
-    with no positional change — preserving threading and recording-array
-    placement. This is the same trick the manual workflow uses: when
-    two probes are close, spin them so they face each other.
-
-    Algorithm: on each outer iteration, find the most-penetrating pair
-    ``(i, j)``; sweep their spin values on a ``n_grid × n_grid``
-    coarse grid; pick the combination that maximises pairwise clearance;
-    stop when the worst pair clears ``margin_mm`` or ``max_outer_iter``
-    is exhausted. Other probes' poses are not touched.
-
-    Operates on the reduced vector ``y = [arc_aps, (ml, spin)_0, ...]``.
-    """
-    y = np.array(y, dtype=np.float64, copy=True)
-    n_probes = len(statics)
-    if n_probes < 2:
-        return y
-    probes_with_bvh = [i for i, st in enumerate(statics) if st.bvh_obj is not None]
-    if len(probes_with_bvh) < 2:
-        return y
-
-    arc_aps = np.asarray(y[:n_arcs], dtype=np.float64)
-    spin_grid = np.linspace(-180.0, 180.0, n_grid, endpoint=False)
-
-    def _set_probe_transform(i: int, spin_deg: float) -> None:
-        st = statics[i]
-        assert st.bvh_obj is not None
-        ml_i, _ = _ml_spin_from_y(y, n_arcs, i)
-        ap_i = float(arc_aps[st.arc_idx])
-        R, pose_tip = pose_from_optimizer_vars(
-            target_LPS=st.target_LPS,
-            ap_deg=ap_i,
-            ml_deg=ml_i,
-            spin_deg=spin_deg,
-            offset_R_mm=0.0,
-            offset_A_mm=0.0,
-            past_target_mm=0.0,
-            recording_center_local=st.pivot_local,
-        )
-        st.bvh_obj.setTransform(
-            fcl.Transform(
-                np.ascontiguousarray(R, dtype=np.float64),
-                np.ascontiguousarray(pose_tip, dtype=np.float64),
-            )
-        )
-
-    def _refresh_all() -> None:
-        for i in probes_with_bvh:
-            _, spin_i = _ml_spin_from_y(y, n_arcs, i)
-            _set_probe_transform(i, spin_i)
-
-    dist_req = fcl.DistanceRequest(enable_signed_distance=True)
-    coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
-
-    def _signed_clear(a: int, b: int) -> float:
-        obj_a = statics[a].bvh_obj
-        obj_b = statics[b].bvh_obj
-        assert obj_a is not None and obj_b is not None
-        d_res = fcl.DistanceResult()
-        fcl.distance(obj_a, obj_b, dist_req, d_res)
-        d = float(d_res.min_distance)
-        if d > 0.0:
-            return d
-        c_res = fcl.CollisionResult()
-        fcl.collide(obj_a, obj_b, coll_req, c_res)
-        if c_res.contacts:
-            return -float(max(c.penetration_depth for c in c_res.contacts))
-        return 0.0
-
-    for _outer in range(max_outer_iter):
-        _refresh_all()
-        worst_a, worst_b, worst_d = -1, -1, 1e9
-        for ii, ia in enumerate(probes_with_bvh):
-            for ib in probes_with_bvh[ii + 1 :]:
-                d = _signed_clear(ia, ib)
-                if d < worst_d:
-                    worst_d, worst_a, worst_b = d, ia, ib
-        if worst_d > margin_mm:
-            return y
-
-        # Sweep (spin_a, spin_b) on n_grid × n_grid; score each combo
-        # by the MIN clearance over every pair touching either probe,
-        # not just the (a, b) pair — otherwise we'd "fix" (a, b)
-        # overlap by spinning probe a into a worse position relative
-        # to some other probe k.
-        def _min_clearance_involving(a: int, b: int) -> float:
-            mn = float("inf")
-            for k in probes_with_bvh:
-                if k == a or k == b:
-                    continue
-                # Pair (a, k) and (b, k) — clearance only depends on a/b
-                # transforms relative to the (already-cached) k transform.
-                d_ak = _signed_clear(a, k) if a != k else float("inf")
-                d_bk = _signed_clear(b, k) if b != k else float("inf")
-                mn = min(mn, d_ak, d_bk)
-            mn = min(mn, _signed_clear(a, b))
-            return mn
-
-        _, spin_a_cur = _ml_spin_from_y(y, n_arcs, worst_a)
-        _, spin_b_cur = _ml_spin_from_y(y, n_arcs, worst_b)
-        best_score = _min_clearance_involving(worst_a, worst_b)
-        best_pair = (spin_a_cur, spin_b_cur)
-        for sa in spin_grid:
-            _set_probe_transform(worst_a, float(sa))
-            for sb in spin_grid:
-                _set_probe_transform(worst_b, float(sb))
-                score = _min_clearance_involving(worst_a, worst_b)
-                if score > best_score:
-                    best_score = score
-                    best_pair = (float(sa), float(sb))
-        # Commit the best (spin_a, spin_b) as (sx, sy) in the new layout
-        # and restore transforms.
-        sxa, sya = _spin_deg_to_sxy(best_pair[0])
-        sxb, syb = _spin_deg_to_sxy(best_pair[1])
-        y[n_arcs + 3 * worst_a + 1] = sxa
-        y[n_arcs + 3 * worst_a + 2] = sya
-        y[n_arcs + 3 * worst_b + 1] = sxb
-        y[n_arcs + 3 * worst_b + 2] = syb
-        _set_probe_transform(worst_a, best_pair[0])
-        _set_probe_transform(worst_b, best_pair[1])
-        # If grid couldn't improve the worst pair, stop to avoid spinning
-        # forever on a fundamentally infeasible candidate.
-        if best_score <= worst_d:
-            return y
-    return y
-
 
 # ---------------------------------------------------------------------------
 # Driver
