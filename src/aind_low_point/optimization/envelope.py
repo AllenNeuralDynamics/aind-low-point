@@ -226,7 +226,7 @@ def build_alpha_wrap_envelope(
     mesh: trimesh.Trimesh,
     *,
     alpha_mm: float = 0.5,
-    offset_mm: float = 0.2,
+    offset_mm: float = 0.4,
     strip_shanks_first: bool = True,
     use_cache: bool = True,
 ) -> trimesh.Trimesh:
@@ -242,12 +242,17 @@ def build_alpha_wrap_envelope(
         0.5 mm gives a 22k-vertex envelope on quadbase bodies in ~7 s.
     offset_mm
         Outward inflation distance. Must be ``< alpha_mm`` per CGAL
-        guidelines. Default 0.2 mm fully contains the body surface
-        (1M dense samples on probe:2.1, 100% inside envelope) once the
-        shank-body junction caps are pulled into the transition OBB
-        (see :func:`extract_shank_obbs`). Previously 0.05 left a 0.59 %
-        residue of face midpoints outside the envelope near the
-        junction; that residue is now in the OBB instead.
+        guidelines. **Default 0.4 mm** (raised from 0.2 on 2026-05-23
+        after the envelope-undinflation finding: at the polished
+        endpoint of cand 1322 BLA-CA1, env-mesh gap measured ~0.01-0.03
+        mm vs the expected 0.2 mm, meaning the α-wrap was effectively
+        sitting AT the raw mesh surface — Phase 1 thought clearance
+        was barely-positive when FCL detected collisions). Bumping to
+        0.4 makes the envelope ~conservative enough to push Phase 1's
+        body-body penalty into the right region. Trade-off: probes
+        that genuinely have 0.1-0.3 mm clearance will read as
+        colliding, so Phase 1 may move them slightly further apart
+        than strictly required.
     strip_shanks_first
         When True (default), drop shank-like components before wrapping
         so the envelope contains only the body. The optimizer handles
