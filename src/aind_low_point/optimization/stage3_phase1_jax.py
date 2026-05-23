@@ -242,6 +242,7 @@ def _weights_key(w: Phase1Weights) -> tuple:
         for f in (
             "lambda_thread", "lambda_clearance", "lambda_kinematic",
             "lambda_bounds", "lambda_margin_clear", "lambda_margin_thread",
+            "lambda_clearance_fixture", "lambda_margin_clear_fixture",
             "tau_clear_mm", "tau_thread_gunits", "min_clearance_mm",
             "threading_oval_tolerance", "min_arc_ap_sep_deg",
             "min_intra_arc_ml_sep_deg", "comfortable_ap_deg",
