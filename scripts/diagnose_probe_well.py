@@ -154,6 +154,81 @@ def main() -> int:
             fcl_d = -float(max(c.penetration_depth for c in cr.contacts))
     print(f"\nFCL ({args.probe}-vs-well, full mesh): {fcl_d:+.4f} mm")
 
+    # === Gradients at the polished pose ===
+    print(f"\n{'=' * 70}")
+    print(f"Gradients at polished pose")
+    print(f"{'=' * 70}")
+    g_full = np.asarray(jac(x_polished), dtype=np.float64)
+    bla_slots = slice(n_arcs + PHASE1_PER_PROBE_VARS * idx,
+                       n_arcs + PHASE1_PER_PROBE_VARS * (idx + 1))
+    print(f"|g_full| max={np.abs(g_full).max():.4g}, "
+          f"||g_full||={np.linalg.norm(g_full):.4g}")
+    print(f"g_full[BLA] = {g_full[bla_slots].round(5).tolist()}  "
+          f"(ml, sx, sy, off_R, off_A, depth)")
+    print(f"g_full[arcs] = {g_full[:n_arcs].round(5).tolist()}")
+
+    # Fixture-only gradient (zero out all other weights)
+    from dataclasses import replace as _replace
+    w0 = _replace(
+        Phase1Weights(),
+        lambda_thread=0.0, lambda_clearance=0.0, lambda_kinematic=0.0,
+        lambda_bounds=0.0, lambda_margin_clear=0.0, lambda_margin_thread=0.0,
+        lambda_clearance_fixture=100.0,
+    )
+    fun_f, jac_f = make_phase1_objective(
+        statics, n_arcs, coverage_data=None, fixtures=fixtures, weights=w0,
+    )
+    g_fix = np.asarray(jac_f(x_polished), dtype=np.float64)
+    print(f"\n[fixture-only, λ=100, no coverage/other terms]")
+    print(f"  obj={float(fun_f(x_polished)):.6g}")
+    print(f"  |g_fix| max={np.abs(g_fix).max():.4g}, "
+          f"||g_fix||={np.linalg.norm(g_fix):.4g}")
+    print(f"  g_fix[BLA] = {g_fix[bla_slots].round(5).tolist()}")
+
+    # Bump λ ×10 and re-polish from x_polished — does BLA move out of well?
+    w_hi = _replace(Phase1Weights(), lambda_clearance_fixture=1000.0)
+    fun_hi, jac_hi = make_phase1_objective(
+        statics, n_arcs, coverage_data=coverage_data, fixtures=fixtures,
+        weights=w_hi,
+    )
+    res_hi = minimize(fun_hi, x_polished, jac=jac_hi, method="SLSQP",
+                      bounds=bounds, options=dict(maxiter=200, ftol=1e-5))
+    x_hi = np.asarray(res_hi.x, dtype=np.float64)
+    print(f"\nRe-polish with λ_clearance_fixture=1000 from x_polished:")
+    print(f"  fn: {float(fun_hi(x_polished)):.2f} → {float(res_hi.fun):.2f}, "
+          f"iter={res_hi.nit}")
+    dx_bla = x_hi[bla_slots] - x_polished[bla_slots]
+    print(f"  Δ(BLA vars) = {dx_bla.round(5).tolist()}")
+    print(f"  Δ(arcs) = {(x_hi[:n_arcs] - x_polished[:n_arcs]).round(5).tolist()}")
+
+    # Recompute FCL at high-λ end pose
+    ap_hi = float(x_hi[sb.arc_idx])
+    ml_hi = float(x_hi[bla_slots.start + 0])
+    sx_hi = float(x_hi[bla_slots.start + 1])
+    sy_hi = float(x_hi[bla_slots.start + 2])
+    off_R_hi = float(x_hi[bla_slots.start + 3])
+    off_A_hi = float(x_hi[bla_slots.start + 4])
+    depth_hi = float(x_hi[bla_slots.start + 5])
+    R_hi, t_hi = pose_from_optimizer_vars(
+        target_LPS=sb.target_LPS, ap_deg=ap_hi, ml_deg=ml_hi,
+        spin_deg=float(np.degrees(np.arctan2(sy_hi, sx_hi))),
+        offset_R_mm=off_R_hi, offset_A_mm=off_A_hi, past_target_mm=depth_hi,
+        recording_center_local=sb.pivot_local,
+    )
+    sb.bvh_obj.setTransform(fcl.Transform(
+        np.ascontiguousarray(R_hi), np.ascontiguousarray(t_hi),
+    ))
+    dr_hi = fcl.DistanceResult()
+    fcl.distance(sb.bvh_obj, well_bvh,
+                 fcl.DistanceRequest(enable_signed_distance=True), dr_hi)
+    fcl_d_hi = float(dr_hi.min_distance)
+    if fcl_d_hi <= 0:
+        cr = fcl.CollisionResult()
+        fcl.collide(sb.bvh_obj, well_bvh,
+                    fcl.CollisionRequest(num_max_contacts=1), cr)
+        fcl_d_hi = -1.0 if cr.contacts else fcl_d_hi
+    print(f"  FCL after high-λ polish: {fcl_d_hi:+.4f} mm")
+
     # JAX clearance probe-vs-well-body
     probe_sdf = sdf_by_name[args.probe]
     hard, soft = pairwise_signed_clearance_probe_fixture_body(
