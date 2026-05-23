@@ -48,8 +48,10 @@ except Exception:
     pass
 
 from aind_low_point.optimization.sdf_jax import (
-    pairwise_signed_clearance_dual_world,
+    body_body_pair_clearance,
+    body_shank_corners_pair_clearance,
     pose_from_optimizer_vars,
+    shank_only_pair_clearance,
     smooth_abs,
     spin_deg_from_sxy,
 )
@@ -300,34 +302,54 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
         j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
-        # Dual-rep clearance per pair: body voxel SDF + analytic shank OBBs.
-        # Three categories (body-body, body-shank, shank-shank) → three
-        # independent ReLU-squared penalties → sum. Per-category soft min
-        # gives each category its own gradient signal (avoiding the
-        # sample-count bias of a pooled softmin where body samples crowd
-        # out shank samples in top-k).
+        # Dual-rep clearance, three categories. Body-body is computed
+        # ONCE across all P pairs via ``jax.vmap`` (single XLA kernel
+        # launch) — the per-pair body-body lookups dominate the kernel-
+        # launch overhead per the 2026-05-23 jax.profiler trace (~95
+        # launches per obj call from the unrolled Python pair loop).
+        # Body-shank + shank-shank keep the per-pair Python loop for
+        # now: they need shank-count masking to vmap and are a smaller
+        # share of cost.
+        #
         # Pre-compute world-frame body surface samples once per probe so
-        # the dual-rep call doesn't re-do ``surface @ R.T + t`` for every
-        # pair iteration (XLA CSE does not consolidate it across the
-        # unrolled pair loop — HLO dump 2026-05-23).
+        # neither path re-does ``surface @ R.T + t`` per pair (XLA CSE
+        # leaves it duplicated across iterations — HLO dump 2026-05-23).
         world_surfaces = [
             sdf_surfaces[i] @ Rs[i].T + ts[i]
             if per_probe_sdf_shapes[i] is not None else None
             for i in range(n_probes)
         ]
+
+        # All three dual-rep categories computed per-pair. CPU
+        # vmap-across-pairs of any path that scatters gradient back to
+        # per-probe state (R, t, world_surface) regresses on the
+        # gradient pass — no HW atomics, no efficient parallel scatter
+        # accumulation. See [[vmap-cpu-gpu-polish-arch]].
+        # The per-pair helpers split body-body, body-shank-corners
+        # (trilinear), and shank-only (analytic) so a future GPU mode
+        # can vmap each independently.
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
-            (_hbb, sbb), (_hbs, sbs), (_hss, sss) = (
-                pairwise_signed_clearance_dual_world(
-                    Rs[ia], ts[ia], Rs[ib], ts[ib],
-                    sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                    sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                    world_surfaces[ia], world_surfaces[ib],
-                    shank_obb_centers[ia], shank_obb_halves[ia],
-                    shank_obb_centers[ib], shank_obb_halves[ib],
-                )
+            _hbb, sbb = body_body_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
+                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
+                world_surfaces[ia], world_surfaces[ib],
             )
-            for d_soft in (sbb, sbs, sss):
+            _hbs_corners, sbs_corners = body_shank_corners_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
+                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
+                shank_obb_centers[ia], shank_obb_halves[ia],
+                shank_obb_centers[ib], shank_obb_halves[ib],
+            )
+            (_hbs_obb, sbs_obb), (_hss, sss) = shank_only_pair_clearance(
+                Rs[ia], ts[ia], Rs[ib], ts[ib],
+                world_surfaces[ia], world_surfaces[ib],
+                shank_obb_centers[ia], shank_obb_halves[ia],
+                shank_obb_centers[ib], shank_obb_halves[ib],
+            )
+            for d_soft in (sbb, sbs_corners, sbs_obb, sss):
                 short = jnp.maximum(0.0, min_clearance - d_soft)
                 j_clear = j_clear + short * short
 
@@ -438,7 +460,6 @@ def _pack_statics(
                             dtype=jnp.float32)
             )
         else:
-            # Placeholder so positional indexing stays valid; never read.
             sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
             sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))
             sdf_spacings.append(jnp.float32(1.0))

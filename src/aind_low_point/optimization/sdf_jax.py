@@ -646,6 +646,166 @@ def _hard_soft(values: Array, *, beta: float, top_k: int) -> tuple[Array, Array]
     return jnp.min(values), soft_min_topk(values, beta=beta, top_k=top_k)
 
 
+def shank_only_pair_clearance(
+    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    world_surface_a: Array,
+    world_surface_b: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k_body_shank: int = 8,
+    top_k_shank_shank: int = 8,
+) -> tuple[tuple[Array, Array], tuple[Array, Array]]:
+    """Shank-related dual-rep categories that DON'T use trilinear SDF.
+
+    Computes:
+    - **body-shank, OBB direction only**: ``body_samples @ each-OBB-SDF``
+      (analytic). The trilinear "shank corners → other body's SDF"
+      direction is omitted — caller computes that per-pair if needed.
+    - **shank-shank SAT**: exact OBB-vs-OBB distance via 15 candidate
+      axes. No SDF, no gather, fully analytic.
+
+    Returns ``((hbs_obb_only, sbs_obb_only), (hss, sss))``. Both pools
+    are exact analytic distances (no soft-min bias from gather discont-
+    inuities).
+
+    Vmap-friendly: assumes uniform shank shapes ``(S, 3)`` across pairs
+    (post-2026-05-23 OBB-union, S=2 for every probe). The internal
+    inner vmaps over (Sa, Sb) compose with an outer vmap over pairs to
+    give a single XLA launch.
+    """
+    Sa = shank_centers_a.shape[0]
+    Sb = shank_centers_b.shape[0]
+
+    body_shank_chunks = []
+    if Sa > 0:
+        d_body_b_vs_a_obbs = jax.vmap(
+            lambda c, h: _obb_sdf_world_to_local(
+                world_surface_b, R_a, t_a, c, h
+            )
+        )(shank_centers_a, shank_halves_a)  # (Sa, Nbody)
+        body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
+    if Sb > 0:
+        d_body_a_vs_b_obbs = jax.vmap(
+            lambda c, h: _obb_sdf_world_to_local(
+                world_surface_a, R_b, t_b, c, h
+            )
+        )(shank_centers_b, shank_halves_b)
+        body_shank_chunks.append(d_body_a_vs_b_obbs.reshape(-1))
+    body_shank_pool = (
+        jnp.concatenate(body_shank_chunks, axis=0)
+        if body_shank_chunks
+        else jnp.zeros((0,), dtype=world_surface_a.dtype)
+    )
+
+    if Sa > 0 and Sb > 0:
+        def _pair_distance(ca, ha, cb, hb):
+            return obb_obb_signed_distance(
+                R_a, t_a, ca, ha, R_b, t_b, cb, hb
+            )
+        d_sa_vs_sb = jax.vmap(
+            lambda ca, ha: jax.vmap(
+                lambda cb, hb: _pair_distance(ca, ha, cb, hb)
+            )(shank_centers_b, shank_halves_b)
+        )(shank_centers_a, shank_halves_a)
+        shank_shank_pool = d_sa_vs_sb.reshape(-1)
+    else:
+        shank_shank_pool = jnp.zeros((0,), dtype=world_surface_a.dtype)
+
+    return (
+        _hard_soft(body_shank_pool, beta=beta, top_k=top_k_body_shank),
+        _hard_soft(shank_shank_pool, beta=beta, top_k=top_k_shank_shank),
+    )
+
+
+def body_shank_corners_pair_clearance(
+    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
+    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 8,
+    interp: str = "trilinear",
+) -> tuple[Array, Array]:
+    """Body-shank "shank corners → other body's SDF" direction ONLY.
+
+    Trilinear-gather path; on CPU its gradient suffers the scatter-
+    contention slowdown when vmap'd across pairs (see
+    [[vmap-cpu-gpu-polish-arch]]). Kept as its own helper so callers
+    can decide whether to per-pair-loop it (CPU) or vmap it (GPU).
+    """
+    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
+    Sa = shank_centers_a.shape[0]
+    Sb = shank_centers_b.shape[0]
+    chunks = []
+    if Sa > 0:
+        corners_a_world = _shank_world_samples(
+            R_a, t_a, shank_centers_a, shank_halves_a
+        )
+        ca_in_b = (corners_a_world - t_b) @ R_b
+        d_corners_a_in_b = sdf_lookup(
+            sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
+        )
+        chunks.append(d_corners_a_in_b.reshape(-1))
+    if Sb > 0:
+        corners_b_world = _shank_world_samples(
+            R_b, t_b, shank_centers_b, shank_halves_b
+        )
+        cb_in_a = (corners_b_world - t_a) @ R_a
+        d_corners_b_in_a = sdf_lookup(
+            sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
+        )
+        chunks.append(d_corners_b_in_a.reshape(-1))
+    pool = (
+        jnp.concatenate(chunks, axis=0)
+        if chunks
+        else jnp.zeros((0,), dtype=R_a.dtype)
+    )
+    return _hard_soft(pool, beta=beta, top_k=top_k)
+
+
+def body_body_pair_clearance(
+    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
+    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    world_surface_a: Array,
+    world_surface_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 16,
+    interp: str = "trilinear",
+) -> tuple[Array, Array]:
+    """Body-body category only of the dual-rep clearance. Returns
+    ``(hard_min, soft_min_topk)``. Vmap-friendly: shape-static (no
+    Python ``if`` branches), uniform per-probe inputs, suitable for
+    ``jax.vmap`` across a pair axis.
+
+    Hoisting this out of ``pairwise_signed_clearance_dual_world`` lets
+    the caller batch all P probe-pairs into ONE XLA kernel launch
+    instead of P separate launches per ``jit_obj`` call — the unrolled
+    Python pair loop was responsible for ~50% of the SLSQP wall (per
+    2026-05-23 jax.profiler trace).
+    """
+    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
+    local_b_in_a = (world_surface_b - t_a) @ R_a
+    d_b_in_a = sdf_lookup(
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a
+    )
+    local_a_in_b = (world_surface_a - t_b) @ R_b
+    d_a_in_b = sdf_lookup(
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b
+    )
+    pool = jnp.concatenate([d_b_in_a.reshape(-1), d_a_in_b.reshape(-1)])
+    return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+
+
 def pairwise_signed_clearance_dual(
     R_a: Array, t_a: Array, R_b: Array, t_b: Array,
     sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
