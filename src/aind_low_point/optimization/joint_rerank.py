@@ -590,7 +590,7 @@ def _update_pose_and_pairwise_clearances(
         import jax.numpy as jnp
 
         from aind_low_point.optimization.sdf_jax import (
-            pairwise_signed_clearance_dual,
+            pairwise_signed_clearance_dual_hard_mins_jit,
         )
 
         for a in range(len(valid)):
@@ -609,7 +609,7 @@ def _update_pose_and_pairwise_clearances(
                         )
                     )
                     continue
-                (hbb, _), (hbs, _), (hss, _) = pairwise_signed_clearance_dual(
+                hbb, hbs, hss = pairwise_signed_clearance_dual_hard_mins_jit(
                     jnp.asarray(R_a, dtype=jnp.float32),
                     jnp.asarray(t_a, dtype=jnp.float32),
                     jnp.asarray(R_b, dtype=jnp.float32),

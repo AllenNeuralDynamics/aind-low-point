@@ -441,6 +441,34 @@ def pairwise_signed_clearance_jit(
     )
 
 
+@jax.jit
+def pairwise_signed_clearance_dual_hard_mins_jit(
+    R_a, t_a, R_b, t_b,
+    sdf_a_grid, sdf_a_origin, sdf_a_spacing,
+    sdf_b_grid, sdf_b_origin, sdf_b_spacing,
+    surface_a, surface_b,
+    shank_centers_a, shank_halves_a,
+    shank_centers_b, shank_halves_b,
+):
+    """JIT'd wrapper returning the three hard mins from dual-rep
+    clearance: ``(hbb, hbs, hss)``. Used by per-pair metric evaluation
+    where we only need the signed-distance scalar, not soft mins.
+
+    Untraced calls to ``pairwise_signed_clearance_dual`` re-trace per
+    call (~10 ms each); this wrapper compiles once and reuses, dropping
+    per-pair cost to a few ms.
+    """
+    (hbb, _), (hbs, _), (hss, _) = pairwise_signed_clearance_dual(
+        R_a, t_a, R_b, t_b,
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
+        surface_a, surface_b,
+        shank_centers_a, shank_halves_a,
+        shank_centers_b, shank_halves_b,
+    )
+    return hbb, hbs, hss
+
+
 _SHANK_SAMPLES_PER_BOX = 24  # 8 corners + 16 long-edge interior samples
 
 # 4 long-edge XY positions (one per long edge of the box)
