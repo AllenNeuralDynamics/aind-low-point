@@ -350,12 +350,13 @@ def estimate_spin_restore_chunk(
     if budget <= 0:
         return min(fallback, total_B)
     # Empirical bytes/cand, scaled by the four dimensions that drive
-    # the peak allocation. The 140e6 base is calibrated for n_surf=20000
-    # with the dual-rep clearance + shank OBBs + (sx, sy) reparam (Patch
-    # B): the OOM at chunk=399 + n_surf=5000 implied ~22 MB/cand actual,
-    # so the base scales to 140e6 * (5000/20000) = 35 MB/cand at
-    # n_surf=5000 — ~60% headroom above the observed peak.
-    mem_per_cand = 140e6 * (n_surf / 20000.0) * (K / 7.0) * (n_spins / 8.0)
+    # the peak allocation. Re-calibrated 2026-05-22 after batched path
+    # picked up dual-rep clearance + shank-shank SAT (task #58): a
+    # chunk=196 run at n_surf=5000 OOM'd needing another 4 GB → actual
+    # ~50 MB/cand. Base bumped 140e6 → 360e6 to cover SAT cross-axis
+    # intermediates + dual-direction body-shank sampling, plus 60%
+    # headroom.
+    mem_per_cand = 360e6 * (n_surf / 20000.0) * (K / 7.0) * (n_spins / 8.0)
     chunk = int(budget / max(mem_per_cand, 1.0))
     return max(1, min(chunk, total_B))
 
