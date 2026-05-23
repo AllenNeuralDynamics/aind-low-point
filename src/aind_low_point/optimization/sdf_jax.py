@@ -542,8 +542,6 @@ def obb_obb_signed_distance(
       fallback's projection is harmless as long as the result is
       *not* min-selected — masking via large ``+1e3`` works).
     """
-    eps = 1e-12
-
     # World-frame box centres (centres are stored in probe-local).
     ca_w = R_a @ center_a + t_a
     cb_w = R_b @ center_b + t_b
@@ -571,19 +569,23 @@ def obb_obb_signed_distance(
     sep_face_b = jax.vmap(_separation_along)(axes_b.T)  # (3,)
 
     # ---- 9 cross-product candidate axes ----
+    # Parallel-axis guard: ``jnp.linalg.norm(axis)`` at axis=0 has NaN
+    # gradient (0/0) which propagates through autodiff even when the
+    # ``where`` masks the forward value out. Use soft-norm
+    # ``sqrt(||axis||² + ε²)`` so the gradient stays finite when the
+    # cross product collapses (parallel face normals).
     def _cross_axis_sep(i: int, j: int) -> Array:
         ai = axes_a[:, i]
         bj = axes_b[:, j]
         axis = jnp.cross(ai, bj)
-        norm = jnp.linalg.norm(axis) + eps
-        axis_n = axis / norm
-        # When axes are parallel (norm ~ 0), this axis is degenerate —
-        # mask its contribution out by returning a very negative
-        # separation (so max-selection ignores it but min-selection
-        # doesn't pick it as the binding separator).
+        sq = jnp.sum(axis * axis)
+        soft_norm = jnp.sqrt(sq + jnp.float32(1e-12))
+        is_valid = sq > jnp.float32(1e-12)
+        axis_n = axis / soft_norm   # finite gradient everywhere
         sep = _separation_along(axis_n)
-        # Substitute -∞-ish for degenerate axes — max() ignores them.
-        return jnp.where(norm > 1e-6, sep, jnp.float32(-1e6))
+        # When axes are parallel, the cross-product axis is degenerate;
+        # substitute a very negative separation so max-selection skips it.
+        return jnp.where(is_valid, sep, jnp.float32(-1e6))
 
     sep_cross = jnp.stack([
         _cross_axis_sep(i, j) for i in range(3) for j in range(3)
