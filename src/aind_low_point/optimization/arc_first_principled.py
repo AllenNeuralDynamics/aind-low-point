@@ -30,14 +30,56 @@ roughly the same local minimum). Discrete decision unit is
 from __future__ import annotations
 
 import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from aind_low_point.optimization.arc_assignment import ArcAssignment
-from aind_low_point.optimization.arc_first_search import unordered_partitions
 from aind_low_point.optimization.atlas import Atlas
 from aind_low_point.optimization.hole_assignment import HoleAssignment
+
+
+def unordered_partitions(
+    K: int, max_arcs: int, *, prefer_more_arcs: bool = True
+) -> Iterator[list[tuple[int, ...]]]:
+    """Yield all unordered set-partitions of ``range(K)`` into
+    ``1..max_arcs`` non-empty groups. Each group is a tuple of probe
+    indices in ascending order; partitions are emitted with groups
+    sorted by their lowest probe index (canonical form).
+
+    When ``prefer_more_arcs`` (default), the enumeration prefers
+    starting a new arc over packing into an existing one, so the
+    ``max_arcs``-arc partitions appear FIRST. Practical configs almost
+    always use ``max_arcs`` distinct arcs; this keeps the manual-quality
+    partitions early in the stream so a bounded budget reaches them.
+    """
+
+    def helper(idx: int, groups: list[list[int]]):
+        if idx == K:
+            if 1 <= len(groups) <= max_arcs:
+                yield [tuple(sorted(g)) for g in groups]
+            return
+        if prefer_more_arcs:
+            if len(groups) < max_arcs:
+                groups.append([idx])
+                yield from helper(idx + 1, groups)
+                groups.pop()
+            for g in groups:
+                g.append(idx)
+                yield from helper(idx + 1, groups)
+                g.pop()
+        else:
+            for g in groups:
+                g.append(idx)
+                yield from helper(idx + 1, groups)
+                g.pop()
+            if len(groups) < max_arcs:
+                groups.append([idx])
+                yield from helper(idx + 1, groups)
+                groups.pop()
+
+    yield from helper(0, [])
 
 
 @dataclass(frozen=True)
