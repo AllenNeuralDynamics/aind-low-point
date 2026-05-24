@@ -61,7 +61,7 @@ from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     shank_only_pair_clearance,
-    pairwise_signed_clearance_probe_fixture_body,
+    pairwise_signed_clearance_probe_fixture_body_world,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -466,15 +466,19 @@ def _build_jit(
         j_clear_fixture = jnp.float32(0.0)
         fixture_hard_clearances: list[jnp.ndarray] = []
         if fixtures:
+            # Use the hoisted world-frame variant — reuses the
+            # ``world_surfaces[i]`` precompute (same one body-body
+            # uses) instead of redoing ``surface @ R.T + t`` per
+            # (probe, fixture) pair.
             for fx in fixtures:
                 for i in range(n_probes):
                     if has_sdf and per_probe_sdf_shapes[i] is None:
                         continue
-                    h, s = pairwise_signed_clearance_probe_fixture_body(
+                    h, s = pairwise_signed_clearance_probe_fixture_body_world(
                         Rs[i], ts[i],
                         sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                         fx.grid, fx.origin, fx.spacing,
-                        sdf_surfaces[i], fx.surface,
+                        world_surfaces[i], fx.surface,
                         beta=beta, top_k=tk_bb,
                     )
                     short = jnp.maximum(0.0, min_clear - s)

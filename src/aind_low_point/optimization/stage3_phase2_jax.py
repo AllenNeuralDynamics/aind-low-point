@@ -45,7 +45,7 @@ from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     shank_only_pair_clearance,
-    pairwise_signed_clearance_probe_fixture_body,
+    pairwise_signed_clearance_probe_fixture_body_world,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -307,11 +307,11 @@ def _build_jit(
             for i in range(n_probes):
                 if has_sdf and sdf_shapes[i] is None:
                     continue
-                h, _ = pairwise_signed_clearance_probe_fixture_body(
+                h, _ = pairwise_signed_clearance_probe_fixture_body_world(
                     Rs[i], ts[i],
                     sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                     fx.grid, fx.origin, fx.spacing,
-                    sdf_surfaces[i], fx.surface,
+                    world_surfaces[i], fx.surface,
                     beta=beta, top_k=tk_bb,
                 )
                 fixture_hard_clearances.append(h)
@@ -406,11 +406,11 @@ def _build_jit(
             for i in range(n_probes):
                 if has_sdf and sdf_shapes[i] is None:
                     continue
-                _, s = pairwise_signed_clearance_probe_fixture_body(
+                _, s = pairwise_signed_clearance_probe_fixture_body_world(
                     Rs[i], ts[i],
                     sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                     fx.grid, fx.origin, fx.spacing,
-                    sdf_surfaces[i], fx.surface,
+                    world_surfaces[i], fx.surface,
                     beta=beta, top_k=tk_bb,
                 )
                 clear_pf_slacks.append(s - min_clear)

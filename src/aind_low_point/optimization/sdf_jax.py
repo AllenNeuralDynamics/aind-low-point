@@ -411,11 +411,43 @@ def pairwise_signed_clearance_probe_fixture_body(
     included: shank-vs-fixture is rare (threading already constrains
     the bore), and per design we only enforce probe-*body* clearance
     against fixtures.
+
+    Hoist note: for callers iterating over ``(probe, fixture)`` pairs
+    (Phase 1/2/3), prefer :func:`pairwise_signed_clearance_probe_fixture_body_world`
+    which takes pre-transformed ``world_surface_p`` — avoids redoing
+    the ``surface @ R.T + t`` transform once per fixture.
+    """
+    world_surface_p = surface_p @ R_p.T + t_p
+    return pairwise_signed_clearance_probe_fixture_body_world(
+        R_p, t_p, sdf_p_grid, sdf_p_origin, sdf_p_spacing,
+        sdf_f_grid, sdf_f_origin, sdf_f_spacing,
+        world_surface_p, surface_f,
+        beta=beta, top_k=top_k, interp=interp,
+    )
+
+
+def pairwise_signed_clearance_probe_fixture_body_world(
+    R_p: Array, t_p: Array,
+    sdf_p_grid: Array, sdf_p_origin: Array, sdf_p_spacing: Array,
+    sdf_f_grid: Array, sdf_f_origin: Array, sdf_f_spacing: Array,
+    world_surface_p: Array,     # (Np, 3) pre-transformed probe envelope samples in world
+    surface_f: Array,           # (Nf, 3) fixture envelope samples in world LPS
+    *,
+    beta: float = 20.0,
+    top_k: int = 16,
+    interp: str = "trilinear",
+) -> tuple[Array, Array]:
+    """Same as :func:`pairwise_signed_clearance_probe_fixture_body` but
+    takes pre-transformed world-frame probe surface samples. Callers
+    iterating over ``n_fixtures × n_probes`` pairs should hoist
+    ``world_surface[i] = surface[i] @ R[i].T + t[i]`` once per probe
+    (per Phase 1's body-body hoist).
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
 
-    world_p = surface_p @ R_p.T + t_p
-    d_p_in_f = sdf_lookup(sdf_f_grid, sdf_f_origin, sdf_f_spacing, world_p)
+    d_p_in_f = sdf_lookup(
+        sdf_f_grid, sdf_f_origin, sdf_f_spacing, world_surface_p,
+    )
 
     local_f_in_p = (surface_f - t_p) @ R_p
     d_f_in_p = sdf_lookup(sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p)
