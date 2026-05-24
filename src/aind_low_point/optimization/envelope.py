@@ -225,8 +225,8 @@ def _mesh_hash(mesh: trimesh.Trimesh) -> str:
 def build_alpha_wrap_envelope(
     mesh: trimesh.Trimesh,
     *,
-    alpha_mm: float = 0.5,
-    offset_mm: float = 0.4,
+    alpha_mm: float = 0.2,
+    offset_mm: float = 0.15,
     strip_shanks_first: bool = True,
     use_cache: bool = True,
 ) -> trimesh.Trimesh:

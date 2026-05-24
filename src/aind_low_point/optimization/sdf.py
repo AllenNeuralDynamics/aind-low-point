@@ -228,8 +228,8 @@ def build_probe_sdf(
 def build_probe_sdf_from_alpha_wrap(
     raw_mesh: trimesh.Trimesh,
     *,
-    alpha_mm: float = 0.5,
-    offset_mm: float = 0.4,
+    alpha_mm: float = 0.2,
+    offset_mm: float = 0.15,
     spacing_mm: float = DEFAULT_SPACING_MM,
     pad_mm: float = DEFAULT_PAD_MM,
     n_surface_points: int = 5000,
