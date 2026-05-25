@@ -69,6 +69,59 @@ BINS = [
 ]
 
 
+# Bins for ranking by offset-polish fn (the fixture-aware fixability signal
+# from augment_polish_with_offsets.py).
+OFFSET_FN_BINS = [
+    ("very_fixable",  -float("inf"),  0.0),
+    ("fixable",        0.0,         100.0),
+    ("borderline",   100.0,       1_000.0),
+    ("hard",       1_000.0,      10_000.0),
+    ("doomed",    10_000.0,     float("inf")),
+]
+
+
+# Bins for the violation-only signal from eval_violation_at_augmented.py
+# (cleaner than the full Phase 1 fn — no coverage / margin reward bias).
+VIOLATION_FN_BINS = [
+    ("clean",       0.0,       10.0),       # essentially no violation
+    ("light",      10.0,      100.0),       # small violations
+    ("moderate",  100.0,    1_000.0),       # noticeable
+    ("hard",    1_000.0,   10_000.0),       # large
+    ("doomed", 10_000.0,  float("inf")),    # catastrophic
+]
+
+
+def offset_fn_sample(offset_fn_arr, rng, n_per_bin):
+    out = {}
+    for name, lo, hi in OFFSET_FN_BINS:
+        bucket = [
+            i for i, v in enumerate(offset_fn_arr)
+            if not np.isnan(v) and lo < float(v) <= hi
+            or (lo == -float("inf") and float(v) <= hi)
+        ]
+        if not bucket:
+            out[name] = []
+            continue
+        k = min(n_per_bin, len(bucket))
+        out[name] = rng.choice(bucket, size=k, replace=False).tolist()
+    return out
+
+
+def violation_fn_sample(violation_fn_arr, rng, n_per_bin):
+    out = {}
+    for name, lo, hi in VIOLATION_FN_BINS:
+        bucket = [
+            i for i, v in enumerate(violation_fn_arr)
+            if not np.isnan(v) and lo <= float(v) < hi
+        ]
+        if not bucket:
+            out[name] = []
+            continue
+        k = min(n_per_bin, len(bucket))
+        out[name] = rng.choice(bucket, size=k, replace=False).tolist()
+    return out
+
+
 @dataclass
 class CandResult:
     cand_idx: int
@@ -119,8 +172,18 @@ def main() -> int:
     p.add_argument("--rank-by-offset-fn", action="store_true",
                    help="Sample top-N by augmented offset_polish_fn "
                         "(if available in pkl) instead of mv bins.")
+    p.add_argument("--rank-by-violation-fn", action="store_true",
+                   help="Sample top-N by violation_fn (cleaner signal — "
+                        "no coverage bias). Requires "
+                        "eval_violation_at_augmented.py output.")
     p.add_argument("--top-n", type=int, default=15,
                    help="With --rank-by-offset-fn, number of cands to pick.")
+    p.add_argument("--stratify-by-offset-fn", action="store_true",
+                   help="Stratified sample across offset_polish_fn bins "
+                        "(requires augmented pkl).")
+    p.add_argument("--stratify-by-violation-fn", action="store_true",
+                   help="Stratified sample across violation_fn bins "
+                        "(requires eval_violation_at_augmented.py output).")
     args = p.parse_args()
 
     print("Loading config + building probes / SDFs / fixtures...", flush=True)
@@ -166,7 +229,20 @@ def main() -> int:
               f"({int(np.sum(np.array(offset_fn) < 200))} cands < 200, "
               f"{int(np.sum(np.array(offset_fn) < 1000))} < 1000)")
 
-    if args.rank_by_offset_fn:
+    if args.rank_by_violation_fn:
+        viol = data.get("violation_fn")
+        if viol is None:
+            raise SystemExit("--rank-by-violation-fn requires "
+                             "eval_violation_at_augmented.py output")
+        order = np.argsort(np.asarray(viol))
+        idxs_flat = order[: args.top_n].tolist()
+        picks = {"top_by_violation_fn": idxs_flat}
+        print(f"Top {args.top_n} cands by violation_fn:")
+        for i in idxs_flat[:15]:
+            print(f"  cand#{int(i):<5} viol_fn={float(viol[int(i)]):.2f}")
+        if args.top_n > 15:
+            print(f"  ... (showing first 15 of {args.top_n})")
+    elif args.rank_by_offset_fn:
         if not have_augmented:
             raise SystemExit("--rank-by-offset-fn requires an augmented pkl")
         order = np.argsort(np.asarray(offset_fn))
@@ -175,6 +251,30 @@ def main() -> int:
         print(f"Top {args.top_n} cands by offset_polish_fn:")
         for i in idxs_flat:
             print(f"  cand#{int(i):<5} fn={float(offset_fn[int(i)]):+.2f}")
+    elif args.stratify_by_violation_fn:
+        viol = data.get("violation_fn")
+        if viol is None:
+            raise SystemExit("--stratify-by-violation-fn requires "
+                             "eval_violation_at_augmented.py output")
+        rng = np.random.default_rng(args.seed)
+        picks = violation_fn_sample(np.asarray(viol), rng, args.n_per_bin)
+        total = sum(len(idxs) for idxs in picks.values())
+        print(f"Sampled {total} cands across {len(VIOLATION_FN_BINS)} "
+              f"violation_fn bins:")
+        for name, idxs in picks.items():
+            vs = [f"{float(viol[int(i)]):.1f}" for i in idxs]
+            print(f"  {name:<10}: {len(idxs):>2}  cands={[int(i) for i in idxs]}  viol={vs}")
+    elif args.stratify_by_offset_fn:
+        if not have_augmented:
+            raise SystemExit("--stratify-by-offset-fn requires augmented pkl")
+        rng = np.random.default_rng(args.seed)
+        picks = offset_fn_sample(np.asarray(offset_fn), rng, args.n_per_bin)
+        total = sum(len(idxs) for idxs in picks.values())
+        print(f"Sampled {total} cands across {len(OFFSET_FN_BINS)} "
+              f"offset_polish_fn bins:")
+        for name, idxs in picks.items():
+            fns = [f"{float(offset_fn[int(i)]):+.1f}" for i in idxs]
+            print(f"  {name:<13}: {len(idxs):>2}  cands={[int(i) for i in idxs]}  fn={fns}")
     else:
         rng = np.random.default_rng(args.seed)
         picks = stratified_sample(data["results"], rng, args.n_per_bin)

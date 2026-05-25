@@ -82,6 +82,11 @@ def main() -> int:
                    help="Auto-chunk reserves this fraction of TOTAL VRAM as "
                         "headroom (default 0.2 = 20%%). Only used when "
                         "--spin-restore-chunk=auto.")
+    p.add_argument("--skip-augment", action="store_true",
+                   help="Skip the post-polish offset-augment + violation-eval "
+                        "steps. By default these run and produce a pkl with "
+                        "``augmented_phase1_x`` + ``violation_fn`` that Stage "
+                        "3 chains can consume directly.")
     args = p.parse_args()
 
     t_total0 = time.perf_counter()
@@ -257,6 +262,28 @@ def main() -> int:
               f"sum_viol²={manual_jc.metrics.sum_violation_sq:.4f} "
               f"coverage={manual_jc.metrics.approximate_coverage:.4f} "
               f"→ post-polish lex-rank #{manual_rank_post}")
+
+    # ------- Augment + violation eval (production Stage 2 → Stage 3 bridge) -------
+    if not args.skip_augment:
+        import subprocess
+        import sys
+        print()
+        print("=" * 70)
+        print("Augmenting with offset polish + violation eval")
+        print("=" * 70)
+        subprocess.run([
+            sys.executable, "-u", "-m", "scripts.augment_polish_with_offsets",
+            str(args.config), str(args.holes),
+            "--in-pkl", str(args.output),
+            "--out-pkl", str(args.output),
+            "--n-workers", str(args.n_workers),
+        ], check=True)
+        subprocess.run([
+            sys.executable, "-u", "-m", "scripts.eval_violation_at_augmented",
+            str(args.config), str(args.holes),
+            "--in-pkl", str(args.output),
+            "--n-workers", str(args.n_workers),
+        ], check=True)
 
     print()
     print(f"Total wall: {time.perf_counter() - t_total0:.1f}s")
