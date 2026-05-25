@@ -58,10 +58,10 @@ from aind_low_point.optimization.joint_rerank_jax import (
     threading_g_matrix,
 )
 from aind_low_point.optimization.sdf_jax import (
-    body_body_pair_clearance,
-    body_shank_corners_pair_clearance,
-    shank_only_pair_clearance,
-    pairwise_signed_clearance_probe_fixture_body_world,
+    FIXTURE_PAIR_SLACK_GAINS,
+    PROBE_PAIR_SLACK_GAINS,
+    dual_rep_fixture_clearance,
+    dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -430,60 +430,53 @@ def _build_jit(
         j_clear = jnp.float32(0.0)
         pair_hard_clearances = []
         for ia, ib in sdf_pair_list:
-            hbb, sbb = body_body_pair_clearance(
+            pc = dual_rep_pair_clearance(
                 Rs[ia], ts[ia], Rs[ib], ts[ib],
                 sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                 sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 world_surfaces[ia], world_surfaces[ib],
-                beta=beta, top_k=tk_bb,
-            )
-            hbs_corners, sbs_corners = body_shank_corners_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 shank_obb_centers[ia], shank_obb_halves[ia],
                 shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k=tk_bs,
+                beta=beta,
+                top_k_body_body=tk_bb,
+                top_k_body_shank=tk_bs,
+                top_k_shank_shank=tk_ss,
             )
-            (hbs_obb, sbs_obb), (hss, sss) = shank_only_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k_body_shank=tk_bs, top_k_shank_shank=tk_ss,
+            softs = (
+                pc.body_body[1], pc.body_shank_corners[1],
+                pc.body_shank_obb[1], pc.shank_shank[1],
             )
-            for d_soft in (sbb, sbs_corners, sbs_obb, sss):
-                short = jnp.maximum(0.0, min_clear - d_soft)
+            for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
+                short = jnp.maximum(0.0, min_clear - d_soft) * gain
                 j_clear = j_clear + short * short
             # Margin uses the worst hard category clearance per pair.
-            hbs = jnp.minimum(hbs_corners, hbs_obb)
-            pair_hard_clearances.append(jnp.minimum(jnp.minimum(hbb, hbs), hss))
+            hards = (
+                pc.body_body[0], pc.body_shank_corners[0],
+                pc.body_shank_obb[0], pc.shank_shank[0],
+            )
+            pair_hard_clearances.append(jnp.min(jnp.stack(hards)))
 
-        # Probe-vs-fixture body clearance + margin reward.
-        # Fixtures are static-in-world; each contributes one clearance
-        # per probe. We use the same τ_clear / λ_margin form as
-        # probe-probe so the margin reward is comparable across pairs.
+        # Probe-vs-fixture clearance: dual-rep (body + OBB).
         j_clear_fixture = jnp.float32(0.0)
         fixture_hard_clearances: list[jnp.ndarray] = []
         if fixtures:
-            # Use the hoisted world-frame variant — reuses the
-            # ``world_surfaces[i]`` precompute (same one body-body
-            # uses) instead of redoing ``surface @ R.T + t`` per
-            # (probe, fixture) pair.
             for fx in fixtures:
                 for i in range(n_probes):
                     if has_sdf and per_probe_sdf_shapes[i] is None:
                         continue
-                    h, s = pairwise_signed_clearance_probe_fixture_body_world(
+                    fc = dual_rep_fixture_clearance(
                         Rs[i], ts[i],
                         sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                         fx.grid, fx.origin, fx.spacing,
                         world_surfaces[i], fx.surface,
-                        beta=beta, top_k=tk_bb,
+                        shank_obb_centers[i], shank_obb_halves[i],
+                        beta=beta, top_k_body=tk_bb, top_k_obb=tk_bs,
                     )
-                    short = jnp.maximum(0.0, min_clear - s)
-                    j_clear_fixture = j_clear_fixture + short * short
-                    fixture_hard_clearances.append(h)
+                    softs = (fc.body[1], fc.obb[1])
+                    for d_soft, gain in zip(softs, FIXTURE_PAIR_SLACK_GAINS):
+                        short = jnp.maximum(0.0, min_clear - d_soft) * gain
+                        j_clear_fixture = j_clear_fixture + short * short
+                    fixture_hard_clearances.append(jnp.minimum(fc.body[0], fc.obb[0]))
 
         # Saturating per-pair clearance margin reward (mean form). Combines
         # probe-probe and probe-fixture clearances under one mean so the

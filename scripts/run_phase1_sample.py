@@ -455,8 +455,8 @@ def main() -> int:
 
         t0 = time.time()
         res = minimize(
-            fun, x0, jac=jac, method="SLSQP", bounds=bounds,
-            options=dict(maxiter=args.slsqp_max_iter, ftol=1e-4),
+            fun, x0, jac=jac, method="L-BFGS-B", bounds=bounds,
+            options=dict(maxiter=args.slsqp_max_iter, ftol=1e-4, gtol=1e-5),
         )
         wall = time.time() - t0
 

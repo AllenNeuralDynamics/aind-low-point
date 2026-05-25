@@ -1079,16 +1079,17 @@ def _slsqp_reduced(
 
         fn, jac = make_jax_reduced_objective(statics, n_arcs, weights)
         try:
-            # ftol=1e-4 (was 1e-6): the reduced reranker only needs to
-            # rank-order candidates, not polish to machine precision.
-            # Tighter ftol burns SLSQP iters on convergence we don't use.
+            # Bounds-only soft-penalty objective → L-BFGS-B (proper
+            # limited-memory BFGS with no wasted QP subproblem; SLSQP
+            # was hitting maxiter on this without converging).
             result = minimize(
                 fn,
                 y0,
-                method="SLSQP",
+                method="L-BFGS-B",
                 jac=jac,
                 bounds=bounds,
-                options={"maxiter": max_iter, "ftol": 1e-4, "disp": False},
+                options={"maxiter": max_iter, "ftol": 1e-4, "gtol": 1e-5,
+                         "disp": False},
             )
         except Exception:
             return y0, float("inf")
@@ -1103,9 +1104,10 @@ def _slsqp_reduced(
         result = minimize(
             fn,
             y0,
-            method="SLSQP",
+            method="L-BFGS-B",
             bounds=bounds,
-            options={"maxiter": max_iter, "ftol": 1e-6, "disp": False},
+            options={"maxiter": max_iter, "ftol": 1e-6, "gtol": 1e-5,
+                     "disp": False},
         )
     except Exception:
         return y0, float("inf")

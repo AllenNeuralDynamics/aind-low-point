@@ -47,8 +47,7 @@ from aind_low_point.optimization.stage3_phase2_jax import (
     Phase2Weights,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import (
-    make_phase3,
-    Phase3Weights,
+    make_fcl_validator,
 )
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.runtime import build_runtime_from_config
@@ -116,8 +115,8 @@ def main() -> int:
     x0 = reduced_to_phase1(jc.reduced_y, n_arcs, P)
     print(f"\n[Phase 1] fn0={float(p1_fun(x0)):.2f}")
     res1 = minimize(
-        p1_fun, x0, jac=p1_jac, method="SLSQP", bounds=bounds,
-        options=dict(maxiter=args.phase1_iter, ftol=1e-5),
+        p1_fun, x0, jac=p1_jac, method="L-BFGS-B", bounds=bounds,
+        options=dict(maxiter=args.phase1_iter, ftol=1e-5, gtol=1e-5),
     )
     x1 = np.asarray(res1.x, dtype=np.float64)
     print(f"[Phase 1] fn={res1.fun:.2f}, iter={res1.nit}, success={res1.success}")
@@ -172,51 +171,22 @@ def main() -> int:
         mesh = runtime.asset_catalog.get_geometry(f.name).raw
         fixture_bvhs[f.name] = make_fcl_bvh(mesh)
 
-    p3 = make_phase3(
+    # Phase 3 retired 2026-05-24: FCL is a validator, not an optimiser.
+    validator = make_fcl_validator(
         statics, n_arcs,
-        coverage_data=coverage_data, fixtures=fixtures,
-        fixture_bvhs=fixture_bvhs, weights=Phase3Weights(),
+        fixtures=fixtures, fixture_bvhs=fixture_bvhs,
     )
-    print(f"[Phase 3] n_fcl_pair={p3['n_fcl_pair']}, "
-          f"n_fcl_fixture_pair={p3['n_fcl_fixture_pair']}, "
-          f"n_constraint_dicts={len(p3['constraints'])}")
-
-    # Pre-call diagnostics
-    obj_p3_start = float(p3["fun"](x2))
-    analytic_s = p3["constraints"][0]["fun"](x2)
-    print(f"[Phase 3] obj at x2 (Phase 2 endpoint): {obj_p3_start:.4f}")
-    print(f"          analytic slacks: min={analytic_s.min():+.4f}, "
-          f"n_violating={int(np.sum(analytic_s < 0))}/{len(analytic_s)}")
-    if len(p3["constraints"]) > 1:
-        fcl_s = p3["constraints"][1]["fun"](x2)
-        print(f"          FCL slacks: min={fcl_s.min():+.4f}, "
-              f"n_violating={int(np.sum(fcl_s < 0))}/{len(fcl_s)}")
-
-    import time
-    t0 = time.time()
-    res3 = minimize(
-        p3["fun"], x2, jac=p3["jac"], method="SLSQP",
-        bounds=bounds, constraints=p3["constraints"],
-        options=dict(maxiter=args.phase3_iter, ftol=1e-6),
-    )
-    t_p3 = time.time() - t0
-    x3 = np.asarray(res3.x, dtype=np.float64)
-    obj_p3_end = float(p3["fun"](x3))
-    analytic_end = p3["constraints"][0]["fun"](x3)
-    print(f"[Phase 3] fn={obj_p3_end:.4f}, iter={res3.nit}, "
-          f"success={res3.success}, status={res3.status}, wall={t_p3:.1f}s")
-    print(f"          message: {res3.message}")
-    print(f"[Phase 3] analytic slacks: min={analytic_end.min():+.4f}, "
-          f"n_violating={int(np.sum(analytic_end < 0))}/{len(analytic_end)}")
-    if len(p3["constraints"]) > 1:
-        fcl_end = p3["constraints"][1]["fun"](x3)
-        print(f"          FCL slacks: min={fcl_end.min():+.4f}, "
-              f"n_violating={int(np.sum(fcl_end < 0))}/{len(fcl_end)}")
-        if fcl_end.min() >= -1e-4:
-            print("[Phase 3 verdict] FCL-feasible.")
-        else:
-            print(f"[Phase 3 verdict] {int(np.sum(fcl_end < 0))} FCL "
-                  f"violations (min {fcl_end.min():+.4f}).")
+    print(f"[FCL validator] n_pairs={len(validator.pair_names)}")
+    fcl_s = validator.slacks(x2)
+    print(f"          FCL slacks at x2: min={fcl_s.min():+.4f}, "
+          f"n_violating={int(np.sum(fcl_s < 0))}/{len(fcl_s)}")
+    if fcl_s.min() >= -1e-4:
+        print("[FCL verdict] FCL-feasible at Phase 2 exit.")
+    else:
+        print(f"[FCL verdict] {int(np.sum(fcl_s < 0))} FCL violations "
+              f"(min {fcl_s.min():+.4f}).")
+        for name, slack in validator.violating_pairs(x2):
+            print(f"            {name}: {slack:+.4f}")
 
     return 0
 

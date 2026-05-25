@@ -18,12 +18,46 @@ w.r.t. the optimizer's variables; no finite-diff needed.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 # RAS → LPS sign flip applied to a (3, 3) rotation: R_lps = D R_ras D.
 _D_RAS_TO_LPS = jnp.diag(jnp.array([-1.0, -1.0, 1.0]))
+
+
+# Per-category gains on clearance violation magnitudes. After the
+# 2026-05-24 cleanup, every category that uses analytic OBB SDF /
+# OBB-OBB SAT shares one bounded-magnitude scaling. Voxel-SDF
+# categories stay at 1.0 because their magnitudes are already mm-scale.
+#
+# Categories in use:
+#   probe-probe
+#     - body-body voxel-SDF top-k        (mm-native)
+#     - body-shank OBB direction (SAT)   (thickness-bounded ≈ 0.024 mm)
+#     - shank-shank OBB SAT              (thickness-bounded)
+#   probe-fixture
+#     - body voxel-SDF vs fixture        (mm-native)
+#     - probe OBB vs fixture surface     (thickness-bounded)
+#
+# Why the gain: in a KKT solver Lagrange multipliers track constraint
+# magnitudes; a small-magnitude constraint gets a small multiplier and
+# the optimiser under-prioritises it. Shank crossings / OBB violations
+# are physically more severe than equally-deep body-body grazing
+# (probes can't be inserted) so we boost their KKT weight to keep them
+# competitive with body-body in the merit function.
+#
+# Apply the gain to the violation magnitude (penalty form) or directly
+# to the signed slack (constraint form), before any squaring — so
+# first-order gradient contributions scale linearly with the gain.
+SLACK_GAIN_BODY_BODY = 1.0
+SLACK_GAIN_BODY_SHANK_CORNERS = 1.0   # voxel-SDF lookup → mm-native magnitude
+SLACK_GAIN_BODY_SHANK_OBB = 100.0
+SLACK_GAIN_SHANK_SHANK = 100.0
+SLACK_GAIN_FIXTURE_BODY = 1.0
+SLACK_GAIN_FIXTURE_OBB = 100.0
 
 
 def _rot_x(angle_rad: Array) -> Array:
@@ -424,6 +458,47 @@ def pairwise_signed_clearance_probe_fixture_body(
         world_surface_p, surface_f,
         beta=beta, top_k=top_k, interp=interp,
     )
+
+
+def pairwise_signed_clearance_probe_obb_fixture_world(
+    R_p: Array, t_p: Array,
+    fixture_surface_world: Array,  # (Nf, 3) fixture envelope samples in world LPS
+    shank_centers: Array,          # (S, 3) probe OBB centers in probe local
+    shank_halves: Array,           # (S, 3) probe OBB half-extents
+    *,
+    beta: float = 20.0,
+    top_k: int = 8,
+) -> tuple[Array, Array]:
+    """Probe-OBB vs fixture clearance via fixture surface samples →
+    probe OBB analytic SDF.
+
+    Symmetric counterpart to the body-shank-OBB direction in
+    :func:`shank_only_pair_clearance`: dense surface samples on one
+    side + analytic OBB SDF on the other. Catches probe shank /
+    transition-zone OBB vs fixture geometry (e.g. probe body-bottom
+    grazing the well bore rim — invisible to the body-vs-fixture-body
+    SDF check because the body α-wrap closing cap under-inflates at
+    the shank-strip boundary).
+
+    Returns ``(hard_min, soft_min)`` over the pool of all
+    (fixture_point, probe_OBB) signed distances. Negative ⇒ at least
+    one fixture surface point lies inside the probe OBB.
+    """
+    S = shank_centers.shape[0]
+    if S == 0:
+        return (
+            jnp.float32(1e3),
+            jnp.float32(1e3),
+        )
+    # For each probe OBB, signed distance of each fixture surface point
+    # to that OBB. Shape: (S, Nf).
+    d_obbs = jax.vmap(
+        lambda c, h: _obb_sdf_world_to_local(
+            fixture_surface_world, R_p, t_p, c, h
+        )
+    )(shank_centers, shank_halves)
+    pool = d_obbs.reshape(-1)
+    return _hard_soft(pool, beta=beta, top_k=top_k)
 
 
 def pairwise_signed_clearance_probe_fixture_body_world(
@@ -836,6 +911,149 @@ def body_body_pair_clearance(
     )
     pool = jnp.concatenate([d_b_in_a.reshape(-1), d_a_in_b.reshape(-1)])
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+
+
+# ---------------------------------------------------------------------------
+# Dual-rep aggregator helpers (Stage 2 / Phase 1 / Phase 2 / Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class PairClearance(NamedTuple):
+    """Dual-rep clearance between two probes, all four categories.
+
+    Each field is ``(hard_min, soft_min_topk)`` of that category's
+    signed-distance pool. Positive ⇒ clear by that distance; negative
+    ⇒ penetration. Soft is the smooth surrogate used in objective /
+    constraint slack form; hard is the exact min used for the
+    saturating-margin reward.
+    """
+
+    body_body: tuple[Array, Array]            # voxel-SDF, mm-native
+    body_shank_corners: tuple[Array, Array]   # shank OBB corners → voxel SDF
+    body_shank_obb: tuple[Array, Array]       # body samples → shank OBB SDF
+    shank_shank: tuple[Array, Array]          # OBB-OBB exact SAT
+
+
+class FixtureClearance(NamedTuple):
+    """Dual-rep clearance between one probe and one fixture.
+
+    Each field is ``(hard_min, soft_min_topk)``.
+    """
+
+    body: tuple[Array, Array]  # body voxel-SDF vs fixture surface samples
+    obb: tuple[Array, Array]   # probe OBBs SDF vs fixture surface samples
+
+
+# Per-category gains, ordered to match the NamedTuple fields. Sites
+# that scale slacks by per-category importance (Stage 2 penalty,
+# Phase 1 penalty, Phase 2 constraint, etc.) can ``zip`` over
+# ``pc.softs`` and the appropriate gain tuple without re-inlining the
+# constant list.
+PROBE_PAIR_SLACK_GAINS = (
+    SLACK_GAIN_BODY_BODY,
+    SLACK_GAIN_BODY_SHANK_CORNERS,
+    SLACK_GAIN_BODY_SHANK_OBB,
+    SLACK_GAIN_SHANK_SHANK,
+)
+
+FIXTURE_PAIR_SLACK_GAINS = (
+    SLACK_GAIN_FIXTURE_BODY,
+    SLACK_GAIN_FIXTURE_OBB,
+)
+
+
+def dual_rep_pair_clearance(
+    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
+    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    world_surface_a: Array,
+    world_surface_b: Array,
+    shank_centers_a: Array, shank_halves_a: Array,
+    shank_centers_b: Array, shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k_body_body: int = 16,
+    top_k_body_shank: int = 8,
+    top_k_shank_shank: int = 8,
+    interp: str = "trilinear",
+) -> PairClearance:
+    """All four dual-rep probe-pair clearance categories in one call.
+
+    Equivalent to invoking :func:`body_body_pair_clearance`,
+    :func:`body_shank_corners_pair_clearance`, and
+    :func:`shank_only_pair_clearance` separately and packing the
+    results. JAX-traceable, no behavioural change vs the inline
+    pattern previously duplicated across Stage 2 / Phase 1 / Phase 2 /
+    Phase 3 — purely a packaging convenience that gives every site one
+    source of truth for "what counts as dual-rep probe-pair clearance".
+    """
+    body_body = body_body_pair_clearance(
+        R_a, t_a, R_b, t_b,
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
+        world_surface_a, world_surface_b,
+        beta=beta, top_k=top_k_body_body, interp=interp,
+    )
+    body_shank_corners = body_shank_corners_pair_clearance(
+        R_a, t_a, R_b, t_b,
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
+        shank_centers_a, shank_halves_a,
+        shank_centers_b, shank_halves_b,
+        beta=beta, top_k=top_k_body_shank, interp=interp,
+    )
+    body_shank_obb, shank_shank = shank_only_pair_clearance(
+        R_a, t_a, R_b, t_b,
+        world_surface_a, world_surface_b,
+        shank_centers_a, shank_halves_a,
+        shank_centers_b, shank_halves_b,
+        beta=beta,
+        top_k_body_shank=top_k_body_shank,
+        top_k_shank_shank=top_k_shank_shank,
+    )
+    return PairClearance(
+        body_body=body_body,
+        body_shank_corners=body_shank_corners,
+        body_shank_obb=body_shank_obb,
+        shank_shank=shank_shank,
+    )
+
+
+def dual_rep_fixture_clearance(
+    R_p: Array, t_p: Array,
+    sdf_p_grid: Array, sdf_p_origin: Array, sdf_p_spacing: Array,
+    fx_grid: Array, fx_origin: Array, fx_spacing: Array,
+    world_surface_p: Array,
+    fx_surface: Array,
+    shank_centers: Array, shank_halves: Array,
+    *,
+    beta: float = 20.0,
+    top_k_body: int = 16,
+    top_k_obb: int = 8,
+    interp: str = "trilinear",
+) -> FixtureClearance:
+    """Both probe-fixture clearance categories in one call.
+
+    Categories: probe body voxel-SDF vs fixture surface samples; probe
+    OBB analytic SDF vs fixture surface samples. The OBB direction
+    catches probe shank / transition-zone contact with fixture
+    surfaces (well-bore-rim grazing) that the body voxel direction
+    misses at the α-wrap closing cap.
+    """
+    body = pairwise_signed_clearance_probe_fixture_body_world(
+        R_p, t_p,
+        sdf_p_grid, sdf_p_origin, sdf_p_spacing,
+        fx_grid, fx_origin, fx_spacing,
+        world_surface_p, fx_surface,
+        beta=beta, top_k=top_k_body, interp=interp,
+    )
+    obb = pairwise_signed_clearance_probe_obb_fixture_world(
+        R_p, t_p,
+        fx_surface,
+        shank_centers, shank_halves,
+        beta=beta, top_k=top_k_obb,
+    )
+    return FixtureClearance(body=body, obb=obb)
 
 
 def pairwise_signed_clearance_dual(

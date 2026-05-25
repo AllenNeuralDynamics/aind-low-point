@@ -48,10 +48,9 @@ except Exception:
     pass
 
 from aind_low_point.optimization.sdf_jax import (
-    body_body_pair_clearance,
-    body_shank_corners_pair_clearance,
+    PROBE_PAIR_SLACK_GAINS,
+    dual_rep_pair_clearance,
     pose_from_optimizer_vars,
-    shank_only_pair_clearance,
     smooth_abs,
     spin_deg_from_sxy,
 )
@@ -330,27 +329,20 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # can vmap each independently.
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
-            _hbb, sbb = body_body_pair_clearance(
+            pc = dual_rep_pair_clearance(
                 Rs[ia], ts[ia], Rs[ib], ts[ib],
                 sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                 sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 world_surfaces[ia], world_surfaces[ib],
-            )
-            _hbs_corners, sbs_corners = body_shank_corners_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 shank_obb_centers[ia], shank_obb_halves[ia],
                 shank_obb_centers[ib], shank_obb_halves[ib],
             )
-            (_hbs_obb, sbs_obb), (_hss, sss) = shank_only_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
+            softs = (
+                pc.body_body[1], pc.body_shank_corners[1],
+                pc.body_shank_obb[1], pc.shank_shank[1],
             )
-            for d_soft in (sbb, sbs_corners, sbs_obb, sss):
-                short = jnp.maximum(0.0, min_clearance - d_soft)
+            for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
+                short = jnp.maximum(0.0, min_clearance - d_soft) * gain
                 j_clear = j_clear + short * short
 
         return (

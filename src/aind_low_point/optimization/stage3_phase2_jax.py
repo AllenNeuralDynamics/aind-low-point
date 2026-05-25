@@ -42,10 +42,10 @@ from aind_low_point.optimization.joint_rerank_jax import (
     threading_g_matrix,
 )
 from aind_low_point.optimization.sdf_jax import (
-    body_body_pair_clearance,
-    body_shank_corners_pair_clearance,
-    shank_only_pair_clearance,
-    pairwise_signed_clearance_probe_fixture_body_world,
+    FIXTURE_PAIR_SLACK_GAINS,
+    PROBE_PAIR_SLACK_GAINS,
+    dual_rep_fixture_clearance,
+    dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -277,44 +277,38 @@ def _build_jit(
         ]
         pair_hard_clearances: list[jnp.ndarray] = []
         for ia, ib in sdf_pair_list:
-            hbb, _ = body_body_pair_clearance(
+            pc = dual_rep_pair_clearance(
                 Rs[ia], ts[ia], Rs[ib], ts[ib],
                 sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                 sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 world_surfaces[ia], world_surfaces[ib],
-                beta=beta, top_k=tk_bb,
-            )
-            hbs_corners, _ = body_shank_corners_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 shank_obb_centers[ia], shank_obb_halves[ia],
                 shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k=tk_bs,
+                beta=beta,
+                top_k_body_body=tk_bb,
+                top_k_body_shank=tk_bs,
+                top_k_shank_shank=tk_ss,
             )
-            (hbs_obb, _), (hss, _) = shank_only_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k_body_shank=tk_bs, top_k_shank_shank=tk_ss,
-            )
-            hbs = jnp.minimum(hbs_corners, hbs_obb)
-            pair_hard_clearances.append(jnp.minimum(jnp.minimum(hbb, hbs), hss))
+            hards = jnp.stack([
+                pc.body_body[0], pc.body_shank_corners[0],
+                pc.body_shank_obb[0], pc.shank_shank[0],
+            ])
+            pair_hard_clearances.append(jnp.min(hards))
 
         fixture_hard_clearances: list[jnp.ndarray] = []
         for fx in fixtures:
             for i in range(n_probes):
                 if has_sdf and sdf_shapes[i] is None:
                     continue
-                h, _ = pairwise_signed_clearance_probe_fixture_body_world(
+                fc = dual_rep_fixture_clearance(
                     Rs[i], ts[i],
                     sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                     fx.grid, fx.origin, fx.spacing,
                     world_surfaces[i], fx.surface,
-                    beta=beta, top_k=tk_bb,
+                    shank_obb_centers[i], shank_obb_halves[i],
+                    beta=beta, top_k_body=tk_bb, top_k_obb=tk_bs,
                 )
-                fixture_hard_clearances.append(h)
+                fixture_hard_clearances.append(jnp.minimum(fc.body[0], fc.obb[0]))
 
         all_clears = pair_hard_clearances + fixture_hard_clearances
         reward_clear = (
@@ -372,48 +366,47 @@ def _build_jit(
         ]
         clear_pp_slacks: list[jnp.ndarray] = []
         for ia, ib in sdf_pair_list:
-            _, sbb = body_body_pair_clearance(
+            pc = dual_rep_pair_clearance(
                 Rs[ia], ts[ia], Rs[ib], ts[ib],
                 sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
                 sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 world_surfaces[ia], world_surfaces[ib],
-                beta=beta, top_k=tk_bb,
-            )
-            _, sbs_corners = body_shank_corners_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
                 shank_obb_centers[ia], shank_obb_halves[ia],
                 shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k=tk_bs,
+                beta=beta,
+                top_k_body_body=tk_bb,
+                top_k_body_shank=tk_bs,
+                top_k_shank_shank=tk_ss,
             )
-            (_, sbs_obb), (_, sss) = shank_only_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
-                beta=beta, top_k_body_shank=tk_bs, top_k_shank_shank=tk_ss,
+            softs = (
+                pc.body_body[1], pc.body_shank_corners[1],
+                pc.body_shank_obb[1], pc.shank_shank[1],
             )
-            for d_soft in (sbb, sbs_corners, sbs_obb, sss):
-                clear_pp_slacks.append(d_soft - min_clear)
+            for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
+                clear_pp_slacks.append((d_soft - min_clear) * gain)
         clear_pp_vec = (
             jnp.stack(clear_pp_slacks) if clear_pp_slacks else jnp.zeros(0)
         )
 
-        # Clearance probe-fixture (body): d_soft − min_clear.
+        # Probe-fixture clearance: dual-rep (body voxel-SDF + probe-OBB
+        # vs fixture surface samples). See PairClearance / FixtureClearance
+        # in sdf_jax.py for category definitions.
         clear_pf_slacks: list[jnp.ndarray] = []
         for fx in fixtures:
             for i in range(n_probes):
                 if has_sdf and sdf_shapes[i] is None:
                     continue
-                _, s = pairwise_signed_clearance_probe_fixture_body_world(
+                fc = dual_rep_fixture_clearance(
                     Rs[i], ts[i],
                     sdf_grids[i], sdf_origins[i], sdf_spacings[i],
                     fx.grid, fx.origin, fx.spacing,
                     world_surfaces[i], fx.surface,
-                    beta=beta, top_k=tk_bb,
+                    shank_obb_centers[i], shank_obb_halves[i],
+                    beta=beta, top_k_body=tk_bb, top_k_obb=tk_bs,
                 )
-                clear_pf_slacks.append(s - min_clear)
+                softs = (fc.body[1], fc.obb[1])
+                for d_soft, gain in zip(softs, FIXTURE_PAIR_SLACK_GAINS):
+                    clear_pf_slacks.append((d_soft - min_clear) * gain)
         clear_pf_vec = (
             jnp.stack(clear_pf_slacks) if clear_pf_slacks else jnp.zeros(0)
         )
@@ -512,6 +505,7 @@ def make_phase2(
     # Probe constraint count via a single call at the lifted x0
     # (caller passes x0 in below for the count; here we just expose
     # the callable).
+    from scipy.optimize import NonlinearConstraint
     return dict(
         fun=fun,
         jac=jac,
@@ -520,4 +514,7 @@ def make_phase2(
             "fun": slacks_fn,
             "jac": slacks_jac,
         }],
+        constraints_nlc=[NonlinearConstraint(
+            fun=slacks_fn, lb=0.0, ub=np.inf, jac=slacks_jac,
+        )],
     )

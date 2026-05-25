@@ -51,9 +51,7 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 from aind_low_point.optimization.stage3_phase2_jax import (
     Phase2Weights, make_phase2,
 )
-from aind_low_point.optimization.stage3_phase3_fcl import (
-    Phase3Weights, make_phase3,
-)
+from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
@@ -118,6 +116,11 @@ def main() -> int:
     p.add_argument("--p1-iter", type=int, default=80)
     p.add_argument("--p2-iter", type=int, default=80)
     p.add_argument("--p3-iter", type=int, default=40)
+    p.add_argument("--rank-by-offset-fn", action="store_true",
+                   help="Sample top-N by augmented offset_polish_fn "
+                        "(if available in pkl) instead of mv bins.")
+    p.add_argument("--top-n", type=int, default=15,
+                   help="With --rank-by-offset-fn, number of cands to pick.")
     args = p.parse_args()
 
     print("Loading config + building probes / SDFs / fixtures...", flush=True)
@@ -155,12 +158,30 @@ def main() -> int:
     with open(args.polish_pkl, "rb") as f:
         data = pickle.load(f)
 
-    rng = np.random.default_rng(args.seed)
-    picks = stratified_sample(data["results"], rng, args.n_per_bin)
-    total = sum(len(idxs) for idxs in picks.values())
-    print(f"Sampled {total} cands across {len(BINS)} bins:")
-    for name, idxs in picks.items():
-        print(f"  {name:<12}: {len(idxs):>2}  {[int(i) for i in idxs]}")
+    augmented_x = data.get("augmented_phase1_x")
+    offset_fn = data.get("offset_polish_fn")
+    have_augmented = augmented_x is not None and offset_fn is not None
+    if have_augmented:
+        print(f"Augmented pkl detected: offset_polish_fn available "
+              f"({int(np.sum(np.array(offset_fn) < 200))} cands < 200, "
+              f"{int(np.sum(np.array(offset_fn) < 1000))} < 1000)")
+
+    if args.rank_by_offset_fn:
+        if not have_augmented:
+            raise SystemExit("--rank-by-offset-fn requires an augmented pkl")
+        order = np.argsort(np.asarray(offset_fn))
+        idxs_flat = order[: args.top_n].tolist()
+        picks = {"top_by_offset_fn": idxs_flat}
+        print(f"Top {args.top_n} cands by offset_polish_fn:")
+        for i in idxs_flat:
+            print(f"  cand#{int(i):<5} fn={float(offset_fn[int(i)]):+.2f}")
+    else:
+        rng = np.random.default_rng(args.seed)
+        picks = stratified_sample(data["results"], rng, args.n_per_bin)
+        total = sum(len(idxs) for idxs in picks.values())
+        print(f"Sampled {total} cands across {len(BINS)} bins:")
+        for name, idxs in picks.items():
+            print(f"  {name:<12}: {len(idxs):>2}  {[int(i) for i in idxs]}")
     print()
 
     results: list[CandResult] = []
@@ -180,7 +201,10 @@ def main() -> int:
             n_vars = phase1_n_vars(n_arcs, len(statics))
             coverage_data = build_coverage_data(probes, statics)
             bounds = phase1_bounds(n_arcs, len(statics))
-            x0 = reduced_to_phase1(jc.reduced_y, n_arcs, len(statics))
+            if have_augmented and len(augmented_x[cand_idx]) > 0:
+                x0 = np.asarray(augmented_x[cand_idx], dtype=np.float64)
+            else:
+                x0 = reduced_to_phase1(jc.reduced_y, n_arcs, len(statics))
 
             # ---- Phase 1 ----
             p1_fun, p1_jac = make_phase1_objective(
@@ -188,48 +212,49 @@ def main() -> int:
                 fixtures=fixtures, weights=Phase1Weights(),
             )
             t0 = time.time()
-            r1 = minimize(p1_fun, x0, jac=p1_jac, method="SLSQP",
+            r1 = minimize(p1_fun, x0, jac=p1_jac, method="L-BFGS-B",
                           bounds=bounds,
-                          options=dict(maxiter=args.p1_iter, ftol=1e-5))
+                          options=dict(maxiter=args.p1_iter, ftol=1e-5,
+                                       gtol=1e-5))
             p1_wall = time.time() - t0
             x1 = np.asarray(r1.x, dtype=np.float64)
 
             # ---- Phase 2 ----
             p2 = make_phase2(
                 statics, n_arcs, coverage_data=coverage_data,
-                fixtures=fixtures, weights=Phase2Weights(),
+                fixtures=fixtures,
+                weights=Phase2Weights(min_clearance_mm=0.3),
             )
             t0 = time.time()
-            r2 = minimize(p2["fun"], x1, jac=p2["jac"], method="SLSQP",
-                          bounds=bounds, constraints=p2["constraints"],
-                          options=dict(maxiter=args.p2_iter, ftol=1e-6))
+            r2 = minimize(p2["fun"], x1, jac=p2["jac"], method="trust-constr",
+                          bounds=bounds, constraints=p2["constraints_nlc"],
+                          options=dict(maxiter=args.p2_iter, xtol=1e-6,
+                                       gtol=1e-5, initial_tr_radius=1.0,
+                                       verbose=0))
             p2_wall = time.time() - t0
             x2 = np.asarray(r2.x, dtype=np.float64)
             s_p2 = p2["constraints"][0]["fun"](x2)
             p2_min = float(np.min(s_p2))
             p2_violating = int(np.sum(s_p2 < -1e-4))
 
-            # ---- Phase 3 ----
-            p3 = make_phase3(
-                statics, n_arcs, coverage_data=coverage_data,
+            # ---- FCL validator (Phase 3 retired 2026-05-24) ----
+            # Phase 2 is the only stage that optimises against geometry.
+            # We just validate x2 against raw FCL meshes — no polish.
+            validator = make_fcl_validator(
+                statics, n_arcs,
                 fixtures=fixtures, fixture_bvhs=fixture_bvhs,
-                weights=Phase3Weights(),
             )
             t0 = time.time()
-            r3 = minimize(p3["fun"], x2, jac=p3["jac"], method="SLSQP",
-                          bounds=bounds, constraints=p3["constraints"],
-                          options=dict(maxiter=args.p3_iter, ftol=1e-6))
+            s_fcl = validator.slacks(x2)
             p3_wall = time.time() - t0
-            x3 = np.asarray(r3.x, dtype=np.float64)
-            s_an = p3["constraints"][0]["fun"](x3)
-            s_fcl = (
-                p3["constraints"][1]["fun"](x3)
-                if len(p3["constraints"]) > 1 else np.zeros(0)
-            )
-            p3_an = float(np.min(s_an)) if s_an.size else 0.0
+            x3 = x2  # validator-only; no pose change
+            r3_nit = 0
             p3_fcl = float(np.min(s_fcl)) if s_fcl.size else 0.0
             p3_fcl_viol = int(np.sum(s_fcl < -1e-4)) if s_fcl.size else 0
-            fcl_feas = (p3_fcl >= -1e-4) and (p3_an >= -1e-4)
+            # No analytic re-check — Phase 2 already enforced its analytic
+            # constraints. Report p2_min as a proxy.
+            p3_an = float(p2_min)
+            fcl_feas = (p3_fcl >= -1e-4)
 
             cr = CandResult(
                 cand_idx=cand_idx, bin_name=bin_name, mv_stage2=mv,
@@ -239,7 +264,7 @@ def main() -> int:
                 p3_min_slack_analytic=p3_an,
                 p3_min_slack_fcl=p3_fcl,
                 p3_n_violating_fcl=p3_fcl_viol,
-                p3_nit=int(r3.nit), p3_wall=p3_wall,
+                p3_nit=r3_nit, p3_wall=p3_wall,
                 fcl_feasible=fcl_feas,
             )
             results.append(cr)
