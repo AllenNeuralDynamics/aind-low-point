@@ -60,6 +60,26 @@ SLACK_GAIN_FIXTURE_BODY = 1.0
 SLACK_GAIN_FIXTURE_OBB = 100.0
 
 
+def unit_circle_penalty(sx: Array, sy: Array) -> Array:
+    """Soft penalty pulling ``(sx, sy)`` toward the unit circle.
+
+    Returns ``sum((sx² + sy² − 1)²)`` across all probes. The Patch B
+    reparameterisation uses ``spin_deg = atan2(sy, sx)`` which only
+    reads the DIRECTION of ``(sx, sy)``; magnitude is geometrically
+    irrelevant but the optimizer can wander away from the unit circle
+    (e.g. toward the origin where ``atan2`` gradients are undefined,
+    or toward the bounds where the (sx, sy) Hessian is poorly
+    conditioned).
+
+    This penalty keeps the magnitude consistent across stages so
+    poses are interchangeable between Stage 2 / Phase 1 / Phase 2 and
+    so any downstream consumer reading ``(sx, sy)`` as a unit vector
+    gets a well-conditioned value.
+    """
+    radii_sq = sx * sx + sy * sy
+    return jnp.sum((radii_sq - 1.0) ** 2)
+
+
 def _rot_x(angle_rad: Array) -> Array:
     c, s = jnp.cos(angle_rad), jnp.sin(angle_rad)
     return jnp.array(

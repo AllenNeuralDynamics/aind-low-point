@@ -53,6 +53,7 @@ from aind_low_point.optimization.sdf_jax import (
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
+    unit_circle_penalty,
 )
 
 MAX_SHANKS_PAD = 4
@@ -196,6 +197,7 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
     lambda_ml = float(weights.lambda_ml)
     lambda_bounds = float(weights.lambda_bounds)
     lambda_clearance = float(weights.lambda_clearance)
+    lambda_unit_circle = float(getattr(weights, "lambda_unit_circle", 100.0))
     min_arc_ap_sep = float(weights.min_arc_ap_sep_deg)
     min_intra_ml_sep = float(weights.min_intra_arc_ml_sep_deg)
     comfortable_ap = float(weights.comfortable_ap_deg)
@@ -345,12 +347,22 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
                 short = jnp.maximum(0.0, min_clearance - d_soft) * gain
                 j_clear = j_clear + short * short
 
+        # Unit-circle pull on (sx, sy): magnitude is geometrically
+        # free under ``spin_deg = atan2(sy, sx)`` but the optimiser
+        # benefits from a consistent unit magnitude across stages.
+        # Stride-3 slice of y after arc_aps gives the (ml, sx, sy)
+        # per-probe block; sx at offset+1, sy at offset+2.
+        sx_arr = y[n_arcs + 1::3][:n_probes]
+        sy_arr = y[n_arcs + 2::3][:n_probes]
+        j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
+
         return (
             lambda_thread * j_thread
             + lambda_arc_ap * j_arc_ap
             + lambda_ml * j_ml
             + lambda_bounds * j_bounds
             + lambda_clearance * j_clear
+            + lambda_unit_circle * j_unit_circle
         )
 
     jit_obj = jax.jit(_objective)

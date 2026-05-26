@@ -26,6 +26,7 @@ from aind_low_point.optimization.sdf_jax import (
     shank_only_pair_clearance,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
+    unit_circle_penalty,
 )
 from aind_low_point.optimization.joint_rerank_jax import smooth_abs
 
@@ -134,6 +135,7 @@ def make_batched_reduced_objective(
     lambda_ml = float(weights.lambda_ml)
     lambda_bounds = float(weights.lambda_bounds)
     lambda_clearance = float(weights.lambda_clearance)
+    lambda_unit_circle = float(getattr(weights, "lambda_unit_circle", 100.0))
     min_arc_ap_sep = float(weights.min_arc_ap_sep_deg)
     min_intra_ml_sep = float(weights.min_intra_arc_ml_sep_deg)
     comfortable_ap = float(weights.comfortable_ap_deg)
@@ -251,12 +253,18 @@ def make_batched_reduced_objective(
                 short = jnp.maximum(0.0, min_clearance - d_soft)
                 j_clear = j_clear + short * short
 
+        # Unit-circle pull on (sx, sy). y stride = 3, sx at off+1.
+        sx_arr = y[n_arcs + 1::3][:K]
+        sy_arr = y[n_arcs + 2::3][:K]
+        j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
+
         return (
             lambda_thread * j_thread
             + lambda_arc_ap * j_arc_ap
             + lambda_ml * j_ml
             + lambda_bounds * j_bounds
             + lambda_clearance * j_clear
+            + lambda_unit_circle * j_unit_circle
         )
 
     # Vmap over batch axis 0; jit the array-only call site so BatchedProbeStatic

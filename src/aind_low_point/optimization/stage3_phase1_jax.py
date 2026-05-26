@@ -65,6 +65,7 @@ from aind_low_point.optimization.sdf_jax import (
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
+    unit_circle_penalty,
 )
 
 
@@ -197,6 +198,9 @@ class Phase1Weights:
     lambda_clearance: float = 100.0
     lambda_kinematic: float = 100.0
     lambda_bounds: float = 1.0
+    # See sdf_jax.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
+    # so poses are consistent across stages.
+    lambda_unit_circle: float = 100.0
 
     # Saturating margin rewards (mean form ⇒ max contribution = λ each).
     lambda_margin_clear: float = 1.0
@@ -327,6 +331,7 @@ def _build_jit(
     lc = float(weights.lambda_clearance)
     lk = float(weights.lambda_kinematic)
     lb = float(weights.lambda_bounds)
+    luc = float(getattr(weights, "lambda_unit_circle", 100.0))
     lmc = float(weights.lambda_margin_clear)
     lmt = float(weights.lambda_margin_thread)
     tau_c = float(weights.tau_clear_mm)
@@ -509,6 +514,12 @@ def _build_jit(
         else:
             coverage_total = jnp.float32(0.0)
 
+        # Unit-circle pull on (sx, sy). x layout is
+        # (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P) — stride 6.
+        sx_arr = x[n_arcs + 1::PHASE1_PER_PROBE_VARS][:n_probes]
+        sy_arr = x[n_arcs + 2::PHASE1_PER_PROBE_VARS][:n_probes]
+        j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
+
         return (
             - coverage_total
             + lt * j_thread
@@ -516,6 +527,7 @@ def _build_jit(
             + float(weights.lambda_clearance_fixture) * j_clear_fixture
             + lk * (j_arc_ap + j_ml)
             + lb * j_bounds
+            + luc * j_unit_circle
             - lmc * reward_clear
             - lmt * reward_thread
         )

@@ -129,8 +129,9 @@ def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
         bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
     for _ in range(n_probes):
         bounds.append((-60.0, +60.0))     # ml
-        bounds.append((-1.5, +1.5))        # sx
-        bounds.append((-1.5, +1.5))        # sy
+        # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
+        bounds.append((-1.1, +1.1))        # sx
+        bounds.append((-1.1, +1.1))        # sy
         bounds.append((-3.0, +3.0))        # off_R (mm)
         bounds.append((-3.0, +3.0))        # off_A (mm)
         bounds.append((-2.0, +2.0))        # depth (mm past target)

@@ -115,6 +115,11 @@ class JointWeights:
     lambda_bounds: float = 1.0
     lambda_clearance: float = 100.0
     lambda_coverage: float = 0.0
+    # Pulls (sx, sy) magnitude toward 1 (unit circle). spin_deg only
+    # uses the direction of (sx, sy), so magnitude is a free DOF; this
+    # penalty keeps it consistent across stages and away from the
+    # gradient-undefined origin. See sdf_jax.unit_circle_penalty.
+    lambda_unit_circle: float = 100.0
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
     min_arc_ap_sep_deg: float = 16.0
@@ -1036,8 +1041,12 @@ def _reduced_bounds(
         bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
     for _ in range(n_probes):
         bounds.append((-60.0, +60.0))    # ml
-        bounds.append((-1.5, +1.5))       # sx
-        bounds.append((-1.5, +1.5))       # sy
+        # (sx, sy) bounds at ±1.1 — the unit_circle_penalty pulls
+        # magnitude toward 1; a small allowance keeps the optimizer
+        # away from a rectangular constraint boundary while letting
+        # the penalty do the work.
+        bounds.append((-1.1, +1.1))       # sx
+        bounds.append((-1.1, +1.1))       # sy
     return bounds
 
 
