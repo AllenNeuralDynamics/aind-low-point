@@ -74,8 +74,8 @@ class Phase2Weights:
     """
 
     lambda_bounds: float = 1.0
-    # See sdf_jax.unit_circle_penalty.
-    lambda_unit_circle: float = 100.0
+    # See sdf_jax.unit_circle_penalty. Reduced 100 → 10 (2026-05-26).
+    lambda_unit_circle: float = 10.0
 
     lambda_margin_clear: float = 1.0
     lambda_margin_thread: float = 1.0

@@ -119,7 +119,10 @@ class JointWeights:
     # uses the direction of (sx, sy), so magnitude is a free DOF; this
     # penalty keeps it consistent across stages and away from the
     # gradient-undefined origin. See sdf_jax.unit_circle_penalty.
-    lambda_unit_circle: float = 100.0
+    # Reduced from 100 → 10 on 2026-05-26 after observing weight=100
+    # over-dominated polish iter budget and pulled some cands into
+    # worse local minima (cand 4195 manual rank #15 → #2866).
+    lambda_unit_circle: float = 10.0
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
     min_arc_ap_sep_deg: float = 16.0

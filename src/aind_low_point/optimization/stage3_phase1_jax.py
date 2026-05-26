@@ -199,8 +199,9 @@ class Phase1Weights:
     lambda_kinematic: float = 100.0
     lambda_bounds: float = 1.0
     # See sdf_jax.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
-    # so poses are consistent across stages.
-    lambda_unit_circle: float = 100.0
+    # so poses are consistent across stages. Reduced 100 → 10 to
+    # avoid over-dominating iter budget — see joint_rerank.py comment.
+    lambda_unit_circle: float = 10.0
 
     # Saturating margin rewards (mean form ⇒ max contribution = λ each).
     lambda_margin_clear: float = 1.0
