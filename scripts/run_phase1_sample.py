@@ -191,8 +191,17 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
         # as clear when FCL on raw mesh said 1 mm penetration. Grid
         # is ~140×140×70 ≈ 1.4M cells per fixture (~5 MB at fp32):
         # cheap, built once at startup.
+        # The well over-inflates at offset 0.15 (grazes probe bodies near
+        # the bore/outer wall — a gain-1 false positive). 0.07 tracks FCL
+        # near contact while staying conservative and above the 0.2 mm SDF
+        # grid precision floor (2026-06 well/junction fix). Other fixtures
+        # keep 0.15.
+        offset_mm = 0.07 if "well" in key.lower() else 0.15
         sdf = build_probe_sdf_from_alpha_wrap(
-            mesh, spacing_mm=0.2, strip_shanks_first=False,
+            mesh,
+            offset_mm=offset_mm,
+            spacing_mm=0.2,
+            strip_shanks_first=False,
         )
         out.append(FixtureSDFData(
             name=key,

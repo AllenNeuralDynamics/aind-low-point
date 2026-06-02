@@ -92,14 +92,33 @@ def is_in_shank_zone(comp: trimesh.Trimesh) -> bool:
     return z_max <= SHANK_ZONE_Z_MAX_MM
 
 
+def _keep_in_body(comp: trimesh.Trimesh) -> bool:
+    """True if ``comp`` should join the body alpha-wrap envelope.
+
+    Keeps the real body plus the shank->PCB junction caps (small flat
+    z >= ``SHANK_JUNCTION_MIN_Z_MAX_MM`` shapes), so the watertight
+    envelope represents the junction accurately. Strips only the silicon
+    shanks (handled by the analytic shank-group OBB) and the tiny z<9
+    tip-face caps (which would balloon the envelope down to z=0). The
+    junction caps wrap cleanly on their own; folding them into the body
+    replaces the old coarse transition-zone union OBB that overhung the
+    true geometry (see 2026-06 well/junction fix).
+    """
+    if not is_in_shank_zone(comp):
+        return True  # real body
+    if is_shank_component(comp):
+        return False  # silicon shank -> shank-group OBB
+    return comp.bounds[1, 2] >= SHANK_JUNCTION_MIN_Z_MAX_MM  # junction cap
+
+
 def strip_shanks(mesh: trimesh.Trimesh) -> tuple[trimesh.Trimesh, int]:
     """Return ``(body_mesh, n_stripped)``. ``body_mesh`` is the union of
-    all components NOT in the shank zone (silicon shank + junction
-    caps). The shank OBB built via :func:`extract_shank_obbs` covers
-    the stripped geometry.
+    the real body plus the shank->PCB junction caps; only the silicon
+    shanks and the z<9 tip-face caps are stripped. The shank-group OBB
+    built via :func:`extract_shank_obbs` covers the stripped silicon.
     """
     comps = mesh.split(only_watertight=False)
-    body = [c for c in comps if not is_in_shank_zone(c)]
+    body = [c for c in comps if _keep_in_body(c)]
     n_stripped = len(comps) - len(body)
     if not body:
         raise ValueError("No body components after stripping shank zone")
@@ -112,7 +131,7 @@ def extract_shank_obbs(
     """Extract shank-zone OBBs from a probe mesh.
 
     Returns ``(centers, half_extents)`` of shape ``(n_obbs, 3)`` in the
-    probe's canonical local frame. Up to **two OBBs per probe**:
+    probe's canonical local frame. **One OBB per probe at most:**
 
     1. **Shank-group union OBB** — single AABB enclosing every
        :func:`is_shank_component` component (the silicon shanks). For a
@@ -122,17 +141,14 @@ def extract_shank_obbs(
        weaving between two probes** — intentional per the 2026-05-23
        design decision: such configs are mechanically infeasible to
        insert anyway, so we don't optimize for them.
-    2. **Transition-zone union OBB** — bounding box over every
-       :func:`is_in_shank_zone` component that is NOT a silicon shank
-       AND has ``z_max >= SHANK_JUNCTION_MIN_Z_MAX_MM``. Catches the
-       small flat caps at the shank-PCB junction that otherwise fall
-       between the per-shank zone and the body envelope (which starts
-       at ``z >= SHANK_ZONE_Z_MAX_MM = 10.5``). Added in the 2026-05-22
-       envelope+OBB parity fix and kept under the union scheme.
 
-    Total OBB count is ``(1 if any silicon shank else 0) + (1 if any
-    junction caps else 0)`` — at most 2, uniform across multi- and
-    single-shank probes.
+    The shank->PCB junction caps are **no longer** a separate OBB. The
+    old transition-zone union AABB overhung the true geometry by ~0.2 mm
+    (a 0.93×3.38×0.44 mm box for a quadbase) and produced false-positive
+    probe-vs-fixture penetrations (e.g. VM↔well: OBB −0.04 vs FCL +0.18).
+    The caps are now folded into the body alpha-wrap envelope instead
+    (see :func:`strip_shanks` / ``_keep_in_body``), which wraps them
+    accurately (2026-06 well/junction fix).
 
     Raw CAD often represents shanks as zero-thickness sheets; the
     bbox-derived half-extent is ``0`` on those axes. Use
@@ -141,12 +157,9 @@ def extract_shank_obbs(
     """
     comps = mesh.split(only_watertight=False)
     silicon_vertices: list[np.ndarray] = []
-    junction_vertices: list[np.ndarray] = []
     for c in comps:
         if is_shank_component(c):
             silicon_vertices.append(np.asarray(c.vertices, dtype=np.float64))
-        elif is_in_shank_zone(c) and c.bounds[1, 2] >= SHANK_JUNCTION_MIN_Z_MAX_MM:
-            junction_vertices.append(np.asarray(c.vertices, dtype=np.float64))
 
     out_centers: list[np.ndarray] = []
     out_halves: list[np.ndarray] = []
@@ -154,14 +167,6 @@ def extract_shank_obbs(
     # Single union OBB over all silicon-shank components.
     if silicon_vertices:
         all_v = np.vstack(silicon_vertices)
-        bmin = all_v.min(axis=0)
-        bmax = all_v.max(axis=0)
-        out_centers.append(0.5 * (bmin + bmax))
-        out_halves.append(0.5 * (bmax - bmin))
-
-    # Single union OBB over all junction-zone components.
-    if junction_vertices:
-        all_v = np.vstack(junction_vertices)
         bmin = all_v.min(axis=0)
         bmax = all_v.max(axis=0)
         out_centers.append(0.5 * (bmin + bmax))
@@ -262,9 +267,11 @@ def build_alpha_wrap_envelope(
         envelope cache directory.
     """
     cdir = _envelope_cache_dir()
+    # ``_jv2``: strip_shanks now keeps junction caps in the body (2026-06);
+    # bump so pre-change cached envelopes aren't served stale.
     key = (
         f"{_mesh_hash(mesh)}_a{alpha_mm}_o{offset_mm}"
-        f"_strip{int(strip_shanks_first)}"
+        f"_strip{int(strip_shanks_first)}_jv2"
     )
     cpath = cdir / f"{key}.npz"
     if use_cache and cpath.exists():
