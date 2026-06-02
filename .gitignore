@@ -149,3 +149,6 @@ examples/*_out.yml
 
 # Bundle archives (built by scripts/bundle_config.py)
 *.tar.zst
+
+# Local scratch artifacts (extracted holes, derived data — not tracked)
+scratch/
