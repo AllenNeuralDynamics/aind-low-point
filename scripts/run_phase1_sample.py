@@ -8,7 +8,7 @@ against the full-mesh FCL scene including fixtures.
 Usage::
 
     uv run --python 3.13 python -m scripts.run_phase1_sample \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --polish-pkl /tmp/full_polish_patchAB.pkl
 
 Reports a table: for each sampled cand:

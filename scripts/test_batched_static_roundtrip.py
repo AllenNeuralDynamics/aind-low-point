@@ -64,7 +64,7 @@ def parse_manual_plan(plan_path: Path, probe_names: list[str]):
 
 def main() -> int:
     cfg_path = Path("examples/836656-config-T12.yml")
-    holes_path = Path("/tmp/836656-holes.yml")
+    holes_path = Path("scratch/0283-300-04.holes.yml")
     plan_path = Path("examples/836656-config-T12.plan.yml")
 
     print("Setup...")

@@ -14,7 +14,7 @@ For a config + plan pair, this script answers two questions:
 Usage::
 
     uv run --python 3.13 python scripts/diagnose_search.py \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --plan examples/836656-config-T12.plan.yml \\
         --k-holes 50 --k-arcs 50 --max-num-arcs 3 --min-num-arcs 3
 """

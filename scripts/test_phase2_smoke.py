@@ -14,7 +14,7 @@ Pipeline:
 Run::
 
     uv run --python 3.13 python -m scripts.test_phase2_smoke \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --polish-pkl /tmp/full_polish_patchAB.pkl --cand 1405
 """
 

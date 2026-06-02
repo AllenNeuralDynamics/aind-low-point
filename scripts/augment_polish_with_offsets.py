@@ -20,7 +20,7 @@ augmented warm-start instead of lifting reduced_y with zero offsets.
 
 Run::
     uv run --python 3.13 python -m scripts.augment_polish_with_offsets \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --in-pkl /tmp/full_polish_lbfgsb.pkl \\
         --out-pkl /tmp/full_polish_lbfgsb_augmented.pkl
 """

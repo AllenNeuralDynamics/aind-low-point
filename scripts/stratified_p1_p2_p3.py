@@ -21,7 +21,7 @@ Final verdict: FCL-feasible iff Phase 3 ends with all FCL slacks ≥ −1e-4.
 
 Run::
     uv run --python 3.13 python -m scripts.stratified_p1_p2_p3 \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --polish-pkl /tmp/full_polish_post_sat.pkl --n-per-bin 3
 """
 

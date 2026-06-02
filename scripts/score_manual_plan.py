@@ -12,7 +12,7 @@ smallest — i.e. the bore the manual plan implies the probe is using.
 Usage::
 
     uv run --python 3.13 python scripts/score_manual_plan.py \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --plan examples/836656-config-T12.plan.yml \\
         --threading-oval-tolerance 3.0 \\
         --clearance-overlap-allowance-mm 1.5 \\

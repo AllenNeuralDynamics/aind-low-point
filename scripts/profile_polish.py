@@ -15,7 +15,7 @@ Outputs:
 Run::
 
     uv run --python 3.13 python -m scripts.profile_polish \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml --n-sample 20
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml --n-sample 20
 """
 
 from __future__ import annotations

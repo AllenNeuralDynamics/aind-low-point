@@ -39,7 +39,7 @@ def main():
     runtime = build_runtime_from_config(cfg)
     probes = [_probe_static_info(runtime.plan_state, runtime, n)
               for n in runtime.plan_state.probes]
-    holes = load_holes(Path("/tmp/836656-holes.yml"))
+    holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
     compiled = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in compiled:
         T = compiled["implant_to_lps"]

@@ -18,7 +18,7 @@ Expected wall time on 836656/T12: ~20-25 min on 8 cores.
 Run::
 
     uv run --python 3.13 python -m scripts.run_full_polish \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --output /tmp/full_polish_T12.pkl
 """
 

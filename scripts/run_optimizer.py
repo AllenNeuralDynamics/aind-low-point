@@ -8,7 +8,7 @@ Usage::
 
     uv run --python 3.13 python scripts/run_optimizer.py \\
         examples/836656-config.yml \\
-        /tmp/836656-holes.yml \\
+        scratch/0283-300-04.holes.yml \\
         --max-num-arcs 4 \\
         -o examples/836656-config_opt.yml
 """

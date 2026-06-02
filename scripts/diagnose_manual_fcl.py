@@ -18,7 +18,7 @@ raw collision meshes.
 
 Run::
     uv run --python 3.13 python -m scripts.diagnose_manual_fcl \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --plan examples/836656-config-T12.plan.yml \\
         --polish-pkl /tmp/full_polish_lbfgsb_augmented.pkl
 """

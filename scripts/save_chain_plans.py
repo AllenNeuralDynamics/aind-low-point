@@ -13,7 +13,7 @@ The cands are ordered by FCL feasibility first, then coverage descending.
 
 Run::
     uv run --python 3.13 python -m scripts.save_chain_plans \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --polish-pkl /tmp/full_polish_lbfgsb_augmented.pkl \\
         --cands 5211 1040 1642 ... 4195 \\
         --out-dir examples/836656-config-T12_chain_alternatives

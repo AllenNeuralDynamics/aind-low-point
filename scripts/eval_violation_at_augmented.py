@@ -21,7 +21,7 @@ soft-constraint violation at the offset-polished pose.
 
 Run::
     uv run --python 3.13 python -m scripts.eval_violation_at_augmented \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --in-pkl /tmp/full_polish_lbfgsb_augmented.pkl
 """
 
