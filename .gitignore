@@ -152,3 +152,8 @@ examples/*_out.yml
 
 # Local scratch artifacts (extracted holes, derived data — not tracked)
 scratch/
+
+# agent + experiment outputs
+.claude/
+examples/836656-config-T12_*
+examples/836656-config-cal.yml
