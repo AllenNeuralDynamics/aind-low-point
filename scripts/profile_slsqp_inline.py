@@ -45,7 +45,7 @@ def main():
     runtime = build_runtime_from_config(cfg)
     probes = [_probe_static_info(runtime.plan_state, runtime, n)
               for n in runtime.plan_state.probes]
-    holes = load_holes(Path("/tmp/836656-holes.yml"))
+    holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
     compiled = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in compiled:
         T = compiled["implant_to_lps"]
@@ -76,11 +76,38 @@ def main():
     weights = JointWeights()
     fun, jac = make_jax_reduced_objective(statics, n_arcs, weights)
 
-    y0 = np.zeros(n_arcs + 3 * K, dtype=np.float64)
-    for a in range(min(n_arcs, len(aa.arc_centroids_deg))):
-        y0[a] = float(aa.arc_centroids_deg[a])
-    for k in range(K):
-        y0[n_arcs + 3 * k + 1] = 1.0  # sx
+    # Use a polished y from a near-feasible cand so SLSQP actually runs
+    # more iters (manual y0 is too far out of bounds and bails after 5).
+    import pickle
+    polish_pkl = Path("/tmp/full_polish_post_sat.pkl")
+    if polish_pkl.exists():
+        with open(polish_pkl, "rb") as f:
+            data = pickle.load(f)
+        sample_idx = next(
+            (i for i, r in enumerate(data["results"])
+             if 0.05 <= r.metrics.max_violation <= 0.5),
+            0,
+        )
+        sample_cand = data["candidates"][sample_idx]
+        sample_jc = data["results"][sample_idx]
+        statics = _build_probe_static(
+            probes, holes, sample_cand.ha, sample_cand.aa,
+            sdf_by_name=sdf_by_name,
+        )
+        n_arcs = sample_jc.n_arcs
+        K = len(statics)
+        y0 = np.asarray(sample_jc.reduced_y, dtype=np.float64)
+        # Perturb so SLSQP actually has work to do; ~0.5σ of typical range.
+        y0 = y0 + np.random.default_rng(0).normal(0, 0.5, size=y0.shape)
+        print(f"  using cand {sample_idx} polished y "
+              f"(max_viol {sample_jc.metrics.max_violation:.3f}) + 0.5σ noise")
+        fun, jac = make_jax_reduced_objective(statics, n_arcs, weights)
+    else:
+        y0 = np.zeros(n_arcs + 3 * K, dtype=np.float64)
+        for a in range(min(n_arcs, len(aa.arc_centroids_deg))):
+            y0[a] = float(aa.arc_centroids_deg[a])
+        for k in range(K):
+            y0[n_arcs + 3 * k + 1] = 1.0  # sx
 
     bounds = [(-90.0, 90.0)] * n_arcs
     for _ in range(K):
