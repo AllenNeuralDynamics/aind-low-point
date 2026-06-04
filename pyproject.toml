@@ -21,7 +21,7 @@ version = "0.1.0"
 # controllers, config + asset loading, runtime). Excludes the
 # placement-optimizer stack; install ``[optimization]`` for that.
 dependencies = [
-  "aind-anatomical-utils>=0.1,<0.2",
+  "aind-anatomical-utils>=0.1,<0.5",
   "aind_mri_utils>=0.10,<2",
   "ipyevents>=2,<3",
   "k3d>=2,<3",
