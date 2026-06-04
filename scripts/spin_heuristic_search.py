@@ -359,20 +359,38 @@ def inside_swept(
 
 def swept_overlap(
     prof_i, R0_i, t_i, surf_i, prof_j, R0_j, t_j, surf_j,
-) -> tuple[bool, float]:
-    """``(overlap, min_surface_gap_mm)`` between two swept solids.
+) -> tuple[bool, float, np.ndarray | None]:
+    """``(overlap, gap_mm, contact_world)`` between two swept solids.
 
-    Overlap if either solid's sampled surface enters the other. ``gap`` is the
-    nearest sampled surface-surface distance (negative ⇒ overlapping).
+    Overlap if either solid's sampled surface enters the other. For overlapping
+    solids ``gap`` is ``-penetration`` (the deepest interpenetration — a
+    meaningful tightness signal, unlike the surface nearest-distance which is
+    ~0 for any intersection) and ``contact_world`` is the centroid of the
+    overlap region (the world location where the two bodies actually conflict —
+    the H2 "face the narrow profile toward the contact" direction). For disjoint
+    solids ``gap`` is the positive nearest surface-surface distance and
+    ``contact_world`` is ``None``.
     """
     from scipy.spatial import cKDTree
 
-    overlap = bool(
-        inside_swept(surf_i, prof_j, R0_j, t_j).any()
-        or inside_swept(surf_j, prof_i, R0_i, t_i).any()
-    )
-    gap = float(cKDTree(surf_j).query(surf_i)[0].min())
-    return overlap, (-gap if overlap else gap)
+    tree_j = cKDTree(surf_j)
+    in_j = inside_swept(surf_i, prof_j, R0_j, t_j)   # i-surf points inside j
+    in_i = inside_swept(surf_j, prof_i, R0_i, t_i)   # j-surf points inside i
+    if not (in_j.any() or in_i.any()):
+        return False, float(tree_j.query(surf_i)[0].min()), None
+    # Penetration ≈ deepest inside point's distance to the other boundary;
+    # contact = centroid of the overlap region (the points of one body that lie
+    # inside the other).
+    pen = 0.0
+    pts_in = []
+    if in_j.any():
+        pen = max(pen, float(tree_j.query(surf_i[in_j])[0].max()))
+        pts_in.append(surf_i[in_j])
+    if in_i.any():
+        pen = max(pen, float(cKDTree(surf_i).query(surf_j[in_i])[0].max()))
+        pts_in.append(surf_j[in_i])
+    contact = np.concatenate(pts_in).mean(axis=0)
+    return True, -pen, contact
 
 
 def build_coupling_graph(
@@ -382,14 +400,22 @@ def build_coupling_graph(
     target_LPS: np.ndarray,
     mesh_verts_by_kind: dict[str, np.ndarray],
     probe_kind_by_name: dict[str, str],
-) -> dict[int, list[int]]:
-    """Adjacency from spin-swept-volume intersection: ``i ↔ j`` iff the volumes
-    the two probe bodies sweep over all spins overlap (so their spins interact).
+) -> tuple[
+    dict[int, list[int]],
+    dict[tuple[int, int], float],
+    dict[tuple[int, int], np.ndarray],
+]:
+    """``(coupling, tightness, contact)`` from spin-swept-volume intersection.
+
+    ``i ↔ j`` iff the volumes the two probe bodies sweep over all spins overlap
+    (so their spins interact). ``tightness[(i, j)]`` (i < j) is the penetration
+    depth and ``contact[(i, j)]`` is the world centroid of the overlap region —
+    the direction each probe should point its narrow profile toward. The H2
+    "facing" terms are gated on this coupling and weighted by tightness
+    (tightest partner dominates). Decoupled probes get no edge.
 
     ``mesh_verts_by_kind`` maps each probe kind to its canonical-local mesh
-    vertices (e.g. ``runtime.asset_catalog.get_geometry(f"probe:{kind}").raw
-    .vertices``). Decoupled probes (non-overlapping swept volumes) get no edge —
-    their spins can be optimised independently.
+    vertices (``runtime.asset_catalog.get_geometry(f"probe:{kind}").raw.vertices``).
     """
     K = len(statics)
     prof_by_kind: dict[str, tuple] = {}
@@ -407,14 +433,18 @@ def build_coupling_graph(
         surfs.append(swept_surface_world(prof, R0, target_LPS[i]))
 
     coupling: dict[int, list[int]] = {i: [] for i in range(K)}
+    tightness: dict[tuple[int, int], float] = {}
+    contact: dict[tuple[int, int], np.ndarray] = {}
     for i, j in itertools.combinations(range(K), 2):
-        overlap, _ = swept_overlap(
+        overlap, gap, ctr = swept_overlap(
             profs[i], R0s[i], target_LPS[i], surfs[i],
             profs[j], R0s[j], target_LPS[j], surfs[j])
         if overlap:
             coupling[i].append(j)
             coupling[j].append(i)
-    return coupling
+            tightness[(i, j)] = -gap   # penetration depth (positive)
+            contact[(i, j)] = ctr
+    return coupling, tightness, contact
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +699,7 @@ def main() -> int:
                 runtime.asset_catalog.get_geometry(f"probe:{k}").raw.vertices)
             for k in set(probe_kind_by_name.values())
         }
-        coupling = build_coupling_graph(
+        coupling, _tightness, _contact = build_coupling_graph(
             statics, arc_aps, ml_per_probe, target_LPS,
             mesh_verts_by_kind, probe_kind_by_name)
         # Seed: current spin of each probe in the augmented warm-start
