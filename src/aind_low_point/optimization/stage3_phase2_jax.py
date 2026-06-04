@@ -49,10 +49,12 @@ from aind_low_point.optimization.sdf_jax import (
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
+    trilinear_sdf,
     unit_circle_penalty,
 )
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
+    BrainSDFData,
     FixtureSDFData,
     _pack_statics,
     _saturating_reward_mean,
@@ -97,6 +99,10 @@ class Phase2Weights:
     top_k_shank_shank: int = 8
 
     shaft_length_mm: float = 10.0
+
+    # Brain containment: each shank tip must stay this far inside the brain
+    # surface (hard constraint, only active when a brain SDF is passed).
+    brain_margin_mm: float = 0.2
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +154,7 @@ def _weights_key(w: Phase2Weights) -> tuple:
             "threading_oval_tolerance", "min_arc_ap_sep_deg",
             "min_intra_arc_ml_sep_deg", "comfortable_ap_deg",
             "comfortable_ml_deg", "softmin_beta", "shaft_length_mm",
+            "brain_margin_mm",
         )
     ) + (
         int(w.top_k_body_body), int(w.top_k_body_shank),
@@ -155,7 +162,7 @@ def _weights_key(w: Phase2Weights) -> tuple:
     )
 
 
-def _signature(statics, n_arcs, weights, fixtures):
+def _signature(statics, n_arcs, weights, fixtures, brain_sdf=None):
     has_sdf = any(s.sdf_data is not None for s in statics)
     per_probe_sdf_shapes: tuple = ()
     if has_sdf:
@@ -167,9 +174,14 @@ def _signature(statics, n_arcs, weights, fixtures):
     fix_shapes = tuple(
         tuple(int(d) for d in np.asarray(fx.grid).shape) for fx in fixtures
     )
+    brain_shape = (
+        tuple(int(d) for d in np.asarray(brain_sdf.grid).shape)
+        if brain_sdf is not None else None
+    )
     return (
         len(statics), int(n_arcs), MAX_SHANKS_PAD, MAX_SECTIONS_PAD,
         has_sdf, per_probe_sdf_shapes, fix_shapes, _weights_key(weights),
+        brain_shape,
     )
 
 
@@ -181,15 +193,17 @@ def _signature(statics, n_arcs, weights, fixtures):
 _LARGE_SLACK = 1e3  # sentinel for masked-out (padded) constraints
 
 
-def _build_jit(
+def _build_jit(  # noqa: C901
     signature: tuple,
     weights: Phase2Weights,
     coverage_data: tuple[CoverageData, ...] | None,
     fixtures: tuple[FixtureSDFData, ...],
     coverage_n_samples: int = 41,
+    brain_sdf: "BrainSDFData | None" = None,
 ) -> dict:
     """Build JIT'd (obj, obj_grad, all_slacks, all_slacks_jac) for one signature."""
-    n_probes, n_arcs, _ms, _msec, has_sdf, sdf_shapes, _fix_shapes, _w_key = signature
+    (n_probes, n_arcs, _ms, _msec, has_sdf, sdf_shapes,
+     _fix_shapes, _w_key, _brain_shape) = signature
 
     # Pre-build the probe-probe SDF pair list (skipping probes without
     # SDF). Same logic as Phase 1.
@@ -226,6 +240,11 @@ def _build_jit(
     tk_bs = int(weights.top_k_body_shank)
     tk_ss = int(weights.top_k_shank_shank)
     shaft_len = float(weights.shaft_length_mm)
+    brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
+    if brain_sdf is not None:
+        brain_grid = jnp.asarray(brain_sdf.grid)
+        brain_origin = jnp.asarray(brain_sdf.origin)
+        brain_spacing = jnp.asarray(brain_sdf.spacing)
 
     # ---- Objective: scalar minimised by SLSQP ----
     def _objective(
@@ -421,6 +440,24 @@ def _build_jit(
             jnp.stack(clear_pf_slacks) if clear_pf_slacks else jnp.zeros(0)
         )
 
+        # Brain containment: each shank tip must be inside the brain by at
+        # least ``brain_margin``. SDF is negative inside, so the slack is
+        # ``-(d + margin) ≥ 0``. Padded shanks → +LARGE (don't constrain).
+        brain_slacks: list[jnp.ndarray] = []
+        if brain_sdf is not None:
+            for i in range(n_probes):
+                world_tips = tips_local[i] @ Rs[i].T + ts[i]
+                d = trilinear_sdf(
+                    brain_grid, brain_origin, brain_spacing, world_tips
+                )
+                s = -(d + brain_margin)
+                brain_slacks.append(
+                    jnp.where(shank_mask[i] > 0, s, _LARGE_SLACK)
+                )
+        brain_vec = (
+            jnp.concatenate(brain_slacks) if brain_slacks else jnp.zeros(0)
+        )
+
         # Arc-AP separation: smooth_abs(diff) − min_arc_ap_sep.
         if arc_pairs.shape[0] > 0:
             ap_diffs = smooth_abs(
@@ -447,7 +484,8 @@ def _build_jit(
             ml_sep_vec = jnp.zeros(0)
 
         return jnp.concatenate([
-            thread_vec, clear_pp_vec, clear_pf_vec, ap_sep_vec, ml_sep_vec,
+            thread_vec, clear_pp_vec, clear_pf_vec, brain_vec,
+            ap_sep_vec, ml_sep_vec,
         ])
 
     return dict(
@@ -475,6 +513,7 @@ def make_phase2(
     weights: Phase2Weights = Phase2Weights(),
     *,
     coverage_n_samples: int = 41,
+    brain_sdf: "BrainSDFData | None" = None,
 ) -> dict:
     """Build Phase 2 scipy callables.
 
@@ -486,10 +525,11 @@ def make_phase2(
         concatenated slack vector
       - ``n_constraints``: total slack count (for diagnostics)
     """
-    sig = _signature(statics, n_arcs, weights, fixtures)
+    sig = _signature(statics, n_arcs, weights, fixtures, brain_sdf)
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
             sig, weights, coverage_data, fixtures, coverage_n_samples,
+            brain_sdf=brain_sdf,
         )
         _CACHE_STATS["misses"] += 1
     else:

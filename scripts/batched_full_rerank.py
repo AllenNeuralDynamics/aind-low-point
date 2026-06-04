@@ -53,6 +53,7 @@ from scripts.run_optimizer import _probe_static_info, _transform_holes
 from scripts.run_phase1_sample import (
     build_coverage_data,
     build_fixture_sdf_data,
+    maybe_build_brain_sdf,
     phase1_bounds,
 )
 from scripts.spin_heuristic_search import is_four_shank, spin_to_align_y_with
@@ -82,7 +83,7 @@ MANUAL = 4195  # n_arcs==3 ground-truth, for the summary line
 
 
 def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
-              well_obj):
+              well_obj, brain_sdf=None):
     """Basin-select one n_arcs group. Builds statics locally (freed on
     return), runs ONE chunked ADAM pass, returns per-cand records
     ``[{idx, n_arcs, viol, pose}]`` (NO statics retained)."""
@@ -127,7 +128,7 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
     grid_dtype = jnp.bfloat16 if BF16_STORE else jnp.float32
     vobj, _vgrad, build_arglist, make_adam = make_batched_phase1_chunked(
         statics_flat[0], n_arcs, Phase1Weights(), (well_obj,),
-        coverage_data=coverage_data, grid_dtype=grid_dtype)
+        coverage_data=coverage_data, grid_dtype=grid_dtype, brain_sdf=brain_sdf)
     run_adam = make_adam(lo, hi, steps=STEPS, lr=0.02)
     n_rows = x0.shape[0]
     # Pad rows up to a CHUNK multiple so every chunk is a clean fixed-size
@@ -221,6 +222,10 @@ def main() -> int:
         runtime.asset_catalog.get_geometry(f.name).raw) for f in fixtures}
     well_obj = (replace(well, grid=jnp.asarray(well.grid, jnp.bfloat16))
                 if BF16_STORE else well)
+    # Brain containment: ON whenever the config has a brain asset (don't let a
+    # depth-greedy ADAM puncture the brain bottom for coverage).
+    brain_sdf = maybe_build_brain_sdf(runtime, compiled)
+    print(f"brain-containment: {'ON' if brain_sdf is not None else 'OFF (no brain asset)'}")
 
     data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     results = data["results"]
@@ -245,7 +250,8 @@ def main() -> int:
     for n_arcs in sorted(by_arcs):
         records += run_group(
             n_arcs, by_arcs[n_arcs], probes=probes, holes=holes, data=data,
-            sdf_by_name=sdf_by_name, bvh_cache=bvh_cache, well_obj=well_obj)
+            sdf_by_name=sdf_by_name, bvh_cache=bvh_cache, well_obj=well_obj,
+            brain_sdf=brain_sdf)
     print(f"\nall groups done in {(time.time()-t_all)/60:.1f} min "
           f"({len(records)} candidates)")
 

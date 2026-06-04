@@ -63,6 +63,7 @@ from aind_low_point.optimization.sdf_jax import (
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
+    trilinear_sdf,
     unit_circle_penalty,
 )
 
@@ -80,6 +81,21 @@ class FixtureSDFData:
     origin: jnp.ndarray
     spacing: jnp.ndarray
     surface: jnp.ndarray
+
+
+@dataclass(frozen=True)
+class BrainSDFData:
+    """Static-in-world brain signed-distance grid (negative inside).
+
+    Used for the brain-containment term: each shank tip must stay inside
+    the brain (don't puncture through the bottom). Built once from the
+    world-frame brain mesh and closure-captured by the JIT'd objective.
+    Only the voxel SDF is needed — containment is a point query at the
+    tips, not a surface-sampling clearance.
+    """
+    grid: jnp.ndarray
+    origin: jnp.ndarray
+    spacing: jnp.ndarray
 
 
 PHASE1_PER_PROBE_VARS = 6  # (ml, sx, sy, off_R, off_A, depth)
@@ -231,6 +247,13 @@ class Phase1Weights:
     # Shaft length used by threading_g_matrix.
     shaft_length_mm: float = 10.0
 
+    # Brain containment: each shank tip must stay inside the brain (don't
+    # puncture through the bottom). Only active when a brain SDF is passed
+    # to the objective. Large lambda ⇒ near-barrier in the soft ADAM pass;
+    # margin keeps tips this far inside the surface (mm).
+    lambda_brain: float = 500.0
+    brain_margin_mm: float = 0.2
+
 
 # ---------------------------------------------------------------------------
 # JIT-built objective
@@ -252,6 +275,7 @@ def _weights_key(w: Phase1Weights) -> tuple:
             "threading_oval_tolerance", "min_arc_ap_sep_deg",
             "min_intra_arc_ml_sep_deg", "comfortable_ap_deg",
             "comfortable_ml_deg", "softmin_beta", "shaft_length_mm",
+            "lambda_brain", "brain_margin_mm",
         )
     ) + (int(w.top_k_body_body), int(w.top_k_body_shank), int(w.top_k_shank_shank))
 
@@ -294,12 +318,13 @@ def _signature(statics, n_arcs: int, weights: Phase1Weights) -> tuple:
     )
 
 
-def _build_jit(
+def _build_jit(  # noqa: C901
     signature: tuple,
     weights: Phase1Weights,
     coverage_data: tuple[CoverageData, ...] | None = None,
     fixtures: tuple[FixtureSDFData, ...] = (),
     coverage_n_samples: int = 41,
+    brain_sdf: "BrainSDFData | None" = None,
 ) -> tuple[Callable, Callable]:
     """Build the (fn, grad) pair for one signature.
 
@@ -346,13 +371,19 @@ def _build_jit(
     tk_bs = int(weights.top_k_body_shank)
     tk_ss = int(weights.top_k_shank_shank)
     shaft_len = float(weights.shaft_length_mm)
+    lbrain = float(getattr(weights, "lambda_brain", 0.0))
+    brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
+    if brain_sdf is not None:
+        brain_grid = jnp.asarray(brain_sdf.grid)
+        brain_origin = jnp.asarray(brain_sdf.origin)
+        brain_spacing = jnp.asarray(brain_sdf.spacing)
 
     arc_pairs = jnp.asarray(
         [(a, b) for a in range(n_arcs) for b in range(a + 1, n_arcs)],
         dtype=jnp.int32,
     ).reshape(-1, 2)
 
-    def _objective(
+    def _objective(  # noqa: C901
         x,
         target_LPS, pivot_local, arc_idx,
         tips_local, shank_mask,
@@ -482,6 +513,22 @@ def _build_jit(
                         j_clear_fixture = j_clear_fixture + short * short
                     fixture_hard_clearances.append(jnp.minimum(fc.body[0], fc.obb[0]))
 
+        # Brain containment: every shank tip must stay inside the brain
+        # (don't puncture through the bottom). Point query of the brain SDF
+        # (negative inside) at the world-frame tips; penalize any tip that is
+        # not at least ``brain_margin`` inside. One-sided (ReLU²) ⇒ zero cost
+        # well inside, so it doesn't perturb already-contained plans. Opposes
+        # the depth-greedy coverage cheat (the term is a function of depth).
+        j_brain = jnp.float32(0.0)
+        if brain_sdf is not None:
+            for i in range(n_probes):
+                world_tips = tips_local[i] @ Rs[i].T + ts[i]   # (max_shanks, 3)
+                d = trilinear_sdf(
+                    brain_grid, brain_origin, brain_spacing, world_tips
+                )  # signed distance, negative inside
+                viol = jnp.maximum(0.0, d + brain_margin)
+                j_brain = j_brain + jnp.sum(shank_mask[i] * viol * viol)
+
         # Saturating per-pair clearance margin reward (mean form). Combines
         # probe-probe and probe-fixture clearances under one mean so the
         # reward is consistent regardless of how many fixtures are loaded.
@@ -527,6 +574,7 @@ def _build_jit(
             + lk * (j_arc_ap + j_ml)
             + lb * j_bounds
             + luc * j_unit_circle
+            + lbrain * j_brain
             - lmc * reward_clear
             - lmt * reward_thread
         )
@@ -654,6 +702,7 @@ def make_phase1_objective(
     weights: Phase1Weights = Phase1Weights(),
     *,
     coverage_n_samples: int = 41,
+    brain_sdf: "BrainSDFData | None" = None,
 ) -> tuple[Callable[[NDArray], float], Callable[[NDArray], NDArray]]:
     """Build ``(fun, jac)`` scipy callables for Phase 1's soft objective.
 
@@ -693,13 +742,19 @@ def make_phase1_objective(
     fix_shapes = tuple(
         tuple(int(d) for d in np.asarray(fx.grid).shape) for fx in fixtures
     )
-    sig = _signature(statics, n_arcs, weights) + (fix_shapes,)
+    brain_shape = (
+        tuple(int(d) for d in np.asarray(brain_sdf.grid).shape)
+        if brain_sdf is not None else None
+    )
+    base_sig = _signature(statics, n_arcs, weights)
+    sig = base_sig + (fix_shapes, brain_shape)
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
-            sig[:-1], weights,
+            base_sig, weights,
             coverage_data=coverage_data,
             fixtures=fixtures,
             coverage_n_samples=coverage_n_samples,
+            brain_sdf=brain_sdf,
         )
         _CACHE_STATS["misses"] += 1
     else:

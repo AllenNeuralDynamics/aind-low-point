@@ -53,9 +53,13 @@ from aind_low_point.optimization.recording import (
     RECORDING_GEOMETRY,
     RecordingGeometry,
 )
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
+from aind_low_point.optimization.sdf import (
+    build_probe_sdf,
+    build_probe_sdf_from_alpha_wrap,
+)
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
+    BrainSDFData,
     FixtureSDFData,
     Phase1Weights,
     make_phase1_objective,
@@ -211,6 +215,62 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
             surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
         ))
     return tuple(out)
+
+
+def build_brain_sdf(
+    runtime,
+    compiled_transforms,
+    *,
+    asset_key: str = "brain",
+    transform_key: str = "headframe_to_lps",
+    spacing_mm: float = 0.3,
+    pad_mm: float = 3.0,
+) -> BrainSDFData:
+    """Signed-distance grid (negative inside) for the world-frame brain mesh.
+
+    Used by the Phase-1 brain-containment term. The brain asset mesh is in its
+    base frame (``.raw``); we apply its declared world transform
+    (``headframe_to_lps`` for the 836656 config) before building a true signed
+    distance field via :func:`build_probe_sdf` (FAST_WINDING_NUMBER signs, so
+    the marching-cubes mask mesh need not be watertight). Coarser 0.3 mm
+    spacing is fine — containment reads the tip a margin inside the surface,
+    not sub-voxel clearance.
+    """
+    import trimesh
+
+    geom = runtime.asset_catalog.get_geometry(asset_key)
+    mesh = geom.raw
+    R, t = compiled_transforms[transform_key].rotate_translate
+    world = trimesh.Trimesh(
+        np.asarray(mesh.vertices, np.float64) @ np.asarray(R).T + np.asarray(t),
+        np.asarray(mesh.faces),
+        process=False,
+    )
+    sdf = build_probe_sdf(
+        world, spacing_mm=spacing_mm, pad_mm=pad_mm,
+        n_surface_points=1, sign_type="fwn",
+    )
+    return BrainSDFData(
+        grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
+        origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
+        spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
+    )
+
+
+def maybe_build_brain_sdf(
+    runtime, compiled_transforms, *, asset_key: str = "brain", **kw
+) -> BrainSDFData | None:
+    """:func:`build_brain_sdf` if the config has a brain asset, else ``None``.
+
+    Lets production drivers turn the brain-containment term ON unconditionally
+    wherever a brain mesh exists (and OFF only in template space) without a
+    flag to remember. A missing asset → None; any *other* error propagates.
+    """
+    try:
+        runtime.asset_catalog.get_geometry(asset_key)
+    except Exception:
+        return None
+    return build_brain_sdf(runtime, compiled_transforms, asset_key=asset_key, **kw)
 
 
 def build_fixture_collision_objs(runtime) -> dict[str, fcl.CollisionObject]:
@@ -394,6 +454,9 @@ def main() -> int:
     t0 = time.time()
     fixtures_sdf = build_fixture_sdf_data(runtime)
     print(f"  {len(fixtures_sdf)} fixture SDFs in {time.time() - t0:.1f}s")
+    brain_sdf = maybe_build_brain_sdf(runtime, compiled)
+    print(f"  brain-containment: "
+          f"{'ON' if brain_sdf is not None else 'OFF (no brain asset)'}")
 
     with open(args.polish_pkl, "rb") as f:
         data = pickle.load(f)
@@ -448,6 +511,7 @@ def main() -> int:
             coverage_data=coverage_data,
             fixtures=fixtures_sdf,
             weights=weights,
+            brain_sdf=brain_sdf,
         )
         bounds = phase1_bounds(n_arcs, len(statics))
 

@@ -57,14 +57,12 @@ PER_CAND = {
 
 
 def make_batched_phase1_objective(statics_list, n_arcs, weights, fixtures,
-                                  coverage_data=None):
+                                  coverage_data=None, brain_sdf=None):
     """vmap the per-candidate _objective over `statics_list`. Returns
     (batched_obj(x_B)->(B,), batched_grad(x_B)->(B,nvars))."""
-    fix_shapes = tuple(
-        tuple(int(d) for d in np.asarray(fx.grid).shape) for fx in fixtures)
-    sig = _signature(statics_list[0], n_arcs, weights) + (fix_shapes,)
-    jit_obj, _ = _build_jit(sig[:-1], weights, coverage_data=coverage_data,
-                            fixtures=fixtures)
+    base_sig = _signature(statics_list[0], n_arcs, weights)
+    jit_obj, _ = _build_jit(base_sig, weights, coverage_data=coverage_data,
+                            fixtures=fixtures, brain_sdf=brain_sdf)
 
     packs = [_pack_statics(s, n_arcs) for s in statics_list]
     # Shared per-probe constants. Some keys (target/pivot/tips/shank_mask)
@@ -94,7 +92,8 @@ def make_batched_phase1_objective(statics_list, n_arcs, weights, fixtures,
 
 
 def make_batched_phase1_chunked(template_statics, n_arcs, weights, fixtures,
-                                coverage_data=None, grid_dtype=jnp.float32):
+                                coverage_data=None, grid_dtype=jnp.float32,
+                                brain_sdf=None):
     """Like make_batched_phase1_objective, but returns the reusable pieces
     for VRAM-chunked evaluation: (vobj, vgrad, build_arglist).
 
@@ -109,11 +108,9 @@ def make_batched_phase1_chunked(template_statics, n_arcs, weights, fixtures,
     (the cross-point reduction stays fp32). The grid is ~200x larger than
     the surface points, so bf16 on the grid alone captures the storage win.
     """
-    fix_shapes = tuple(
-        tuple(int(d) for d in np.asarray(fx.grid).shape) for fx in fixtures)
-    sig = _signature(template_statics, n_arcs, weights) + (fix_shapes,)
-    jit_obj, _ = _build_jit(sig[:-1], weights, coverage_data=coverage_data,
-                            fixtures=fixtures)
+    base_sig = _signature(template_statics, n_arcs, weights)
+    jit_obj, _ = _build_jit(base_sig, weights, coverage_data=coverage_data,
+                            fixtures=fixtures, brain_sdf=brain_sdf)
 
     def obj_pos(x, *args):
         return jit_obj(x, **dict(zip(ARG_ORDER, args)))

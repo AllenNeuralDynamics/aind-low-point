@@ -75,6 +75,7 @@ def _init():
     from scripts.run_phase1_sample import (
         build_coverage_data,
         build_fixture_sdf_data,
+        maybe_build_brain_sdf,
     )
 
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
@@ -93,9 +94,10 @@ def _init():
     fx = build_fixture_sdf_data(rt)
     fbvh = {f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw)
             for f in fx}
+    brain_sdf = maybe_build_brain_sdf(rt, comp)
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     _G.update(probes=probes, holes=holes, sdf=sdf, bvh=bvh, fx=fx, fbvh=fbvh,
-              pool=pool, cov_data=None, n_probes=len(probes),
+              brain_sdf=brain_sdf, pool=pool, cov_data=None, n_probes=len(probes),
               build_static=_build_probe_static, build_cov=build_coverage_data)
 
 
@@ -125,7 +127,8 @@ def _phase2_one(rec):
     p2 = make_phase2(st, n_arcs, coverage_data=cov_data, fixtures=tuple(_G["fx"]),
                      weights=Phase2Weights(min_clearance_mm=MINCLEAR,
                                            lambda_margin_clear=LAM_CLEAR,
-                                           tau_clear_mm=TAU_CLEAR))
+                                           tau_clear_mm=TAU_CLEAR),
+                     brain_sdf=_G.get("brain_sdf"))
     t0 = time.perf_counter()
     res = minimize(p2["fun"], pose, jac=p2["jac"], method="trust-constr",
                    bounds=bounds, constraints=p2["constraints_nlc"],
@@ -194,7 +197,8 @@ def _warmup(recs):
                          fixtures=tuple(_G["fx"]),
                          weights=Phase2Weights(min_clearance_mm=MINCLEAR,
                                                lambda_margin_clear=LAM_CLEAR,
-                                               tau_clear_mm=TAU_CLEAR))
+                                               tau_clear_mm=TAU_CLEAR),
+                         brain_sdf=_G.get("brain_sdf"))
         x = np.asarray(r["pose"], float)
         t0 = time.time()
         p2["fun"](x)
