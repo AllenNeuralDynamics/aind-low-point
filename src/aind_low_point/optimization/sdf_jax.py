@@ -364,8 +364,16 @@ def trilinear_sdf(
     ``query_local`` and ``grid``.
     """
     grid = jnp.asarray(grid)
+    # Value dtype follows the grid: fp32 normally, bf16 when the grid is
+    # stored bf16 (mixed-precision kernel — bf16 gather/blend, fp32 output).
+    vdt = grid.dtype
     Nx, Ny, Nz = grid.shape
-    coords = (query_local - origin) / spacing  # (..., 3) in voxel units
+    # Addressing stays fp32 — voxel indices must be exact regardless of the
+    # value precision.
+    coords = (
+        query_local.astype(jnp.float32)
+        - jnp.asarray(origin, jnp.float32)
+    ) / jnp.asarray(spacing, jnp.float32)  # (..., 3) in voxel units
     i0 = jnp.floor(coords).astype(jnp.int32)
     f = coords - i0  # fractional parts
 
@@ -380,7 +388,12 @@ def trilinear_sdf(
     ix = jnp.clip(i0[..., 0], 0, Nx - 2)
     iy = jnp.clip(i0[..., 1], 0, Ny - 2)
     iz = jnp.clip(i0[..., 2], 0, Nz - 2)
-    fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
+    # Interp weights carried at the value dtype (bf16 when the grid is bf16).
+    fx, fy, fz = (
+        f[..., 0].astype(vdt),
+        f[..., 1].astype(vdt),
+        f[..., 2].astype(vdt),
+    )
 
     c000 = grid[ix, iy, iz]
     c100 = grid[ix + 1, iy, iz]
@@ -397,8 +410,12 @@ def trilinear_sdf(
     c11 = c011 * (1 - fx) + c111 * fx
     c0 = c00 * (1 - fy) + c10 * fy
     c1 = c01 * (1 - fy) + c11 * fy
-    interp = c0 * (1 - fz) + c1 * fz
-    return jnp.where(in_bounds, interp, out_of_bounds_value)
+    # interp value carried at the grid dtype; cast back to fp32 so the
+    # cross-point reduction (soft-min / top-k) downstream accumulates fp32.
+    interp = (c0 * (1 - fz) + c1 * fz).astype(jnp.float32)
+    return jnp.where(
+        in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32)
+    )
 
 
 def pairwise_signed_clearance(
