@@ -1,0 +1,467 @@
+# Trame planning config for mouse 837229.
+# Modeled on examples/836656-config.yml (same TenRun headframe + 0283-300-04
+# implant family). Most inputs auto-derive from `mouse` (image, brain mask,
+# headframe/implant hole segs, implant_fit + com_plane transforms).
+#
+# YOU ARE PROVIDING (both required, referenced at the derived paths below):
+#   - ${annotations_path}/ccf/ccf_annotation_in_subject.nii.gz
+#       CCF labels warped into 837229 subject space (via ccf_to_subject_warp);
+#       drives the structure overlays AND the retro-in-structure targets.
+#   - ${annotations_path}/837229_rabies_pts_from_<src>_LPS.csv
+#       retro point cloud; rename the <src> suffix to match your file.
+#
+# Targets: target:L:<struct> = mean of retro points inside that structure,
+#   LEFT hemisphere (reducer points_in_region_center_mass, points_key=retro-
+#   targets). Validated on 836656 to reproduce its plan targets to ~1 mm.
+#
+# VERIFY: implant model 0283-300-04.obj (ImplantHoles seg matches 836656);
+#   subject_from_rig 14 deg pitch (rig mount, same as 836656). The plan below
+#   is an all-LEFT starting scaffold (836656 kinds/arcs/ml) with placeholder
+#   spins/depths — re-aim in the GUI or run the optimizer.
+version: 1
+paths:
+  mouse: '837229'
+  base_path: /mnt/vast/scratch
+  annotations_path: ${.base_path}/ephys/persist/data/MRI/processed/${.mouse}
+  headframe_annotations_path: ${.annotations_path}/${.mouse}_HeadframeHoles.seg.nrrd
+  brain_mask_path: ${.annotations_path}/${.mouse}_auto_skull_strip.nrrd
+  structure_path: ${.annotations_path}/Masks
+  model_path: ${.base_path}/ephys/persist/data/MRI/HeadframeModels
+  hole_model_path: ${.model_path}/HoleOBJs
+  ccf_annotation_path: ${.annotations_path}/ccf/ccf_annotation_in_subject.nii.gz
+imaging:
+  magnet_frequency_MHz: 599.0
+  chem_shift_ppm_default: 3.9
+  chem_shift_apply_by_role:
+  - anatomy
+  - target
+  image_path: ${paths.annotations_path}/${paths.mouse}_100.nii.gz
+transforms:
+  implant_to_lps:
+    sequence:
+    - kind: sitk_file
+      path: ${paths.annotations_path}/${paths.mouse}_implant_fit.h5
+      inverted: true
+    - kind: sitk_file
+      path: ${paths.annotations_path}/${paths.mouse}_com_plane.h5
+      inverted: true
+  headframe_to_lps:
+    sequence:
+    - kind: sitk_file
+      path: ${paths.annotations_path}/${paths.mouse}_com_plane.h5
+      inverted: true
+resources: []
+canonicalizations:
+  obj-wavefront:
+    source_space: ASR
+  probe-mesh:
+    source_space: LSA
+materials:
+  structure:
+    color: '#88CCFF'
+    opacity: 0.1
+  structure_target:
+    color: '#FFCC88'
+    opacity: 0.5
+  implant:
+    color: '#FF00FF'
+    opacity: 0.7
+asset_templates:
+  hardware:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    canonicalization_ref: obj-wavefront
+    material:
+      color: '#E7DDFF'
+      opacity: 1.0
+    caps:
+    - renderable
+    - collidable
+    collision:
+      group: fixture
+      mask:
+      - probe
+  structure:
+    kind: mesh
+    role: anatomy
+    loader: trimesh
+    material_ref: structure
+    tags:
+    - structure
+    collision:
+      group: static
+      mask: []
+  probe:
+    kind: mesh
+    role: geometry
+    loader: trimesh
+    canonicalization_ref: probe-mesh
+    material:
+      color: '#66DD66'
+      opacity: 1.0
+    caps:
+    - renderable
+    - movable
+    - collidable
+    - selectable
+    - savable
+    collision:
+      group: probe
+      mask:
+      - fixture
+      - probe
+target_templates:
+  structure:
+    reducer: mesh_center_mass
+    material_ref: structure_target
+    tags:
+    - structure
+    - target
+    collision:
+      group: static
+      mask: []
+  hole:
+    loader: trimesh
+    canonicalization_ref: obj-wavefront
+    reducer: mesh_centroid
+    material:
+      color: '#FF00FF'
+      opacity: 0.5
+    tags:
+    - hole
+    chem_shift_policy: 'off'
+    collision:
+      group: static
+      mask: []
+assets:
+- key: brain
+  src: ${paths.brain_mask_path}
+  templates:
+  - structure
+  material:
+    color: '#EFC3CA'
+    opacity: 0.1
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+- key: headframe
+  src: ${paths.model_path}/TenRunHeadframe.obj
+  templates:
+  - hardware
+  material:
+    color: '#E7DDFF'
+    opacity: 1.0
+  scene_tags:
+  - static
+  - fixture
+  - headframe
+- key: cone
+  src: ${paths.model_path}/0274-430-01.obj
+  templates:
+  - hardware
+  scene_tags:
+  - fixture
+  - cone
+- key: well
+  src: ${paths.model_path}/WHC_Well/0274-400-07_X02.obj
+  templates:
+  - hardware
+  scene_tags:
+  - fixture
+  - well
+- key: implant
+  src: ${paths.model_path}/0283-300-04.obj
+  templates:
+  - hardware
+  material_ref: implant
+  transform: implant_to_lps
+  scene_tags:
+  - fixture
+  - implant
+- key: retro-targets
+  kind: points
+  src: ${paths.annotations_path}/${paths.mouse}_rabies_pts_from_698928_LPS.csv
+  loader: csv_points
+  role: anatomy
+  tags:
+  - retro-target
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  material:
+    color: '#FF4444'
+    opacity: 0.6
+    point_size: 3.0
+  caps:
+  - renderable
+- key: probe:2.1
+  src: ${paths.model_path}/dovetailtweezer_oneShank_centered_corrected.obj
+  templates:
+  - probe
+- key: probe:2.1-alpha
+  src: ${paths.model_path}/Centered_Newscale_2pt0.obj
+  templates:
+  - probe
+- key: probe:quadbase-alpha
+  src: ${paths.model_path}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj
+  templates:
+  - probe
+- key: probe:quadbase-dovetail
+  src: ${paths.model_path}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj
+  templates:
+  - probe
+- key: probe:2.4
+  src: ${paths.model_path}/dovetailwtweezer_fourShank_centeredOnShank0.obj
+  templates:
+  - probe
+- key: probe:pipette
+  src: ${paths.model_path}/injection_pipette.obj
+  templates:
+  - probe
+- key: structure:BLA
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: BLA
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: BLA
+  material:
+    color: '#9DE79C'
+    opacity: 0.15
+- key: structure:CA1
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: CA1
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: CA1
+  material:
+    color: '#7ED04B'
+    opacity: 0.15
+- key: structure:CLA
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: CLA
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: CLA
+  material:
+    color: '#8ADA87'
+    opacity: 0.15
+- key: structure:MD
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: MD
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: MD
+  material:
+    color: '#FF909F'
+    opacity: 0.15
+- key: structure:PL
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: PL
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: PL
+  material:
+    color: '#2FA850'
+    opacity: 0.15
+- key: structure:RSP
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: RSP
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: RSP
+  material:
+    color: '#1AA698'
+    opacity: 0.15
+- key: structure:VM
+  src: ${paths.ccf_annotation_path}
+  loader: ccf_annotation_region
+  loader_kwargs:
+    acronym: VM
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - structure
+  metadata:
+    ccf_acronym: VM
+  material:
+    color: '#FF8084'
+    opacity: 0.15
+targets:
+- key_pattern: target:hole:{n}
+  range:
+  - 1
+  - 13
+  src: ${paths.hole_model_path}/Hole{n}.obj
+  templates:
+  - hole
+  transform: implant_to_lps
+  scene_tags:
+  - static
+  - target
+  - hole
+- derive_from:
+  - structure:BLA
+  - structure:CA1
+  - structure:CLA
+  - structure:MD
+  - structure:PL
+  - structure:RSP
+  - structure:VM
+  key_prefix: 'target:L:'
+  reducer: points_in_region_center_mass
+  reducer_kwargs:
+    points_key: retro-targets
+    hemisphere: left
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - target
+  - brain
+- derive_from:
+  - structure:BLA
+  - structure:CA1
+  - structure:CLA
+  - structure:MD
+  - structure:PL
+  - structure:RSP
+  - structure:VM
+  key_prefix: 'target:R:'
+  reducer: points_in_region_center_mass
+  reducer_kwargs:
+    points_key: retro-targets
+    hemisphere: right
+  templates:
+  - structure
+  transform: headframe_to_lps
+  scene_tags:
+  - static
+  - target
+  - brain
+plan:
+  arcs:
+    a: 13.0
+    b: -10.0
+    c: -43.0
+  # Rig mounts the mouse nose-down 14 deg about subject-L (same as 836656);
+  # (ap, ml, spin) are rig-frame so kinematic limits/separations check there.
+  subject_from_rig:
+    axis_LPS: [1.0, 0.0, 0.0]
+    angle_deg: 14.0
+  probes:
+    MD:
+      kind: 'quadbase-alpha'
+      arc: a
+      spin: -39
+      slider_ml: -12.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:MD'
+    BLA:
+      kind: 'quadbase-dovetail'
+      arc: b
+      spin: 0
+      slider_ml: 27.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:BLA'
+    PL:
+      kind: 'quadbase-alpha'
+      arc: b
+      spin: 131
+      slider_ml: -30.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:PL'
+    VM:
+      kind: '2.1'
+      arc: c
+      spin: -180
+      slider_ml: -8.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:VM'
+    RSP:
+      kind: '2.1'
+      arc: c
+      spin: 4
+      slider_ml: 8.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:RSP'
+    CA1:
+      kind: '2.1'
+      arc: b
+      spin: 87
+      slider_ml: 3.5
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:CA1'
+    CLA:
+      kind: '2.1'
+      arc: c
+      spin: 171
+      slider_ml: -24.0
+      past_target_mm: 0.0
+      offsets_RA: [0.0, 0.0]
+      target:
+        kind: catalog
+        key: 'target:L:CLA'
