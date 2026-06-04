@@ -40,13 +40,13 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import numpy as np
 import yaml
+from aind_mri_utils.arc_angles import arc_angles_to_affine
 from scipy.optimize import minimize
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
@@ -58,8 +58,7 @@ from aind_low_point.optimization.stage3_phase2_jax import (
     make_phase2,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-from aind_low_point.runtime import build_runtime_from_config
-from aind_low_point.runtime import save_plan_to_config
+from aind_low_point.runtime import build_runtime_from_config, save_plan_to_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
 from scripts.run_phase1_sample import (
@@ -67,7 +66,6 @@ from scripts.run_phase1_sample import (
     build_fixture_sdf_data,
     phase1_bounds,
 )
-
 
 # ---------------------------------------------------------------------------
 # Per-probe-kind body asymmetry direction (LOCAL frame)
@@ -288,21 +286,132 @@ def _dedup_angles(angles: list[float], tol_deg: float = 5.0) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# Coupling graph
+# Coupling graph — spin-swept-volume intersection
 # ---------------------------------------------------------------------------
+#
+# Two probes' spins can interact iff the volumes their bodies sweep as spin
+# varies over [0, 360) overlap. Spin rotates a probe about the local z-axis
+# through the recording-array centre (pose_from_optimizer_vars: R_z(-spin)
+# about that axis), so the swept volume is the REVOLUTION of the probe mesh
+# about that axis. We represent each as the outer radius profile r_max(z) — the
+# true shape (thin shank/neck, wide headstage), not a single bounding radius —
+# and test overlap of the two solids placed at their (ap, ml, target) poses.
+#
+# Replaces the old target-distance heuristic (`d < D_interact_mm`), which both
+# used the wrong distance (deep targets, not the bodies that actually interact
+# above the brain) and a guessed threshold ≈ the whole mouse brain.
+
+N_ZBINS = 120     # height bins for the r(z) revolution profile
+N_THETA = 24      # angular samples when meshing the swept surface
+
+
+def swept_profile(mesh_verts: np.ndarray, rec_center_local: np.ndarray) -> tuple:
+    """Solid-of-revolution profile of a probe body about its insertion axis.
+
+    Returns ``(z_centers, r_max, z_lo, z_hi)`` in the local revolved frame
+    (``z`` = local z − recording-centre z; ``r`` = transverse distance from the
+    recording-array spin axis). ``r_max(z)`` is the swept solid's outer radius.
+    """
+    q = np.asarray(mesh_verts, np.float64) - np.asarray(rec_center_local, np.float64)
+    r = np.hypot(q[:, 0], q[:, 1])
+    z = q[:, 2]
+    z_lo, z_hi = float(z.min()), float(z.max())
+    edges = np.linspace(z_lo, z_hi, N_ZBINS + 1)
+    idx = np.clip(np.digitize(z, edges) - 1, 0, N_ZBINS - 1)
+    rmax = np.zeros(N_ZBINS)
+    for b in range(N_ZBINS):
+        m = idx == b
+        if m.any():
+            rmax[b] = r[m].max()
+    zc = 0.5 * (edges[:-1] + edges[1:])
+    return zc, rmax, z_lo, z_hi
+
+
+def swept_surface_world(prof: tuple, R0: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Sample the swept solid's surface in world LPS.
+
+    ``world = R0 @ q + target`` with ``R0 = arc_angles_to_affine(ap, ml, 0)``
+    (spin-independent) and ``q`` over the revolved surface ``r_max(z)``.
+    """
+    zc, rmax, _, _ = prof
+    th = np.linspace(0.0, 2 * np.pi, N_THETA, endpoint=False)
+    ct, st = np.cos(th), np.sin(th)
+    pts = []
+    for z, rm in zip(zc, rmax):
+        if rm <= 0:
+            continue
+        ring = np.stack([rm * ct, rm * st, np.full(N_THETA, z)], axis=1)
+        pts.append(ring @ np.asarray(R0).T + np.asarray(target))
+    return np.concatenate(pts) if pts else np.zeros((0, 3))
+
+
+def inside_swept(
+    world_pts: np.ndarray, prof: tuple, R0: np.ndarray, target: np.ndarray,
+) -> np.ndarray:
+    """Boolean mask: which world points lie inside the swept solid."""
+    zc, rmax, z_lo, z_hi = prof
+    q = (np.asarray(world_pts) - np.asarray(target)) @ np.asarray(R0)
+    z = q[:, 2]
+    r = np.hypot(q[:, 0], q[:, 1])
+    rm = np.interp(z, zc, rmax, left=0.0, right=0.0)
+    return (z >= z_lo) & (z <= z_hi) & (r <= rm)
+
+
+def swept_overlap(
+    prof_i, R0_i, t_i, surf_i, prof_j, R0_j, t_j, surf_j,
+) -> tuple[bool, float]:
+    """``(overlap, min_surface_gap_mm)`` between two swept solids.
+
+    Overlap if either solid's sampled surface enters the other. ``gap`` is the
+    nearest sampled surface-surface distance (negative ⇒ overlapping).
+    """
+    from scipy.spatial import cKDTree
+
+    overlap = bool(
+        inside_swept(surf_i, prof_j, R0_j, t_j).any()
+        or inside_swept(surf_j, prof_i, R0_i, t_i).any()
+    )
+    gap = float(cKDTree(surf_j).query(surf_i)[0].min())
+    return overlap, (-gap if overlap else gap)
 
 
 def build_coupling_graph(
-    target_LPS: np.ndarray, D_interact_mm: float = 15.0,
+    statics: list,
+    arc_aps: np.ndarray,
+    ml_per_probe: np.ndarray,
+    target_LPS: np.ndarray,
+    mesh_verts_by_kind: dict[str, np.ndarray],
+    probe_kind_by_name: dict[str, str],
 ) -> dict[int, list[int]]:
-    """Adjacency: i → list of j (j > i) where targets are within
-    ``D_interact_mm`` of each other.
+    """Adjacency from spin-swept-volume intersection: ``i ↔ j`` iff the volumes
+    the two probe bodies sweep over all spins overlap (so their spins interact).
+
+    ``mesh_verts_by_kind`` maps each probe kind to its canonical-local mesh
+    vertices (e.g. ``runtime.asset_catalog.get_geometry(f"probe:{kind}").raw
+    .vertices``). Decoupled probes (non-overlapping swept volumes) get no edge —
+    their spins can be optimised independently.
     """
-    K = len(target_LPS)
+    K = len(statics)
+    prof_by_kind: dict[str, tuple] = {}
+    profs, R0s, surfs = [], [], []
+    for i, st in enumerate(statics):
+        kind = probe_kind_by_name.get(st.name, "default")
+        if kind not in prof_by_kind:
+            prof_by_kind[kind] = swept_profile(
+                mesh_verts_by_kind[kind], st.pivot_local)
+        prof = prof_by_kind[kind]
+        profs.append(prof)
+        R0 = arc_angles_to_affine(
+            float(arc_aps[st.arc_idx]), float(ml_per_probe[i]), 0.0)
+        R0s.append(R0)
+        surfs.append(swept_surface_world(prof, R0, target_LPS[i]))
+
     coupling: dict[int, list[int]] = {i: [] for i in range(K)}
     for i, j in itertools.combinations(range(K), 2):
-        d = float(np.linalg.norm(target_LPS[i] - target_LPS[j]))
-        if d < D_interact_mm:
+        overlap, _ = swept_overlap(
+            profs[i], R0s[i], target_LPS[i], surfs[i],
+            profs[j], R0s[j], target_LPS[j], surfs[j])
+        if overlap:
             coupling[i].append(j)
             coupling[j].append(i)
     return coupling
@@ -554,8 +663,15 @@ def main() -> int:
         ])
         target_LPS = np.array([st.target_LPS for st in statics])
 
-        # Build coupling graph + candidates + beam search
-        coupling = build_coupling_graph(target_LPS)
+        # Build coupling graph (spin-swept-volume overlap) + candidates + beam.
+        mesh_verts_by_kind = {
+            k: np.asarray(
+                runtime.asset_catalog.get_geometry(f"probe:{k}").raw.vertices)
+            for k in set(probe_kind_by_name.values())
+        }
+        coupling = build_coupling_graph(
+            statics, arc_aps, ml_per_probe, target_LPS,
+            mesh_verts_by_kind, probe_kind_by_name)
         # Seed: current spin of each probe in the augmented warm-start
         # so the chain at least has the option of "keep current spin".
         seed_spins = {}
