@@ -28,7 +28,6 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import NDArray
 
 _DEFAULT_KDE_SPACING_MM = 0.1
 _DEFAULT_KDE_PAD_SIGMAS = 4.0
@@ -235,39 +234,127 @@ def probe_coverage(
     All shanks share the same active range (per-probe-kind convention).
     Padded shanks contribute zero via ``shank_mask``.
     """
-    # World-space shank axis (= probe pose +z direction)
-    shank_dir = R @ jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
-    # Shank tip in world: tip_local @ R.T + t
-    tips_world = shank_tips_local @ R.T + t  # (max_shanks, 3)
+    # Dispatch on the (Python-static) dataclass type to the array-param core.
+    if isinstance(cov_data, GaussianCoverageData):
+        return _probe_coverage_gaussian(
+            R, t, shank_tips_local, shank_mask,
+            cov_data.target_LPS, cov_data.sigma_mm,
+            cov_data.active_start_mm, cov_data.active_end_mm, n_samples,
+        )
+    elif isinstance(cov_data, KdeCoverageData):
+        return _probe_coverage_kde(
+            R, t, shank_tips_local, shank_mask,
+            cov_data.grid, cov_data.origin, cov_data.spacing_mm,
+            cov_data.active_start_mm, cov_data.active_end_mm, n_samples,
+        )
+    raise TypeError(f"Unknown CoverageData type: {type(cov_data)}")
 
-    # Sample points along the active range, per shank.
-    s_vals = jnp.linspace(
-        cov_data.active_start_mm, cov_data.active_end_mm, n_samples
-    ).astype(jnp.float32)
-    # points: (max_shanks, n_samples, 3)
-    points = (
+
+def _coverage_points(R, t, shank_tips_local, active_start_mm, active_end_mm,
+                     n_samples):
+    """Sample points along the active range per shank — ``(max_shanks,
+    n_samples, 3)``. Shared by the Gaussian and KDE cores."""
+    shank_dir = R @ jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
+    tips_world = shank_tips_local @ R.T + t  # (max_shanks, 3)
+    s_vals = jnp.linspace(active_start_mm, active_end_mm, n_samples).astype(
+        jnp.float32
+    )
+    return (
         tips_world[:, None, :]
         + s_vals[None, :, None] * shank_dir[None, None, :]
     )
 
-    # Density evaluation: dispatch on the (Python-static) dataclass type.
-    if isinstance(cov_data, GaussianCoverageData):
-        values = _gaussian_density(
-            cov_data.target_LPS, cov_data.sigma_mm, points
-        )
-    elif isinstance(cov_data, KdeCoverageData):
-        values = _trilinear_density(
-            cov_data.grid, cov_data.origin, cov_data.spacing_mm, points
-        )
-    else:
-        raise TypeError(f"Unknown CoverageData type: {type(cov_data)}")
 
-    # Simpson's-rule integral along the active range
+def _coverage_reduce(values, shank_mask, active_start_mm, active_end_mm,
+                     n_samples):
+    """Simpson integral over samples, masked sum over shanks."""
     weights = _simpson_weights_jnp(n_samples)
-    step = (cov_data.active_end_mm - cov_data.active_start_mm) / max(
-        n_samples - 1, 1
-    )
+    step = (active_end_mm - active_start_mm) / max(n_samples - 1, 1)
     per_shank = jnp.sum(values * weights[None, :], axis=-1) * step
-    # Mask out padded shanks
-    masked = per_shank * shank_mask
-    return jnp.sum(masked)
+    return jnp.sum(per_shank * shank_mask)
+
+
+def _probe_coverage_gaussian(R, t, shank_tips_local, shank_mask, target_LPS,
+                             sigma_mm, active_start_mm, active_end_mm,
+                             n_samples):
+    """Gaussian-density coverage with array params (vmap-friendly: every
+    per-probe quantity is an array, no closure-captured dataclass)."""
+    points = _coverage_points(
+        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples)
+    values = _gaussian_density(target_LPS, sigma_mm, points)
+    return _coverage_reduce(
+        values, shank_mask, active_start_mm, active_end_mm, n_samples)
+
+
+def _probe_coverage_kde(R, t, shank_tips_local, shank_mask, grid, origin,
+                        spacing_mm, active_start_mm, active_end_mm, n_samples):
+    """Voxel-KDE coverage with array params. vmap-friendly only when the
+    batched grids share a shape (see coverage_total_over_probes)."""
+    points = _coverage_points(
+        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples)
+    values = _trilinear_density(grid, origin, spacing_mm, points)
+    return _coverage_reduce(
+        values, shank_mask, active_start_mm, active_end_mm, n_samples)
+
+
+def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
+                               n_samples=41):
+    """Sum ``probe_coverage`` over P probes, VMAPPING the per-probe kernel
+    when all probes share a coverage mode — all-Gaussian, or all-KDE with a
+    uniform grid shape. Mixed modes (or heterogeneous KDE grid shapes) fall
+    back to the unrolled Python loop.
+
+    vmapping compiles ONE coverage subgraph applied P times instead of P
+    distinct unrolled subgraphs — smaller/faster cold compile, and XLA can
+    vectorize the per-probe work across the batch axis (a modest steady win;
+    coverage is a small fraction of per-step cost).
+
+    Parameters
+    ----------
+    Rs : (P, 3, 3)   per-probe world rotations
+    ts : (P, 3)      per-probe world translations
+    tips_local : (P, max_shanks, 3)
+    shank_mask : (P, max_shanks)
+    coverage_data : length-P tuple of CoverageData (Python objects, static)
+    """
+    P = len(coverage_data)
+    types = {type(cd) for cd in coverage_data}
+
+    if types == {GaussianCoverageData}:
+        tgt = jnp.stack([jnp.asarray(cd.target_LPS, jnp.float32)
+                         for cd in coverage_data])               # (P, 3)
+        sig = jnp.asarray([cd.sigma_mm for cd in coverage_data], jnp.float32)
+        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data],
+                         jnp.float32)
+        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
+                         jnp.float32)
+        per = jax.vmap(
+            _probe_coverage_gaussian,
+            in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
+        )(Rs, ts, tips_local, shank_mask, tgt, sig, a0, a1, n_samples)
+        return jnp.sum(per)
+
+    if types == {KdeCoverageData} and len(
+        {tuple(cd.grid.shape) for cd in coverage_data}
+    ) == 1:
+        grids = jnp.stack([jnp.asarray(cd.grid) for cd in coverage_data])
+        orig = jnp.stack([jnp.asarray(cd.origin, jnp.float32)
+                          for cd in coverage_data])
+        sp = jnp.asarray([cd.spacing_mm for cd in coverage_data], jnp.float32)
+        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data],
+                         jnp.float32)
+        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
+                         jnp.float32)
+        per = jax.vmap(
+            _probe_coverage_kde,
+            in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None),
+        )(Rs, ts, tips_local, shank_mask, grids, orig, sp, a0, a1, n_samples)
+        return jnp.sum(per)
+
+    # Mixed modes or heterogeneous KDE grid shapes: unrolled loop.
+    total = jnp.float32(0.0)
+    for i in range(P):
+        total = total + probe_coverage(
+            Rs[i], ts[i], tips_local[i], shank_mask[i],
+            coverage_data[i], n_samples=n_samples)
+    return total

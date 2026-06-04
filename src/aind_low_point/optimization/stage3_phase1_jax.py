@@ -47,9 +47,7 @@ from numpy.typing import NDArray
 
 from aind_low_point.optimization.coverage_jax import (
     CoverageData,
-    GaussianCoverageData,
-    KdeCoverageData,
-    probe_coverage,
+    coverage_total_over_probes,
 )
 from aind_low_point.optimization.joint_rerank_jax import (
     MAX_SECTIONS_PAD,
@@ -506,12 +504,12 @@ def _build_jit(
         # tuple closed over the trace; per-probe mode (Gaussian vs KDE)
         # is fixed at JIT-build time.
         if coverage_data is not None:
-            coverage_total = jnp.float32(0.0)
-            for i in range(n_probes):
-                coverage_total = coverage_total + probe_coverage(
-                    Rs[i], ts[i], tips_local[i], shank_mask[i],
-                    coverage_data[i], n_samples=coverage_n_samples,
-                )
+            # vmapped when all probes share a coverage mode (all-Gaussian /
+            # all-KDE uniform grid); unrolled loop otherwise. Same result.
+            coverage_total = coverage_total_over_probes(
+                jnp.stack(Rs), jnp.stack(ts), tips_local, shank_mask,
+                coverage_data, n_samples=coverage_n_samples,
+            )
         else:
             coverage_total = jnp.float32(0.0)
 
