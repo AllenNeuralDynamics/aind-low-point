@@ -43,6 +43,7 @@ def make_batched_spin_restore(
     *,
     n_spins: int = 8,
     n_rounds: int = 2,
+    fixtures: tuple = (),
 ) -> Callable:
     """Build a batched spin-restore function.
 
@@ -53,8 +54,12 @@ def make_batched_spin_restore(
 
     ``n_rounds`` repeats the K-probe round-robin sweep so later probes
     can react to early probes' updated spins.
+
+    ``fixtures`` (e.g. the well-bore SDF) are folded into the objective so
+    the spin-basin argmin accounts for probe-vs-fixture clearance — without
+    it the basin ranking is uncorrelated with FCL feasibility.
     """
-    obj_fn, _ = make_batched_reduced_objective(static, weights)
+    obj_fn, _ = make_batched_reduced_objective(static, weights, fixtures)
     n_arcs = static.n_arcs
     K = static.K
 
@@ -100,6 +105,7 @@ def make_batched_spin_restore_chunked(
     *,
     n_spins: int = 8,
     n_rounds: int = 2,
+    fixtures: tuple = (),
 ) -> Callable:
     """Build a chunkable spin-restore function.
 
@@ -114,7 +120,9 @@ def make_batched_spin_restore_chunked(
     across all candidates and are closure-captured. The per-candidate
     arrays (arc_idx, section geometry) flow as JIT runtime args.
     """
-    obj_batched, _ = make_batched_reduced_objective(probe_set_static, weights)
+    obj_batched, _ = make_batched_reduced_objective(
+        probe_set_static, weights, fixtures
+    )
     obj_jit = obj_batched.from_arrays  # type: ignore[attr-defined]
     n_arcs = probe_set_static.n_arcs
     K = probe_set_static.K

@@ -23,6 +23,7 @@ from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
+    dual_rep_fixture_clearance,
     shank_only_pair_clearance,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
@@ -69,9 +70,10 @@ def _threading_g_for_probe(
     return jnp.sum(valid * excess * excess)
 
 
-def make_batched_reduced_objective(
+def make_batched_reduced_objective(  # noqa: C901
     static: BatchedProbeStatic,
     weights: JointWeights,
+    fixtures: tuple = (),
 ) -> tuple[Callable, Callable]:
     """Build the batched (vmapped over candidates) reduced objective and
     gradient.
@@ -142,6 +144,24 @@ def make_batched_reduced_objective(
     comfortable_ml = float(weights.comfortable_ml_deg)
     threading_tol = float(weights.threading_oval_tolerance)
     min_clearance = float(weights.min_clearance_mm)
+    # Probe-vs-fixture (e.g. well-bore) clearance. Static-in-world fixtures
+    # are closure-captured (same across the batch, like the probe SDF
+    # tables). Empty by default → the term is a no-op and the trace is
+    # identical to the fixture-free objective. Weight falls back to the
+    # probe-probe lambda_clearance when the weights object lacks a
+    # dedicated fixture lambda (old pickles).
+    lambda_clearance_fixture = float(
+        getattr(weights, "lambda_clearance_fixture", weights.lambda_clearance)
+    )
+    fixture_data = [
+        (
+            jnp.asarray(fx.grid),
+            jnp.asarray(fx.origin),
+            jnp.asarray(fx.spacing),
+            jnp.asarray(fx.surface),
+        )
+        for fx in fixtures
+    ]
 
     def _obj_one(
         y: jnp.ndarray,                # (n_arcs + 2*K,)
@@ -253,6 +273,28 @@ def make_batched_reduced_objective(
                 short = jnp.maximum(0.0, min_clearance - d_soft)
                 j_clear = j_clear + short * short
 
+        # Probe-vs-fixture clearance (dual-rep: body voxel + shank OBB).
+        # The well-bore term is spin-sensitive (rotating a multi-shank probe
+        # changes shank-vs-bore-wall clearance) and is the term that makes
+        # the spin-basin ranking correlate with FCL feasibility — omitting it
+        # produced uncorrelated, useless restore rankings in earlier runs.
+        j_clear_fixture = jnp.float32(0.0)
+        for fx_grid, fx_origin, fx_spacing, fx_surface in fixture_data:
+            for i in range(K):
+                if not has_sdf_per_probe[i]:
+                    continue
+                ka = int(sdf_kind_id[i])
+                fc = dual_rep_fixture_clearance(
+                    Rs[i], ts[i],
+                    sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
+                    fx_grid, fx_origin, fx_spacing,
+                    world_surfaces[i], fx_surface,
+                    sdf_shank_centers[ka], sdf_shank_halves[ka],
+                )
+                for d_soft in (fc.body[1], fc.obb[1]):
+                    short = jnp.maximum(0.0, min_clearance - d_soft)
+                    j_clear_fixture = j_clear_fixture + short * short
+
         # Unit-circle pull on (sx, sy). y stride = 3, sx at off+1.
         sx_arr = y[n_arcs + 1::3][:K]
         sy_arr = y[n_arcs + 2::3][:K]
@@ -264,6 +306,7 @@ def make_batched_reduced_objective(
             + lambda_ml * j_ml
             + lambda_bounds * j_bounds
             + lambda_clearance * j_clear
+            + lambda_clearance_fixture * j_clear_fixture
             + lambda_unit_circle * j_unit_circle
         )
 
