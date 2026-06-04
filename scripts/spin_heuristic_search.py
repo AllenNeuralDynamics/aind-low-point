@@ -20,7 +20,7 @@ don't benefit from spin search.
 
 Run::
     uv run --python 3.13 python -m scripts.spin_heuristic_search \\
-        examples/836656-config-T12.yml /tmp/836656-holes.yml \\
+        examples/836656-config-T12.yml scratch/0283-300-04.holes.yml \\
         --polish-pkl /tmp/full_polish_unitcircle.pkl \\
         --top-n 50 --out-dir examples/836656-config-T12_spin_search
 """
@@ -108,52 +108,67 @@ def is_four_shank(probe_static) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _orbit_basis(ap_deg: float, ml_deg: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return (a, b) such that the world-frame image of probe local +y
+    under ``arc_angles_to_affine(ap, ml, spin)`` is::
+
+        u(spin) = sin(spin) * a + cos(spin) * b
+
+    Derivation: ``R_LPS = R_x(ap) R_y(-ml) R_z(-spin)`` and
+    ``R_z(-spin) [0,1,0] = (sin spin, cos spin, 0)``. So::
+
+        u(spin) = R_x(ap) R_y(-ml) (sin spin, cos spin, 0)
+                = sin spin · R_x(ap) R_y(-ml) [1,0,0]
+                + cos spin · R_x(ap) R_y(-ml) [0,1,0]
+
+    Avoids calling ``arc_angles_to_affine`` twice per heuristic eval.
+    """
+    ap = np.deg2rad(ap_deg)
+    ml = np.deg2rad(ml_deg)
+    cap, sap = np.cos(ap), np.sin(ap)
+    cml, sml = np.cos(ml), np.sin(ml)
+    a = np.array([cml, -sap * sml, cap * sml])
+    b = np.array([0.0, cap, sap])
+    return a, b
+
+
+def spin_to_align_y_with(
+    target_dir_world: np.ndarray, ap_deg: float, ml_deg: float,
+) -> float:
+    """Closed-form spin (deg) that best aligns probe local +y with
+    ``target_dir_world`` under ``arc_angles_to_affine(ap, ml, spin)``.
+
+    ``u(spin) · sm`` is maximised at ``spin = atan2(a · sm, b · sm)``
+    (see :func:`_orbit_basis`). When ``sm`` doesn't lie in the orbit
+    plane (off bore-aligned (ap, ml)), the residual is the projection
+    error — non-zero but typically <30° for our manual plans.
+    """
+    a, b = _orbit_basis(ap_deg, ml_deg)
+    sm = np.asarray(target_dir_world, dtype=float)
+    sm = sm / max(float(np.linalg.norm(sm)), 1e-12)
+    return float(np.degrees(np.arctan2(float(a @ sm), float(b @ sm))))
+
+
 def optimal_spin_for_gap(
     long_axis_local: np.ndarray,
     ap_deg: float,
     ml_deg: float,
     gap_dir_world: np.ndarray,
 ) -> tuple[float, float]:
-    """Find the spin angle (in degrees) such that the probe's local
-    long-axis vector is perpendicular to ``gap_dir_world``.
+    """Spin (deg) such that the probe's local long-axis is perpendicular
+    to ``gap_dir_world``. Returns (θ, θ + 180°).
 
-    Returns (spin_a, spin_a + 180°) — both are equally optimal.
+    For ``long_axis_local = (0, 1, 0)``, this means finding the spin where
+    ``u(spin) · gap_dir = 0`` — i.e. local +y in world is perpendicular
+    to the gap. From :func:`_orbit_basis`::
 
-    Math:
-      The probe's local long-axis is ``e_local = (0, 1, 0)`` (or similar
-      unit vector). When the probe is rotated by ``R(ap, ml, spin)``, the
-      world-frame long-axis is::
+        u(spin) · g = sin spin · (a · g) + cos spin · (b · g) = 0
+        → tan spin = -(b · g) / (a · g)
+        → spin = atan2(-(b · g), (a · g))
 
-          e_world(spin) = R_outer · R_spin(spin) · e_local
-
-      where R_spin rotates about local +z by ``spin_rad``, and R_outer
-      handles the ap/ml rotation.
-
-      For ``e_local = (0, 1, 0)``::
-
-          R_spin · e_local = (-sin θ, cos θ, 0)
-
-      and::
-
-          e_world = R_outer · (-sin θ, cos θ, 0)
-                  = -sin θ · R_outer[:,0] + cos θ · R_outer[:,1]
-
-      We want ``e_world · gap_dir = 0``::
-
-          -sin θ · (R_outer[:,0] · gap_dir) + cos θ · (R_outer[:,1] · gap_dir) = 0
-
-      Let a = R_outer[:,0] · gap_dir, b = R_outer[:,1] · gap_dir. Then::
-
-          tan θ = b / a    →    θ = atan2(b, a)
-
-      Two solutions: θ and θ + 180° (both give perpendicular).
+    Equivalent to ``spin_to_align_y_with(gap × axis_z_world)``, but the
+    direct atan2 form avoids needing the rotation-axis vector.
     """
-    # R_outer = R(ap, ml, spin=0) = arc rotation only
-    # Current derivation assumes long_axis_local = (0, 1, 0). For all
-    # current probe types this holds (see BODY_LONG_AXIS_LOCAL).
-    # TODO: generalise the closed form if a future probe type has a
-    # different in-plane long-axis direction (the lz != 0 case is
-    # more involved — see notes in dev/spin_search_heuristics.md).
     if not (abs(long_axis_local[0]) < 1e-6
             and abs(long_axis_local[2]) < 1e-6
             and abs(abs(long_axis_local[1]) - 1.0) < 1e-6):
@@ -162,15 +177,13 @@ def optimal_spin_for_gap(
             f"= (0, ±1, 0); got {long_axis_local}. Update derivation "
             f"before using a probe type with different body asymmetry."
         )
-    R_outer = arc_angles_to_affine(ap_deg, ml_deg, 0.0)
-    # The spin rotates the local long axis (probe local +y) within the
-    # plane perpendicular to local +z (in world coords, that's the
-    # plane spanned by R_outer[:,0] and R_outer[:,1]).
-    a = R_outer[:, 0] @ gap_dir_world
-    b = R_outer[:, 1] @ gap_dir_world
-    # cos θ * b - sin θ * a = 0 → tan θ = b/a
-    theta_rad = float(np.arctan2(b, a))
-    theta_deg = float(np.degrees(theta_rad))
+    a, b = _orbit_basis(ap_deg, ml_deg)
+    g = np.asarray(gap_dir_world, dtype=float)
+    ag = float(a @ g)
+    bg = float(b @ g)
+    # u · g = 0  →  sin spin · ag + cos spin · bg = 0
+    # → tan spin = -bg / ag  →  spin = atan2(-bg, ag)
+    theta_deg = float(np.degrees(np.arctan2(-bg, ag)))
     return (theta_deg, theta_deg + 180.0)
 
 
@@ -197,17 +210,26 @@ def per_probe_spin_candidates(
     for i, st in enumerate(statics):
         kind = probe_kind_by_name.get(st.name, "default")
         four_shank = is_four_shank(st)
-        slot_major = float(np.degrees(np.pi / 2 - st.assigned_hole.slot_theta_rad))
+        # H1: spin that aligns probe local +y (shank-row direction per
+        # kinematics.py:120-121) with the slot's major axis under the
+        # probe's actual (ap, ml). The closed form accounts for the
+        # arc_angles_to_affine convention; the older ``π/2 − slot_theta``
+        # warm-start in optimize.py is ~90° off because it assumed a
+        # local-+x shank row (see scripts/diagnose_slot_major_formula.py).
+        sm_world = st.assigned_hole.slot_major_dir()
+        ap_i = float(arc_aps[st.arc_idx])
+        ml_i = float(ml_per_probe[i])
+        spin_align_y = spin_to_align_y_with(sm_world, ap_i, ml_i)
 
         # H1: threading-allowed spins
         if four_shank:
             # 4-shank (quadbase, NP 2.4, etc.): threading constrains to
             # ~0° or ~180° relative to slot major axis.
-            h1 = [slot_major, slot_major + 180.0]
+            h1 = [spin_align_y, spin_align_y + 180.0]
         else:
             # 1-shank: spin free for threading; offer 4 orientations.
-            h1 = [slot_major, slot_major + 90.0,
-                  slot_major + 180.0, slot_major + 270.0]
+            h1 = [spin_align_y, spin_align_y + 90.0,
+                  spin_align_y + 180.0, spin_align_y + 270.0]
 
         # H2: for each close neighbor, get the geometric optimum spin.
         # 4-shank: snap to nearest H1 entry. Otherwise add to candidate set.
@@ -219,20 +241,20 @@ def per_probe_spin_candidates(
             if norm < 1e-9:
                 continue
             gap_dir = gap / norm
-            ap_i = float(arc_aps[st.arc_idx])
-            ml_i = float(ml_per_probe[i])
             sp_a, sp_b = optimal_spin_for_gap(
                 body_long_axis_local(kind), ap_i, ml_i, gap_dir,
             )
             h2_candidates.extend([sp_a, sp_b])
 
         if four_shank:
-            # Snap H2 optima to nearest H1
+            # 4-shank must thread the slot — snap H2 optima to whichever
+            # of the two H1 slot-aligned spins is closer.
             snapped = set()
             for sp in h2_candidates:
-                d_slot = abs(_wrap_deg(sp - slot_major))
-                d_flip = abs(_wrap_deg(sp - (slot_major + 180.0)))
-                snapped.add(slot_major if d_slot < d_flip else slot_major + 180.0)
+                d_slot = abs(_wrap_deg(sp - spin_align_y))
+                d_flip = abs(_wrap_deg(sp - (spin_align_y + 180.0)))
+                snapped.add(spin_align_y if d_slot < d_flip
+                            else spin_align_y + 180.0)
             cands = list(set(h1) | snapped)
         else:
             cands = list(h1) + h2_candidates
