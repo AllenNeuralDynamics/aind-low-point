@@ -366,7 +366,20 @@ def build_target_spec(
         if reducer_fn is None:
             raise KeyError(f"Unknown target reducer '{t.reducer}' for target '{t.key}'")
 
-        geo = reducer_fn(geo, **(t.reducer_kwargs or {}))  # should return (3,) or (1,3)
+        rkwargs = dict(t.reducer_kwargs or {})
+        # Cross-asset reducer support: a ``points_key`` in reducer_kwargs is
+        # resolved to that asset's point geometry and passed as ``points=`` —
+        # lets a reducer combine the source (e.g. a structure region) with a
+        # second asset (e.g. the retro point cloud). Both must share a frame.
+        pkey = rkwargs.pop("points_key", None)
+        if pkey is not None:
+            passet = runtime_assets.get(pkey)
+            if passet is None or passet.points is None:
+                raise KeyError(
+                    f"Target '{t.key}' points_key '{pkey}' not found or has no points"
+                )
+            rkwargs["points"] = passet.points.raw
+        geo = reducer_fn(geo, **rkwargs)  # should return (3,) or (1,3)
         geo = np.asarray(geo, dtype=np.float64).reshape(1, 3)
 
     if isinstance(geo, trimesh.Trimesh):
