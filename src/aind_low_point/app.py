@@ -38,6 +38,7 @@ def build_trame_app(
     export_plan_path: Path | None = None,
     plan_path: Path | None = None,
     source_config_path: Path | None = None,
+    apply_plan_on_start: bool = False,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
 
@@ -47,6 +48,19 @@ def build_trame_app(
         Validated configuration model.
     ccf_volume
         Optional path to a warped CCF segmentation volume (.nrrd).
+    save_path
+        Optional path for the "Save" button (full updated config YAML).
+    export_plan_path
+        Optional path for the "Export plan" button (slim geometry summary).
+    plan_path
+        Optional path for the "Save plan" / "Load plan" buttons (plan-only
+        ``PlanningModel`` YAML).
+    source_config_path
+        Optional path recorded as the source config in exported plans.
+    apply_plan_on_start
+        When ``True`` and ``plan_path`` exists, apply the plan to the
+        planning state once at startup so the app opens with the plan
+        already loaded (the "Load plan" button remains wired regardless).
 
     Returns
     -------
@@ -180,6 +194,9 @@ def build_trame_app(
                 return
             apply_plan_model_to_state(loaded, store)
             print(f"Loaded plan from {plan_path}")
+
+        if apply_plan_on_start and plan_path.exists():
+            on_load_plan()
 
     controller = TrameController(
         store=store,

@@ -40,19 +40,26 @@ dependencies = [
   "trame-vtk>=2.11.3",
   "trame-vuetify>=3.2.1",
   "trimesh[recommend]>=4,<5",
+  "tyro>=1.0.13",
   "vtk>=9.5.2",
 ]
 
 [project.optional-dependencies]
-# Placement-optimizer stack: differentiable SDFs (JAX with CUDA),
-# alpha-wrap (pymeshlab), CMA-ES, mesh decomposition helpers, NVIDIA
-# monitoring. Adds ~1 GB of dependencies, mostly Linux+NVIDIA-oriented
-# (jax[cuda12] doesn't install on Windows; substitute plain ``jax``
-# there if a Windows collaborator wants the CPU optimizer path).
+# Placement-optimizer stack: differentiable SDFs (JAX), alpha-wrap
+# (pymeshlab), CMA-ES, mesh decomposition helpers, NVIDIA monitoring.
+# Adds ~1 GB of dependencies.
+#
+# Platform notes:
+#   - On Linux, JAX is installed with ``[cuda12]`` extras so it can
+#     use NVIDIA GPUs. The CUDA plugin wheels live on PyPI and only
+#     ship for Linux.
+#   - On macOS/Windows, plain ``jax`` is installed (CPU only). The
+#     optimizer still works, just slower.
 optimization = [
   "cma>=4.4.4",
   "coacd>=1.0.11",
-  "jax[cuda12]>=0.4.30",
+  "jax[cuda12]>=0.4.30 ; sys_platform == 'linux'",
+  "jax>=0.4.30 ; sys_platform != 'linux'",
   "jaxlib>=0.4.30",
   "libigl>=2.5,<3",
   "mesh2sdf>=1.1.0",
@@ -60,6 +67,9 @@ optimization = [
   "pymeshlab>=2025.7.post1",
   "pynvml>=13.0.1",
 ]
+
+[project.scripts]
+alp-plan = "aind_low_point.cli:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-low-point/"
