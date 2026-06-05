@@ -11,6 +11,18 @@ from numpy.typing import NDArray
 SourceGeo = Union[trimesh.Trimesh, NDArray[np.float64]]
 ReduceOut = NDArray[np.float64]  # usually (3,) single point; could be (N,3)
 
+
+class EmptyReductionError(ValueError):
+    """A reducer had no input points to reduce over.
+
+    Raised when a point-selecting reducer (e.g. region/hemisphere
+    containment) selects zero points, so its output is undefined. The
+    runtime build catches this to skip such a derived target rather than
+    aborting the whole build — useful for unused contralateral targets in
+    subjects with strictly ipsilateral retro labeling.
+    """
+
+
 _REDUCER_REGISTRY: dict[str, Callable[..., ReduceOut]] = {}
 
 
@@ -106,7 +118,7 @@ def points_in_region_center_mass(
         sel = sel & ((pts[:, 0] - plane) * sign > 0)
     n = int(sel.sum())
     if n == 0:
-        raise ValueError(
+        raise EmptyReductionError(
             "points_in_region_center_mass: no points inside region"
             + (f" (+{hemisphere} hemisphere)" if hemisphere else "")
         )

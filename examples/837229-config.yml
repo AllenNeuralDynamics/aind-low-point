@@ -364,26 +364,10 @@ targets:
   - static
   - target
   - brain
-- derive_from:
-  - structure:BLA
-  - structure:CA1
-  - structure:CLA
-  - structure:MD
-  - structure:PL
-  - structure:RSP
-  - structure:VM
-  key_prefix: 'target:R:'
-  reducer: points_in_region_center_mass
-  reducer_kwargs:
-    points_key: retro-targets
-    hemisphere: right
-  templates:
-  - structure
-  transform: headframe_to_lps
-  scene_tags:
-  - static
-  - target
-  - brain
+# No target:R: block: 837229 retro labeling is strictly ipsilateral (left),
+# so MD/RSP/VM contain zero right-hemisphere points and the plan uses only
+# target:L: targets anyway. (The runtime would also skip empty-reduction
+# targets with a warning, but they're omitted here to keep the config clean.)
 plan:
   arcs:
     a: 13.0

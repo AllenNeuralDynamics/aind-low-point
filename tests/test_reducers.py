@@ -7,6 +7,7 @@ import pytest
 import trimesh
 
 from aind_low_point.build_runtime import _REDUCER_REGISTRY
+from aind_low_point.runtime.reducers import EmptyReductionError
 
 
 def _bilateral_box() -> trimesh.Trimesh:
@@ -91,3 +92,33 @@ class TestHemisphereCenterMass:
         cr = _REDUCER_REGISTRY["hemisphere_center_mass"](pts, hemisphere="right")
         assert cl[0] == pytest.approx(1.5, abs=1e-6)
         assert cr[0] == pytest.approx(-1.5, abs=1e-6)
+
+
+class TestPointsInRegionCenterMass:
+    """``points_in_region_center_mass`` containment + hemisphere split."""
+
+    def test_mean_of_contained_points(self):
+        region = _bilateral_box()  # 2 mm cube at origin
+        pts = np.array([[0.5, 0.0, 0.0], [-0.5, 0.0, 0.0], [5.0, 5.0, 5.0]])
+        c = _REDUCER_REGISTRY["points_in_region_center_mass"](region, points=pts)
+        # The far point is outside the cube; the two inside average to origin.
+        assert c == pytest.approx([0.0, 0.0, 0.0], abs=1e-6)
+
+    def test_hemisphere_restriction(self):
+        region = _bilateral_box()
+        pts = np.array([[0.5, 0.1, 0.0], [-0.5, -0.1, 0.0]])
+        cl = _REDUCER_REGISTRY["points_in_region_center_mass"](
+            region, points=pts, hemisphere="left"
+        )
+        assert cl[0] == pytest.approx(0.5, abs=1e-6)
+
+    def test_empty_selection_raises_empty_reduction_error(self):
+        # Region contains points, but none survive the right-hemisphere
+        # filter — should raise the typed EmptyReductionError (a ValueError
+        # subclass the runtime build catches to skip the target).
+        region = _bilateral_box()
+        pts = np.array([[0.5, 0.0, 0.0], [0.8, 0.0, 0.0]])  # all left (x>0)
+        with pytest.raises(EmptyReductionError, match="right hemisphere"):
+            _REDUCER_REGISTRY["points_in_region_center_mass"](
+                region, points=pts, hemisphere="right"
+            )

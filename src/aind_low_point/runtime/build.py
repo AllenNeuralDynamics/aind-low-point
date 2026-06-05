@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
@@ -44,9 +45,11 @@ from aind_low_point.runtime.loaders import (
     GeometryOut,
     load_geometry,
 )
-from aind_low_point.runtime.reducers import _REDUCER_REGISTRY
+from aind_low_point.runtime.reducers import _REDUCER_REGISTRY, EmptyReductionError
 from aind_low_point.runtime.transforms import compile_all_transforms
 from aind_low_point.scene import NodeInstance, Scene, resolve_base_geometry
+
+logger = logging.getLogger(__name__)
 
 
 def _build_subject_from_rig(model: HeadMountModel) -> AffineTransform:
@@ -448,18 +451,28 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     # 4) targets (specs + points index)
     runtime_targets: dict[str, TargetSpec] = {}
     target_index: dict[str, Float3] = {}
+    skipped_targets: set[str] = set()
     for t in cfg.targets:
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
         base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, cfg.materials)
-        tspec, pts = build_target_spec(
-            t,
-            runtime_assets,
-            base_kwargs,
-            chem,
-            maybe_cannon,
-            _REDUCER_REGISTRY,
-            resource_registry=runtime_resources,
-        )
+        try:
+            tspec, pts = build_target_spec(
+                t,
+                runtime_assets,
+                base_kwargs,
+                chem,
+                maybe_cannon,
+                _REDUCER_REGISTRY,
+                resource_registry=runtime_resources,
+            )
+        except EmptyReductionError as exc:
+            # A derived target whose reducer selected zero points has no
+            # defined location — skip it (and any scene node that references
+            # it) rather than aborting the whole build. Common for unused
+            # contralateral targets in strictly ipsilateral retro subjects.
+            logger.warning("Skipping target '%s': %s", t.key, exc)
+            skipped_targets.add(t.key)
+            continue
         runtime_targets[tspec.key] = tspec
         target_index[tspec.key] = pts
 
@@ -469,6 +482,14 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     scene = Scene()
     for n in cfg.scene.nodes:
         asset_key = n.asset
+        if asset_key in skipped_targets:
+            # Its target was dropped above (empty reduction) — drop the node.
+            logger.warning(
+                "Skipping scene node '%s': target '%s' was skipped",
+                n.key,
+                asset_key,
+            )
+            continue
         if asset_key not in runtime_assets and asset_key not in runtime_targets:
             raise KeyError(
                 f"Scene node '{n.key}' references unknown asset '{asset_key}'"
