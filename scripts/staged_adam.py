@@ -72,6 +72,8 @@ STAGE2 = int(_os.environ.get("STAGE2", "500"))
 # S1_WELL=0 drops it, to test whether well-in-reduced changes the outcome.
 S1_WELL = _os.environ.get("S1_WELL", "1") == "1"
 CHUNK = int(_os.environ.get("CHUNK", "64"))
+RESTORE_CHUNK = int(_os.environ.get("RESTORE_CHUNK", "64"))
+RESTORE_ROUNDS = int(_os.environ.get("RESTORE_ROUNDS", "4"))
 PIPELINE_DEPTH = int(_os.environ.get("PIPELINE_DEPTH", "2"))
 FCL_TOL = -1e-4
 
@@ -112,26 +114,42 @@ def reduced_bounds(n_arcs, K):
 
 def restore_spins_group(n_arcs, idxs, *, probes, holes, pool, sdf_by_name,
                         well, with_well):
-    """Batched round-robin spin restore over a whole n_arcs group. Returns a
-    list (parallel to idxs) of per-probe spin-degree vectors."""
+    """Batched round-robin spin restore over a whole n_arcs group, CHUNKED over
+    candidates (mirrors parallel_stage2's spin-restore loop). The restore JIT is
+    built once from the first chunk's probe-set constants; per-chunk bs flows as
+    runtime args so one compile serves every same-shape chunk. Chunking caps the
+    ``(n_arcs, n_spins, n_cand, n_surf)`` intermediate that OOMs on big groups.
+    Returns a list (parallel to idxs) of per-probe spin-degree vectors."""
     K = len(probes)
-    pairs, seeds = [], []
-    for idx in idxs:
-        cand = pool["candidates"][idx]
-        pairs.append((cand.ha, cand.aa))
-        seeds.append(enum_seed_y0(cand, probes, n_arcs))
-    bs = build_batched_probe_static(pairs, probes, holes, n_arcs=n_arcs,
-                                    sdf_by_name=sdf_by_name, head_pitch_deg=0.0)
     weights = JointWeights()
     fixtures = (well,) if with_well else ()
+    cands = [pool["candidates"][idx] for idx in idxs]
+    seeds = np.stack([enum_seed_y0(c, probes, n_arcs) for c in cands])
+    B = len(idxs)
+
+    # Build the restore JIT + objective once from the first chunk's bs.
+    hi0 = min(RESTORE_CHUNK, B)
+    probe_set_bs = build_batched_probe_static(
+        [(c.ha, c.aa) for c in cands[:hi0]], probes, holes, n_arcs=n_arcs,
+        sdf_by_name=sdf_by_name, head_pitch_deg=0.0)
     restore = make_batched_spin_restore_chunked(
-        bs, weights, n_spins=8, n_rounds=2, fixtures=fixtures)
-    obj_batched, _ = make_batched_reduced_objective(bs, weights, fixtures)
-    varying = obj_batched.extract_arrays(bs)
-    y_r = restore(jnp.asarray(np.stack(seeds)), *varying)
-    y_r.block_until_ready()
-    return [spins_deg_from_reduced(np.asarray(y_r[b], np.float64), n_arcs, K)
-            for b in range(len(idxs))]
+        probe_set_bs, weights, n_spins=8, n_rounds=RESTORE_ROUNDS,
+        fixtures=fixtures)
+    obj_batched, _ = make_batched_reduced_objective(probe_set_bs, weights,
+                                                    fixtures)
+    out: list = []
+    for lo in range(0, B, RESTORE_CHUNK):
+        hi = min(lo + RESTORE_CHUNK, B)
+        bs_chunk = (probe_set_bs if lo == 0 else build_batched_probe_static(
+            [(c.ha, c.aa) for c in cands[lo:hi]], probes, holes, n_arcs=n_arcs,
+            sdf_by_name=sdf_by_name, head_pitch_deg=0.0))
+        varying = obj_batched.extract_arrays(bs_chunk)
+        y_r = restore(jnp.asarray(seeds[lo:hi]), *varying)
+        y_r.block_until_ready()
+        out.extend(
+            spins_deg_from_reduced(np.asarray(y_r[b], np.float64), n_arcs, K)
+            for b in range(hi - lo))
+    return out
 
 
 def adam_pass(statics_flat, x0, n_arcs, *, coverage_data, well_obj, bounds,
