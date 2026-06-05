@@ -27,7 +27,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_low_point.config import ConfigModel
-from aind_low_point.optimization.coverage_jax import coverage_total_over_probes
+from aind_low_point.optimization.coverage_jax import (
+    coverage_per_probe_over_probes,
+)
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
@@ -109,15 +111,18 @@ def main() -> int:
         if cov_data is None:
             cov_data = build_coverage_data(probes, st)
         Rs, ts, tips, mask = _poses(st, np.asarray(r["pose"], float), r["n_arcs"])
-        coverage = float(coverage_total_over_probes(
-            Rs, ts, tips, mask, cov_data, n_samples=41))
+        cov_pp = np.asarray(coverage_per_probe_over_probes(
+            Rs, ts, tips, mask, cov_data, n_samples=41), float)
+        coverage = float(cov_pp.sum())
+        names = [s.name for s in st]
         v = make_fcl_validator(st, r["n_arcs"], fixtures=tuple(fixtures),
                                fixture_bvhs=fbvh)
         fcl = float(np.asarray(v.slacks(r["pose"])).min())
         rows.append(dict(
             idx=r["idx"], rank=k, n_arcs=r["n_arcs"], viol=r["viol"],
             coverage=coverage, penalties=r["viol"] + coverage, fcl=fcl,
-            feasible=fcl >= -1e-4, key=_assign_key(cand)))
+            feasible=fcl >= -1e-4, key=_assign_key(cand),
+            cov_pp=dict(zip(names, cov_pp))))
 
     feas = [x for x in rows if x["feasible"]]
     print(f"\nFCL-feasible in top-{K}: {len(feas)}/{K}")
@@ -136,6 +141,34 @@ def main() -> int:
         mrank = [x["idx"] for x in feas_by_cov].index(MANUAL) + 1
         print(f"manual #{MANUAL}: coverage {man['coverage']:.3f}, "
               f"coverage-rank {mrank}/{len(feas)} among feasibles")
+
+    # (1b) PER-PROBE coverage breakout — exposes the "sacrifice one probe for
+    # total" pattern. Columns = probes (probe order); ``min`` flags the worst
+    # probe; ``min/mean`` is a fairness ratio (1.0 = even, ->0 = one starved).
+    if feas:
+        pnames = list(feas[0]["cov_pp"].keys())
+        print("\n=== per-probe coverage (top feasibles by total) ===")
+        hdr = " ".join(f"{nm:>7}" for nm in pnames)
+        print(f"{'cand':>6} {'total':>7} {hdr} {'min':>7} {'min/mean':>8}")
+
+        def _row(x, tag=""):
+            vals = [x["cov_pp"][nm] for nm in pnames]
+            mn, mean = min(vals), sum(vals) / len(vals)
+            cells = " ".join(f"{v:>7.3f}" for v in vals)
+            worst = pnames[int(np.argmin(vals))]
+            print(f"{x['idx']:>6} {x['coverage']:>7.3f} {cells} "
+                  f"{mn:>7.3f} {mn / mean if mean else 0:>8.2f}  worst={worst}{tag}")
+
+        for x in feas_by_cov[:15]:
+            _row(x, tag=" <-- MANUAL" if x["idx"] == MANUAL else "")
+        if man and man["idx"] not in {x["idx"] for x in feas_by_cov[:15]}:
+            _row(man, tag=" <-- MANUAL")
+        # Which probe is starved most often across the feasibles?
+        from collections import Counter
+        worst_ct = Counter(
+            min(x["cov_pp"], key=x["cov_pp"].get) for x in feas)
+        print(f"worst-probe frequency across {len(feas)} feasibles: "
+              f"{dict(worst_ct.most_common())}")
 
     # (2) diversity among top-coverage feasibles
     print("\n=== diversity (distinct hole+arc assignment) ===")

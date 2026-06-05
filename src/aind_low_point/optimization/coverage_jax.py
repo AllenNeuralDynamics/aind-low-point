@@ -297,17 +297,16 @@ def _probe_coverage_kde(R, t, shank_tips_local, shank_mask, grid, origin,
         values, shank_mask, active_start_mm, active_end_mm, n_samples)
 
 
-def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
-                               n_samples=41):
-    """Sum ``probe_coverage`` over P probes, VMAPPING the per-probe kernel
-    when all probes share a coverage mode — all-Gaussian, or all-KDE with a
-    uniform grid shape. Mixed modes (or heterogeneous KDE grid shapes) fall
-    back to the unrolled Python loop.
+def coverage_per_probe_over_probes(Rs, ts, tips_local, shank_mask,
+                                   coverage_data, n_samples=41):
+    """Per-probe coverage as a ``(P,)`` array (NOT summed), VMAPPING the
+    per-probe kernel when all probes share a coverage mode — all-Gaussian, or
+    all-KDE with a uniform grid shape. Mixed modes (or heterogeneous KDE grid
+    shapes) fall back to the unrolled Python loop.
 
-    vmapping compiles ONE coverage subgraph applied P times instead of P
-    distinct unrolled subgraphs — smaller/faster cold compile, and XLA can
-    vectorize the per-probe work across the batch axis (a modest steady win;
-    coverage is a small fraction of per-step cost).
+    Same per-probe values that :func:`coverage_total_over_probes` reduces; use
+    this when you need to see / penalise the distribution across probes (e.g. a
+    soft-min fairness term, or per-probe reporting) rather than just the total.
 
     Parameters
     ----------
@@ -316,6 +315,10 @@ def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
     tips_local : (P, max_shanks, 3)
     shank_mask : (P, max_shanks)
     coverage_data : length-P tuple of CoverageData (Python objects, static)
+
+    Returns
+    -------
+    jnp.ndarray, shape ``(P,)`` — per-probe coverage in probe order.
     """
     P = len(coverage_data)
     types = {type(cd) for cd in coverage_data}
@@ -328,11 +331,10 @@ def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
                          jnp.float32)
         a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
                          jnp.float32)
-        per = jax.vmap(
+        return jax.vmap(
             _probe_coverage_gaussian,
             in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
         )(Rs, ts, tips_local, shank_mask, tgt, sig, a0, a1, n_samples)
-        return jnp.sum(per)
 
     if types == {KdeCoverageData} and len(
         {tuple(cd.grid.shape) for cd in coverage_data}
@@ -345,16 +347,23 @@ def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
                          jnp.float32)
         a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
                          jnp.float32)
-        per = jax.vmap(
+        return jax.vmap(
             _probe_coverage_kde,
             in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None),
         )(Rs, ts, tips_local, shank_mask, grids, orig, sp, a0, a1, n_samples)
-        return jnp.sum(per)
 
     # Mixed modes or heterogeneous KDE grid shapes: unrolled loop.
-    total = jnp.float32(0.0)
-    for i in range(P):
-        total = total + probe_coverage(
-            Rs[i], ts[i], tips_local[i], shank_mask[i],
-            coverage_data[i], n_samples=n_samples)
-    return total
+    return jnp.stack([
+        probe_coverage(Rs[i], ts[i], tips_local[i], shank_mask[i],
+                       coverage_data[i], n_samples=n_samples)
+        for i in range(P)
+    ])
+
+
+def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
+                               n_samples=41):
+    """Sum ``probe_coverage`` over P probes. Thin reduction over
+    :func:`coverage_per_probe_over_probes` (byte-identical to the previous
+    per-branch sums); see that function for the vmap/loop details."""
+    return jnp.sum(coverage_per_probe_over_probes(
+        Rs, ts, tips_local, shank_mask, coverage_data, n_samples=n_samples))
