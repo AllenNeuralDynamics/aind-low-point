@@ -41,6 +41,7 @@ from typing import Iterable
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import isotonic_regression
 
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import required_ap_deg
@@ -209,6 +210,75 @@ def project_centroids_min_sep(centroids: NDArray, min_sep_deg: float) -> NDArray
     c_proj_sorted = d + min_sep_deg * np.arange(n, dtype=np.float64)
     out = np.empty(n, dtype=np.float64)
     out[order] = c_proj_sorted
+    return out
+
+
+def _qp_chain_box(c: NDArray, lo: NDArray, hi: NDArray, sep: float) -> NDArray:
+    """Exact L2 projection onto (ascending chain ≥``sep``) ∩ (box ``[lo,hi]``)
+    for a SORTED-by-centroid input. Small dense QP via SLSQP — only invoked on
+    the rare path where the box-free isotonic optimum leaves a window."""
+    from scipy.optimize import minimize
+
+    n = len(c)
+    cons = [
+        {"type": "ineq", "fun": (lambda a, i=i: a[i + 1] - a[i] - sep)}
+        for i in range(n - 1)
+    ]
+    x0 = np.clip(c, lo, hi)
+    res = minimize(
+        lambda a: float(np.sum((a - c) ** 2)), x0, method="SLSQP",
+        bounds=list(zip(lo.tolist(), hi.tolist())), constraints=cons,
+        options={"ftol": 1e-12, "maxiter": 500},
+    )
+    return np.asarray(res.x, dtype=np.float64)
+
+
+def bounded_isotonic_arc_aps(
+    centroids: NDArray,
+    lows: NDArray,
+    highs: NDArray,
+    min_sep_deg: float,
+) -> NDArray:
+    """Place arc APs as close as possible (L2) to their preferred
+    ``centroids`` subject to BOTH the chained ≥``min_sep_deg`` AP separation
+    AND each arc's feasible window ``[lows[k], highs[k]]``.
+
+    Unlike a greedy stab, this keeps slack where it exists (arcs stay at
+    their centroids when already ≥min_sep apart) and packs optimally where
+    the separation binds (the deficit is split across the squeezed arcs).
+    Generalizes :func:`project_centroids_min_sep` with per-arc box bounds.
+
+    Method: substitute ``d_k = ap_{σ(k)} − k·sep`` (σ = ascending-centroid
+    order) so the chain constraint becomes monotone ``d_0 ≤ d_1 ≤ …``; the
+    box-FREE optimum is then ``scipy.optimize.isotonic_regression`` (exact
+    PAVA). If that already lands inside every window the box constraint is
+    inactive and it IS the constrained optimum; otherwise (rare) a window
+    clips and we solve the small exact QP. The caller guarantees the
+    feasible region is non-empty (the enumerator's AP-sep gate).
+
+    Returns arc APs in the ORIGINAL input order.
+    """
+    c = np.asarray(centroids, dtype=np.float64)
+    lo = np.asarray(lows, dtype=np.float64)
+    hi = np.asarray(highs, dtype=np.float64)
+    n = c.size
+    if n == 0:
+        return c.copy()
+    if n == 1:
+        return np.clip(c, lo, hi)
+
+    order = np.argsort(c, kind="stable")
+    k = np.arange(n, dtype=np.float64)
+    cs, los, his = c[order], lo[order], hi[order]
+    # Box-free monotone optimum in d-space, then undo the substitution.
+    d = isotonic_regression(cs - k * min_sep_deg, increasing=True).x
+    aps_sorted = np.asarray(d) + k * min_sep_deg
+
+    if not ((aps_sorted >= los - 1e-9).all() and (aps_sorted <= his + 1e-9).all()):
+        aps_sorted = _qp_chain_box(cs, los, his, min_sep_deg)  # box active
+
+    out = np.empty(n, dtype=np.float64)
+    out[order] = aps_sorted
     return out
 
 
