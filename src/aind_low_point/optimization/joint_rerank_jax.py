@@ -171,9 +171,17 @@ def threading_g_matrix(
     u = s_cos[:, None] * u_w + s_sin[:, None] * v_w
     v = -s_sin[:, None] * u_w + s_cos[:, None] * v_w
     # No more ``where(parallel, inf, g)`` override (removed Patch B):
-    # the ``+inf`` branch's gradient was NaN, corrupting SLSQP. With
-    # safe_denom protecting the division, ``g`` is finite everywhere.
-    return (u / s_a[:, None]) ** 2 + (v / s_b[:, None]) ** 2 - 1.0
+    # the ``+inf`` branch's gradient was NaN, corrupting SLSQP.
+    # Guard the ellipse-axis divisions too: padded sections arrive with
+    # ``s_a = s_b = 0`` from BatchedProbeStatic's zero-fill (the phase1
+    # packer fills 1.0), so ``u / s_a`` is ``0/0 = NaN`` there — and the
+    # caller's ``valid_g * excess²`` mask does NOT rescue it (``0 * NaN =
+    # NaN``, value AND gradient). ``safe_{a,b}`` keep ``g`` finite for
+    # padded/degenerate sections (masked out downstream); valid sections
+    # have ``|s| ≫ 1e-12`` so the guard is an exact no-op for them.
+    safe_a = jnp.where(jnp.abs(s_a) < 1e-12, 1.0, s_a)
+    safe_b = jnp.where(jnp.abs(s_b) < 1e-12, 1.0, s_b)
+    return (u / safe_a[:, None]) ** 2 + (v / safe_b[:, None]) ** 2 - 1.0
 
 
 def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
