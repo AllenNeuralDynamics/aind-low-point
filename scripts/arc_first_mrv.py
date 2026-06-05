@@ -1,12 +1,23 @@
 """Prototype: hole-first MRV enumerator with bitset domains + 1-D Helly
 clique AP-feasibility + shared greedy-stab (intra-arc ML packing AND inter-arc
-AP separation, which also emits the warm-start ml seed).
+AP separation).
 
 Consumes the SAME visibility atlas as production's
 ``enumerate_arc_first_candidates`` (via ``_build_atlas_arrays``), so the
 per-(probe,hole) AP intervals and ml-ranges are identical — the only changes
 are (a) search order/structure (hole-first MRV + forward-checked uniqueness)
 and (b) ML feasibility (greedy joint packing instead of pairwise max-diff).
+
+``_emit`` records only the CHEAP discrete decision (probe->hole, partition +
+midpoint arc-AP placeholder). The joint AP/ML/spin seed is expensive (per-arc
+MRV/CSP over atlas anchors via the shared ``emit_seed``) and most enumerated
+candidates never get polished, so seeding is LAZY: call ``Enumerator.seed(cand)``
+on the top-N you actually hand to the optimizer.
+
+The ``Enumerator`` accepts optional search limits: ``max_arcs`` /
+``max_probes_per_arc`` (default to the kinematic max) and ``ap_range`` /
+``ml_range`` windows (clip each (probe,hole)'s feasible AP envelope and drop
+anchors outside the AP/ML windows).
 
 Validation (main): the enumerated discrete decisions {probe->hole, partition}
 MUST be a superset of the 45 FCL-feasible candidates from phase2_handoff.pkl,
@@ -15,6 +26,8 @@ regression (likely the stricter ML pack rejecting an atlas-range-tight tuple
 whose true SLSQP ml lies outside the atlas anchors — reported if it happens).
 
 Run:  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.arc_first_mrv
+Env:  MAX_ARCS  MAX_PROBES_PER_ARC  AP_RANGE=lo,hi  ML_RANGE=lo,hi
+      ML_MARGINS=0,0.5,1,2,3  ML_MARGIN=1.0
 """
 
 from __future__ import annotations
@@ -105,7 +118,15 @@ def greedy_place(intervals, sep):
 
 class Enumerator:
     def __init__(
-        self, atlas, probe_names, ml_margin_deg: float = 0.0, ml_mode: str = "greedy"
+        self,
+        atlas,
+        probe_names,
+        ml_margin_deg: float = 0.0,
+        ml_mode: str = "greedy",
+        max_arcs: int = MAX_ARCS,
+        max_probes_per_arc: int = MAX_PROBES_PER_ARC,
+        ap_range: "tuple[float, float] | None" = None,
+        ml_range: "tuple[float, float] | None" = None,
     ):
         from aind_low_point.optimization.arc_first_principled import (
             _build_atlas_arrays,
@@ -121,7 +142,17 @@ class Enumerator:
         # production's max-possible-pairwise-diff (necessary but unsound for
         # 3+ probe arcs). Comparing counts isolates the joint-ML prune.
         self.ml_mode = ml_mode
+        # Arc / per-arc caps. Default to the KINEMATIC max (16° exclusion over
+        # the AP/ML range); callers can tighten them to restrict the search
+        # (e.g. reproduce the old 3-arc / 4-per-arc enumeration).
+        self.max_arcs = max_arcs
+        self.max_probes_per_arc = max_probes_per_arc
         self.arr = _build_atlas_arrays(atlas, probe_names)
+        # Optional AP / ML windows: clip each (probe,hole)'s feasible AP
+        # envelope to ``ap_range`` and keep only anchors whose AP and ML fall
+        # inside both windows; nodes that empty out are dropped entirely.
+        if ap_range is not None or ml_range is not None:
+            self._restrict_atlas(ap_range, ml_range)
 
         # Nodes = feasible (probe_idx, hole_id). Index them; record intervals.
         self.nodes = []  # list of (p, h, ap_lo, ap_hi)
@@ -150,6 +181,38 @@ class Enumerator:
 
         self.candidates = []
         self.capped = False
+
+    def _restrict_atlas(self, ap_range, ml_range):
+        """In-place AP/ML windowing of the atlas arrays (mutates ``self.arr``).
+
+        Clips each (probe,hole) feasible AP envelope to ``ap_range`` and keeps
+        only anchors whose AP and ML lie inside both windows. A (probe,hole)
+        whose clipped envelope is empty, or whose anchors all fall outside the
+        windows, is dropped from the node set entirely (so it never enters an
+        arc and is never seeded). Both ranges are ``(lo, hi)`` in atlas degrees;
+        ``None`` means unbounded on that axis.
+        """
+        arr = self.arr
+        ap_lo, ap_hi = ap_range if ap_range is not None else (-1e18, 1e18)
+        ml_lo, ml_hi = ml_range if ml_range is not None else (-1e18, 1e18)
+        for key in list(arr.ap_min_max.keys()):
+            lo, hi = arr.ap_min_max[key]
+            clo, chi = max(lo, ap_lo), min(hi, ap_hi)  # clipped AP envelope
+            ap, ml, sp = arr.ap_sorted[key], arr.ml_sorted[key], arr.spin_sorted[key]
+            m = (ap >= ap_lo) & (ap <= ap_hi) & (ml >= ml_lo) & (ml <= ml_hi)
+            if clo > chi or not m.any():
+                for d in (
+                    arr.ap_sorted,
+                    arr.ml_sorted,
+                    arr.spin_sorted,
+                    arr.ap_min_max,
+                ):
+                    del d[key]
+                continue
+            arr.ap_sorted[key] = ap[m]  # boolean mask preserves AP-sorted order
+            arr.ml_sorted[key] = ml[m]
+            arr.spin_sorted[key] = sp[m]
+            arr.ap_min_max[key] = (clo, chi)
 
     def ml_window(self, p, h, lo, hi):
         """ml-range of (p,h) anchors restricted to AP in [lo,hi] (matches the
@@ -211,7 +274,7 @@ class Enumerator:
             nlo, nhi = self.nodes[nid][2], self.nodes[nid][3]
             # Try joining each existing arc (Helly clique test + ML pack).
             for ai, arc in enumerate(arcs):
-                if len(arc["members"]) >= MAX_PROBES_PER_ARC:
+                if len(arc["members"]) >= self.max_probes_per_arc:
                     continue
                 if arc["mask"] & ~self.overlap[nid]:
                     continue  # not pairwise-overlapping -> AP-infeasible
@@ -228,7 +291,7 @@ class Enumerator:
                 new_arcs = arcs[:ai] + [trial] + arcs[ai + 1 :]
                 self._recurse_assign(new_arcs, domain, used, assigned, p, h)
             # Try opening a new arc.
-            if len(arcs) < MAX_ARCS:
+            if len(arcs) < self.max_arcs:
                 new_arc = {
                     "members": [p],
                     "holes": {p: h},
@@ -259,33 +322,14 @@ class Enumerator:
             self.capped = True
 
     def _emit(self, arcs):
-        # Inter-arc AP separation gate (greedy stab on the AP windows). The
-        # joint AP/ML/spin seed itself comes from the shared source-of-truth
-        # ``emit_seed`` (convex isotonic AP + MRV/CSP ML anchors + spin), so
-        # ``_emit`` no longer band-edge-packs ML here.
+        # Record only the CHEAP discrete decision (probe->hole, partition) plus
+        # a midpoint arc-AP placeholder. The joint AP/ML/spin seed is expensive
+        # (per-arc MRV/CSP over atlas anchors) and most enumerated candidates
+        # never get polished, so seeding is LAZY: call ``self.seed(candidate)``
+        # on the top-N you actually hand to the optimizer.
         ivals = [(a["lo"], a["hi"]) for a in arcs]
         if greedy_place(ivals, MIN_ARC_AP_SEP_DEG) is None:
             return  # arc APs cannot be >=16 deg separated -> reject
-        seed_arcs = [
-            {
-                "members": [
-                    (p, arc["holes"][p], self.names[p]) for p in arc["members"]
-                ],
-                "ap_lo": arc["lo"],
-                "ap_hi": arc["hi"],
-                "ap_desired": 0.5 * (arc["lo"] + arc["hi"]),
-            }
-            for arc in arcs
-        ]
-        res = emit_seed(
-            seed_arcs,
-            self.arr,
-            min_arc_ap_sep_deg=MIN_ARC_AP_SEP_DEG,
-            min_ml_sep_deg=MIN_ML_SEP_DEG,
-        )
-        if res is None:
-            return  # some probe has no atlas anchors at all (degenerate)
-        arc_aps, ml_seed, spin_seed, min_ml_gap = res
         probe_to_hole = {}
         partition = []
         for arc in arcs:
@@ -296,11 +340,42 @@ class Enumerator:
             {
                 "probe_to_hole": probe_to_hole,
                 "partition": frozenset(partition),
-                "arc_aps": arc_aps,
-                "ml_seed": ml_seed,
-                "spin_seed": spin_seed,
-                "min_ml_gap": min_ml_gap,
+                "arc_aps": [0.5 * (a["lo"] + a["hi"]) for a in arcs],
             }
+        )
+
+    def seed(self, cand):
+        """Lazily compute the joint AP/ML/spin seed for one enumerated candidate.
+
+        Rebuilds the per-arc ``emit_seed`` input from the candidate's discrete
+        ``probe_to_hole`` / ``partition`` (each arc's AP window = its members'
+        atlas AP-envelope intersection, desired AP = window midpoint) and runs
+        the shared source-of-truth :func:`emit_seed` (convex isotonic arc-AP +
+        MRV/CSP ML-anchor pick + spin).
+
+        Returns ``(arc_aps, ml_seed, spin_seed, min_ml_gap)`` (ml/spin keyed by
+        probe name; ``min_ml_gap < 16`` flags an atlas-limited best-effort seed),
+        or ``None`` if some probe has no atlas anchors at all.
+        """
+        p2h = cand["probe_to_hole"]
+        seed_arcs = []
+        for group in cand["partition"]:
+            members = [(self.names.index(name), p2h[name], name) for name in group]
+            lo = max(self.arr.ap_min_max[(p, h)][0] for p, h, _ in members)
+            hi = min(self.arr.ap_min_max[(p, h)][1] for p, h, _ in members)
+            seed_arcs.append(
+                {
+                    "members": members,
+                    "ap_lo": lo,
+                    "ap_hi": hi,
+                    "ap_desired": 0.5 * (lo + hi),
+                }
+            )
+        return emit_seed(
+            seed_arcs,
+            self.arr,
+            min_arc_ap_sep_deg=MIN_ARC_AP_SEP_DEG,
+            min_ml_sep_deg=MIN_ML_SEP_DEG,
         )
 
 
@@ -342,13 +417,42 @@ def main() -> int:
     margins = [
         float(x) for x in _os.environ.get("ML_MARGINS", "0,0.5,1,2,3").split(",")
     ]
-    print(f"\nml-margin sweep (keep ALL {n} FCL-feasibles is the bar):")
+    # Caps default to the kinematic max; override to restrict the search.
+    cap_arcs = int(_os.environ.get("MAX_ARCS", MAX_ARCS))
+    cap_per_arc = int(_os.environ.get("MAX_PROBES_PER_ARC", MAX_PROBES_PER_ARC))
+
+    def _range_env(name):
+        v = _os.environ.get(name)
+        if not v:
+            return None
+        lo, hi = (float(x) for x in v.split(","))
+        return (lo, hi)
+
+    ap_range = _range_env("AP_RANGE")
+    ml_range = _range_env("ML_RANGE")
+    win = ""
+    if ap_range:
+        win += f", AP in [{ap_range[0]:g},{ap_range[1]:g}]"
+    if ml_range:
+        win += f", ML in [{ml_range[0]:g},{ml_range[1]:g}]"
+    print(
+        f"\nml-margin sweep (keep ALL {n} FCL-feasibles is the bar); "
+        f"caps: arcs<={cap_arcs}, probes/arc<={cap_per_arc}{win}:"
+    )
     print(
         f"{'margin':>7} {'cands':>8} {'sec':>6} {'manual':>7} "
         f"{'holes_kept':>11} {'full_kept':>10}  dropped"
     )
     for m in margins:
-        enr = Enumerator(atlas, probe_names, ml_margin_deg=m)
+        enr = Enumerator(
+            atlas,
+            probe_names,
+            ml_margin_deg=m,
+            max_arcs=cap_arcs,
+            max_probes_per_arc=cap_per_arc,
+            ap_range=ap_range,
+            ml_range=ml_range,
+        )
         t0 = time.time()
         cands = enr.enumerate()
         dt = time.time() - t0
@@ -364,8 +468,30 @@ def main() -> int:
     # Isolate the joint-ML prune: greedy vs production's pairwise check, same
     # margin. Delta = candidates pairwise wrongly admits (can't actually pack).
     m = float(_os.environ.get("ML_MARGIN", "1.0"))
-    g = len(Enumerator(atlas, probe_names, m, "greedy").enumerate())
-    pw = len(Enumerator(atlas, probe_names, m, "pairwise").enumerate())
+    g = len(
+        Enumerator(
+            atlas,
+            probe_names,
+            m,
+            "greedy",
+            max_arcs=cap_arcs,
+            max_probes_per_arc=cap_per_arc,
+            ap_range=ap_range,
+            ml_range=ml_range,
+        ).enumerate()
+    )
+    pw = len(
+        Enumerator(
+            atlas,
+            probe_names,
+            m,
+            "pairwise",
+            max_arcs=cap_arcs,
+            max_probes_per_arc=cap_per_arc,
+            ap_range=ap_range,
+            ml_range=ml_range,
+        ).enumerate()
+    )
     print(
         f"\njoint-ML prune @ margin {m}°: greedy={g}  pairwise={pw}  "
         f"pruned={pw - g} ({100 * (pw - g) / pw:.1f}% of pairwise admits "
