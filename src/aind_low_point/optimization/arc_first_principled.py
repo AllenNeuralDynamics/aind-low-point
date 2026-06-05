@@ -401,6 +401,78 @@ def _find_ml_sep_anchors_arr(
     return best[0]  # type: ignore
 
 
+def ml_anchors_mrv(
+    anchor_sets: "list[tuple[np.ndarray, np.ndarray, np.ndarray]]",
+    target_ap: float,
+    min_ml_sep_deg: float,
+    *,
+    max_calls: int = 5000,
+    max_anchors_per_probe: int = 200,
+) -> "list[tuple[float, float, float]] | None":
+    """MRV/CSP pick of one ``(ml, spin, ap)`` anchor per probe so that all MLs
+    are pairwise ≥``min_ml_sep_deg`` apart, each anchor as close in AP to
+    ``target_ap`` as possible.
+
+    ``anchor_sets[p] = (mls, spins, aps)`` are the candidate atlas anchors for
+    probe ``p`` (one (probe, hole)'s anchors). Returns a list parallel to
+    ``anchor_sets`` of the chosen ``(ml, spin, ap)``, or ``None`` if no
+    ML-separated combination exists.
+
+    Generalizes :func:`_find_ml_sep_anchors_arr` (fixed probe order) with a
+    **dynamic MRV** variable ordering — at each step assign the probe with the
+    fewest *viable* anchors given the siblings already placed, so the most-
+    constrained probe claims its anchor before looser ones crowd it out. Value
+    ordering is closest-AP-first (geometric quality). Backtracks on dead ends,
+    bounded by ``max_calls``. Emits ``spin`` alongside ``ml`` (the anchor
+    carries it).
+    """
+    n = len(anchor_sets)
+    if n == 0:
+        return []
+    # Per-probe candidates, closest-AP first and capped.
+    cand: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for mls, spins, aps in anchor_sets:
+        mls = np.asarray(mls, dtype=np.float64)
+        spins = np.asarray(spins, dtype=np.float64)
+        aps = np.asarray(aps, dtype=np.float64)
+        order = np.argsort(np.abs(aps - target_ap))[:max_anchors_per_probe]
+        cand.append((mls[order], spins[order], aps[order]))
+
+    chosen: dict[int, tuple[float, float, float]] = {}
+    calls = [0]
+
+    def search(placed_mls: list[float], remaining: frozenset) -> bool:
+        calls[0] += 1
+        if calls[0] > max_calls:
+            return False
+        if not remaining:
+            return True
+        # Viable-anchor mask per remaining probe (ML ≥ sep from all placed).
+        viab: dict[int, np.ndarray] = {}
+        for p in remaining:
+            mls = cand[p][0]
+            mask = np.ones(mls.size, dtype=bool)
+            for pm in placed_mls:
+                mask &= np.abs(mls - pm) >= min_ml_sep_deg
+            viab[p] = mask
+        # MRV: assign the most-constrained remaining probe; dead-end if empty.
+        p = min(remaining, key=lambda q: int(viab[q].sum()))
+        if not viab[p].any():
+            return False
+        mls, spins, aps = cand[p]
+        rest = remaining - {p}
+        for j in np.nonzero(viab[p])[0]:            # closest-AP order
+            chosen[p] = (float(mls[j]), float(spins[j]), float(aps[j]))
+            if search(placed_mls + [float(mls[j])], rest):
+                return True
+            del chosen[p]
+        return False
+
+    if not search([], frozenset(range(n))):
+        return None
+    return [chosen[p] for p in range(n)]
+
+
 # ---------------------------------------------------------------------------
 # Main entry: enumerate (partition, hole-tuple) candidates
 # ---------------------------------------------------------------------------
