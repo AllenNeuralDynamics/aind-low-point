@@ -35,7 +35,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from aind_low_point.optimization.arc_assignment import ArcAssignment
+from aind_low_point.optimization.arc_assignment import (
+    ArcAssignment,
+    bounded_isotonic_arc_aps,
+)
 from aind_low_point.optimization.atlas import Atlas
 from aind_low_point.optimization.hole_assignment import HoleAssignment
 from aind_low_point.planning import PoseLimits
@@ -471,6 +474,63 @@ def ml_anchors_mrv(
     if not search([], frozenset(range(n))):
         return None
     return [chosen[p] for p in range(n)]
+
+
+def emit_seed(
+    arcs: "list[dict]",
+    aa,
+    *,
+    min_arc_ap_sep_deg: float = 16.0,
+    min_ml_sep_deg: float = 16.0,
+) -> "tuple[list[float], dict[str, float], dict[str, float]] | None":
+    """Joint AP+ML+spin seed for a fixed (probe→hole, probe→arc) assignment.
+
+    The single source of truth for seed emission — replaces both the
+    midpoint arc-AP and the band-edge ML packing. AP layer is a convex
+    projection (:func:`bounded_isotonic_arc_aps`); ML layer is the MRV/CSP
+    anchor pick (:func:`ml_anchors_mrv`) at each arc's placed AP, which also
+    yields spin.
+
+    Parameters
+    ----------
+    arcs
+        One dict per arc, with keys: ``members`` (list of
+        ``(probe_idx, hole_id, probe_name)``), ``ap_lo`` / ``ap_hi`` (the
+        arc's feasible AP window = member AP-envelope intersection), and
+        ``ap_desired`` (the arc's preferred AP, e.g. the member required-AP
+        centroid).
+    aa
+        Atlas arrays exposing ``ml_sorted`` / ``spin_sorted`` / ``ap_sorted``
+        dicts keyed by ``(probe_idx, hole_id)``.
+
+    Returns
+    -------
+    ``(arc_aps, ml_seed, spin_seed)`` — separated arc APs (one per arc, input
+    order) and per-probe-name ml / spin from real anchors — or ``None`` if
+    some arc has no ML-separated anchor combination at its placed AP (the
+    rare AP↔ML coupling failure; the caller may retry or fall back).
+    """
+    if not arcs:
+        return [], {}, {}
+    desired = np.array([a["ap_desired"] for a in arcs], dtype=np.float64)
+    lows = np.array([a["ap_lo"] for a in arcs], dtype=np.float64)
+    highs = np.array([a["ap_hi"] for a in arcs], dtype=np.float64)
+    arc_aps = bounded_isotonic_arc_aps(desired, lows, highs, min_arc_ap_sep_deg)
+
+    ml_seed: dict[str, float] = {}
+    spin_seed: dict[str, float] = {}
+    for j, arc in enumerate(arcs):
+        anchor_sets = [
+            (aa.ml_sorted[(p, h)], aa.spin_sorted[(p, h)], aa.ap_sorted[(p, h)])
+            for (p, h, _name) in arc["members"]
+        ]
+        res = ml_anchors_mrv(anchor_sets, float(arc_aps[j]), min_ml_sep_deg)
+        if res is None:
+            return None
+        for (_p, _h, name), (ml, spin, _ap) in zip(arc["members"], res):
+            ml_seed[name] = float(ml)
+            spin_seed[name] = float(spin)
+    return [float(x) for x in arc_aps], ml_seed, spin_seed
 
 
 # ---------------------------------------------------------------------------

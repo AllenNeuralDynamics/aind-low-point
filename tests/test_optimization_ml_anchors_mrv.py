@@ -78,3 +78,51 @@ def test_ml_mrv_finds_all_feasible_random():
         res = ml_anchors_mrv(anchors, float(rng.uniform(-40, 40)), _SEP)
         assert res is not None, "missed a feasible instance"
         assert _separated(res)
+
+
+# ---------------------------------------------------------------------------
+# emit_seed — joint AP + ML/spin seed wrapper
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from aind_low_point.optimization.arc_first_principled import emit_seed  # noqa: E402
+
+
+def _atlas(ap, ml, spin):
+    return SimpleNamespace(ap_sorted=ap, ml_sorted=ml, spin_sorted=spin)
+
+
+def test_emit_seed_separated_aps_and_mls_with_spin():
+    aa = _atlas(
+        {(0, 10): _arr(-40, -38, -36), (1, 11): _arr(-39, -37, -35),
+         (2, 12): _arr(35, 37, 39)},
+        {(0, 10): _arr(0, 5, 10), (1, 11): _arr(30, 35, 40),
+         (2, 12): _arr(0, 5, 10)},
+        {(0, 10): _arr(100, 101, 102), (1, 11): _arr(200, 201, 202),
+         (2, 12): _arr(50, 51, 52)},
+    )
+    arcs = [
+        {"members": [(0, 10, "A"), (1, 11, "B")],
+         "ap_lo": -40, "ap_hi": -35, "ap_desired": -37.5},
+        {"members": [(2, 12, "C")], "ap_lo": 35, "ap_hi": 39, "ap_desired": 37.0},
+    ]
+    arc_aps, ml, spin = emit_seed(arcs, aa)
+    assert abs(arc_aps[0] - arc_aps[1]) >= _SEP - 1e-9          # arcs separated
+    assert -40 <= arc_aps[0] <= -35 and 35 <= arc_aps[1] <= 39  # within windows
+    assert abs(ml["A"] - ml["B"]) >= _SEP - 1e-9               # within-arc ML sep
+    assert set(spin) == {"A", "B", "C"}                        # spin for every probe
+    assert spin["A"] == 101.0  # spin tracks the ml=5 anchor
+
+
+def test_emit_seed_coupling_infeasible_returns_none():
+    aa = _atlas({(0, 10): _arr(-37), (1, 11): _arr(-37)},
+                {(0, 10): _arr(5), (1, 11): _arr(8)},
+                {(0, 10): _arr(1), (1, 11): _arr(2)})
+    arcs = [{"members": [(0, 10, "A"), (1, 11, "B")],
+             "ap_lo": -40, "ap_hi": -35, "ap_desired": -37.0}]
+    assert emit_seed(arcs, aa) is None
+
+
+def test_emit_seed_empty():
+    assert emit_seed([], _atlas({}, {}, {})) == ([], {}, {})
