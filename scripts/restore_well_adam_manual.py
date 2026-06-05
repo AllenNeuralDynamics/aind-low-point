@@ -114,24 +114,34 @@ def setup():
     return cfg, rt, probes, holes, sdf_by_name, bvh, fixtures, well, fixture_bvhs
 
 
-def enum_seed_y0(cand, probes, n_arcs):
+def enum_seed_y0(cand, probes, n_arcs, seed_spins_deg=None):
     """Reduced-layout y0 from the candidate's atlas warm starts (mirrors
-    polish_all_with_batched_spin_restore)."""
+    polish_all_with_batched_spin_restore). ``seed_spins_deg`` (per-probe-name
+    dict OR length-K array) overrides the atlas spin seed if given."""
     K = len(probes)
     y0 = np.zeros(n_arcs + 3 * K, np.float32)
     for a in range(min(n_arcs, len(cand.aa.arc_centroids_deg))):
         y0[a] = float(cand.aa.arc_centroids_deg[a])
     for k, p in enumerate(probes):
-        spin = np.deg2rad(float(cand.spin_seed.get(p.name, 0.0)))
+        if seed_spins_deg is None:
+            sp = float(cand.spin_seed.get(p.name, 0.0))
+        elif isinstance(seed_spins_deg, dict):
+            sp = float(seed_spins_deg[p.name])
+        else:
+            sp = float(seed_spins_deg[k])
+        spin = np.deg2rad(sp)
         y0[n_arcs + 3 * k] = float(cand.ml_seed.get(p.name, 0.0))
         y0[n_arcs + 3 * k + 1] = float(np.cos(spin))
         y0[n_arcs + 3 * k + 2] = float(np.sin(spin))
     return y0
 
 
-def run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, *, with_well):
+def run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, *, with_well,
+                seed_spins_deg=None, n_rounds=2):
     """Round-robin spin restore for one candidate; returns reduced-layout
-    y0_restored (n_arcs+3K,)."""
+    y0_restored (n_arcs+3K,). ``seed_spins_deg`` overrides the atlas spin seed
+    (to test whether a heuristic seed reaches a different basin); ``n_rounds``
+    sets the coordinate-descent sweep count (production uses 2)."""
     pairs = [(cand.ha, cand.aa)]
     bs = build_batched_probe_static(
         pairs, probes, holes, n_arcs=n_arcs, sdf_by_name=sdf_by_name, head_pitch_deg=0.0
@@ -139,11 +149,11 @@ def run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, *, with_well):
     weights = JointWeights()
     fixtures = (well,) if with_well else ()
     restore = make_batched_spin_restore_chunked(
-        bs, weights, n_spins=8, n_rounds=2, fixtures=fixtures
+        bs, weights, n_spins=8, n_rounds=n_rounds, fixtures=fixtures
     )
     obj_batched, _ = make_batched_reduced_objective(bs, weights, fixtures)
     varying = obj_batched.extract_arrays(bs)
-    y0 = jnp.asarray(enum_seed_y0(cand, probes, n_arcs)[None, :])
+    y0 = jnp.asarray(enum_seed_y0(cand, probes, n_arcs, seed_spins_deg)[None, :])
     y_r = restore(y0, *varying)
     y_r.block_until_ready()
     return np.asarray(y_r[0], np.float64)
