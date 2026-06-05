@@ -117,9 +117,11 @@ def _vec_to_ap_ml_jax(v_ras: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """JAX of ``vector_to_arc_angles(invert_AP=True)``. Direction-insensitive."""
     s = jnp.where(v_ras[2] < 0, -1.0, 1.0)
     v = v_ras * s
-    n = v / jnp.linalg.norm(v)
-    # rx = -arcsin(nv[1]); then invert_AP negates again → rx = +arcsin(nv[1])
-    rx = jnp.arcsin(n[1])
+    # Soft-norm: a degenerate (zero) direction would give 0/0 = NaN.
+    n = v / jnp.sqrt(jnp.sum(v * v) + jnp.float32(1e-12))
+    # rx = -arcsin(nv[1]); then invert_AP negates again → rx = +arcsin(nv[1]).
+    # clip guards fp rounding that pushes |n[1]| just past 1 (arcsin → NaN).
+    rx = jnp.arcsin(jnp.clip(n[1], -1.0, 1.0))
     ry = jnp.arctan2(n[0], n[2])
     return jnp.rad2deg(rx), jnp.rad2deg(ry)
 
@@ -162,7 +164,12 @@ def _shank_in_section_jax(
     c, s = jnp.cos(sec_theta), jnp.sin(sec_theta)
     u_l = c * u + s * v
     v_l = -s * u + c * v
-    g = (u_l / sec_a) ** 2 + (v_l / sec_b) ** 2
+    # Guard the ellipse semi-axes (defensive; a degenerate section with
+    # sec_a/sec_b == 0 gives 0/0 — the boolean compare below would absorb the
+    # NaN, but keep g finite anyway). No-op for real sections (axes >> 1e-12).
+    sa = jnp.where(jnp.abs(sec_a) < 1e-12, 1.0, sec_a)
+    sb = jnp.where(jnp.abs(sec_b) < 1e-12, 1.0, sec_b)
+    g = (u_l / sa) ** 2 + (v_l / sb) ** 2
     return safe & (g <= (1.0 + oval_slack) ** 2)
 
 
@@ -176,7 +183,8 @@ def _build_check_for_hole(
 
     def check(target, top_sample, spin_deg, tips_local, centroid_local):
         D_lps = top_sample - target
-        D_lps_n = D_lps / jnp.linalg.norm(D_lps)
+        # Soft-norm: degenerate (sample == target) would give 0/0 = NaN.
+        D_lps_n = D_lps / jnp.sqrt(jnp.sum(D_lps * D_lps) + jnp.float32(1e-12))
         D_ras = jnp.array([-D_lps_n[0], -D_lps_n[1], D_lps_n[2]])
         ap_deg, ml_deg = _vec_to_ap_ml_jax(D_ras)
         R = arc_angles_to_rotation(ap_deg, ml_deg, spin_deg)
