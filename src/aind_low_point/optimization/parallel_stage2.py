@@ -408,7 +408,7 @@ def polish_all_with_batched_spin_restore(
         make_batched_reduced_objective,
     )
     from aind_low_point.optimization.batched_spin_restore import (
-        make_batched_spin_restore_chunked,
+        make_batched_spin_restore_partial,
     )
     from aind_low_point.optimization.batched_static import (
         build_batched_probe_static,
@@ -450,7 +450,7 @@ def polish_all_with_batched_spin_restore(
         first_pairs, probes, holes, n_arcs=n_arcs,
         sdf_by_name=sdf_by_name, head_pitch_deg=head_pitch_deg,
     )
-    spin_restore = make_batched_spin_restore_chunked(
+    spin_restore = make_batched_spin_restore_partial(
         probe_set_bs, weights,
         n_spins=n_spins_restore, n_rounds=spin_restore_rounds,
     )

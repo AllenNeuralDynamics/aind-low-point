@@ -27,7 +27,7 @@ from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
 )
 from aind_low_point.optimization.batched_spin_restore import (
-    make_batched_spin_restore_chunked,
+    make_batched_spin_restore_partial,
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
@@ -104,7 +104,7 @@ def main() -> int:
         pairs, probes, holes, n_arcs=n_arcs, sdf_by_name=sdf_by_name,
         head_pitch_deg=0.0)
     weights = JointWeights()
-    restore = make_batched_spin_restore_chunked(
+    restore = make_batched_spin_restore_partial(
         bs, weights, n_spins=8, n_rounds=2, fixtures=(well,))
     obj, _ = make_batched_reduced_objective(bs, weights, (well,))
     varying = obj.extract_arrays(bs)

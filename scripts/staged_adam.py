@@ -38,7 +38,7 @@ from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
 )
 from aind_low_point.optimization.batched_spin_restore import (
-    make_batched_spin_restore_chunked,
+    make_batched_spin_restore_partial,
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.coverage_jax import coverage_total_over_probes
@@ -132,7 +132,7 @@ def restore_spins_group(n_arcs, idxs, *, probes, holes, pool, sdf_by_name,
     probe_set_bs = build_batched_probe_static(
         [(c.ha, c.aa) for c in cands[:hi0]], probes, holes, n_arcs=n_arcs,
         sdf_by_name=sdf_by_name, head_pitch_deg=0.0)
-    restore = make_batched_spin_restore_chunked(
+    restore = make_batched_spin_restore_partial(
         probe_set_bs, weights, n_spins=8, n_rounds=RESTORE_ROUNDS,
         fixtures=fixtures)
     obj_batched, _ = make_batched_reduced_objective(probe_set_bs, weights,

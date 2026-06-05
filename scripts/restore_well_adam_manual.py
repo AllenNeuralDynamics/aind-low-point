@@ -48,7 +48,7 @@ from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
 )
 from aind_low_point.optimization.batched_spin_restore import (
-    make_batched_spin_restore_chunked,
+    make_batched_spin_restore_partial,
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.headstages import make_fcl_bvh
@@ -148,7 +148,7 @@ def run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, *, with_well,
     )
     weights = JointWeights()
     fixtures = (well,) if with_well else ()
-    restore = make_batched_spin_restore_chunked(
+    restore = make_batched_spin_restore_partial(
         bs, weights, n_spins=8, n_rounds=n_rounds, fixtures=fixtures
     )
     obj_batched, _ = make_batched_reduced_objective(bs, weights, fixtures)
