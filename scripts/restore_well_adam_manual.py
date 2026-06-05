@@ -176,20 +176,26 @@ def spins_deg_from_phase1(x, n_arcs, K):
 
 
 def build_adam_kernel(st, n_arcs, n_probes, well_obj, coverage_data,
-                      brain_sdf=None):
+                      brain_sdf=None, bounds=None, steps=None):
     """Build the production Phase-1 ADAM kernel once for ONE candidate (st and
     coverage are constant across basin sets). Returns an ``eval(x0_rows)``
     closure mapping basin rows → (viol[R], x_adam[R, n_vars]). ``brain_sdf``
-    (optional) turns on the brain-containment term."""
-    bounds = phase1_bounds(n_arcs, n_probes)
+    (optional) turns on the brain-containment term. ``coverage_data=None``
+    drops the coverage term (clearance-first reduced stage). ``bounds`` (a list
+    of (lo, hi) pairs) overrides the default Phase-1 bounds — pin offsets/depth
+    to (0, 0) to freeze them in the reduced stage. ``steps`` overrides STEPS.
+    ``well_obj=None`` drops the well fixture clearance term entirely."""
+    if bounds is None:
+        bounds = phase1_bounds(n_arcs, n_probes)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
+    fixtures = () if well_obj is None else (well_obj,)
     vobj, _g, build_arglist, make_adam = make_batched_phase1_chunked(
-        st, n_arcs, Phase1Weights(), (well_obj,),
+        st, n_arcs, Phase1Weights(), fixtures,
         coverage_data=coverage_data, grid_dtype=jnp.float32,
         brain_sdf=brain_sdf,
     )
-    run_adam = make_adam(lo, hi, steps=STEPS, lr=0.02)
+    run_adam = make_adam(lo, hi, steps=STEPS if steps is None else steps, lr=0.02)
 
     def _eval(x0_rows):
         # Fixed-size CHUNK so the kernel compiles for ONE batch shape (a 128-row
