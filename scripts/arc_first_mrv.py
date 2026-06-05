@@ -28,6 +28,7 @@ import pickle
 import time
 from pathlib import Path
 
+from aind_low_point.optimization.arc_first_principled import emit_seed
 from aind_low_point.planning import PoseLimits
 
 CONFIG = "examples/836656-config-T12.yml"
@@ -258,28 +259,47 @@ class Enumerator:
             self.capped = True
 
     def _emit(self, arcs):
-        # Final inter-arc AP separation + arc AP seeds (greedy stab).
+        # Inter-arc AP separation gate (greedy stab on the AP windows). The
+        # joint AP/ML/spin seed itself comes from the shared source-of-truth
+        # ``emit_seed`` (convex isotonic AP + MRV/CSP ML anchors + spin), so
+        # ``_emit`` no longer band-edge-packs ML here.
         ivals = [(a["lo"], a["hi"]) for a in arcs]
-        arc_pts = greedy_place(ivals, MIN_ARC_AP_SEP_DEG)
-        if arc_pts is None:
-            return
+        if greedy_place(ivals, MIN_ARC_AP_SEP_DEG) is None:
+            return  # arc APs cannot be >=16 deg separated -> reject
+        seed_arcs = [
+            {
+                "members": [
+                    (p, arc["holes"][p], self.names[p]) for p in arc["members"]
+                ],
+                "ap_lo": arc["lo"],
+                "ap_hi": arc["hi"],
+                "ap_desired": 0.5 * (arc["lo"] + arc["hi"]),
+            }
+            for arc in arcs
+        ]
+        res = emit_seed(
+            seed_arcs,
+            self.arr,
+            min_arc_ap_sep_deg=MIN_ARC_AP_SEP_DEG,
+            min_ml_sep_deg=MIN_ML_SEP_DEG,
+        )
+        if res is None:
+            return  # some probe has no atlas anchors at all (degenerate)
+        arc_aps, ml_seed, spin_seed, min_ml_gap = res
         probe_to_hole = {}
         partition = []
-        ml_seed = {}
         for arc in arcs:
             partition.append(frozenset(self.names[p] for p in arc["members"]))
-            mls = self._ml_pack(arc)
-            if mls is None:  # pairwise mode admitted a non-greedy-packable arc
-                mls = [0.5 * (lo + hi) for lo, hi in self._arc_ml_windows(arc)]
-            for k, p in enumerate(arc["members"]):
+            for p in arc["members"]:
                 probe_to_hole[self.names[p]] = arc["holes"][p]
-                ml_seed[self.names[p]] = mls[k]
         self.candidates.append(
             {
                 "probe_to_hole": probe_to_hole,
                 "partition": frozenset(partition),
-                "arc_aps": [0.5 * (a["lo"] + a["hi"]) for a in arcs],
+                "arc_aps": arc_aps,
                 "ml_seed": ml_seed,
+                "spin_seed": spin_seed,
+                "min_ml_gap": min_ml_gap,
             }
         )
 
