@@ -802,6 +802,8 @@ def shank_only_pair_clearance(
     beta: float = 20.0,
     top_k_body_shank: int = 8,
     top_k_shank_shank: int = 8,
+    shank_mask_a: Array | None = None,
+    shank_mask_b: Array | None = None,
 ) -> tuple[tuple[Array, Array], tuple[Array, Array]]:
     """Shank-related dual-rep categories that DON'T use trilinear SDF.
 
@@ -831,6 +833,10 @@ def shank_only_pair_clearance(
                 world_surface_b, R_a, t_a, c, h
             )
         )(shank_centers_a, shank_halves_a)  # (Sa, Nbody)
+        if shank_mask_a is not None:
+            d_body_b_vs_a_obbs = jnp.where(
+                shank_mask_a.astype(bool)[:, None],
+                d_body_b_vs_a_obbs, _EMPTY_CLEARANCE_SENTINEL)
         body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
     if Sb > 0:
         d_body_a_vs_b_obbs = jax.vmap(
@@ -838,6 +844,10 @@ def shank_only_pair_clearance(
                 world_surface_a, R_b, t_b, c, h
             )
         )(shank_centers_b, shank_halves_b)
+        if shank_mask_b is not None:
+            d_body_a_vs_b_obbs = jnp.where(
+                shank_mask_b.astype(bool)[:, None],
+                d_body_a_vs_b_obbs, _EMPTY_CLEARANCE_SENTINEL)
         body_shank_chunks.append(d_body_a_vs_b_obbs.reshape(-1))
     body_shank_pool = (
         jnp.concatenate(body_shank_chunks, axis=0)
@@ -854,7 +864,15 @@ def shank_only_pair_clearance(
             lambda ca, ha: jax.vmap(
                 lambda cb, hb: _pair_distance(ca, ha, cb, hb)
             )(shank_centers_b, shank_halves_b)
-        )(shank_centers_a, shank_halves_a)
+        )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
+        if shank_mask_a is not None or shank_mask_b is not None:
+            ma = (shank_mask_a.astype(bool) if shank_mask_a is not None
+                  else jnp.ones((Sa,), bool))
+            mb = (shank_mask_b.astype(bool) if shank_mask_b is not None
+                  else jnp.ones((Sb,), bool))
+            pair_valid = ma[:, None] & mb[None, :]
+            d_sa_vs_sb = jnp.where(
+                pair_valid, d_sa_vs_sb, _EMPTY_CLEARANCE_SENTINEL)
         shank_shank_pool = d_sa_vs_sb.reshape(-1)
     else:
         shank_shank_pool = jnp.zeros((0,), dtype=world_surface_a.dtype)
@@ -877,6 +895,8 @@ def body_shank_corners_pair_clearance(
     beta: float = 20.0,
     top_k: int = 8,
     interp: str = "trilinear",
+    shank_mask_a: Array | None = None,
+    shank_mask_b: Array | None = None,
 ) -> tuple[Array, Array]:
     """Body-shank "shank corners → other body's SDF" direction ONLY.
 
@@ -884,6 +904,12 @@ def body_shank_corners_pair_clearance(
     contention slowdown when vmap'd across pairs (see
     [[vmap-cpu-gpu-polish-arch]]). Kept as its own helper so callers
     can decide whether to per-pair-loop it (CPU) or vmap it (GPU).
+
+    ``shank_mask_{a,b}`` (``(S,)`` bool/0-1, optional) mark which OBB rows
+    are real vs padding when the per-kind OBB tables are padded to a uniform
+    ``max_S``: each invalid OBB's pooled distances are set to the
+    "no-collision" sentinel so they never win the min/soft-min. ``None`` ⇒
+    no padding (legacy ragged tables), identical to before.
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     Sa = shank_centers_a.shape[0]
@@ -896,8 +922,12 @@ def body_shank_corners_pair_clearance(
         ca_in_b = (corners_a_world - t_b) @ R_b
         d_corners_a_in_b = sdf_lookup(
             sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
-        )
-        chunks.append(d_corners_a_in_b.reshape(-1))
+        ).reshape(-1)
+        if shank_mask_a is not None:
+            m = jnp.repeat(shank_mask_a.astype(bool), _SHANK_SAMPLES_PER_BOX)
+            d_corners_a_in_b = jnp.where(
+                m, d_corners_a_in_b, _EMPTY_CLEARANCE_SENTINEL)
+        chunks.append(d_corners_a_in_b)
     if Sb > 0:
         corners_b_world = _shank_world_samples(
             R_b, t_b, shank_centers_b, shank_halves_b
@@ -905,8 +935,12 @@ def body_shank_corners_pair_clearance(
         cb_in_a = (corners_b_world - t_a) @ R_a
         d_corners_b_in_a = sdf_lookup(
             sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
-        )
-        chunks.append(d_corners_b_in_a.reshape(-1))
+        ).reshape(-1)
+        if shank_mask_b is not None:
+            m = jnp.repeat(shank_mask_b.astype(bool), _SHANK_SAMPLES_PER_BOX)
+            d_corners_b_in_a = jnp.where(
+                m, d_corners_b_in_a, _EMPTY_CLEARANCE_SENTINEL)
+        chunks.append(d_corners_b_in_a)
     pool = (
         jnp.concatenate(chunks, axis=0)
         if chunks

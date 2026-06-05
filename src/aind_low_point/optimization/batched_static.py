@@ -83,6 +83,12 @@ class BatchedProbeStatic:
     # looked up by Python-static kind_id at trace time.
     sdf_shank_centers_table: tuple[jnp.ndarray, ...]
     sdf_shank_halves_table: tuple[jnp.ndarray, ...]
+    # Uniform padded mirror of the OBB tables (max_Sa across kinds) + validity
+    # mask, so a DYNAMIC kind index can gather them (the tuples need static
+    # kind_id). Padded rows are masked out in the clearance soft-min.
+    sdf_shank_centers_padded: jnp.ndarray   # (N_kinds, max_Sa, 3)
+    sdf_shank_halves_padded: jnp.ndarray    # (N_kinds, max_Sa, 3)
+    sdf_shank_obb_mask: jnp.ndarray         # (N_kinds, max_Sa) 0/1
 
     # ---- Optimization bounds (per candidate) ----
     bounds_lo: jnp.ndarray                # (B, n_arcs + 3*K) — (ml, sx, sy)
@@ -342,6 +348,31 @@ def build_batched_probe_static(
         sdf_shank_centers_table = sdf_table["shank_centers"]
         sdf_shank_halves_table = sdf_table["shank_halves"]
 
+    # Uniform padded mirror of the per-kind OBB tables (+ validity mask), for
+    # dynamic-kind-index gather. Halves padded to 1.0 (a valid box; masked out
+    # anyway), centers to 0.0. Built from the ragged tuples so it can't drift.
+    if sdf_shank_centers_table:
+        max_sa = max((int(np.asarray(c).shape[0])
+                      for c in sdf_shank_centers_table), default=0) or 1
+        nk = len(sdf_shank_centers_table)
+        cen_np = np.zeros((nk, max_sa, 3), dtype=np.float32)
+        hlv_np = np.ones((nk, max_sa, 3), dtype=np.float32)
+        obbm_np = np.zeros((nk, max_sa), dtype=np.float32)
+        for k, (c, h) in enumerate(
+                zip(sdf_shank_centers_table, sdf_shank_halves_table)):
+            s = int(np.asarray(c).shape[0])
+            if s:
+                cen_np[k, :s] = np.asarray(c)
+                hlv_np[k, :s] = np.asarray(h)
+                obbm_np[k, :s] = 1.0
+        sdf_shank_centers_padded = jnp.asarray(cen_np)
+        sdf_shank_halves_padded = jnp.asarray(hlv_np)
+        sdf_shank_obb_mask = jnp.asarray(obbm_np)
+    else:
+        sdf_shank_centers_padded = jnp.zeros((1, 1, 3), dtype=jnp.float32)
+        sdf_shank_halves_padded = jnp.ones((1, 1, 3), dtype=jnp.float32)
+        sdf_shank_obb_mask = jnp.zeros((1, 1), dtype=jnp.float32)
+
     return BatchedProbeStatic(
         probe_arc_idx=jnp.asarray(probe_arc_idx),
         probe_active_mask=jnp.asarray(probe_active_mask),
@@ -366,6 +397,9 @@ def build_batched_probe_static(
         sdf_surface_points=sdf_surface_points,
         sdf_shank_centers_table=sdf_shank_centers_table,
         sdf_shank_halves_table=sdf_shank_halves_table,
+        sdf_shank_centers_padded=sdf_shank_centers_padded,
+        sdf_shank_halves_padded=sdf_shank_halves_padded,
+        sdf_shank_obb_mask=sdf_shank_obb_mask,
         bounds_lo=jnp.asarray(bounds_lo),
         bounds_hi=jnp.asarray(bounds_hi),
         K=K,
