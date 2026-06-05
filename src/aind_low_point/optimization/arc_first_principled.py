@@ -404,35 +404,40 @@ def _find_ml_sep_anchors_arr(
     return best[0]  # type: ignore
 
 
-def ml_anchors_mrv(
+def ml_anchors_mrv(  # noqa: C901
     anchor_sets: "list[tuple[np.ndarray, np.ndarray, np.ndarray]]",
     target_ap: float,
     min_ml_sep_deg: float,
     *,
     max_calls: int = 5000,
     max_anchors_per_probe: int = 200,
-) -> "list[tuple[float, float, float]] | None":
-    """MRV/CSP pick of one ``(ml, spin, ap)`` anchor per probe so that all MLs
-    are pairwise ≥``min_ml_sep_deg`` apart, each anchor as close in AP to
-    ``target_ap`` as possible.
+) -> "tuple[list[tuple[float, float, float]], float] | None":
+    """MRV/CSP pick of one ``(ml, spin, ap)`` anchor per probe, MLs as far apart
+    as the atlas allows (target ≥``min_ml_sep_deg``), each anchor as close in AP
+    to ``target_ap`` as possible.
 
     ``anchor_sets[p] = (mls, spins, aps)`` are the candidate atlas anchors for
-    probe ``p`` (one (probe, hole)'s anchors). Returns a list parallel to
-    ``anchor_sets`` of the chosen ``(ml, spin, ap)``, or ``None`` if no
-    ML-separated combination exists.
+    probe ``p`` (one (probe, hole)'s anchors).
 
-    Generalizes :func:`_find_ml_sep_anchors_arr` (fixed probe order) with a
-    **dynamic MRV** variable ordering — at each step assign the probe with the
-    fewest *viable* anchors given the siblings already placed, so the most-
-    constrained probe claims its anchor before looser ones crowd it out. Value
-    ordering is closest-AP-first (geometric quality). Backtracks on dead ends,
-    bounded by ``max_calls``. Emits ``spin`` alongside ``ml`` (the anchor
-    carries it).
+    Returns ``(assignment, min_gap)`` — the chosen ``(ml, spin, ap)`` per probe
+    and the achieved minimum pairwise ML gap — or ``None`` only if some probe
+    has NO anchors at all. **Best-effort, not strict:** if a ≥``min_ml_sep_deg``
+    combination exists it returns the closest-AP one with ``min_gap ≥
+    min_ml_sep_deg``; otherwise (the atlas, sampled at offset=0, can't separate
+    these probes) it returns the **max-min-gap** combination with ``min_gap <
+    min_ml_sep_deg``. The downstream optimizer still enforces the hard 16°
+    separation (and reaches the true config via offsets the atlas doesn't
+    sample, as the manual plan does); ``min_gap`` is a ranking/quality flag, not
+    a reject. The FCL gate is the real feasibility check.
+
+    Generalizes :func:`_find_ml_sep_anchors_arr` with **dynamic MRV** variable
+    ordering (assign the probe with the fewest viable anchors first) +
+    closest-AP value ordering + backtracking (bounded by ``max_calls``). Emits
+    ``spin`` alongside ``ml``.
     """
     n = len(anchor_sets)
     if n == 0:
-        return []
-    # Per-probe candidates, closest-AP first and capped.
+        return [], float("inf")
     cand: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     for mls, spins, aps in anchor_sets:
         mls = np.asarray(mls, dtype=np.float64)
@@ -440,40 +445,63 @@ def ml_anchors_mrv(
         aps = np.asarray(aps, dtype=np.float64)
         order = np.argsort(np.abs(aps - target_ap))[:max_anchors_per_probe]
         cand.append((mls[order], spins[order], aps[order]))
+    if any(c[0].size == 0 for c in cand):
+        return None  # a probe has no anchors → truly impossible
 
-    chosen: dict[int, tuple[float, float, float]] = {}
-    calls = [0]
+    def search(sep: float) -> "list[tuple[float, float, float]] | None":
+        chosen: dict[int, tuple[float, float, float]] = {}
+        calls = [0]
 
-    def search(placed_mls: list[float], remaining: frozenset) -> bool:
-        calls[0] += 1
-        if calls[0] > max_calls:
-            return False
-        if not remaining:
-            return True
-        # Viable-anchor mask per remaining probe (ML ≥ sep from all placed).
-        viab: dict[int, np.ndarray] = {}
-        for p in remaining:
-            mls = cand[p][0]
-            mask = np.ones(mls.size, dtype=bool)
-            for pm in placed_mls:
-                mask &= np.abs(mls - pm) >= min_ml_sep_deg
-            viab[p] = mask
-        # MRV: assign the most-constrained remaining probe; dead-end if empty.
-        p = min(remaining, key=lambda q: int(viab[q].sum()))
-        if not viab[p].any():
-            return False
-        mls, spins, aps = cand[p]
-        rest = remaining - {p}
-        for j in np.nonzero(viab[p])[0]:            # closest-AP order
-            chosen[p] = (float(mls[j]), float(spins[j]), float(aps[j]))
-            if search(placed_mls + [float(mls[j])], rest):
+        def rec(placed_mls: list[float], remaining: frozenset) -> bool:
+            calls[0] += 1
+            if calls[0] > max_calls:
+                return False
+            if not remaining:
                 return True
-            del chosen[p]
-        return False
+            viab: dict[int, np.ndarray] = {}
+            for p in remaining:
+                mls = cand[p][0]
+                mask = np.ones(mls.size, dtype=bool)
+                for pm in placed_mls:
+                    mask &= np.abs(mls - pm) >= sep
+                viab[p] = mask
+            p = min(remaining, key=lambda q: int(viab[q].sum()))
+            if not viab[p].any():
+                return False
+            mls, spins, aps = cand[p]
+            rest = remaining - {p}
+            for j in np.nonzero(viab[p])[0]:        # closest-AP order
+                chosen[p] = (float(mls[j]), float(spins[j]), float(aps[j]))
+                if rec(placed_mls + [float(mls[j])], rest):
+                    return True
+                del chosen[p]
+            return False
 
-    if not search([], frozenset(range(n))):
+        if rec([], frozenset(range(n))):
+            return [chosen[p] for p in range(n)]
         return None
-    return [chosen[p] for p in range(n)]
+
+    def min_gap(combo: "list[tuple[float, float, float]]") -> float:
+        if n < 2:
+            return float("inf")
+        m = [c[0] for c in combo]
+        return min(abs(m[i] - m[j]) for i in range(n) for j in range(i + 1, n))
+
+    combo = search(min_ml_sep_deg)              # strict first (common path)
+    if combo is not None:
+        return combo, min_gap(combo)
+    # Soft fallback: binary-search the largest achievable separation, return
+    # the max-min-gap combo. sep=0 always succeeds (nearest-AP anchors).
+    best = search(0.0)
+    lo, hi = 0.0, min_ml_sep_deg
+    for _ in range(16):
+        mid = 0.5 * (lo + hi)
+        c = search(mid)
+        if c is not None:
+            best, lo = c, mid
+        else:
+            hi = mid
+    return best, min_gap(best)  # type: ignore[arg-type]
 
 
 def emit_seed(
@@ -482,7 +510,7 @@ def emit_seed(
     *,
     min_arc_ap_sep_deg: float = 16.0,
     min_ml_sep_deg: float = 16.0,
-) -> "tuple[list[float], dict[str, float], dict[str, float]] | None":
+) -> "tuple[list[float], dict[str, float], dict[str, float], float] | None":
     """Joint AP+ML+spin seed for a fixed (probe→hole, probe→arc) assignment.
 
     The single source of truth for seed emission — replaces both the
@@ -505,13 +533,15 @@ def emit_seed(
 
     Returns
     -------
-    ``(arc_aps, ml_seed, spin_seed)`` — separated arc APs (one per arc, input
-    order) and per-probe-name ml / spin from real anchors — or ``None`` if
-    some arc has no ML-separated anchor combination at its placed AP (the
-    rare AP↔ML coupling failure; the caller may retry or fall back).
+    ``(arc_aps, ml_seed, spin_seed, min_ml_gap)`` — separated arc APs (one per
+    arc, input order), per-probe-name ml / spin from real anchors, and the
+    smallest achieved within-arc ML gap across all arcs. ``min_ml_gap <
+    min_ml_sep_deg`` flags a best-effort (atlas-limited) seed — NOT a reject;
+    the optimizer enforces the hard separation downstream. Returns ``None``
+    only if some probe has no atlas anchors at all (degenerate).
     """
     if not arcs:
-        return [], {}, {}
+        return [], {}, {}, float("inf")
     desired = np.array([a["ap_desired"] for a in arcs], dtype=np.float64)
     lows = np.array([a["ap_lo"] for a in arcs], dtype=np.float64)
     highs = np.array([a["ap_hi"] for a in arcs], dtype=np.float64)
@@ -519,6 +549,7 @@ def emit_seed(
 
     ml_seed: dict[str, float] = {}
     spin_seed: dict[str, float] = {}
+    min_ml_gap = float("inf")
     for j, arc in enumerate(arcs):
         anchor_sets = [
             (aa.ml_sorted[(p, h)], aa.spin_sorted[(p, h)], aa.ap_sorted[(p, h)])
@@ -526,11 +557,13 @@ def emit_seed(
         ]
         res = ml_anchors_mrv(anchor_sets, float(arc_aps[j]), min_ml_sep_deg)
         if res is None:
-            return None
-        for (_p, _h, name), (ml, spin, _ap) in zip(arc["members"], res):
+            return None  # a probe has no anchors at all
+        combo, gap = res
+        min_ml_gap = min(min_ml_gap, gap)
+        for (_p, _h, name), (ml, spin, _ap) in zip(arc["members"], combo):
             ml_seed[name] = float(ml)
             spin_seed[name] = float(spin)
-    return [float(x) for x in arc_aps], ml_seed, spin_seed
+    return [float(x) for x in arc_aps], ml_seed, spin_seed, min_ml_gap
 
 
 # ---------------------------------------------------------------------------
