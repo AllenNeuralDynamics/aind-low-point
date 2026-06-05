@@ -38,6 +38,12 @@ import numpy as np
 from aind_low_point.optimization.arc_assignment import ArcAssignment
 from aind_low_point.optimization.atlas import Atlas
 from aind_low_point.optimization.hole_assignment import HoleAssignment
+from aind_low_point.planning import PoseLimits
+
+# Arc / per-arc caps are KINEMATIC (16 deg angular exclusion over the AP/ML
+# range), not hardware counts — see PoseLimits. Default to the rig limits;
+# the realized counts are further bounded by the probe count.
+_POSE_LIMITS = PoseLimits()
 
 
 def unordered_partitions(
@@ -404,8 +410,8 @@ def enumerate_arc_first_candidates(
     probes,
     atlas: Atlas,
     *,
-    max_arcs: int = 3,
-    max_probes_per_arc: int = 4,
+    max_arcs: int = _POSE_LIMITS.max_arcs(),
+    max_probes_per_arc: int = _POSE_LIMITS.max_probes_per_arc(),
     min_arc_ap_sep_deg: float = 16.0,
     min_ml_sep_deg: float = 16.0,
     ap_tol_for_centeredness_deg: float = 5.0,

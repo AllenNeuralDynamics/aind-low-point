@@ -88,6 +88,22 @@ class PoseLimits:
     min_arc_ap_separation_deg: float = 16.0
     min_within_arc_ml_separation_deg: float = 16.0
 
+    def max_arcs(self) -> int:
+        """Kinematic max arc count: how many arcs fit in the AP range at the
+        arc-AP separation. There is NO hardware rail-count limit — arcs are
+        angularly limited only. The realized count is additionally ≤ the
+        probe count (one probe per arc minimum)."""
+        span = self.ap_deg.hi - self.ap_deg.lo
+        return int(span // self.min_arc_ap_separation_deg) + 1
+
+    def max_probes_per_arc(self) -> int:
+        """Kinematic max probes on one arc: how many fit in the ML range at
+        the within-arc ML separation. NOT a hardware mount-count limit (the
+        rig takes more than 4 per arc); the 16° ML exclusion is the only
+        constraint. Also ≤ the probe count in practice."""
+        span = self.ml_deg.hi - self.ml_deg.lo
+        return int(span // self.min_within_arc_ml_separation_deg) + 1
+
     def clamp_angles(
         self, ap: float, ml: float, spin: float
     ) -> Tuple[float, float, float]:

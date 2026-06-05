@@ -8,8 +8,11 @@ labelled groups.
 
 Constraints / costs:
 
-- **Per-arc capacity (hard).** With ML range ±30° and 16° pairwise
-  minimum, an arc holds at most ``floor(60/16) + 1 = 4`` probes.
+- **Per-arc capacity (hard).** Kinematic only: with the ML range
+  (±60° ⇒ 120° span) and 16° pairwise minimum, an arc holds at most
+  ``floor(120/16) + 1 = 8`` probes. There is NO hardware mount-count
+  limit (the rig takes more than 4 per arc); see
+  ``PoseLimits.max_probes_per_arc()``.
 - **Inter-arc AP separation (soft).** Cluster centroids ideally sit
   ≥16° apart pairwise. The hard rig constraint (`ap_arc_{σ(j+1)} ≥
   ap_arc_{σ(j)} + 16°`) applies to the inner loop's continuous
@@ -41,6 +44,11 @@ from numpy.typing import NDArray
 
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import required_ap_deg
+from aind_low_point.planning import PoseLimits
+
+# Per-arc capacity is KINEMATIC (16 deg ML exclusion over the ML range), not a
+# hardware mount count — see PoseLimits.max_probes_per_arc().
+_POSE_LIMITS = PoseLimits()
 
 # ---------------------------------------------------------------------------
 # Inputs / outputs
@@ -135,7 +143,8 @@ def _is_valid_partition(
     on the warm-start centroid. See ``_arc_sep_shortfall_sq``.
     """
     num_arcs = len(centroids)
-    # Capacity per arc (hardware: ≤4 probes per arc on the AIND rig).
+    # Per-arc capacity is kinematic (16° ML exclusion over the ML range),
+    # NOT a hardware count — the rig takes more than 4 per arc.
     counts = np.bincount(arc_idxs, minlength=num_arcs)
     if counts.max() > max_per_arc:
         return False
@@ -246,7 +255,7 @@ def enumerate_partitions(
     required_aps_deg: NDArray,
     num_arcs: int,
     *,
-    max_per_arc: int = 4,
+    max_per_arc: int = _POSE_LIMITS.max_probes_per_arc(),
     min_arc_ap_sep_deg: float = 16.0,
     arc_sep_shortfall_weight: float = 10.0,
 ) -> list[ArcAssignment]:
@@ -345,7 +354,7 @@ def solve_top_k_arc_assignments(
     max_num_arcs: int,
     k: int,
     min_num_arcs: int = 1,
-    max_per_arc: int = 4,
+    max_per_arc: int = _POSE_LIMITS.max_probes_per_arc(),
     min_arc_ap_sep_deg: float = 16.0,
     arc_sep_shortfall_weight: float = 10.0,
     arc_count_penalty_deg2: float = 25.0,

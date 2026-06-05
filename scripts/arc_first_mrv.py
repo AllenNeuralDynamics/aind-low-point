@@ -28,6 +28,8 @@ import pickle
 import time
 from pathlib import Path
 
+from aind_low_point.planning import PoseLimits
+
 CONFIG = "examples/836656-config-T12.yml"
 HOLES = "scratch/0283-300-04.holes.yml"
 ATLAS_CACHE = "scratch/atlas_0283.pkl"
@@ -35,8 +37,11 @@ POOL_PKL = "scratch/full_polish_0283.pkl"
 HANDOFF_PKL = "scratch/phase2_handoff.pkl"
 MANUAL_H = {"MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12}
 
-MAX_ARCS = 3
-MAX_PROBES_PER_ARC = 4
+# Arc / per-arc caps are KINEMATIC (16° angular exclusion over the AP/ML
+# range), not hardware counts — no rail limit, the rig takes >4 per arc.
+_POSE_LIMITS = PoseLimits()
+MAX_ARCS = _POSE_LIMITS.max_arcs()
+MAX_PROBES_PER_ARC = _POSE_LIMITS.max_probes_per_arc()
 MIN_ARC_AP_SEP_DEG = 16.0
 MIN_ML_SEP_DEG = 16.0
 GLOBAL_CAP = 1_000_000
