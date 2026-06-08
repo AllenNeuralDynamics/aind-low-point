@@ -30,12 +30,12 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aind_low_point.config import ConfigModel, PlanningModel  # noqa: E402
-from aind_low_point.optimization.arc_assignment import (  # noqa: E402
+from aind_low_point.config import ConfigModel, PlanningModel
+from aind_low_point.optimization.arc_assignment import (
     required_aps_deg_for_assignment,
     solve_top_k_arc_assignments,
 )
-from aind_low_point.optimization.hole_assignment import (  # noqa: E402
+from aind_low_point.optimization.hole_assignment import (
     AssignmentProbe,
     CostWeights,
     angle_to_target_rad,
@@ -44,12 +44,12 @@ from aind_low_point.optimization.hole_assignment import (  # noqa: E402
     pairwise_interference_penalty,
     solve_top_k_assignments,
 )
-from aind_low_point.optimization.holes import load_holes  # noqa: E402
-from aind_low_point.runtime import build_runtime_from_config  # noqa: E402
-from aind_low_point.runtime.export import apply_plan_model_to_state  # noqa: E402
-from aind_low_point.runtime.transforms import compile_all_transforms  # noqa: E402
-from aind_low_point.state_change import PlanStore  # noqa: E402
-from scripts.run_optimizer import _probe_static_info, _transform_holes  # noqa: E402
+from aind_low_point.optimization.holes import load_holes
+from aind_low_point.runtime import build_runtime_from_config
+from aind_low_point.runtime.export import apply_plan_model_to_state
+from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_low_point.state_change import PlanStore
+from scripts.run_optimizer import _probe_static_info, _transform_holes
 
 
 def _seed_hole_assignment(plan_state, probes, holes):
@@ -95,7 +95,9 @@ def _assignment_cost(
     return float(sum(per_probe)), per_probe
 
 
-def _partition_signature(probe_to_arc_idx: dict[str, int]) -> tuple[tuple[str, ...], ...]:
+def _partition_signature(
+    probe_to_arc_idx: dict[str, int],
+) -> tuple[tuple[str, ...], ...]:
     """Canonical equivalence-class signature for a probe→arc partition.
 
     Two partitions are equivalent iff they have the same set of
@@ -156,11 +158,9 @@ def main():
 
     # Seed hole assignment
     seed_to_hole, seed_max_g = _seed_hole_assignment(plan_state, probes_static, holes)
-    print(f"\nSeed probe → hole (best-fit by max_g at seed pose):")
+    print("\nSeed probe → hole (best-fit by max_g at seed pose):")
     for n in probe_names:
-        print(
-            f"  {n:>4}  hole={seed_to_hole[n]:>2}  max_g={seed_max_g[n]:+.4f}"
-        )
+        print(f"  {n:>4}  hole={seed_to_hole[n]:>2}  max_g={seed_max_g[n]:+.4f}")
 
     # =================================================================
     # (a) LSAP / Murty diagnosis
@@ -198,7 +198,7 @@ def main():
     seed_cost_total, _ = _assignment_cost(
         cost_matrix, probe_names, holes_id_to_idx, seed_to_hole
     )
-    print(f"\n=== (a) LSAP / Murty diagnosis ===")
+    print("\n=== (a) LSAP / Murty diagnosis ===")
     print(f"Seed hole assignment total cost = {seed_cost_total:.4f}")
     print("Per-probe LSAP cost breakdown (seed assignment):")
     print(
@@ -214,16 +214,16 @@ def main():
         g = weights.gamma_interference * interference_mat[i, j]
         c = -weights.delta_coverage * coverage_mat[i, j]
         total = cost_matrix[i, j]
-        reject = "YES" if violation_mat[i, j] > weights.violation_reject_threshold else ""
+        reject = (
+            "YES" if violation_mat[i, j] > weights.violation_reject_threshold else ""
+        )
         print(
             f"  {name:>4}  {seed_to_hole[name]:>4}  {a:>+10.4f}  {b:>+10.4f}  "
             f"{e:>+10.4f}  {g:>+10.4f}  {c:>+10.4f}  {total:>+10.4f}  {reject:>8}"
         )
 
     # Top-K LSAP enumeration via Murty.
-    print(
-        f"\nEnumerating top-{args.k_holes} hole assignments via LSAP + Murty..."
-    )
+    print(f"\nEnumerating top-{args.k_holes} hole assignments via LSAP + Murty...")
     top_k = solve_top_k_assignments(
         assignment_probes, holes, k=args.k_holes, weights=weights
     )
@@ -248,13 +248,8 @@ def main():
         )
         match_str = f"{matches}/{len(probe_names)}"
         is_seed = " ←SEED" if dict(ha.probe_to_hole) == seed_canonical else ""
-        mapping = ", ".join(
-            f"{n}:{ha.probe_to_hole[n]}" for n in probe_names
-        )
-        print(
-            f"  {rank:>4}  {ha.cost:>10.4f}  {match_str:>14}  "
-            f"{mapping}{is_seed}"
-        )
+        mapping = ", ".join(f"{n}:{ha.probe_to_hole[n]}" for n in probe_names)
+        print(f"  {rank:>4}  {ha.cost:>10.4f}  {match_str:>14}  {mapping}{is_seed}")
     if seed_rank > 10 and seed_rank > 0:
         idx = seed_rank - 1
         ha = top_k[idx]
@@ -270,7 +265,7 @@ def main():
     # =================================================================
     # (b) Arc partition diagnosis
     # =================================================================
-    print(f"\n=== (b) Arc partition diagnosis (using seed hole assignment) ===")
+    print("\n=== (b) Arc partition diagnosis (using seed hole assignment) ===")
     aps_dict = required_aps_deg_for_assignment(seed_to_hole, holes)
     print("Required AP per probe (from hole axis):")
     for n in probe_names:
@@ -333,13 +328,17 @@ def main():
     )
 
     print("\nTop-10 arc partitions (sorted by partitioner cost):")
-    print(
-        f"  {'rank':>4}  {'cost':>10}  {'centroids':>30}  {'n_arcs':>6}  partition"
-    )
+    print(f"  {'rank':>4}  {'cost':>10}  {'centroids':>30}  {'n_arcs':>6}  partition")
     for rank, aa in enumerate(arc_top_k[:10], start=1):
         cents = ", ".join(f"{c:+.1f}" for c in aa.arc_centroids_deg)
-        is_seed = " ←SEED" if _partition_signature(dict(aa.probe_to_arc_idx)) == seed_sig else ""
-        mapping = ", ".join(f"{n}:{aa.probe_to_arc_idx.get(n, '-')}" for n in probe_names)
+        is_seed = (
+            " ←SEED"
+            if _partition_signature(dict(aa.probe_to_arc_idx)) == seed_sig
+            else ""
+        )
+        mapping = ", ".join(
+            f"{n}:{aa.probe_to_arc_idx.get(n, '-')}" for n in probe_names
+        )
         print(
             f"  {rank:>4}  {aa.cost:>10.4f}  {cents:>30}  {len(aa.arc_centroids_deg):>6}  "
             f"{mapping}{is_seed}"
@@ -348,7 +347,9 @@ def main():
         idx = seed_rank_arc - 1
         aa = arc_top_k[idx]
         cents = ", ".join(f"{c:+.1f}" for c in aa.arc_centroids_deg)
-        mapping = ", ".join(f"{n}:{aa.probe_to_arc_idx.get(n, '-')}" for n in probe_names)
+        mapping = ", ".join(
+            f"{n}:{aa.probe_to_arc_idx.get(n, '-')}" for n in probe_names
+        )
         print(
             f"  {seed_rank_arc:>4}  {aa.cost:>10.4f}  {cents:>30}  "
             f"{len(aa.arc_centroids_deg):>6}  {mapping}  ←SEED"

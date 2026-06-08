@@ -36,7 +36,7 @@ from scripts.spin_heuristic_search import (
 
 IDXS = [int(x) for x in _os.environ.get("IDXS", "4195,1035,4747,6423,697").split(",")]
 BEAM_B = 64
-TOL = 25.0   # within this many degrees counts as "matched"
+TOL = 25.0  # within this many degrees counts as "matched"
 
 
 def _wrap(a):
@@ -54,8 +54,11 @@ def main() -> int:
     }
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     h2 = pickle.load(open("scratch/phase2_handoff.pkl", "rb"))
-    pose_by_idx = {r["idx"]: (r["pose"], r["n_arcs"], r["coverage"], r["fcl"])
-                   for r in h2["all"] if r["fcl"] >= -0.2}
+    pose_by_idx = {
+        r["idx"]: (r["pose"], r["n_arcs"], r["coverage"], r["fcl"])
+        for r in h2["all"]
+        if r["fcl"] >= -0.2
+    }
 
     for idx in IDXS:
         if idx not in pose_by_idx:
@@ -64,27 +67,31 @@ def main() -> int:
         pose, n_arcs, dcov, dfcl = pose_by_idx[idx]
         pose = np.asarray(pose, np.float64)
         cand = pool["candidates"][idx]
-        st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                                 bvh_cache=bvh, sdf_by_name=sdf_by_name)
+        st = _build_probe_static(
+            probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+        )
         durable = spins_deg_from_phase1(pose, n_arcs, K)
         arc_aps = pose[:n_arcs]
         mls = np.array([pose[n_arcs + 6 * k] for k in range(K)])
         target_LPS = np.array([s.target_LPS for s in st])
-        seed = {i: float(cand.spin_seed.get(p.name, 0.0))
-                for i, p in enumerate(probes)}
+        seed = {i: float(cand.spin_seed.get(p.name, 0.0)) for i, p in enumerate(probes)}
 
         # restore output spins (production seed path)
-        y2 = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                         with_well=True, n_rounds=2)
+        y2 = run_restore(
+            cand, probes, holes, sdf_by_name, n_arcs, well, with_well=True, n_rounds=2
+        )
         rest = spins_deg_from_reduced(y2, n_arcs, K)
 
         # beam proposal set
         coupling, _t, _c = build_coupling_graph(
-            st, arc_aps, mls, target_LPS, mesh_by_kind, probe_kind)
+            st, arc_aps, mls, target_LPS, mesh_by_kind, probe_kind
+        )
         cands = per_probe_spin_candidates(
-            st, coupling, target_LPS, arc_aps, mls, probe_kind, seed_spins=seed)
+            st, coupling, target_LPS, arc_aps, mls, probe_kind, seed_spins=seed
+        )
         beam = beam_search_assignments(
-            st, cands, coupling, target_LPS, arc_aps, mls, probe_kind, beam_B=BEAM_B)
+            st, cands, coupling, target_LPS, arc_aps, mls, probe_kind, beam_B=BEAM_B
+        )
         facing = facing_seeds(rt, st, arc_aps, mls, target_LPS, probe_kind, well, names)
         props = [np.array([_wrap(dict(a.spins)[i]) for i in range(K)]) for a in beam]
         props.append(np.array([_wrap(facing[n]) for n in names]))
@@ -98,17 +105,27 @@ def main() -> int:
         # per-probe: how many proposals match the durable spin within TOL
         per_probe_hits = (np.abs(_wrap(props - durable)) <= TOL).sum(axis=0)
 
-        print(f"\ncand {idx}  (durable stage-3: cov {dcov:.2f}, fcl {dfcl:+.3f})  "
-              f"probes={names}")
+        print(
+            f"\ncand {idx}  (durable stage-3: cov {dcov:.2f}, fcl {dfcl:+.3f})  "
+            f"probes={names}"
+        )
         print(f"  durable spins : {np.round(durable, 0).astype(int).tolist()}")
-        print(f"  restore spins : {np.round(rest, 0).astype(int).tolist()}  "
-              f"Δ={np.round(d_rest, 0).astype(int).tolist()}  max {d_rest.max():.0f}°")
-        print(f"  best beam     : {np.round(props[bi], 0).astype(int).tolist()}  "
-              f"Δ={np.round(d_beam, 0).astype(int).tolist()}  max {d_beam.max():.0f}°")
-        print(f"  restore matches durable (≤{TOL:.0f}°): "
-              f"{int((d_rest <= TOL).sum())}/{K} probes")
-        print(f"  beam-set per-probe coverage (≤{TOL:.0f}°): "
-              f"{per_probe_hits.tolist()}  of {len(props)} proposals")
+        print(
+            f"  restore spins : {np.round(rest, 0).astype(int).tolist()}  "
+            f"Δ={np.round(d_rest, 0).astype(int).tolist()}  max {d_rest.max():.0f}°"
+        )
+        print(
+            f"  best beam     : {np.round(props[bi], 0).astype(int).tolist()}  "
+            f"Δ={np.round(d_beam, 0).astype(int).tolist()}  max {d_beam.max():.0f}°"
+        )
+        print(
+            f"  restore matches durable (≤{TOL:.0f}°): "
+            f"{int((d_rest <= TOL).sum())}/{K} probes"
+        )
+        print(
+            f"  beam-set per-probe coverage (≤{TOL:.0f}°): "
+            f"{per_probe_hits.tolist()}  of {len(props)} proposals"
+        )
     return 0
 
 

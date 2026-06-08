@@ -37,9 +37,12 @@ def _sdf_lookup_numpy(grid, origin, spacing, query_pts):
     f = coords - i0
     Nx, Ny, Nz = grid.shape
     in_b = (
-        (i0[..., 0] >= 0) & (i0[..., 0] < Nx - 1)
-        & (i0[..., 1] >= 0) & (i0[..., 1] < Ny - 1)
-        & (i0[..., 2] >= 0) & (i0[..., 2] < Nz - 1)
+        (i0[..., 0] >= 0)
+        & (i0[..., 0] < Nx - 1)
+        & (i0[..., 1] >= 0)
+        & (i0[..., 1] < Ny - 1)
+        & (i0[..., 2] >= 0)
+        & (i0[..., 2] < Nz - 1)
     )
     ix = np.clip(i0[..., 0], 0, Nx - 2)
     iy = np.clip(i0[..., 1], 0, Ny - 2)
@@ -66,17 +69,23 @@ def _sdf_lookup_numpy(grid, origin, spacing, query_pts):
 def diagnose_one(name: str, mesh, alpha: float, offset: float):
     """Build envelope at (alpha, offset) and check raw vertex containment."""
     print(f"\n--- {name} (alpha={alpha}, offset={offset}) ---")
-    print(f"  raw mesh: {len(mesh.vertices)} vertices, "
-          f"{len(mesh.faces)} faces, bbox extents "
-          f"{(mesh.bounds[1] - mesh.bounds[0]).round(2).tolist()} mm")
+    print(
+        f"  raw mesh: {len(mesh.vertices)} vertices, "
+        f"{len(mesh.faces)} faces, bbox extents "
+        f"{(mesh.bounds[1] - mesh.bounds[0]).round(2).tolist()} mm"
+    )
 
     env = build_alpha_wrap_envelope(mesh, alpha_mm=alpha, offset_mm=offset)
-    print(f"  envelope: {len(env.vertices)} vertices, "
-          f"{len(env.faces)} faces, watertight={env.is_watertight}")
+    print(
+        f"  envelope: {len(env.vertices)} vertices, "
+        f"{len(env.faces)} faces, watertight={env.is_watertight}"
+    )
 
     # Build the envelope SDF
     sdf = build_probe_sdf_from_alpha_wrap(
-        mesh, alpha_mm=alpha, offset_mm=offset,
+        mesh,
+        alpha_mm=alpha,
+        offset_mm=offset,
     )
     grid = np.asarray(sdf.grid)
     origin = np.asarray(sdf.origin)
@@ -101,13 +110,16 @@ def diagnose_one(name: str, mesh, alpha: float, offset: float):
 
     print(f"  vertices in-bounds: {n_total}/{len(sdfs)} ({n_oob} OOB)")
     print(f"  outside envelope: {n_outside} ({pct_outside:.2f}%)")
-    print(f"  max protrusion: {max_protrusion:+.4f} mm "
-          f"(p99={p99_protrusion:+.4f}, median signed dist={p50_signed:+.4f})")
+    print(
+        f"  max protrusion: {max_protrusion:+.4f} mm "
+        f"(p99={p99_protrusion:+.4f}, median signed dist={p50_signed:+.4f})"
+    )
     if n_outside > 0:
         worst_idx = int(np.argmax(sdfs))
         worst_pt = raw_verts[worst_idx]
-        print(f"  worst protrusion at vertex {worst_idx} "
-              f"({worst_pt.round(3).tolist()})")
+        print(
+            f"  worst protrusion at vertex {worst_idx} ({worst_pt.round(3).tolist()})"
+        )
     return dict(
         n_outside=n_outside,
         max_protrusion=max_protrusion,
@@ -131,9 +143,7 @@ def main() -> int:
     cfg = ConfigModel.from_yaml(args.config)
     runtime = build_runtime_from_config(cfg)
     if args.probe_kind is None:
-        kinds = sorted(set(
-            p.kind for p in runtime.plan_state.probes.values()
-        ))
+        kinds = sorted(set(p.kind for p in runtime.plan_state.probes.values()))
         print(f"Auto-detected probe kinds: {kinds}")
     else:
         kinds = list(args.probe_kind)

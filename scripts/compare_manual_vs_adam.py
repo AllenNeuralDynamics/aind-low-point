@@ -74,18 +74,20 @@ def manual_x_from_plan(plan: PlanningModel, st, n_arcs):
     return x
 
 
-def adam_x_for_cand(cand, probes, holes, sdf_by_name, bvh, well, st, n_arcs,
-                    brain_sdf=None):
+def adam_x_for_cand(
+    cand, probes, holes, sdf_by_name, bvh, well, st, n_arcs, brain_sdf=None
+):
     """restore WITH well -> ADAM (set A, single basin) -> basin-selected pose.
     ``brain_sdf`` turns on the brain-containment term in the ADAM objective."""
-    y_red = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                        with_well=True)
+    y_red = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, with_well=True)
     cov = build_coverage_data(probes, st)
-    adam_eval = build_adam_kernel(st, n_arcs, len(probes), well, cov,
-                                  brain_sdf=brain_sdf)
+    adam_eval = build_adam_kernel(
+        st, n_arcs, len(probes), well, cov, brain_sdf=brain_sdf
+    )
     arc_aps, mls, sets = make_basin_sets(y_red, st, n_arcs, len(probes))
     basins = sets["A_restore1"]
     from scripts.test_h1_chain_cand4195 import build_y
+
     zero = np.zeros(len(probes))
     x0 = [build_y(arc_aps, n_arcs, mls, sp, zero, zero, zero) for sp in basins]
     viol, xa = adam_eval(x0)
@@ -118,8 +120,9 @@ def main() -> int:
     pool = pickle.load(open(POOL_PKL, "rb"))
     cand = pool["candidates"][IDX]
     n_arcs = int(pool["results"][IDX].n_arcs)
-    st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                             bvh_cache=bvh, sdf_by_name=sdf_by_name)
+    st = _build_probe_static(
+        probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+    )
 
     comp = compile_all_transforms(cfg.transforms)
     brain_sdf = build_brain_sdf(rt, comp) if BRAIN else None
@@ -127,35 +130,44 @@ def main() -> int:
 
     manual_pm = PlanningModel.model_validate(yaml.safe_load(open(PLAN)))
     manual_x = manual_x_from_plan(manual_pm, st, n_arcs)
-    adam_x = adam_x_for_cand(cand, probes, holes, sdf_by_name, bvh, well, st,
-                             n_arcs, brain_sdf=brain_sdf)
+    adam_x = adam_x_for_cand(
+        cand, probes, holes, sdf_by_name, bvh, well, st, n_arcs, brain_sdf=brain_sdf
+    )
 
-    print(f"\n{'='*72}\ncand {IDX}  probes={names}")
-    print(f"manual spins: {np.round(spins_deg_from_phase1(manual_x, n_arcs, 7),1)}")
-    print(f"adam   spins: {np.round(spins_deg_from_phase1(adam_x, n_arcs, 7),1)}")
+    print(f"\n{'=' * 72}\ncand {IDX}  probes={names}")
+    print(f"manual spins: {np.round(spins_deg_from_phase1(manual_x, n_arcs, 7), 1)}")
+    print(f"adam   spins: {np.round(spins_deg_from_phase1(adam_x, n_arcs, 7), 1)}")
 
     # --- FCL clearance --------------------------------------------------------
-    v = make_fcl_validator(st, n_arcs, fixtures=tuple(fixtures),
-                           fixture_bvhs=fixture_bvhs)
+    v = make_fcl_validator(
+        st, n_arcs, fixtures=tuple(fixtures), fixture_bvhs=fixture_bvhs
+    )
     fcl_m = fcl_table("manual", v, manual_x)
     fcl_a = fcl_table("adam", v, adam_x)
 
     # --- coverage -------------------------------------------------------------
     cov_data = build_coverage_data(probes, st)
+
     def cov(x):
         Rs, ts, tips, mask = _poses(st, x, n_arcs)
-        return float(coverage_total_over_probes(Rs, ts, tips, mask, cov_data,
-                                                n_samples=41))
+        return float(
+            coverage_total_over_probes(Rs, ts, tips, mask, cov_data, n_samples=41)
+        )
+
     cov_m, cov_a = cov(manual_x), cov(adam_x)
 
     # --- brain containment (world-frame brain mesh) + depth -------------------
     brain_in = {}
     try:
         import trimesh
+
         bg = rt.asset_catalog.get_geometry("brain").raw
         R, t = comp["headframe_to_lps"].rotate_translate
-        bw = trimesh.Trimesh(np.asarray(bg.vertices) @ np.asarray(R).T
-                             + np.asarray(t), np.asarray(bg.faces), process=False)
+        bw = trimesh.Trimesh(
+            np.asarray(bg.vertices) @ np.asarray(R).T + np.asarray(t),
+            np.asarray(bg.faces),
+            process=False,
+        )
         for label, x in (("manual", manual_x), ("adam", adam_x)):
             tips_w, mask = world_shank_tips(st, x, n_arcs)
             allpts = np.concatenate([tw[m > 0] for tw, m in zip(tips_w, mask)])
@@ -164,20 +176,28 @@ def main() -> int:
     except Exception as e:
         print(f"\n  [brain] containment check skipped: {e}")
 
-    print(f"\n{'='*72}\nSUMMARY  (manual vs ADAM)")
-    print(f"  FCL min clearance : manual {fcl_m:+.3f}   adam {fcl_a:+.3f}   "
-          f"{'ADAM' if fcl_a > fcl_m else 'manual'} more clearance")
-    print(f"  coverage          : manual {cov_m:.3f}   adam {cov_a:.3f}   "
-          f"{'ADAM' if cov_a > cov_m else 'manual'} higher")
+    print(f"\n{'=' * 72}\nSUMMARY  (manual vs ADAM)")
+    print(
+        f"  FCL min clearance : manual {fcl_m:+.3f}   adam {fcl_a:+.3f}   "
+        f"{'ADAM' if fcl_a > fcl_m else 'manual'} more clearance"
+    )
+    print(
+        f"  coverage          : manual {cov_m:.3f}   adam {cov_a:.3f}   "
+        f"{'ADAM' if cov_a > cov_m else 'manual'} higher"
+    )
     if brain_in:
         for label in ("manual", "adam"):
             ins, tot = brain_in[label]
-            print(f"  brain tips inside : {label:<6} {ins}/{tot}"
-                  f"{'  <-- PUNCTURE' if ins < tot else ''}")
+            print(
+                f"  brain tips inside : {label:<6} {ins}/{tot}"
+                f"{'  <-- PUNCTURE' if ins < tot else ''}"
+            )
     print("  depth past_target (mm), per probe:")
     for i, s in enumerate(st):
-        print(f"      {s.name:<5} manual {manual_x[n_arcs+PPV*i+5]:+.3f}   "
-              f"adam {adam_x[n_arcs+PPV*i+5]:+.3f}")
+        print(
+            f"      {s.name:<5} manual {manual_x[n_arcs + PPV * i + 5]:+.3f}   "
+            f"adam {adam_x[n_arcs + PPV * i + 5]:+.3f}"
+        )
 
     # --- BLA spin 0-vs-180: real or convention? (app-faithful) ---------------
     bla = "BLA"
@@ -191,17 +211,21 @@ def main() -> int:
     def bla_world(spin_deg):
         R, t = pose_from_optimizer_vars(
             target_LPS=np.asarray(s_bla.target_LPS, float),
-            ap_deg=ap_m, ml_deg=ml_m, spin_deg=spin_deg,
-            offset_R_mm=pm.offsets_RA[0], offset_A_mm=pm.offsets_RA[1],
+            ap_deg=ap_m,
+            ml_deg=ml_m,
+            spin_deg=spin_deg,
+            offset_R_mm=pm.offsets_RA[0],
+            offset_A_mm=pm.offsets_RA[1],
             past_target_mm=pm.past_target_mm,
-            recording_center_local=np.asarray(s_bla.pivot_local, float))
+            recording_center_local=np.asarray(s_bla.pivot_local, float),
+        )
         verts = np.asarray(
-            rt.asset_catalog.get_geometry(f"probe:{pm.kind}").raw.vertices, float)
+            rt.asset_catalog.get_geometry(f"probe:{pm.kind}").raw.vertices, float
+        )
         return np.asarray(verts) @ np.asarray(R).T + np.asarray(t), np.asarray(t)
 
     # app agreement: optimizer tip vs ProbePose tip at the manual pose
-    pose_app = ProbePose.from_planning_state(store.state, bla,
-                                             catalog=rt.asset_catalog)
+    pose_app = ProbePose.from_planning_state(store.state, bla, catalog=rt.asset_catalog)
     _, tip_opt = bla_world(spin_m)
     tip_err = float(np.linalg.norm(np.asarray(pose_app.tip) - tip_opt))
 
@@ -209,14 +233,18 @@ def main() -> int:
     W180, _ = bla_world(180.0)
     haus = max(cKDTree(W180).query(W0)[0].max(), cKDTree(W0).query(W180)[0].max())
     same = cKDTree(W180).query(W0)[0]  # nearest-neighbour set distance
-    print(f"\n{'='*72}\nBLA spin 0 vs 180 ({pm.kind}):")
-    print(f"  optimizer-vs-app tip agreement: {tip_err:.2e} mm "
-          f"({'AGREE' if tip_err < 1e-3 else 'MISMATCH'})")
+    print(f"\n{'=' * 72}\nBLA spin 0 vs 180 ({pm.kind}):")
+    print(
+        f"  optimizer-vs-app tip agreement: {tip_err:.2e} mm "
+        f"({'AGREE' if tip_err < 1e-3 else 'MISMATCH'})"
+    )
     print(f"  body-mesh Hausdorff(0,180)      : {haus:.3f} mm")
     print(f"  nn set-distance(0->180) max/mean: {same.max():.3f} / {same.mean():.3f}")
-    verdict = ("SAME occupied volume -> 180 is a symmetry/convention artifact"
-               if same.max() < 0.5 else
-               "DIFFERENT occupied volume -> 180 is a REAL alternate placement")
+    verdict = (
+        "SAME occupied volume -> 180 is a symmetry/convention artifact"
+        if same.max() < 0.5
+        else "DIFFERENT occupied volume -> 180 is a REAL alternate placement"
+    )
     print(f"  verdict: {verdict}")
     return 0
 

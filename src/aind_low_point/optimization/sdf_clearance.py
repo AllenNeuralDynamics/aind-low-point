@@ -100,10 +100,18 @@ def pair_clearance_at_x(
     R_a, t_a = _pose_for_probe(x, n_arcs, probe_a)
     R_b, t_b = _pose_for_probe(x, n_arcs, probe_b)
     return pairwise_signed_clearance(
-        R_a, t_a, R_b, t_b,
-        probe_a.sdf_grid, probe_a.sdf_origin, probe_a.sdf_spacing,
-        probe_b.sdf_grid, probe_b.sdf_origin, probe_b.sdf_spacing,
-        probe_a.surface, probe_b.surface,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        probe_a.sdf_grid,
+        probe_a.sdf_origin,
+        probe_a.sdf_spacing,
+        probe_b.sdf_grid,
+        probe_b.sdf_origin,
+        probe_b.sdf_spacing,
+        probe_a.surface,
+        probe_b.surface,
     )
 
 
@@ -137,6 +145,7 @@ def build_sdf_clearance_callbacks(
     def _make_pair_fn(i, j):
         def fn(x):
             return pair_clearance_at_x(x, n_arcs, probe_data[i], probe_data[j])
+
         return fn
 
     pair_funcs = [jax.jit(_make_pair_fn(i, j)) for (i, j) in pairs]

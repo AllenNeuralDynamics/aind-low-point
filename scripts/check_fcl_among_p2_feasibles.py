@@ -43,19 +43,23 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_T12.pkl"))
+    p.add_argument("--polish-pkl", type=Path, default=Path("/tmp/full_polish_T12.pkl"))
     p.add_argument("--feasibility-threshold", type=float, default=0.001)
-    p.add_argument("--no-fixtures", action="store_true",
-                   help="Skip probe-vs-fixture FCL checks (Stage 2 doesn't "
-                        "optimize fixture clearance, so probe-probe is the "
-                        "more meaningful parity check)")
+    p.add_argument(
+        "--no-fixtures",
+        action="store_true",
+        help="Skip probe-vs-fixture FCL checks (Stage 2 doesn't "
+        "optimize fixture clearance, so probe-probe is the "
+        "more meaningful parity check)",
+    )
     args = p.parse_args()
 
     cfg = ConfigModel.from_yaml(args.config)
     runtime = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(runtime.plan_state, runtime, n)
-              for n in runtime.plan_state.probes]
+    probes = [
+        _probe_static_info(runtime.plan_state, runtime, n)
+        for n in runtime.plan_state.probes
+    ]
     holes_list = load_holes(args.holes)
     compiled = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in compiled:
@@ -77,9 +81,12 @@ def main() -> int:
             print(f"  fixtures: {list(fixture_bvhs)}")
     else:
         print("  (skipping probe-vs-fixture checks per --no-fixtures)")
-    bvh_cache = {p.name: (make_fcl_bvh(p.collision_mesh)
-                          if p.collision_mesh is not None else None)
-                 for p in probes}
+    bvh_cache = {
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+        )
+        for p in probes
+    }
 
     with open(args.polish_pkl, "rb") as f:
         data = pickle.load(f)
@@ -88,10 +95,12 @@ def main() -> int:
     manual_rank_in_pool = data["manual_rank"]
 
     # Find P2-feasibles
-    feas_idxs = [i for i, r in enumerate(results)
-                 if r.metrics.max_violation <= args.feasibility_threshold]
-    print(f"P2-feasibles (max_viol ≤ {args.feasibility_threshold}): "
-          f"{len(feas_idxs)}")
+    feas_idxs = [
+        i
+        for i, r in enumerate(results)
+        if r.metrics.max_violation <= args.feasibility_threshold
+    ]
+    print(f"P2-feasibles (max_viol ≤ {args.feasibility_threshold}): {len(feas_idxs)}")
 
     # For each P2-feasible, compute FCL min pairwise clearance at the
     # polished pose (offsets=0, depth=0)
@@ -103,7 +112,10 @@ def main() -> int:
         y = np.asarray(jc.reduced_y, dtype=np.float64)
         n_arcs = jc.n_arcs
         statics = _build_probe_static(
-            probes, holes_list, cand.ha, cand.aa,
+            probes,
+            holes_list,
+            cand.ha,
+            cand.aa,
             bvh_cache=bvh_cache,
         )
         # Patch B layout: (arc_aps, (ml, sx, sy) × P).
@@ -116,8 +128,12 @@ def main() -> int:
             ap = float(y[st.arc_idx])
             R_w, pose_tip = pose_from_optimizer_vars(
                 target_LPS=st.target_LPS,
-                ap_deg=ap, ml_deg=ml, spin_deg=spin,
-                offset_R_mm=0.0, offset_A_mm=0.0, past_target_mm=0.0,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=0.0,
+                offset_A_mm=0.0,
+                past_target_mm=0.0,
                 recording_center_local=st.pivot_local,
             )
             if st.bvh_obj is not None:
@@ -150,12 +166,14 @@ def main() -> int:
                     min_d = d
                     worst_pair = (statics[a].name, fx_name)
         fcl_min_clearances.append(min_d)
-        pair_details.append({
-            "cand_idx": cand_idx,
-            "min_fcl_clearance": min_d,
-            "worst_pair": worst_pair,
-            "is_manual": cand_idx == manual_rank_in_pool,
-        })
+        pair_details.append(
+            {
+                "cand_idx": cand_idx,
+                "min_fcl_clearance": min_d,
+                "worst_pair": worst_pair,
+                "is_manual": cand_idx == manual_rank_in_pool,
+            }
+        )
         if (k + 1) % 30 == 0:
             print(f"  processed {k + 1}/{len(feas_idxs)}", flush=True)
 
@@ -168,19 +186,27 @@ def main() -> int:
     print("=" * 78)
     print("FCL pairwise min-clearance among P2-feasibles")
     print("=" * 78)
-    print(f"  Truly FCL-clear (min ≥ 0):           "
-          f"{int(truly_clear.sum()):>3} / {len(arr)} "
-          f"({truly_clear.mean() * 100:.1f}%)")
-    print(f"  Minor violation (-0.5 ≤ min < 0):    "
-          f"{int(minor_violation.sum()):>3} / {len(arr)} "
-          f"({minor_violation.mean() * 100:.1f}%)")
-    print(f"  Major violation (min < -0.5):        "
-          f"{int(major_violation.sum()):>3} / {len(arr)} "
-          f"({major_violation.mean() * 100:.1f}%)")
+    print(
+        f"  Truly FCL-clear (min ≥ 0):           "
+        f"{int(truly_clear.sum()):>3} / {len(arr)} "
+        f"({truly_clear.mean() * 100:.1f}%)"
+    )
+    print(
+        f"  Minor violation (-0.5 ≤ min < 0):    "
+        f"{int(minor_violation.sum()):>3} / {len(arr)} "
+        f"({minor_violation.mean() * 100:.1f}%)"
+    )
+    print(
+        f"  Major violation (min < -0.5):        "
+        f"{int(major_violation.sum()):>3} / {len(arr)} "
+        f"({major_violation.mean() * 100:.1f}%)"
+    )
     print()
-    print(f"  FCL min clearance distribution:")
-    print(f"    min={arr.min():.4f}  median={float(np.median(arr)):.4f}  "
-          f"max={arr.max():.4f}")
+    print("  FCL min clearance distribution:")
+    print(
+        f"    min={arr.min():.4f}  median={float(np.median(arr)):.4f}  "
+        f"max={arr.max():.4f}"
+    )
     for p_ in [5, 25, 50, 75, 95]:
         print(f"    {p_}th percentile: {float(np.percentile(arr, p_)):.4f}")
 
@@ -194,23 +220,25 @@ def main() -> int:
         print(f"    max penetration: {-viol.min():.4f} mm")
 
     # Manual specifically
-    manual_entry = next(
-        (d for d in pair_details if d["is_manual"]), None
-    )
+    manual_entry = next((d for d in pair_details if d["is_manual"]), None)
     if manual_entry is not None:
         print()
-        print(f"Manual (cand #{manual_rank_in_pool}): "
-              f"min FCL clearance = {manual_entry['min_fcl_clearance']:.4f}  "
-              f"worst pair = {manual_entry['worst_pair']}")
+        print(
+            f"Manual (cand #{manual_rank_in_pool}): "
+            f"min FCL clearance = {manual_entry['min_fcl_clearance']:.4f}  "
+            f"worst pair = {manual_entry['worst_pair']}"
+        )
 
     # Worst FCL violators
     sorted_details = sorted(pair_details, key=lambda d: d["min_fcl_clearance"])
     print()
-    print(f"Top 10 worst FCL violators among P2-feasibles:")
+    print("Top 10 worst FCL violators among P2-feasibles:")
     for d in sorted_details[:10]:
         m = "  [MANUAL]" if d["is_manual"] else ""
-        print(f"  cand #{d['cand_idx']:>5}: FCL min={d['min_fcl_clearance']:.4f} "
-              f"({d['worst_pair'][0]}/{d['worst_pair'][1]}){m}")
+        print(
+            f"  cand #{d['cand_idx']:>5}: FCL min={d['min_fcl_clearance']:.4f} "
+            f"({d['worst_pair'][0]}/{d['worst_pair'][1]}){m}"
+        )
 
     return 0
 

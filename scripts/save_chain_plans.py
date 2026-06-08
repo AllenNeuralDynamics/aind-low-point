@@ -48,9 +48,8 @@ from aind_low_point.optimization.stage3_phase2_jax import (
     make_phase2,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-from aind_low_point.runtime import build_runtime_from_config
+from aind_low_point.runtime import build_runtime_from_config, save_plan_to_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from aind_low_point.runtime import save_plan_to_config
 from scripts.run_optimizer import _probe_static_info, _transform_holes
 from scripts.run_phase1_sample import (
     build_coverage_data,
@@ -93,10 +92,16 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb_augmented.pkl"))
-    p.add_argument("--cands", type=int, nargs="+", required=True,
-                   help="Candidate indices to re-chain + save")
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb_augmented.pkl")
+    )
+    p.add_argument(
+        "--cands",
+        type=int,
+        nargs="+",
+        required=True,
+        help="Candidate indices to re-chain + save",
+    )
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--p2-iter", type=int, default=80)
     p.add_argument("--min-clear", type=float, default=0.3)
@@ -144,53 +149,91 @@ def main() -> int:
         cand = data["candidates"][cand_idx]
         jc = data["results"][cand_idx]
         statics = _build_probe_static(
-            probes, holes, cand.ha, cand.aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            probes,
+            holes,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         n_arcs = jc.n_arcs
         n_probes = len(statics)
         coverage_data = build_coverage_data(probes, statics)
 
-        x_aug = np.asarray(data["augmented_phase1_x"][cand_idx],
-                            dtype=np.float64)
+        x_aug = np.asarray(data["augmented_phase1_x"][cand_idx], dtype=np.float64)
         bounds = phase1_bounds(n_arcs, n_probes)
 
         # Phase 1
         p1_fun, p1_jac = make_phase1_objective(
-            statics, n_arcs, coverage_data=coverage_data,
-            fixtures=fixtures, weights=Phase1Weights(),
+            statics,
+            n_arcs,
+            coverage_data=coverage_data,
+            fixtures=fixtures,
+            weights=Phase1Weights(),
         )
-        r1 = minimize(p1_fun, x_aug, jac=p1_jac, method="L-BFGS-B",
-                      bounds=bounds,
-                      options=dict(maxiter=80, ftol=1e-5, gtol=1e-5))
+        r1 = minimize(
+            p1_fun,
+            x_aug,
+            jac=p1_jac,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options=dict(maxiter=80, ftol=1e-5, gtol=1e-5),
+        )
         x1 = np.asarray(r1.x, dtype=np.float64)
 
         # Phase 2
         p2 = make_phase2(
-            statics, n_arcs, coverage_data=coverage_data,
+            statics,
+            n_arcs,
+            coverage_data=coverage_data,
             fixtures=fixtures,
             weights=Phase2Weights(min_clearance_mm=args.min_clear),
         )
-        r2 = minimize(p2["fun"], x1, jac=p2["jac"], method="trust-constr",
-                      bounds=bounds, constraints=p2["constraints_nlc"],
-                      options=dict(maxiter=args.p2_iter, xtol=1e-6,
-                                   gtol=1e-5, initial_tr_radius=1.0,
-                                   verbose=0))
+        r2 = minimize(
+            p2["fun"],
+            x1,
+            jac=p2["jac"],
+            method="trust-constr",
+            bounds=bounds,
+            constraints=p2["constraints_nlc"],
+            options=dict(
+                maxiter=args.p2_iter,
+                xtol=1e-6,
+                gtol=1e-5,
+                initial_tr_radius=1.0,
+                verbose=0,
+            ),
+        )
         x2 = np.asarray(r2.x, dtype=np.float64)
 
         # FCL validator
         validator = make_fcl_validator(
-            statics, n_arcs, fixtures=fixtures, fixture_bvhs=fixture_bvhs,
+            statics,
+            n_arcs,
+            fixtures=fixtures,
+            fixture_bvhs=fixture_bvhs,
         )
         s_fcl = validator.slacks(x2)
         fcl_min = float(s_fcl.min()) if s_fcl.size else 0.0
         feas = bool(s_fcl.size == 0 or s_fcl.min() >= -1e-4)
 
-        rows.append((cand_idx, feas, float(cov_at_aug[cand_idx]),
-                     float(viol_fn[cand_idx]), fcl_min, x2, statics, n_arcs))
-        print(f"  cand#{cand_idx:>5}: feas={feas} cov={cov_at_aug[cand_idx]:.2f} "
-              f"viol_fn={viol_fn[cand_idx]:.2f} fcl_min={fcl_min:+.4f}",
-              flush=True)
+        rows.append(
+            (
+                cand_idx,
+                feas,
+                float(cov_at_aug[cand_idx]),
+                float(viol_fn[cand_idx]),
+                fcl_min,
+                x2,
+                statics,
+                n_arcs,
+            )
+        )
+        print(
+            f"  cand#{cand_idx:>5}: feas={feas} cov={cov_at_aug[cand_idx]:.2f} "
+            f"viol_fn={viol_fn[cand_idx]:.2f} fcl_min={fcl_min:+.4f}",
+            flush=True,
+        )
 
     # Sort: feasible first, then coverage descending
     rows.sort(key=lambda r: (not r[1], -r[2]))
@@ -207,21 +250,26 @@ def main() -> int:
         "| rank | feas | cand | coverage | viol_fn | fcl_min | file |",
         "|---|---|---|---:|---:|---:|---|",
     ]
-    for rank, (cand_idx, feas, cov, viol, fcl_min, x2, statics, n_arcs) \
-            in enumerate(rows, start=1):
+    for rank, (cand_idx, feas, cov, viol, fcl_min, x2, statics, n_arcs) in enumerate(
+        rows, start=1
+    ):
         # Fresh runtime/plan_state for each cand (avoid leaking pose state)
         cfg_local = ConfigModel.from_yaml(args.config)
         rt_local = build_runtime_from_config(cfg_local)
         _apply_x_to_plan_state(rt_local.plan_state, x2, statics, n_arcs)
         candidate_cfg = save_plan_to_config(rt_local.plan_state, cfg_local)
         tag = "feas" if feas else "fail"
-        fname = (f"plan-{rank:03d}-{tag}-cand{cand_idx:05d}"
-                 f"-cov{cov:05.2f}-viol{viol:06.2f}.yml")
+        fname = (
+            f"plan-{rank:03d}-{tag}-cand{cand_idx:05d}"
+            f"-cov{cov:05.2f}-viol{viol:06.2f}.yml"
+        )
         path = args.out_dir / fname
         with open(path, "w") as f:
             yaml.safe_dump(
                 candidate_cfg.model_dump(mode="json"),
-                f, sort_keys=False, default_flow_style=False,
+                f,
+                sort_keys=False,
+                default_flow_style=False,
             )
         summary_lines.append(
             f"| {rank} | {'yes' if feas else 'no'} | {cand_idx} | "

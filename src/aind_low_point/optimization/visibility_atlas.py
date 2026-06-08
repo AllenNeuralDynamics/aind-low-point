@@ -38,7 +38,6 @@ from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.recording import get_recording_geometry
 from aind_low_point.optimization.sdf_jax import arc_angles_to_rotation
 
-
 # ---------------------------------------------------------------------------
 # NumPy helpers (pre-compute / pack)
 # ---------------------------------------------------------------------------
@@ -200,10 +199,17 @@ def _build_check_for_hole(
             # vmap over shanks
             def per_shank(sh):
                 return _shank_in_section_jax(
-                    sh, shaft_dir,
-                    sec["center"], sec["axis"], sec["e1"], sec["e2"],
-                    sec["a"], sec["b"], sec["theta"],
+                    sh,
+                    shaft_dir,
+                    sec["center"],
+                    sec["axis"],
+                    sec["e1"],
+                    sec["e2"],
+                    sec["a"],
+                    sec["b"],
+                    sec["theta"],
                 )
+
             masks = jax.vmap(per_shank)(shanks_world)
             valid = valid & jnp.all(masks)
         return valid, ap_deg, ml_deg
@@ -239,9 +245,7 @@ def build_visibility_atlas(
     probe_tips_local = {
         p.name: np.asarray(p.shank_tips_local, dtype=np.float32) for p in probes
     }
-    probe_target = {
-        p.name: np.asarray(p.target_LPS, dtype=np.float32) for p in probes
-    }
+    probe_target = {p.name: np.asarray(p.target_LPS, dtype=np.float32) for p in probes}
 
     # Spin grid (closure-captured per JIT'd check)
     spins_np = np.linspace(
@@ -251,7 +255,9 @@ def build_visibility_atlas(
 
     t0 = time.perf_counter()
     for h_idx, hole in enumerate(holes):
-        top_pts_np = _sample_top_ellipse_points(hole.sections[0], n_top).astype(np.float32)
+        top_pts_np = _sample_top_ellipse_points(hole.sections[0], n_top).astype(
+            np.float32
+        )
         top_pts_jnp = jnp.asarray(top_pts_np)
         sections_packed = tuple(
             {
@@ -275,8 +281,11 @@ def build_visibility_atlas(
             centroid_local = jnp.asarray(probe_centroid[probe.name], dtype=jnp.float32)
             if tips_local.shape[0] == 0:
                 entries[(probe.name, hole.id)] = AtlasEntry(
-                    probe_name=probe.name, hole_id=hole.id,
-                    ap_min=None, ap_max=None, anchors=()
+                    probe_name=probe.name,
+                    hole_id=hole.id,
+                    ap_min=None,
+                    ap_max=None,
+                    anchors=(),
                 )
                 continue
             valid_grid, ap_grid, ml_grid = check_vmap(
@@ -285,8 +294,11 @@ def build_visibility_atlas(
             valid_np = np.asarray(valid_grid)  # (n_spin, n_top)
             if not valid_np.any():
                 entries[(probe.name, hole.id)] = AtlasEntry(
-                    probe_name=probe.name, hole_id=hole.id,
-                    ap_min=None, ap_max=None, anchors=()
+                    probe_name=probe.name,
+                    hole_id=hole.id,
+                    ap_min=None,
+                    ap_max=None,
+                    anchors=(),
                 )
                 continue
             ap_np = np.asarray(ap_grid)
@@ -301,13 +313,17 @@ def build_visibility_atlas(
                     ap_deg=float(valid_aps[i]),
                     ml_deg=float(valid_mls[i]),
                     spin_deg=float(valid_spins[i]),
-                    off_R_mm=0.0, off_A_mm=0.0, depth_mm=0.0,
-                    threading_max_g=-1.0, target_miss_mm=0.0,
+                    off_R_mm=0.0,
+                    off_A_mm=0.0,
+                    depth_mm=0.0,
+                    threading_max_g=-1.0,
+                    target_miss_mm=0.0,
                 )
                 for i in range(int(valid_np.sum()))
             )
             entries[(probe.name, hole.id)] = AtlasEntry(
-                probe_name=probe.name, hole_id=hole.id,
+                probe_name=probe.name,
+                hole_id=hole.id,
                 ap_min=float(valid_aps.min()),
                 ap_max=float(valid_aps.max()),
                 anchors=anchors,
@@ -315,22 +331,24 @@ def build_visibility_atlas(
 
         if verbose:
             valid_count = sum(
-                1 for pn in probe_names
-                if entries[(pn, hole.id)].ap_min is not None
+                1 for pn in probe_names if entries[(pn, hole.id)].ap_min is not None
             )
-            print(f"  [vis-atlas] hole {hole.id}: {valid_count}/{len(probes)} probes valid "
-                  f"({time.perf_counter() - t0:.2f}s)")
+            print(
+                f"  [vis-atlas] hole {hole.id}: {valid_count}/{len(probes)} probes valid "
+                f"({time.perf_counter() - t0:.2f}s)"
+            )
 
     if verbose:
         print(f"  [vis-atlas] total build: {time.perf_counter() - t0:.2f}s")
         for probe in probes:
             valid_hids = [
-                hid for hid in hole_ids
-                if entries[(probe.name, hid)].ap_min is not None
+                hid for hid in hole_ids if entries[(probe.name, hid)].ap_min is not None
             ]
             n_anchors_total = sum(
                 len(entries[(probe.name, hid)].anchors) for hid in valid_hids
             )
-            print(f"  [vis-atlas] {probe.name:>5}: {len(valid_hids)}/{len(hole_ids)} holes "
-                  f"({n_anchors_total} anchors total)")
+            print(
+                f"  [vis-atlas] {probe.name:>5}: {len(valid_hids)}/{len(hole_ids)} holes "
+                f"({n_anchors_total} anchors total)"
+            )
     return Atlas(entries=entries, probe_names=probe_names, hole_ids=hole_ids)

@@ -41,7 +41,7 @@ from scripts.spin_heuristic_search import (
 
 IDX = 4195
 BEAM_B = 64
-CLUSTER_DEG = 25.0   # round each probe spin to this bin when clustering basins
+CLUSTER_DEG = 25.0  # round each probe spin to this bin when clustering basins
 
 
 def _bin(sp):
@@ -59,15 +59,17 @@ def main() -> int:
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     cand = pool["candidates"][IDX]
     n_arcs = int(pool["results"][IDX].n_arcs)
-    st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                             bvh_cache=bvh, sdf_by_name=sdf_by_name)
+    st = _build_probe_static(
+        probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+    )
     probe_kind = {p.name: p.kind for p in probes}
 
     arc_aps = np.array([float(cand.aa.arc_centroids_deg[a]) for a in range(n_arcs)])
     ml = np.array([float(cand.ml_seed.get(p.name, 0.0)) for p in probes])
     target_LPS = np.array([s.target_LPS for s in st])
-    seed_spins = {i: float(cand.spin_seed.get(p.name, 0.0))
-                  for i, p in enumerate(probes)}
+    seed_spins = {
+        i: float(cand.spin_seed.get(p.name, 0.0)) for i, p in enumerate(probes)
+    }
 
     # --- beam: a SET of spin proposals -------------------------------------
     mesh_by_kind = {
@@ -75,11 +77,14 @@ def main() -> int:
         for k in set(probe_kind.values())
     }
     coupling, _t, _c = build_coupling_graph(
-        st, arc_aps, ml, target_LPS, mesh_by_kind, probe_kind)
+        st, arc_aps, ml, target_LPS, mesh_by_kind, probe_kind
+    )
     cands = per_probe_spin_candidates(
-        st, coupling, target_LPS, arc_aps, ml, probe_kind, seed_spins=seed_spins)
+        st, coupling, target_LPS, arc_aps, ml, probe_kind, seed_spins=seed_spins
+    )
     beam = beam_search_assignments(
-        st, cands, coupling, target_LPS, arc_aps, ml, probe_kind, beam_B=BEAM_B)
+        st, cands, coupling, target_LPS, arc_aps, ml, probe_kind, beam_B=BEAM_B
+    )
     proposals = []
     for a in beam:
         d = dict(a.spins)
@@ -95,17 +100,20 @@ def main() -> int:
     n_prop_basins = len(set(_bin(p) for p in proposals))
     print(f"cand {IDX}  probes={names}")
     print(f"heuristic facing output: {facing_vec.round(0).astype(int).tolist()}")
-    print(f"beam proposals (+facing): {n_prop}  →  {n_prop_basins} distinct "
-          f"pre-restore basins (binned {CLUSTER_DEG:.0f}°)\n")
+    print(
+        f"beam proposals (+facing): {n_prop}  →  {n_prop_basins} distinct "
+        f"pre-restore basins (binned {CLUSTER_DEG:.0f}°)\n"
+    )
 
     # --- batched restore of ALL proposals in one call ----------------------
     pairs = [(cand.ha, cand.aa)] * n_prop
     bs = build_batched_probe_static(
-        pairs, probes, holes, n_arcs=n_arcs, sdf_by_name=sdf_by_name,
-        head_pitch_deg=0.0)
+        pairs, probes, holes, n_arcs=n_arcs, sdf_by_name=sdf_by_name, head_pitch_deg=0.0
+    )
     weights = JointWeights()
     restore = make_batched_spin_restore_partial(
-        bs, weights, n_spins=8, n_rounds=2, fixtures=(well,))
+        bs, weights, n_spins=8, n_rounds=2, fixtures=(well,)
+    )
     obj, _ = make_batched_reduced_objective(bs, weights, (well,))
     varying = obj.extract_arrays(bs)
 
@@ -120,13 +128,16 @@ def main() -> int:
             y0[b, n_arcs + 3 * k + 2] = np.sin(sp)
     y_r = np.asarray(restore(jnp.asarray(y0), *varying))
 
-    restored = np.array([spins_deg_from_reduced(y_r[b], n_arcs, K)
-                         for b in range(n_prop)])
+    restored = np.array(
+        [spins_deg_from_reduced(y_r[b], n_arcs, K) for b in range(n_prop)]
+    )
     basins = Counter(_bin(r) for r in restored)
     fac_key = _bin(restored[fac_idx])
     print(f"facing restored to: {np.round(restored[fac_idx], 0).astype(int).tolist()}")
-    print(f"after restore: {n_prop} proposals → {len(basins)} distinct basins "
-          f"(binned {CLUSTER_DEG:.0f}°)\n")
+    print(
+        f"after restore: {n_prop} proposals → {len(basins)} distinct basins "
+        f"(binned {CLUSTER_DEG:.0f}°)\n"
+    )
     print("  basin (representative restored spins)            count   facing?")
     reps = {}
     for r in restored:

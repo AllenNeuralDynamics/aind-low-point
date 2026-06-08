@@ -93,12 +93,9 @@ def make_batched_spin_restore(
             return obj_fn(y_new, static)  # (B,)
 
         losses = jax.vmap(eval_at_sxy)(spin_xy_grid)  # (n_spins, B)
-        best_idx = jnp.argmin(losses, axis=0)          # (B,)
-        best_sxy = spin_xy_grid[best_idx]              # (B, 2)
-        return (
-            y.at[:, sx_idx].set(best_sxy[:, 0])
-            .at[:, sy_idx].set(best_sxy[:, 1])
-        )
+        best_idx = jnp.argmin(losses, axis=0)  # (B,)
+        best_sxy = spin_xy_grid[best_idx]  # (B, 2)
+        return y.at[:, sx_idx].set(best_sxy[:, 0]).at[:, sy_idx].set(best_sxy[:, 1])
 
     def restore(y):
         for _ in range(n_rounds):
@@ -130,17 +127,15 @@ def make_batched_spin_restore_chunked(
     across all candidates and are closure-captured. The per-candidate
     arrays (arc_idx, section geometry) flow as JIT runtime args.
     """
-    obj_batched, _ = make_batched_reduced_objective(
-        probe_set_static, weights, fixtures
-    )
+    obj_batched, _ = make_batched_reduced_objective(probe_set_static, weights, fixtures)
     obj_jit = obj_batched.from_arrays  # type: ignore[attr-defined]
     n_arcs = probe_set_static.n_arcs
     K = probe_set_static.K
 
     # Patch B: sweep (sx, sy) on the unit circle instead of scalar spin.
-    spin_angles = jnp.linspace(
-        0.0, 2.0 * jnp.pi, n_spins, endpoint=False
-    ).astype(jnp.float32)
+    spin_angles = jnp.linspace(0.0, 2.0 * jnp.pi, n_spins, endpoint=False).astype(
+        jnp.float32
+    )
     spin_xy_grid = jnp.stack(
         [jnp.cos(spin_angles), jnp.sin(spin_angles)], axis=-1
     )  # (n_spins, 2)
@@ -156,10 +151,7 @@ def make_batched_spin_restore_chunked(
         losses = jax.vmap(eval_at_sxy)(spin_xy_grid)
         best_idx = jnp.argmin(losses, axis=0)
         best_sxy = spin_xy_grid[best_idx]
-        return (
-            y.at[:, sx_idx].set(best_sxy[:, 0])
-            .at[:, sy_idx].set(best_sxy[:, 1])
-        )
+        return y.at[:, sx_idx].set(best_sxy[:, 0]).at[:, sy_idx].set(best_sxy[:, 1])
 
     def restore(y, *varying):
         # Nested lax.fori_loop (both rounds AND probes) so the traced graph is
@@ -206,44 +198,55 @@ def make_batched_spin_restore_partial(
     """
     K = static.K
     n_arcs = static.n_arcs
-    target_LPS = static.probe_target_lps[0]                         # (K, 3)
-    pivot_local = static.probe_pivot_local[0]                       # (K, 3)
-    shank_tips = static.probe_shank_tips[0]                         # (K, SH, 3)
-    shank_mask = static.probe_shank_mask[0].astype(jnp.float32)     # (K, SH)
-    kind_np = np.asarray(static.sdf_kind_id[0])                     # (K,) static
-    kind_id = jnp.asarray(kind_np, jnp.int32)                       # (K,) dyn gather
+    target_LPS = static.probe_target_lps[0]  # (K, 3)
+    pivot_local = static.probe_pivot_local[0]  # (K, 3)
+    shank_tips = static.probe_shank_tips[0]  # (K, SH, 3)
+    shank_mask = static.probe_shank_mask[0].astype(jnp.float32)  # (K, SH)
+    kind_np = np.asarray(static.sdf_kind_id[0])  # (K,) static
+    kind_id = jnp.asarray(kind_np, jnp.int32)  # (K,) dyn gather
     sdf_grids = static.sdf_grids
     sdf_origins = static.sdf_origins
     sdf_spacings = static.sdf_spacings
     sdf_surface_points = static.sdf_surface_points
-    obb_cen = static.sdf_shank_centers_padded                      # (Nk, max_Sa, 3)
+    obb_cen = static.sdf_shank_centers_padded  # (Nk, max_Sa, 3)
     obb_hlv = static.sdf_shank_halves_padded
-    obb_msk = static.sdf_shank_obb_mask                            # (Nk, max_Sa)
+    obb_msk = static.sdf_shank_obb_mask  # (Nk, max_Sa)
 
     lt = float(weights.lambda_thread)
     lc = float(weights.lambda_clearance)
-    lf = float(getattr(weights, "lambda_clearance_fixture",
-                       weights.lambda_clearance))
+    lf = float(getattr(weights, "lambda_clearance_fixture", weights.lambda_clearance))
     thr_tol = float(weights.threading_oval_tolerance)
     min_clear = float(weights.min_clearance_mm)
     fixture_data = [
-        (jnp.asarray(fx.grid), jnp.asarray(fx.origin),
-         jnp.asarray(fx.spacing), jnp.asarray(fx.surface)) for fx in fixtures
+        (
+            jnp.asarray(fx.grid),
+            jnp.asarray(fx.origin),
+            jnp.asarray(fx.spacing),
+            jnp.asarray(fx.surface),
+        )
+        for fx in fixtures
     ]
-    spin_angles = jnp.linspace(
-        0.0, 2.0 * jnp.pi, n_spins, endpoint=False).astype(jnp.float32)
+    spin_angles = jnp.linspace(0.0, 2.0 * jnp.pi, n_spins, endpoint=False).astype(
+        jnp.float32
+    )
     spin_xy_grid = jnp.stack(
-        [jnp.cos(spin_angles), jnp.sin(spin_angles)], axis=-1)      # (n_spins, 2)
+        [jnp.cos(spin_angles), jnp.sin(spin_angles)], axis=-1
+    )  # (n_spins, 2)
     idxK = jnp.arange(K)
 
     def _pose_k(y, arc_aps, arc_idx, k):
         off = n_arcs + 3 * k
         spin = spin_deg_from_sxy(y[off + 1], y[off + 2])
         return pose_from_optimizer_vars(
-            target_LPS=target_LPS[k], ap_deg=arc_aps[arc_idx[k]],
-            ml_deg=y[off], spin_deg=spin,
-            offset_R_mm=jnp.float32(0.0), offset_A_mm=jnp.float32(0.0),
-            past_target_mm=jnp.float32(0.0), recording_center_local=pivot_local[k])
+            target_LPS=target_LPS[k],
+            ap_deg=arc_aps[arc_idx[k]],
+            ml_deg=y[off],
+            spin_deg=spin,
+            offset_R_mm=jnp.float32(0.0),
+            offset_A_mm=jnp.float32(0.0),
+            past_target_mm=jnp.float32(0.0),
+            recording_center_local=pivot_local[k],
+        )
 
     def _spin_losses(y, i, arc_idx, sections):
         arc_aps = y[:n_arcs]
@@ -255,10 +258,9 @@ def make_batched_spin_restore_partial(
             ts.append(t)
         Rs = jnp.stack(Rs)
         ts = jnp.stack(ts)
-        surfs = jnp.stack([
-            sdf_surface_points[int(kind_np[k])] @ Rs[k].T + ts[k]
-            for k in range(K)
-        ])                                                  # (K, Nsurf, 3)
+        surfs = jnp.stack(
+            [sdf_surface_points[int(kind_np[k])] @ Rs[k].T + ts[k] for k in range(K)]
+        )  # (K, Nsurf, 3)
         arc_i = arc_aps[arc_idx[i]]
         ml_i = y[n_arcs + 3 * i]
         tgt_i, piv_i = target_LPS[i], pivot_local[i]
@@ -271,12 +273,17 @@ def make_batched_spin_restore_partial(
         def eval_spin(sxy):
             spin_i = spin_deg_from_sxy(sxy[0], sxy[1])
             R_i, t_i = pose_from_optimizer_vars(
-                target_LPS=tgt_i, ap_deg=arc_i, ml_deg=ml_i, spin_deg=spin_i,
-                offset_R_mm=jnp.float32(0.0), offset_A_mm=jnp.float32(0.0),
-                past_target_mm=jnp.float32(0.0), recording_center_local=piv_i)
+                target_LPS=tgt_i,
+                ap_deg=arc_i,
+                ml_deg=ml_i,
+                spin_deg=spin_i,
+                offset_R_mm=jnp.float32(0.0),
+                offset_A_mm=jnp.float32(0.0),
+                past_target_mm=jnp.float32(0.0),
+                recording_center_local=piv_i,
+            )
             surf_i = sdf_surface_points[ki] @ R_i.T + t_i
-            thr = _threading_g_for_probe(
-                R_i, t_i, tips_i, smask_i, *sec_i, thr_tol)
+            thr = _threading_g_for_probe(R_i, t_i, tips_i, smask_i, *sec_i, thr_tol)
 
             def cj(j):
                 R_j, t_j, surf_j = Rs[j], ts[j], surfs[j]
@@ -284,16 +291,51 @@ def make_batched_spin_restore_partial(
                 g_j, o_j, s_j = sdf_grids[kj], sdf_origins[kj], sdf_spacings[kj]
                 oc_j, oh_j, om_j = obb_cen[kj], obb_hlv[kj], obb_msk[kj]
                 sbb = body_body_pair_clearance(
-                    R_i, t_i, R_j, t_j, grid_i, org_i, sp_i, g_j, o_j, s_j,
-                    surf_i, surf_j)[1]
+                    R_i,
+                    t_i,
+                    R_j,
+                    t_j,
+                    grid_i,
+                    org_i,
+                    sp_i,
+                    g_j,
+                    o_j,
+                    s_j,
+                    surf_i,
+                    surf_j,
+                )[1]
                 sbsc = body_shank_corners_pair_clearance(
-                    R_i, t_i, R_j, t_j, grid_i, org_i, sp_i, g_j, o_j, s_j,
-                    oc_i, oh_i, oc_j, oh_j,
-                    shank_mask_a=om_i, shank_mask_b=om_j)[1]
+                    R_i,
+                    t_i,
+                    R_j,
+                    t_j,
+                    grid_i,
+                    org_i,
+                    sp_i,
+                    g_j,
+                    o_j,
+                    s_j,
+                    oc_i,
+                    oh_i,
+                    oc_j,
+                    oh_j,
+                    shank_mask_a=om_i,
+                    shank_mask_b=om_j,
+                )[1]
                 (_h1, sbso), (_h2, sss) = shank_only_pair_clearance(
-                    R_i, t_i, R_j, t_j, surf_i, surf_j,
-                    oc_i, oh_i, oc_j, oh_j,
-                    shank_mask_a=om_i, shank_mask_b=om_j)
+                    R_i,
+                    t_i,
+                    R_j,
+                    t_j,
+                    surf_i,
+                    surf_j,
+                    oc_i,
+                    oh_i,
+                    oc_j,
+                    oh_j,
+                    shank_mask_a=om_i,
+                    shank_mask_b=om_j,
+                )
                 cl = jnp.float32(0.0)
                 for d in (sbb, sbsc, sbso, sss):
                     short = jnp.maximum(0.0, min_clear - d)
@@ -304,27 +346,38 @@ def make_batched_spin_restore_partial(
             fixv = jnp.float32(0.0)
             for fg, fo, fsp, fsurf in fixture_data:
                 fc = dual_rep_fixture_clearance(
-                    R_i, t_i, grid_i, org_i, sp_i, fg, fo, fsp,
-                    surf_i, fsurf, oc_i, oh_i)
+                    R_i,
+                    t_i,
+                    grid_i,
+                    org_i,
+                    sp_i,
+                    fg,
+                    fo,
+                    fsp,
+                    surf_i,
+                    fsurf,
+                    oc_i,
+                    oh_i,
+                )
                 for d in (fc.body[1], fc.obb[1]):
                     short = jnp.maximum(0.0, min_clear - d)
                     fixv = fixv + short * short
             return lt * thr + lc * clall + lf * fixv
 
-        return jax.vmap(eval_spin)(spin_xy_grid)            # (n_spins,)
+        return jax.vmap(eval_spin)(spin_xy_grid)  # (n_spins,)
 
     def _probe_body(y, i, arc_idx, sections):
         losses = _spin_losses(y, i, arc_idx, sections)
         best = spin_xy_grid[jnp.argmin(losses)]
-        return y.at[n_arcs + 3 * i + 1].set(best[0]).at[
-            n_arcs + 3 * i + 2].set(best[1])
+        return y.at[n_arcs + 3 * i + 1].set(best[0]).at[n_arcs + 3 * i + 2].set(best[1])
 
     def restore_one(y, *varying):
         arc_idx, sections = varying[0], varying[1:]
 
         def round_body(_r, yc):
             return jax.lax.fori_loop(
-                0, K, lambda i, yy: _probe_body(yy, i, arc_idx, sections), yc)
+                0, K, lambda i, yy: _probe_body(yy, i, arc_idx, sections), yc
+            )
 
         return jax.lax.fori_loop(0, n_rounds, round_body, y)
 

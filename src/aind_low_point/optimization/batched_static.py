@@ -53,31 +53,31 @@ class BatchedProbeStatic:
     """
 
     # ---- Per-probe geometry ----
-    probe_arc_idx: jnp.ndarray            # (B, K) int32 — which arc (0..n_arcs-1)
-    probe_active_mask: jnp.ndarray        # (B, K) bool
-    probe_target_lps: jnp.ndarray         # (B, K, 3)
-    probe_pivot_local: jnp.ndarray        # (B, K, 3)
-    probe_shank_tips: jnp.ndarray         # (B, K, SH, 3)
-    probe_shank_mask: jnp.ndarray         # (B, K, SH) bool
+    probe_arc_idx: jnp.ndarray  # (B, K) int32 — which arc (0..n_arcs-1)
+    probe_active_mask: jnp.ndarray  # (B, K) bool
+    probe_target_lps: jnp.ndarray  # (B, K, 3)
+    probe_pivot_local: jnp.ndarray  # (B, K, 3)
+    probe_shank_tips: jnp.ndarray  # (B, K, SH, 3)
+    probe_shank_mask: jnp.ndarray  # (B, K, SH) bool
 
     # ---- Per-(probe, section) hole geometry ----
-    section_axes: jnp.ndarray             # (B, K, S, 3)
-    section_e1: jnp.ndarray               # (B, K, S, 3)
-    section_e2: jnp.ndarray               # (B, K, S, 3)
-    section_centers: jnp.ndarray          # (B, K, S, 3)
-    section_cos_theta: jnp.ndarray        # (B, K, S)
-    section_sin_theta: jnp.ndarray        # (B, K, S)
-    section_a: jnp.ndarray                # (B, K, S)
-    section_b: jnp.ndarray                # (B, K, S)
-    section_mask: jnp.ndarray             # (B, K, S) bool
+    section_axes: jnp.ndarray  # (B, K, S, 3)
+    section_e1: jnp.ndarray  # (B, K, S, 3)
+    section_e2: jnp.ndarray  # (B, K, S, 3)
+    section_centers: jnp.ndarray  # (B, K, S, 3)
+    section_cos_theta: jnp.ndarray  # (B, K, S)
+    section_sin_theta: jnp.ndarray  # (B, K, S)
+    section_a: jnp.ndarray  # (B, K, S)
+    section_b: jnp.ndarray  # (B, K, S)
+    section_mask: jnp.ndarray  # (B, K, S) bool
 
     # ---- SDF: indirect via kind table ----
-    sdf_kind_id: jnp.ndarray              # (B, K) int32, -1 if no SDF
-    sdf_grids: jnp.ndarray                # (N_kinds, GX, GY, GZ) float32
-    sdf_grid_shapes: jnp.ndarray          # (N_kinds, 3) int32 — actual (Gx,Gy,Gz)
-    sdf_origins: jnp.ndarray              # (N_kinds, 3)
-    sdf_spacings: jnp.ndarray             # (N_kinds,)
-    sdf_surface_points: jnp.ndarray       # (N_kinds, N_surf, 3)
+    sdf_kind_id: jnp.ndarray  # (B, K) int32, -1 if no SDF
+    sdf_grids: jnp.ndarray  # (N_kinds, GX, GY, GZ) float32
+    sdf_grid_shapes: jnp.ndarray  # (N_kinds, 3) int32 — actual (Gx,Gy,Gz)
+    sdf_origins: jnp.ndarray  # (N_kinds, 3)
+    sdf_spacings: jnp.ndarray  # (N_kinds,)
+    sdf_surface_points: jnp.ndarray  # (N_kinds, N_surf, 3)
     # Per-kind analytic shank OBB tables for dual-rep clearance.
     # Shape varies per kind (Sa_k), so kept as Python tuples and
     # looked up by Python-static kind_id at trace time.
@@ -86,13 +86,13 @@ class BatchedProbeStatic:
     # Uniform padded mirror of the OBB tables (max_Sa across kinds) + validity
     # mask, so a DYNAMIC kind index can gather them (the tuples need static
     # kind_id). Padded rows are masked out in the clearance soft-min.
-    sdf_shank_centers_padded: jnp.ndarray   # (N_kinds, max_Sa, 3)
-    sdf_shank_halves_padded: jnp.ndarray    # (N_kinds, max_Sa, 3)
-    sdf_shank_obb_mask: jnp.ndarray         # (N_kinds, max_Sa) 0/1
+    sdf_shank_centers_padded: jnp.ndarray  # (N_kinds, max_Sa, 3)
+    sdf_shank_halves_padded: jnp.ndarray  # (N_kinds, max_Sa, 3)
+    sdf_shank_obb_mask: jnp.ndarray  # (N_kinds, max_Sa) 0/1
 
     # ---- Optimization bounds (per candidate) ----
-    bounds_lo: jnp.ndarray                # (B, n_arcs + 3*K) — (ml, sx, sy)
-    bounds_hi: jnp.ndarray                # (B, n_arcs + 3*K)
+    bounds_lo: jnp.ndarray  # (B, n_arcs + 3*K) — (ml, sx, sy)
+    bounds_hi: jnp.ndarray  # (B, n_arcs + 3*K)
 
     # ---- Static dims ----
     K: int
@@ -112,7 +112,7 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
     if sdf_by_name is None:
         return None, {}
 
-    seen: dict[int, int] = {}        # id(ProbeSDF) -> kind_id
+    seen: dict[int, int] = {}  # id(ProbeSDF) -> kind_id
     name_to_kind: dict[str, int] = {}
     kind_sdfs: list = []
     for p in probes:
@@ -129,9 +129,7 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
         return None, {}
 
     # Pad SDF grids to a common shape (max over all kinds)
-    max_shape = tuple(
-        max(int(s.grid.shape[d]) for s in kind_sdfs) for d in range(3)
-    )
+    max_shape = tuple(max(int(s.grid.shape[d]) for s in kind_sdfs) for d in range(3))
     max_surf = max(int(s.surface_points.shape[0]) for s in kind_sdfs)
 
     grids = np.zeros((len(kind_sdfs), *max_shape), dtype=np.float32)
@@ -150,12 +148,8 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
         spacings[kid] = float(sdf.spacing)
         n_surf = sdf.surface_points.shape[0]
         surfs[kid, :n_surf] = sdf.surface_points.astype(np.float32)
-        shank_centers.append(
-            jnp.asarray(sdf.shank_centers, dtype=jnp.float32)
-        )
-        shank_halves.append(
-            jnp.asarray(sdf.shank_halves, dtype=jnp.float32)
-        )
+        shank_centers.append(jnp.asarray(sdf.shank_centers, dtype=jnp.float32))
+        shank_halves.append(jnp.asarray(sdf.shank_halves, dtype=jnp.float32))
 
     table = dict(
         grids=jnp.asarray(grids),
@@ -236,9 +230,7 @@ def build_batched_probe_static(
                 dtype=np.float32,
             )
         else:
-            pivot = np.array(
-                [0.0, 0.0, float(geom.active_center_mm)], dtype=np.float32
-            )
+            pivot = np.array([0.0, 0.0, float(geom.active_center_mm)], dtype=np.float32)
         probe_target[i] = np.asarray(p.target_LPS, dtype=np.float32)
         probe_pivot[i] = pivot
         nsh = min(tips.shape[0], SH)
@@ -264,7 +256,7 @@ def build_batched_probe_static(
 
     sdf_kind_id_np = -np.ones((B, K), dtype=np.int32)
 
-    n_vars = n_arcs + 3 * K   # (ml, sx, sy) per probe under Patch B
+    n_vars = n_arcs + 3 * K  # (ml, sx, sy) per probe under Patch B
     bounds_lo = np.zeros((B, n_vars), dtype=np.float32)
     bounds_hi = np.zeros((B, n_vars), dtype=np.float32)
     ap_lo, ap_hi = _ap_bounds_deg(head_pitch_deg)
@@ -315,18 +307,10 @@ def build_batched_probe_static(
                 sdf_kind_id_np[b, i] = name_to_kind[p.name]
 
     # Broadcast per-probe-only fields to (B, K, ...)
-    probe_target_lps = np.broadcast_to(
-        probe_target[None], (B, K, 3)
-    ).copy()
-    probe_pivot_local = np.broadcast_to(
-        probe_pivot[None], (B, K, 3)
-    ).copy()
-    probe_shank_tips = np.broadcast_to(
-        probe_tips_padded[None], (B, K, SH, 3)
-    ).copy()
-    probe_shank_mask = np.broadcast_to(
-        probe_shank_mask_per_k[None], (B, K, SH)
-    ).copy()
+    probe_target_lps = np.broadcast_to(probe_target[None], (B, K, 3)).copy()
+    probe_pivot_local = np.broadcast_to(probe_pivot[None], (B, K, 3)).copy()
+    probe_shank_tips = np.broadcast_to(probe_tips_padded[None], (B, K, SH, 3)).copy()
+    probe_shank_mask = np.broadcast_to(probe_shank_mask_per_k[None], (B, K, SH)).copy()
 
     # SDF table (placeholders if no SDFs)
     if sdf_table is None:
@@ -352,14 +336,20 @@ def build_batched_probe_static(
     # dynamic-kind-index gather. Halves padded to 1.0 (a valid box; masked out
     # anyway), centers to 0.0. Built from the ragged tuples so it can't drift.
     if sdf_shank_centers_table:
-        max_sa = max((int(np.asarray(c).shape[0])
-                      for c in sdf_shank_centers_table), default=0) or 1
+        max_sa = (
+            max(
+                (int(np.asarray(c).shape[0]) for c in sdf_shank_centers_table),
+                default=0,
+            )
+            or 1
+        )
         nk = len(sdf_shank_centers_table)
         cen_np = np.zeros((nk, max_sa, 3), dtype=np.float32)
         hlv_np = np.ones((nk, max_sa, 3), dtype=np.float32)
         obbm_np = np.zeros((nk, max_sa), dtype=np.float32)
         for k, (c, h) in enumerate(
-                zip(sdf_shank_centers_table, sdf_shank_halves_table)):
+            zip(sdf_shank_centers_table, sdf_shank_halves_table)
+        ):
             s = int(np.asarray(c).shape[0])
             if s:
                 cen_np[k, :s] = np.asarray(c)

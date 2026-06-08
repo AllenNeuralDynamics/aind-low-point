@@ -34,8 +34,7 @@ from numpy.typing import NDArray
 # per-process). With the disk cache, the first worker to compile a given
 # signature writes it; subsequent workers (and re-runs) load in <1s.
 # Override path via the ``AIND_JAX_CACHE_DIR`` env var.
-_JAX_CACHE_DIR = os.environ.get("AIND_JAX_CACHE_DIR",
-                                 "/tmp/aind_low_point_jax_cache")
+_JAX_CACHE_DIR = os.environ.get("AIND_JAX_CACHE_DIR", "/tmp/aind_low_point_jax_cache")
 try:
     os.makedirs(_JAX_CACHE_DIR, exist_ok=True)
     jax.config.update("jax_compilation_cache_dir", _JAX_CACHE_DIR)
@@ -187,9 +186,15 @@ def threading_g_matrix(
 def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
     """Construct the JIT'd objective + grad for one signature."""
     (
-        n_probes, n_arcs, max_shanks, max_sections,
-        has_sdf, per_probe_sdf_shapes, per_probe_shank_counts,
-        n_surf, _w_key,
+        n_probes,
+        n_arcs,
+        max_shanks,
+        max_sections,
+        has_sdf,
+        per_probe_sdf_shapes,
+        per_probe_shank_counts,
+        n_surf,
+        _w_key,
     ) = signature
     sdf_pair_list: list[tuple[int, int]] = []
     if has_sdf:
@@ -221,16 +226,33 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
     ).reshape(-1, 2)
 
     def _threading_g_one(
-        R, pose_tip,
-        tips_local, shank_mask,
-        s_axes, s_centers, s_e1, s_e2,
-        s_cos, s_sin, s_a, s_b, section_mask,
+        R,
+        pose_tip,
+        tips_local,
+        shank_mask,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        section_mask,
     ):
         """Mask-weighted threading penalty for one probe (scalar)."""
         g = threading_g_matrix(
-            R, pose_tip, tips_local,
-            s_axes, s_centers, s_e1, s_e2,
-            s_cos, s_sin, s_a, s_b,
+            R,
+            pose_tip,
+            tips_local,
+            s_axes,
+            s_centers,
+            s_e1,
+            s_e2,
+            s_cos,
+            s_sin,
+            s_a,
+            s_b,
         )
         # Zero out padded entries (s_a/s_b=1, masks=0) — also handles
         # the ``+inf`` returned for shaft-parallel-to-section.
@@ -243,16 +265,30 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
 
     def _objective(
         y,
-        target_LPS, pivot_local, arc_idx,
-        tips_local, shank_mask,
-        s_axes, s_centers, s_e1, s_e2,
-        s_cos, s_sin, s_a, s_b, section_mask,
+        target_LPS,
+        pivot_local,
+        arc_idx,
+        tips_local,
+        shank_mask,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        section_mask,
         same_arc_mask,
         # SDF: tuples-of-arrays so each probe can have its own grid shape.
         # When has_sdf=False these are empty tuples; the pair loop is also
         # empty so they aren't referenced.
-        sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces,
-        shank_obb_centers, shank_obb_halves,
+        sdf_grids,
+        sdf_origins,
+        sdf_spacings,
+        sdf_surfaces,
+        shank_obb_centers,
+        shank_obb_halves,
     ):
         arc_aps = y[:n_arcs]
 
@@ -272,7 +308,9 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
             ap = arc_aps[arc_idx[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
-                ap_deg=ap, ml_deg=ml, spin_deg=spin,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
                 offset_R_mm=jnp.float32(0.0),
                 offset_A_mm=jnp.float32(0.0),
                 past_target_mm=jnp.float32(0.0),
@@ -281,19 +319,26 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
             Rs.append(R)
             ts.append(t)
             j_thread = j_thread + _threading_g_one(
-                R, t,
-                tips_local[i], shank_mask[i],
-                s_axes[i], s_centers[i], s_e1[i], s_e2[i],
-                s_cos[i], s_sin[i], s_a[i], s_b[i], section_mask[i],
+                R,
+                t,
+                tips_local[i],
+                shank_mask[i],
+                s_axes[i],
+                s_centers[i],
+                s_e1[i],
+                s_e2[i],
+                s_cos[i],
+                s_sin[i],
+                s_a[i],
+                s_b[i],
+                section_mask[i],
             )
 
         # AP separation across arc pairs. ``smooth_abs`` keeps the
         # gradient continuous as ap_i, ap_j pass through equality (vs
         # jnp.abs which flips sign at zero).
         if arc_pairs.shape[0] > 0:
-            ap_diffs = smooth_abs(
-                arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
-            )
+            ap_diffs = smooth_abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
             short_ap = jnp.maximum(0.0, min_arc_ap_sep - ap_diffs)
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
@@ -325,7 +370,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # leaves it duplicated across iterations — HLO dump 2026-05-23).
         world_surfaces = [
             sdf_surfaces[i] @ Rs[i].T + ts[i]
-            if per_probe_sdf_shapes[i] is not None else None
+            if per_probe_sdf_shapes[i] is not None
+            else None
             for i in range(n_probes)
         ]
 
@@ -340,16 +386,28 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
             pc = dual_rep_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
+                Rs[ia],
+                ts[ia],
+                Rs[ib],
+                ts[ib],
+                sdf_grids[ia],
+                sdf_origins[ia],
+                sdf_spacings[ia],
+                sdf_grids[ib],
+                sdf_origins[ib],
+                sdf_spacings[ib],
+                world_surfaces[ia],
+                world_surfaces[ib],
+                shank_obb_centers[ia],
+                shank_obb_halves[ia],
+                shank_obb_centers[ib],
+                shank_obb_halves[ib],
             )
             softs = (
-                pc.body_body[1], pc.body_shank_corners[1],
-                pc.body_shank_obb[1], pc.shank_shank[1],
+                pc.body_body[1],
+                pc.body_shank_corners[1],
+                pc.body_shank_obb[1],
+                pc.shank_shank[1],
             )
             for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
                 short = jnp.maximum(0.0, min_clearance - d_soft) * gain
@@ -360,8 +418,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # benefits from a consistent unit magnitude across stages.
         # Stride-3 slice of y after arc_aps gives the (ml, sx, sy)
         # per-probe block; sx at offset+1, sy at offset+2.
-        sx_arr = y[n_arcs + 1::3][:n_probes]
-        sy_arr = y[n_arcs + 2::3][:n_probes]
+        sx_arr = y[n_arcs + 1 :: 3][:n_probes]
+        sy_arr = y[n_arcs + 2 :: 3][:n_probes]
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (
@@ -379,8 +437,13 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
 
 
 def _pack_statics(
-    statics, n_arcs: int, max_shanks: int, max_sections: int,
-    has_sdf: bool, sdf_grid_shape, n_surf: int,
+    statics,
+    n_arcs: int,
+    max_shanks: int,
+    max_sections: int,
+    has_sdf: bool,
+    sdf_grid_shape,
+    n_surf: int,
 ) -> dict:
     """Pack per-candidate static data into padded jnp tensors."""
     P = len(statics)
@@ -462,14 +525,16 @@ def _pack_statics(
             sdf_spacings.append(jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32))
             sdf_surfaces.append(jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32))
             shank_centers_tuple.append(
-                jnp.asarray(s.sdf_data.get("shank_centers",
-                                            np.zeros((0, 3), dtype=np.float32)),
-                            dtype=jnp.float32)
+                jnp.asarray(
+                    s.sdf_data.get("shank_centers", np.zeros((0, 3), dtype=np.float32)),
+                    dtype=jnp.float32,
+                )
             )
             shank_halves_tuple.append(
-                jnp.asarray(s.sdf_data.get("shank_halves",
-                                            np.zeros((0, 3), dtype=np.float32)),
-                            dtype=jnp.float32)
+                jnp.asarray(
+                    s.sdf_data.get("shank_halves", np.zeros((0, 3), dtype=np.float32)),
+                    dtype=jnp.float32,
+                )
             )
         else:
             sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
@@ -488,7 +553,9 @@ def _pack_statics(
 
 
 def make_jax_reduced_objective(
-    statics, n_arcs: int, weights,
+    statics,
+    n_arcs: int,
+    weights,
 ) -> tuple[Callable[[NDArray], float], Callable[[NDArray], NDArray]]:
     """Build ``(fun, jac)`` scipy callables backed by the module-level
     JIT cache. Compile once per (probe-set, weights, shape) signature;
@@ -502,9 +569,13 @@ def make_jax_reduced_objective(
     jit_obj, jit_grad = _JIT_CACHE[sig]
 
     packed = _pack_statics(
-        statics, n_arcs,
-        MAX_SHANKS_PAD, MAX_SECTIONS_PAD,
-        has_sdf=sig[4], sdf_grid_shape=sig[5], n_surf=sig[7],
+        statics,
+        n_arcs,
+        MAX_SHANKS_PAD,
+        MAX_SECTIONS_PAD,
+        has_sdf=sig[4],
+        sdf_grid_shape=sig[5],
+        n_surf=sig[7],
     )
 
     def fun(y: NDArray) -> float:

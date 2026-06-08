@@ -59,9 +59,7 @@ def _signature(ctx) -> tuple:
     counts are folded into masks at pack time so the JIT signature
     only depends on pad sizes."""
     arc_ids = tuple(ctx.layout.arc_ids)
-    probe_arcs = tuple(
-        ctx.layout.arc_ids.index(p.arc_id) for p in ctx.probes
-    )
+    probe_arcs = tuple(ctx.layout.arc_ids.index(p.arc_id) for p in ctx.probes)
     return (
         len(ctx.probes),
         len(arc_ids),
@@ -88,8 +86,14 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
         ``x[n_arcs + 5i + 4]`` depth_i (past_target_mm)
     """
     (
-        n_probes, n_arcs, max_shanks, max_sections,
-        probe_arcs, threading_tol, min_arc_ap_sep, min_intra_ml_sep,
+        n_probes,
+        n_arcs,
+        max_shanks,
+        max_sections,
+        probe_arcs,
+        threading_tol,
+        min_arc_ap_sep,
+        min_intra_ml_sep,
         shaft_length_mm,
     ) = sig
     probe_arc_idx_static = np.asarray(probe_arcs, dtype=np.int32)
@@ -122,8 +126,11 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
             ap = arc_aps[probe_arc_idx_static[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
-                ap_deg=ap, ml_deg=ml, spin_deg=spin,
-                offset_R_mm=off_R, offset_A_mm=off_A,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=off_R,
+                offset_A_mm=off_A,
                 past_target_mm=depth,
                 recording_center_local=pivot_local[i],
             )
@@ -133,10 +140,19 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
 
     def _threading_slack(
         x,
-        target_LPS, pivot_local,
-        tips_local, shank_mask,
-        s_axes, s_centers, s_e1, s_e2,
-        s_cos, s_sin, s_a, s_b, section_mask,
+        target_LPS,
+        pivot_local,
+        tips_local,
+        shank_mask,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        section_mask,
     ):
         """Per-(probe, section, shank) slack: ``tol - g``. ``>= 0`` ⇒
         inside the oval (feasible). Padded entries get a fixed
@@ -145,10 +161,17 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
         out = []
         for i in range(n_probes):
             g = threading_g_matrix(
-                Rs[i], ts[i],
+                Rs[i],
+                ts[i],
                 tips_local[i],
-                s_axes[i], s_centers[i], s_e1[i], s_e2[i],
-                s_cos[i], s_sin[i], s_a[i], s_b[i],
+                s_axes[i],
+                s_centers[i],
+                s_e1[i],
+                s_e2[i],
+                s_cos[i],
+                s_sin[i],
+                s_a[i],
+                s_b[i],
                 shaft_length_mm=shaft_length_mm,
             )
             # Convert g to slack (tol - g >= 0 is feasible). Padded
@@ -166,9 +189,7 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
         arc_aps = x[:n_arcs]
         if arc_pairs.shape[0] == 0:
             return jnp.zeros(0, dtype=x.dtype)
-        diffs = smooth_abs(
-            arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
-        )
+        diffs = smooth_abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
         return diffs - min_arc_ap_sep
 
     def _intra_ml_sep_slack(x):
@@ -182,7 +203,10 @@ def _build_jit(sig: tuple) -> dict[str, tuple[Callable, Callable]]:
 
     return {
         "threading": (jax.jit(_threading_slack), jax.jit(jax.jacrev(_threading_slack))),
-        "arc_ap_separation": (jax.jit(_arc_ap_sep_slack), jax.jit(jax.jacrev(_arc_ap_sep_slack))),
+        "arc_ap_separation": (
+            jax.jit(_arc_ap_sep_slack),
+            jax.jit(jax.jacrev(_arc_ap_sep_slack)),
+        ),
         "intra_arc_ml_separation": (
             jax.jit(_intra_ml_sep_slack),
             jax.jit(jax.jacrev(_intra_ml_sep_slack)),
@@ -278,12 +302,19 @@ def make_stage3_constraints(ctx) -> dict[str, dict]:
     jits = _JIT_CACHE[sig]
     packed = _pack_static(ctx)
     threading_args = (
-        packed["target_LPS"], packed["pivot_local"],
-        packed["tips_local"], packed["shank_mask"],
-        packed["s_axes"], packed["s_centers"],
-        packed["s_e1"], packed["s_e2"],
-        packed["s_cos"], packed["s_sin"],
-        packed["s_a"], packed["s_b"], packed["section_mask"],
+        packed["target_LPS"],
+        packed["pivot_local"],
+        packed["tips_local"],
+        packed["shank_mask"],
+        packed["s_axes"],
+        packed["s_centers"],
+        packed["s_e1"],
+        packed["s_e2"],
+        packed["s_cos"],
+        packed["s_sin"],
+        packed["s_a"],
+        packed["s_b"],
+        packed["section_mask"],
     )
 
     th_fn, th_jac = jits["threading"]

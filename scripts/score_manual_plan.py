@@ -25,9 +25,8 @@ into the config is scored.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
-
 import sys
+from pathlib import Path
 
 import numpy as np
 import yaml
@@ -35,11 +34,16 @@ import yaml
 # Make sibling scripts importable when running this file directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aind_low_point.config import ConfigModel, PlanningModel  # noqa: E402
-from aind_low_point.optimization.arc_assignment import ArcAssignment  # noqa: E402
-from aind_low_point.optimization.hole_assignment import HoleAssignment  # noqa: E402
-from aind_low_point.optimization.holes import load_holes  # noqa: E402
-from aind_low_point.optimization.objective import (  # noqa: E402
+from aind_low_point.config import ConfigModel, PlanningModel
+from aind_low_point.optimization.arc_assignment import ArcAssignment
+from aind_low_point.optimization.density import gaussian_density
+from aind_low_point.optimization.hole_assignment import HoleAssignment
+from aind_low_point.optimization.holes import load_holes
+from aind_low_point.optimization.kinematics import (
+    pose_from_optimizer_vars,
+    shank_capsules_from_pose,
+)
+from aind_low_point.optimization.objective import (
     OptimizerContext,
     ProbeContext,
     VariableLayout,
@@ -48,25 +52,20 @@ from aind_low_point.optimization.objective import (  # noqa: E402
     feasibility_violation_squared,
     shaft_section_oval_value,
 )
-from aind_low_point.optimization.optimize import (  # noqa: E402
+from aind_low_point.optimization.optimize import (
     _build_plan_candidate as build_plan_candidate,
 )
-from aind_low_point.optimization.density import gaussian_density  # noqa: E402
-from aind_low_point.optimization.kinematics import (  # noqa: E402
-    pose_from_optimizer_vars,
-    shank_capsules_from_pose,
-)
-from aind_low_point.optimization.recording import (  # noqa: E402
+from aind_low_point.optimization.recording import (
     RECORDING_GEOMETRY,
     RecordingGeometry,
     get_recording_geometry,
     recording_center_local_for_kind,
 )
-from aind_low_point.runtime import build_runtime_from_config  # noqa: E402
-from aind_low_point.runtime.export import apply_plan_model_to_state  # noqa: E402
-from aind_low_point.runtime.transforms import compile_all_transforms  # noqa: E402
-from aind_low_point.state_change import PlanStore  # noqa: E402
-from scripts.run_optimizer import _transform_holes, _probe_static_info  # noqa: E402
+from aind_low_point.runtime import build_runtime_from_config
+from aind_low_point.runtime.export import apply_plan_model_to_state
+from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_low_point.state_change import PlanStore
+from scripts.run_optimizer import _probe_static_info, _transform_holes
 
 
 def _best_fit_hole_id(
@@ -130,9 +129,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path, help="Path to input config YAML")
     p.add_argument("holes", type=Path, help="Path to holes YAML")
-    p.add_argument(
-        "--plan", type=Path, default=None, help="Optional sidecar plan YAML"
-    )
+    p.add_argument("--plan", type=Path, default=None, help="Optional sidecar plan YAML")
     p.add_argument(
         "--threading-oval-tolerance",
         type=float,
@@ -326,7 +323,7 @@ def main():
     probe_contexts: list[ProbeContext] = []
     probe_to_arc_idx: dict[str, int] = {}
     headstage_objs: list[object] = []  # fcl.CollisionObject | None
-    from aind_low_point.optimization.headstages import (  # noqa: E402
+    from aind_low_point.optimization.headstages import (
         make_fcl_bvh,
         make_fcl_convex,
     )
@@ -407,6 +404,7 @@ def main():
     )
 
     import itertools as _it
+
     print("\nPer-pair clearance (signed mm, negative = penetration):")
     pair_idx = list(_it.combinations(range(len(probe_names)), 2))
     for (i, j), c in zip(pair_idx, np.asarray(cv.clearance, dtype=np.float64)):

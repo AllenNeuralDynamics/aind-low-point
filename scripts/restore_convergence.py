@@ -46,23 +46,34 @@ def main() -> int:
     print(f"cand {IDX}  probes={names}\n")
     print(f"{'round':>5}  {'spins (deg)':<46}  max|Δ vs prev|")
     prev = None
-    seed = None   # round 1 from the atlas seed
+    seed = None  # round 1 from the atlas seed
     for rnd in range(1, MAX_ROUNDS + 1):
-        y = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                        with_well=True, n_rounds=1, seed_spins_deg=seed)
+        y = run_restore(
+            cand,
+            probes,
+            holes,
+            sdf_by_name,
+            n_arcs,
+            well,
+            with_well=True,
+            n_rounds=1,
+            seed_spins_deg=seed,
+        )
         sp = spins_deg_from_reduced(y, n_arcs, K)
         if prev is None:
             dmax = "--"
         else:
             dm = float(np.abs(_wrap(sp - prev)).max())
             dmax = f"{dm:.1f}°"
-        print(f"{rnd:>5}  {str(np.round(sp, 0).astype(int).tolist()):<46}  {dmax}",
-              flush=True)
+        print(
+            f"{rnd:>5}  {str(np.round(sp, 0).astype(int).tolist()):<46}  {dmax}",
+            flush=True,
+        )
         if prev is not None and float(np.abs(_wrap(sp - prev)).max()) < 0.5:
             print(f"\nconverged at round {rnd} (no probe moved ≥0.5°)")
             break
         prev = sp
-        seed = sp        # feed back as the next round's seed
+        seed = sp  # feed back as the next round's seed
     return 0
 
 

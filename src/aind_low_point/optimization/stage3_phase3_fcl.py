@@ -37,7 +37,6 @@ representation matches the raw mesh.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 import fcl
 import numpy as np
@@ -48,7 +47,6 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
     FixtureSDFData,
 )
-
 
 # ---------------------------------------------------------------------------
 # Module-level FCL request objects (cheap to share)
@@ -70,8 +68,12 @@ FCL_COLLISION_SENTINEL_MM = -1.0
 
 
 def _signed_clearance_fcl(
-    bvh_a: fcl.CollisionObject, bvh_b: fcl.CollisionObject,
-    R_a: NDArray, t_a: NDArray, R_b: NDArray, t_b: NDArray,
+    bvh_a: fcl.CollisionObject,
+    bvh_b: fcl.CollisionObject,
+    R_a: NDArray,
+    t_a: NDArray,
+    R_b: NDArray,
+    t_b: NDArray,
     sentinel: float,
 ) -> float:
     """Signed clearance between two FCL BVH meshes at given world poses.
@@ -80,14 +82,18 @@ def _signed_clearance_fcl(
     collision detected (``fcl.collide`` non-empty); we don't trust the
     penetration depth on thin BVH meshes, so we flag the pair.
     """
-    bvh_a.setTransform(fcl.Transform(
-        np.ascontiguousarray(R_a, dtype=np.float64),
-        np.ascontiguousarray(t_a, dtype=np.float64),
-    ))
-    bvh_b.setTransform(fcl.Transform(
-        np.ascontiguousarray(R_b, dtype=np.float64),
-        np.ascontiguousarray(t_b, dtype=np.float64),
-    ))
+    bvh_a.setTransform(
+        fcl.Transform(
+            np.ascontiguousarray(R_a, dtype=np.float64),
+            np.ascontiguousarray(t_a, dtype=np.float64),
+        )
+    )
+    bvh_b.setTransform(
+        fcl.Transform(
+            np.ascontiguousarray(R_b, dtype=np.float64),
+            np.ascontiguousarray(t_b, dtype=np.float64),
+        )
+    )
     dr = fcl.DistanceResult()
     fcl.distance(bvh_a, bvh_b, _FCL_DISTANCE_REQUEST, dr)
     d = float(dr.min_distance)
@@ -99,17 +105,22 @@ def _signed_clearance_fcl(
 
 
 def _signed_clearance_fcl_fixed_b(
-    bvh_a: fcl.CollisionObject, bvh_b_world: fcl.CollisionObject,
-    R_a: NDArray, t_a: NDArray, sentinel: float,
+    bvh_a: fcl.CollisionObject,
+    bvh_b_world: fcl.CollisionObject,
+    R_a: NDArray,
+    t_a: NDArray,
+    sentinel: float,
 ) -> float:
     """Same as :func:`_signed_clearance_fcl` but ``bvh_b_world`` is
     pre-transformed (e.g. a static fixture). Avoids a redundant
     ``setTransform`` on the static side.
     """
-    bvh_a.setTransform(fcl.Transform(
-        np.ascontiguousarray(R_a, dtype=np.float64),
-        np.ascontiguousarray(t_a, dtype=np.float64),
-    ))
+    bvh_a.setTransform(
+        fcl.Transform(
+            np.ascontiguousarray(R_a, dtype=np.float64),
+            np.ascontiguousarray(t_a, dtype=np.float64),
+        )
+    )
     dr = fcl.DistanceResult()
     fcl.distance(bvh_a, bvh_b_world, _FCL_DISTANCE_REQUEST, dr)
     d = float(dr.min_distance)
@@ -126,7 +137,9 @@ def _signed_clearance_fcl_fixed_b(
 
 
 def _poses_from_x(
-    x: NDArray, statics: list, n_arcs: int,
+    x: NDArray,
+    statics: list,
+    n_arcs: int,
 ) -> tuple[list[NDArray], list[NDArray]]:
     """World poses ``(Rs, ts)`` per probe from the Phase 1/2 ``x``
     layout ``(arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)``.
@@ -145,8 +158,13 @@ def _poses_from_x(
         spin_deg = float(np.degrees(np.arctan2(sy, sx)))
         ap = float(arc_aps[st.arc_idx])
         R, t = pose_from_optimizer_vars(
-            target_LPS=st.target_LPS, ap_deg=ap, ml_deg=ml, spin_deg=spin_deg,
-            offset_R_mm=off_R, offset_A_mm=off_A, past_target_mm=depth,
+            target_LPS=st.target_LPS,
+            ap_deg=ap,
+            ml_deg=ml,
+            spin_deg=spin_deg,
+            offset_R_mm=off_R,
+            offset_A_mm=off_A,
+            past_target_mm=depth,
             recording_center_local=st.pivot_local,
         )
         Rs.append(np.asarray(R, dtype=np.float64))
@@ -189,17 +207,31 @@ class FCLValidator:
             if ba is None or bb is None:
                 out.append(float("inf"))
                 continue
-            out.append(_signed_clearance_fcl(
-                ba, bb, Rs[ia], ts[ia], Rs[ib], ts[ib], self.sentinel,
-            ))
+            out.append(
+                _signed_clearance_fcl(
+                    ba,
+                    bb,
+                    Rs[ia],
+                    ts[ia],
+                    Rs[ib],
+                    ts[ib],
+                    self.sentinel,
+                )
+            )
         for fx_idx, bvh in self.fixture_bvh_list:
             for i, st in enumerate(self.statics):
                 ba = self.bvhs_by_idx[i]
                 if ba is None:
                     continue
-                out.append(_signed_clearance_fcl_fixed_b(
-                    ba, bvh, Rs[i], ts[i], self.sentinel,
-                ))
+                out.append(
+                    _signed_clearance_fcl_fixed_b(
+                        ba,
+                        bvh,
+                        Rs[i],
+                        ts[i],
+                        self.sentinel,
+                    )
+                )
         return np.asarray(out, dtype=np.float64)
 
     def is_feasible(self, x: NDArray, *, margin: float = 0.0) -> bool:

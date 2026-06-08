@@ -32,9 +32,9 @@ from aind_low_point.optimization.stage3_phase1_jax import PHASE1_PER_PROBE_VARS
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config, save_plan_to_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.save_chain_plans import _apply_x_to_plan_state
 from scripts.run_optimizer import _probe_static_info, _transform_holes
 from scripts.run_phase1_sample import build_coverage_data, build_fixture_sdf_data
+from scripts.save_chain_plans import _apply_x_to_plan_state
 from scripts.spin_heuristic_search import (
     beam_search_assignments,
     build_coupling_graph,
@@ -42,7 +42,9 @@ from scripts.spin_heuristic_search import (
     per_probe_spin_candidates,
 )
 from scripts.test_h1_chain_cand4195 import (
-    build_y, extract_spins, run_chain,
+    build_y,
+    extract_spins,
+    run_chain,
 )
 
 
@@ -81,37 +83,42 @@ def main() -> int:
     cand = data["candidates"][cand_idx]
     jc = data["results"][cand_idx]
     statics = _build_probe_static(
-        probes, holes, cand.ha, cand.aa,
-        bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+        probes,
+        holes,
+        cand.ha,
+        cand.aa,
+        bvh_cache=bvh_cache,
+        sdf_by_name=sdf_by_name,
     )
     n_arcs = jc.n_arcs
     n_probes = len(statics)
     coverage_data = build_coverage_data(probes, statics)
     validator = make_fcl_validator(
-        statics, n_arcs, fixtures=fixtures, fixture_bvhs=fixture_bvhs,
+        statics,
+        n_arcs,
+        fixtures=fixtures,
+        fixture_bvhs=fixture_bvhs,
     )
     probe_kind_by_name = {p.name: p.kind for p in probes}
 
     # Pull arc APs, ml, offsets, depth from the augmented warm-start
     x_aug = np.asarray(
-        data["augmented_phase1_x"][cand_idx], dtype=np.float64,
+        data["augmented_phase1_x"][cand_idx],
+        dtype=np.float64,
     )
     arc_aps = x_aug[:n_arcs]
-    mls_aug = np.array([
-        x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)
-    ])
-    offR_aug = np.array([
-        x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 3]
-        for i in range(n_probes)
-    ])
-    offA_aug = np.array([
-        x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 4]
-        for i in range(n_probes)
-    ])
-    dep_aug = np.array([
-        x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 5]
-        for i in range(n_probes)
-    ])
+    mls_aug = np.array(
+        [x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
+    )
+    offR_aug = np.array(
+        [x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 3] for i in range(n_probes)]
+    )
+    offA_aug = np.array(
+        [x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 4] for i in range(n_probes)]
+    )
+    dep_aug = np.array(
+        [x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i + 5] for i in range(n_probes)]
+    )
     spin_aug = extract_spins(x_aug, n_arcs, n_probes)
     target_LPS = np.array([st.target_LPS for st in statics])
 
@@ -119,25 +126,40 @@ def main() -> int:
     coupling = build_coupling_graph(target_LPS)
     seed_spins = {i: float(spin_aug[i]) for i in range(n_probes)}
     spin_cands = per_probe_spin_candidates(
-        statics, coupling, target_LPS, arc_aps, mls_aug,
-        probe_kind_by_name, seed_spins=seed_spins,
+        statics,
+        coupling,
+        target_LPS,
+        arc_aps,
+        mls_aug,
+        probe_kind_by_name,
+        seed_spins=seed_spins,
     )
     print("\nPer-probe candidate count (H1 + H2 + seed):")
     for i, st in enumerate(statics):
         four = is_four_shank(st)
-        print(f"  {st.name:<5} (4S={str(four):<5})  n_cands={len(spin_cands[i])}  "
-              f"spins={[f'{c:+5.1f}' for c in spin_cands[i]]}")
+        print(
+            f"  {st.name:<5} (4S={str(four):<5})  n_cands={len(spin_cands[i])}  "
+            f"spins={[f'{c:+5.1f}' for c in spin_cands[i]]}"
+        )
 
     # Beam search
     print("\nBeam search (B=64)...", flush=True)
     t_bs0 = time.time()
     beam = beam_search_assignments(
-        statics, spin_cands, coupling, target_LPS,
-        arc_aps, mls_aug, probe_kind_by_name, beam_B=64,
+        statics,
+        spin_cands,
+        coupling,
+        target_LPS,
+        arc_aps,
+        mls_aug,
+        probe_kind_by_name,
+        beam_B=64,
     )
-    print(f"  beam: {len(beam)} complete assignments in {time.time()-t_bs0:.1f}s")
-    print(f"  top-10 scores (lower=better, H2 alignment): "
-          f"{[f'{a.score:.2f}' for a in beam[:10]]}")
+    print(f"  beam: {len(beam)} complete assignments in {time.time() - t_bs0:.1f}s")
+    print(
+        f"  top-10 scores (lower=better, H2 alignment): "
+        f"{[f'{a.score:.2f}' for a in beam[:10]]}"
+    )
 
     # Polish top-K via the chain
     K = 16
@@ -147,44 +169,65 @@ def main() -> int:
     for k, asg in enumerate(to_polish):
         overrides = dict(asg.spins)
         spins_seed = np.array([overrides[i] for i in range(n_probes)])
-        y0 = build_y(arc_aps, n_arcs, mls_aug, spins_seed,
-                     offR_aug, offA_aug, dep_aug)
+        y0 = build_y(arc_aps, n_arcs, mls_aug, spins_seed, offR_aug, offA_aug, dep_aug)
         t0 = time.time()
         x2, s_fcl, feas, cov = run_chain(
-            y0, statics, n_arcs, coverage_data, fixtures, validator,
+            y0,
+            statics,
+            n_arcs,
+            coverage_data,
+            fixtures,
+            validator,
         )
         wall = time.time() - t0
         n_viol = int((s_fcl < -1e-4).sum()) if s_fcl.size else 0
         viol_pairs = (
-            [validator.pair_names[i] for i in range(s_fcl.size)
-             if s_fcl[i] < -1e-4]
-            if hasattr(validator, "pair_names") else []
+            [validator.pair_names[i] for i in range(s_fcl.size) if s_fcl[i] < -1e-4]
+            if hasattr(validator, "pair_names")
+            else []
         )
         tag = "FEAS" if feas else "FAIL"
         final = extract_spins(x2, n_arcs, n_probes)
-        results.append((k, asg.score, feas, n_viol, float(s_fcl.min()),
-                         cov, viol_pairs, final, wall))
+        results.append(
+            (
+                k,
+                asg.score,
+                feas,
+                n_viol,
+                float(s_fcl.min()),
+                cov,
+                viol_pairs,
+                final,
+                wall,
+            )
+        )
         seed_str = " ".join(f"{s:+5.0f}" for s in spins_seed)
         final_str = " ".join(f"{f:+5.0f}" for f in final)
-        print(f"  k={k:2d} score={asg.score:5.2f}  seed=[{seed_str}]  "
-              f"→  [{final_str}]  {tag} viol={n_viol}  "
-              f"fcl_min={s_fcl.min():+.3f}  cov={cov:5.2f}  "
-              f"({wall:.1f}s)  viols={viol_pairs[:3]}")
+        print(
+            f"  k={k:2d} score={asg.score:5.2f}  seed=[{seed_str}]  "
+            f"→  [{final_str}]  {tag} viol={n_viol}  "
+            f"fcl_min={s_fcl.min():+.3f}  cov={cov:5.2f}  "
+            f"({wall:.1f}s)  viols={viol_pairs[:3]}"
+        )
 
     # Best by (feas, viol, fcl_min, cov)
     def key(r):
         _, _, feas, n_viol, fcl_min, cov, *_ = r
         # Sort: feas first, then by n_viol asc, then fcl_min desc, cov desc
         return (not feas, n_viol, -fcl_min, -cov)
+
     results_sorted = sorted(results, key=key)
     print("\nBest 3 by feasibility:")
     for r in results_sorted[:3]:
         k, score, feas, n_viol, fcl_min, cov, viol_pairs, final, wall = r
         tag = "FEAS" if feas else "FAIL"
-        print(f"  k={k}: {tag}  viol={n_viol}  fcl_min={fcl_min:+.3f}  "
-              f"cov={cov:5.2f}  viols={viol_pairs[:3]}")
-        spin_str = ", ".join(f"{statics[i].name}={final[i]:+6.1f}"
-                              for i in range(n_probes))
+        print(
+            f"  k={k}: {tag}  viol={n_viol}  fcl_min={fcl_min:+.3f}  "
+            f"cov={cov:5.2f}  viols={viol_pairs[:3]}"
+        )
+        spin_str = ", ".join(
+            f"{statics[i].name}={final[i]:+6.1f}" for i in range(n_probes)
+        )
         print(f"           final spins: {spin_str}")
 
     # Save the FEAS results as trame-compatible config.yml files.
@@ -206,25 +249,38 @@ def main() -> int:
         asg = to_polish[k]
         overrides = dict(asg.spins)
         spins_seed = np.array([overrides[i] for i in range(n_probes)])
-        y0 = build_y(arc_aps, n_arcs, mls_aug, spins_seed,
-                     offR_aug, offA_aug, dep_aug)
+        y0 = build_y(arc_aps, n_arcs, mls_aug, spins_seed, offR_aug, offA_aug, dep_aug)
         x2, _, _, _ = run_chain(
-            y0, statics, n_arcs, coverage_data, fixtures, validator,
+            y0,
+            statics,
+            n_arcs,
+            coverage_data,
+            fixtures,
+            validator,
         )
         # Fresh runtime → mutate plan_state with x2 → dump.
         cfg_local = ConfigModel.from_yaml("examples/836656-config-T12.yml")
         rt_local = build_runtime_from_config(cfg_local)
         statics_local = _build_probe_static(
-            probes, holes, cand.ha, cand.aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            probes,
+            holes,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         _apply_x_to_plan_state(rt_local.plan_state, x2, statics_local, n_arcs)
         candidate_cfg = save_plan_to_config(rt_local.plan_state, cfg_local)
-        fname = (f"plan-{save_idx:02d}-feas-k{k:02d}-"
-                 f"slack{fcl_min:+.3f}-cov{cov:05.2f}.yml")
+        fname = (
+            f"plan-{save_idx:02d}-feas-k{k:02d}-slack{fcl_min:+.3f}-cov{cov:05.2f}.yml"
+        )
         with open(out_dir / fname, "w") as f:
-            yaml.safe_dump(candidate_cfg.model_dump(mode="json"), f,
-                            sort_keys=False, default_flow_style=False)
+            yaml.safe_dump(
+                candidate_cfg.model_dump(mode="json"),
+                f,
+                sort_keys=False,
+                default_flow_style=False,
+            )
         print(f"  {fname}")
 
     # Compare to manual
@@ -232,8 +288,9 @@ def main() -> int:
         plan_data = yaml.safe_load(f)
     manual_spins = {n: float(p["spin"]) for n, p in plan_data["probes"].items()}
     print("\nManual reference spins:")
-    print("  " + ", ".join(f"{st.name}={manual_spins[st.name]:+6.1f}"
-                            for st in statics))
+    print(
+        "  " + ", ".join(f"{st.name}={manual_spins[st.name]:+6.1f}" for st in statics)
+    )
     return 0
 
 

@@ -27,7 +27,8 @@ from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import (
-    _build_probe_static, _signed_pair_clearance,
+    _build_probe_static,
+    _signed_pair_clearance,
 )
 from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
@@ -43,10 +44,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_post_sat.pkl"))
     p.add_argument(
-        "--cands", type=str,
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_post_sat.pkl")
+    )
+    p.add_argument(
+        "--cands",
+        type=str,
         default="288,708,814,1079,1328,1533,1775,2088,2714,2772",
         help="Comma-separated cand indices to inspect",
     )
@@ -80,17 +83,23 @@ def main() -> int:
         data = pickle.load(f)
     cand_idxs = [int(c) for c in args.cands.split(",")]
 
-    print(f"{'cand':>6}  {'pair':<14}  {'FCL':>9}  "
-          f"{'hbb':>9} {'hbs':>9} {'hss':>9}  "
-          f"{'sbb':>9} {'sbs':>9} {'sss':>9}")
+    print(
+        f"{'cand':>6}  {'pair':<14}  {'FCL':>9}  "
+        f"{'hbb':>9} {'hbs':>9} {'hss':>9}  "
+        f"{'sbb':>9} {'sbs':>9} {'sss':>9}"
+    )
     print("-" * 110)
 
     for cand_idx in cand_idxs:
         cand = data["candidates"][cand_idx]
         jc = data["results"][cand_idx]
         statics = _build_probe_static(
-            probes, holes_list, cand.ha, cand.aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            probes,
+            holes_list,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         y = np.asarray(jc.reduced_y, dtype=np.float64)
         n_arcs = jc.n_arcs
@@ -106,15 +115,21 @@ def main() -> int:
             ap = float(y[st.arc_idx])
             R_w, t_w = pose_from_optimizer_vars(
                 target_LPS=st.target_LPS,
-                ap_deg=ap, ml_deg=ml, spin_deg=spin,
-                offset_R_mm=0.0, offset_A_mm=0.0, past_target_mm=0.0,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=0.0,
+                offset_A_mm=0.0,
+                past_target_mm=0.0,
                 recording_center_local=st.pivot_local,
             )
             poses[st.name] = (R_w, t_w, st)
-            st.bvh_obj.setTransform(fcl.Transform(
-                np.ascontiguousarray(R_w, dtype=np.float64),
-                np.ascontiguousarray(t_w, dtype=np.float64),
-            ))
+            st.bvh_obj.setTransform(
+                fcl.Transform(
+                    np.ascontiguousarray(R_w, dtype=np.float64),
+                    np.ascontiguousarray(t_w, dtype=np.float64),
+                )
+            )
 
         # Find worst pair via FCL
         K = len(statics)
@@ -123,7 +138,8 @@ def main() -> int:
         for a in range(K):
             for b in range(a + 1, K):
                 d = _signed_pair_clearance(
-                    statics[a].bvh_obj, statics[b].bvh_obj,
+                    statics[a].bvh_obj,
+                    statics[b].bvh_obj,
                 )
                 if d < worst_d:
                     worst_d = d
@@ -142,16 +158,25 @@ def main() -> int:
             jnp.asarray(t_a, dtype=jnp.float32),
             jnp.asarray(R_b, dtype=jnp.float32),
             jnp.asarray(t_b, dtype=jnp.float32),
-            sa["grid"], sa["origin"], sa["spacing"],
-            sb["grid"], sb["origin"], sb["spacing"],
-            sa["surface"], sb["surface"],
-            sa["shank_centers"], sa["shank_halves"],
-            sb["shank_centers"], sb["shank_halves"],
+            sa["grid"],
+            sa["origin"],
+            sa["spacing"],
+            sb["grid"],
+            sb["origin"],
+            sb["spacing"],
+            sa["surface"],
+            sb["surface"],
+            sa["shank_centers"],
+            sa["shank_halves"],
+            sb["shank_centers"],
+            sb["shank_halves"],
         )
         pair_label = f"{a_name}/{b_name}"
-        print(f"{cand_idx:>6}  {pair_label:<14}  {worst_d:+9.4f}  "
-              f"{float(hbb):+9.4f} {float(hbs):+9.4f} {float(hss):+9.4f}  "
-              f"{float(sbb):+9.4f} {float(sbs):+9.4f} {float(sss):+9.4f}")
+        print(
+            f"{cand_idx:>6}  {pair_label:<14}  {worst_d:+9.4f}  "
+            f"{float(hbb):+9.4f} {float(hbs):+9.4f} {float(hss):+9.4f}  "
+            f"{float(sbb):+9.4f} {float(sbs):+9.4f} {float(sss):+9.4f}"
+        )
 
     return 0
 

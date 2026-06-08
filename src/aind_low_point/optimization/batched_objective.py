@@ -19,17 +19,16 @@ import numpy as np
 
 from aind_low_point.optimization.batched_static import BatchedProbeStatic
 from aind_low_point.optimization.joint_rerank import JointWeights
-from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
+from aind_low_point.optimization.joint_rerank_jax import smooth_abs, threading_g_matrix
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     dual_rep_fixture_clearance,
-    shank_only_pair_clearance,
     pose_from_optimizer_vars,
+    shank_only_pair_clearance,
     spin_deg_from_sxy,
     unit_circle_penalty,
 )
-from aind_low_point.optimization.joint_rerank_jax import smooth_abs
 
 
 def _softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
@@ -41,17 +40,17 @@ def _softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
 def _threading_g_for_probe(
     R: jnp.ndarray,
     pose_tip: jnp.ndarray,
-    tips_local: jnp.ndarray,        # (SH, 3)
-    shank_mask: jnp.ndarray,        # (SH,)
-    s_axes: jnp.ndarray,            # (S, 3)
-    s_centers: jnp.ndarray,         # (S, 3)
-    s_e1: jnp.ndarray,              # (S, 3)
-    s_e2: jnp.ndarray,              # (S, 3)
-    s_cos: jnp.ndarray,             # (S,)
-    s_sin: jnp.ndarray,             # (S,)
-    s_a: jnp.ndarray,               # (S,)
-    s_b: jnp.ndarray,               # (S,)
-    section_mask: jnp.ndarray,      # (S,)
+    tips_local: jnp.ndarray,  # (SH, 3)
+    shank_mask: jnp.ndarray,  # (SH,)
+    s_axes: jnp.ndarray,  # (S, 3)
+    s_centers: jnp.ndarray,  # (S, 3)
+    s_e1: jnp.ndarray,  # (S, 3)
+    s_e2: jnp.ndarray,  # (S, 3)
+    s_cos: jnp.ndarray,  # (S,)
+    s_sin: jnp.ndarray,  # (S,)
+    s_a: jnp.ndarray,  # (S,)
+    s_b: jnp.ndarray,  # (S,)
+    section_mask: jnp.ndarray,  # (S,)
     threading_tol: float,
 ) -> jnp.ndarray:
     """Scalar threading penalty for one probe.
@@ -61,9 +60,17 @@ def _threading_g_for_probe(
     contribute zero via masks.
     """
     g = threading_g_matrix(
-        R, pose_tip, tips_local,
-        s_axes, s_centers, s_e1, s_e2,
-        s_cos, s_sin, s_a, s_b,
+        R,
+        pose_tip,
+        tips_local,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
     )  # shape (S, SH); g <= 0 ⇒ inside oval
     valid = section_mask[:, None] * shank_mask[None, :]  # (S, SH)
     excess = jnp.maximum(0.0, g - threading_tol)
@@ -99,9 +106,9 @@ def make_batched_reduced_objective(  # noqa: C901
     S = static.S
 
     # Closure-captured per-probe constants (same across batch)
-    target_LPS = static.probe_target_lps[0]        # (K, 3)
-    pivot_local = static.probe_pivot_local[0]      # (K, 3)
-    shank_tips = static.probe_shank_tips[0]        # (K, SH, 3)
+    target_LPS = static.probe_target_lps[0]  # (K, 3)
+    pivot_local = static.probe_pivot_local[0]  # (K, 3)
+    shank_tips = static.probe_shank_tips[0]  # (K, SH, 3)
     shank_mask = static.probe_shank_mask[0].astype(jnp.float32)  # (K, SH)
 
     # SDF kind table (constant). sdf_kind_id is per (B, K), but per-probe
@@ -118,12 +125,12 @@ def make_batched_reduced_objective(  # noqa: C901
                 continue
             sdf_pair_list.append((i, j))
 
-    sdf_grids = static.sdf_grids                    # (N_kinds, GX, GY, GZ)
-    sdf_origins = static.sdf_origins                # (N_kinds, 3)
-    sdf_spacings = static.sdf_spacings              # (N_kinds,)
+    sdf_grids = static.sdf_grids  # (N_kinds, GX, GY, GZ)
+    sdf_origins = static.sdf_origins  # (N_kinds, 3)
+    sdf_spacings = static.sdf_spacings  # (N_kinds,)
     sdf_surface_points = static.sdf_surface_points  # (N_kinds, N_surf, 3)
     sdf_shank_centers = static.sdf_shank_centers_table  # tuple[(Sa_k, 3), ...]
-    sdf_shank_halves = static.sdf_shank_halves_table    # tuple[(Sa_k, 3), ...]
+    sdf_shank_halves = static.sdf_shank_halves_table  # tuple[(Sa_k, 3), ...]
 
     # Pre-compute arc-pair index list (for AP separation)
     arc_pairs = jnp.asarray(
@@ -164,17 +171,17 @@ def make_batched_reduced_objective(  # noqa: C901
     ]
 
     def _obj_one(
-        y: jnp.ndarray,                # (n_arcs + 2*K,)
-        arc_idx: jnp.ndarray,          # (K,) int
-        s_axes: jnp.ndarray,           # (K, S, 3)
-        s_centers: jnp.ndarray,        # (K, S, 3)
-        s_e1: jnp.ndarray,             # (K, S, 3)
-        s_e2: jnp.ndarray,             # (K, S, 3)
-        s_cos: jnp.ndarray,            # (K, S)
-        s_sin: jnp.ndarray,            # (K, S)
-        s_a: jnp.ndarray,              # (K, S)
-        s_b: jnp.ndarray,              # (K, S)
-        section_mask: jnp.ndarray,     # (K, S)
+        y: jnp.ndarray,  # (n_arcs + 2*K,)
+        arc_idx: jnp.ndarray,  # (K,) int
+        s_axes: jnp.ndarray,  # (K, S, 3)
+        s_centers: jnp.ndarray,  # (K, S, 3)
+        s_e1: jnp.ndarray,  # (K, S, 3)
+        s_e2: jnp.ndarray,  # (K, S, 3)
+        s_cos: jnp.ndarray,  # (K, S)
+        s_sin: jnp.ndarray,  # (K, S)
+        s_a: jnp.ndarray,  # (K, S)
+        s_b: jnp.ndarray,  # (K, S)
+        section_mask: jnp.ndarray,  # (K, S)
     ) -> jnp.ndarray:
         arc_aps = y[:n_arcs]
 
@@ -194,7 +201,9 @@ def make_batched_reduced_objective(  # noqa: C901
             ap = arc_aps[arc_idx[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
-                ap_deg=ap, ml_deg=ml, spin_deg=spin,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
                 offset_R_mm=jnp.float32(0.0),
                 offset_A_mm=jnp.float32(0.0),
                 past_target_mm=jnp.float32(0.0),
@@ -203,10 +212,19 @@ def make_batched_reduced_objective(  # noqa: C901
             Rs.append(R)
             ts.append(t)
             j_thread = j_thread + _threading_g_for_probe(
-                R, t,
-                shank_tips[i], shank_mask[i],
-                s_axes[i], s_centers[i], s_e1[i], s_e2[i],
-                s_cos[i], s_sin[i], s_a[i], s_b[i], section_mask[i],
+                R,
+                t,
+                shank_tips[i],
+                shank_mask[i],
+                s_axes[i],
+                s_centers[i],
+                s_e1[i],
+                s_e2[i],
+                s_cos[i],
+                s_sin[i],
+                s_a[i],
+                s_b[i],
+                section_mask[i],
                 threading_tol,
             )
 
@@ -214,9 +232,7 @@ def make_batched_reduced_objective(  # noqa: C901
         # continuous as ap_i, ap_j pass through equality (vs jnp.abs which
         # flips sign at zero).
         if arc_pairs.shape[0] > 0:
-            ap_diffs = smooth_abs(
-                arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
-            )
+            ap_diffs = smooth_abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
             short_ap = jnp.maximum(0.0, min_arc_ap_sep - ap_diffs)
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
@@ -228,7 +244,7 @@ def make_batched_reduced_objective(  # noqa: C901
         # stride 3.
         ml_vals = y[n_arcs::3][:K]
         ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
-        same = (arc_idx[:, None] == arc_idx[None, :])
+        same = arc_idx[:, None] == arc_idx[None, :]
         upper = jnp.triu(jnp.ones((K, K), dtype=jnp.float32), k=1)
         same_arc_mask = same.astype(jnp.float32) * upper
         short_ml = jnp.maximum(0.0, min_intra_ml_sep - ml_diff)
@@ -243,31 +259,53 @@ def make_batched_reduced_objective(  # noqa: C901
         # Pre-compute world-frame surface samples per probe (hoists
         # ``surface @ R.T + t`` out of the per-pair Python loop).
         world_surfaces = [
-            sdf_surface_points[int(sdf_kind_id[i])] @ Rs[i].T + ts[i]
-            for i in range(K)
+            sdf_surface_points[int(sdf_kind_id[i])] @ Rs[i].T + ts[i] for i in range(K)
         ]
         j_clear = jnp.float32(0.0)
         for ia, ib in sdf_pair_list:
             ka = int(sdf_kind_id[ia])
             kb = int(sdf_kind_id[ib])
             _hbb, sbb = body_body_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
-                sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
-                world_surfaces[ia], world_surfaces[ib],
+                Rs[ia],
+                ts[ia],
+                Rs[ib],
+                ts[ib],
+                sdf_grids[ka],
+                sdf_origins[ka],
+                sdf_spacings[ka],
+                sdf_grids[kb],
+                sdf_origins[kb],
+                sdf_spacings[kb],
+                world_surfaces[ia],
+                world_surfaces[ib],
             )
             _hbs_corners, sbs_corners = body_shank_corners_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
-                sdf_grids[kb], sdf_origins[kb], sdf_spacings[kb],
-                sdf_shank_centers[ka], sdf_shank_halves[ka],
-                sdf_shank_centers[kb], sdf_shank_halves[kb],
+                Rs[ia],
+                ts[ia],
+                Rs[ib],
+                ts[ib],
+                sdf_grids[ka],
+                sdf_origins[ka],
+                sdf_spacings[ka],
+                sdf_grids[kb],
+                sdf_origins[kb],
+                sdf_spacings[kb],
+                sdf_shank_centers[ka],
+                sdf_shank_halves[ka],
+                sdf_shank_centers[kb],
+                sdf_shank_halves[kb],
             )
             (_hbs_obb, sbs_obb), (_hss, sss) = shank_only_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                sdf_shank_centers[ka], sdf_shank_halves[ka],
-                sdf_shank_centers[kb], sdf_shank_halves[kb],
+                Rs[ia],
+                ts[ia],
+                Rs[ib],
+                ts[ib],
+                world_surfaces[ia],
+                world_surfaces[ib],
+                sdf_shank_centers[ka],
+                sdf_shank_halves[ka],
+                sdf_shank_centers[kb],
+                sdf_shank_halves[kb],
             )
             for d_soft in (sbb, sbs_corners, sbs_obb, sss):
                 short = jnp.maximum(0.0, min_clearance - d_soft)
@@ -285,19 +323,26 @@ def make_batched_reduced_objective(  # noqa: C901
                     continue
                 ka = int(sdf_kind_id[i])
                 fc = dual_rep_fixture_clearance(
-                    Rs[i], ts[i],
-                    sdf_grids[ka], sdf_origins[ka], sdf_spacings[ka],
-                    fx_grid, fx_origin, fx_spacing,
-                    world_surfaces[i], fx_surface,
-                    sdf_shank_centers[ka], sdf_shank_halves[ka],
+                    Rs[i],
+                    ts[i],
+                    sdf_grids[ka],
+                    sdf_origins[ka],
+                    sdf_spacings[ka],
+                    fx_grid,
+                    fx_origin,
+                    fx_spacing,
+                    world_surfaces[i],
+                    fx_surface,
+                    sdf_shank_centers[ka],
+                    sdf_shank_halves[ka],
                 )
                 for d_soft in (fc.body[1], fc.obb[1]):
                     short = jnp.maximum(0.0, min_clearance - d_soft)
                     j_clear_fixture = j_clear_fixture + short * short
 
         # Unit-circle pull on (sx, sy). y stride = 3, sx at off+1.
-        sx_arr = y[n_arcs + 1::3][:K]
-        sy_arr = y[n_arcs + 2::3][:K]
+        sx_arr = y[n_arcs + 1 :: 3][:K]
+        sy_arr = y[n_arcs + 2 :: 3][:K]
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (
@@ -324,10 +369,14 @@ def make_batched_reduced_objective(  # noqa: C901
     def _arrays(bs: BatchedProbeStatic):
         return (
             bs.probe_arc_idx,
-            bs.section_axes, bs.section_centers,
-            bs.section_e1, bs.section_e2,
-            bs.section_cos_theta, bs.section_sin_theta,
-            bs.section_a, bs.section_b,
+            bs.section_axes,
+            bs.section_centers,
+            bs.section_e1,
+            bs.section_e2,
+            bs.section_cos_theta,
+            bs.section_sin_theta,
+            bs.section_a,
+            bs.section_b,
             bs.section_mask.astype(jnp.float32),
         )
 

@@ -107,10 +107,7 @@ def _cache_path(
     n_surface_points: int,
     sign_type: str = "fwn",
 ) -> Path:
-    key = (
-        f"{_mesh_hash(mesh)}_s{spacing_mm}_p{pad_mm}"
-        f"_n{n_surface_points}_{sign_type}"
-    )
+    key = f"{_mesh_hash(mesh)}_s{spacing_mm}_p{pad_mm}_n{n_surface_points}_{sign_type}"
     return _cache_dir() / f"{key}.npz"
 
 
@@ -151,8 +148,11 @@ def build_probe_sdf(
         is the α-wrap envelope, ``"fwn"`` for legacy raw CAD.
     """
     cpath = _cache_path(
-        mesh, spacing_mm=spacing_mm, pad_mm=pad_mm,
-        n_surface_points=n_surface_points, sign_type=sign_type,
+        mesh,
+        spacing_mm=spacing_mm,
+        pad_mm=pad_mm,
+        n_surface_points=n_surface_points,
+        sign_type=sign_type,
     )
     if use_cache:
         if cpath.exists():

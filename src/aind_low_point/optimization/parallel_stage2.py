@@ -49,7 +49,6 @@ from aind_low_point.optimization.joint_rerank import (
 from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.pose_features import PoseFeatures
 
-
 # Module-global state populated by worker init. Workers reuse this
 # across multiple candidates; pickling cost is paid once per worker.
 _W: dict = {}
@@ -73,8 +72,9 @@ def _worker_init(
     waste on a 7-probe rig in the 2026-05-20 profile)."""
     os.environ["JAX_PLATFORMS"] = "cpu"
     bvh_cache = {
-        p.name: (make_fcl_bvh(p.collision_mesh)
-                 if p.collision_mesh is not None else None)
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+        )
         for p in probes
     }
     global _W
@@ -106,8 +106,11 @@ def _worker_polish(
         idx, ha, aa, lsap_cost = payload
         y0_override = None
     jc = score_joint(
-        ha, aa,
-        _W["probes"], _W["holes"], _W["pose_features"],
+        ha,
+        aa,
+        _W["probes"],
+        _W["holes"],
+        _W["pose_features"],
         weights=_W["weights"],
         head_pitch_deg=_W["head_pitch_deg"],
         reduced_slsqp_max_iter=_W["reduced_slsqp_max_iter"],
@@ -147,8 +150,14 @@ def polish_worker_pool(
         n_workers = max(1, (os.cpu_count() or 2) - 2)
     ctx = mp.get_context("spawn" if spawn else "fork")
     init_args = (
-        probes, holes, pose_features, sdf_by_name, weights,
-        head_pitch_deg, reduced_slsqp_max_iter, skip_spin_restore,
+        probes,
+        holes,
+        pose_features,
+        sdf_by_name,
+        weights,
+        head_pitch_deg,
+        reduced_slsqp_max_iter,
+        skip_spin_restore,
     )
     prev_jax_platforms = os.environ.get("JAX_PLATFORMS")
     os.environ["JAX_PLATFORMS"] = "cpu"
@@ -216,12 +225,20 @@ def polish_all(
     n_workers = max(1, min(n_workers, n))
 
     if verbose:
-        print(f"[parallel_stage2] polishing {n} candidates on {n_workers} workers "
-              f"({'spawn' if spawn else 'fork'} mode)")
+        print(
+            f"[parallel_stage2] polishing {n} candidates on {n_workers} workers "
+            f"({'spawn' if spawn else 'fork'} mode)"
+        )
 
     init_args = (
-        probes, holes, pose_features, sdf_by_name, weights,
-        head_pitch_deg, reduced_slsqp_max_iter, skip_spin_restore,
+        probes,
+        holes,
+        pose_features,
+        sdf_by_name,
+        weights,
+        head_pitch_deg,
+        reduced_slsqp_max_iter,
+        skip_spin_restore,
     )
 
     # Payloads: (idx, ha, aa, lsap_cost[, y0_override])
@@ -234,8 +251,7 @@ def polish_all(
         ]
     else:
         payloads = [
-            (i, ha, aa, lsap_cost)
-            for i, (ha, aa, lsap_cost) in enumerate(candidates)
+            (i, ha, aa, lsap_cost) for i, (ha, aa, lsap_cost) in enumerate(candidates)
         ]
 
     results: list[JointCandidate | None] = [None] * n
@@ -250,8 +266,10 @@ def polish_all(
                 elapsed = time.perf_counter() - t0
                 rate = (k + 1) / elapsed
                 eta = (n - k - 1) / rate
-                print(f"  {k + 1:>5}/{n}  ({rate:.1f} cands/s, ETA {eta:.0f}s)",
-                      flush=True)
+                print(
+                    f"  {k + 1:>5}/{n}  ({rate:.1f} cands/s, ETA {eta:.0f}s)",
+                    flush=True,
+                )
     else:
         # If a pre-built executor is supplied, reuse it (the caller is
         # responsible for the JAX_PLATFORMS pin via ``polish_worker_pool``).
@@ -261,6 +279,7 @@ def polish_all(
             jax_pin_ctx = contextlib.nullcontext()
         else:
             ctx = mp.get_context("spawn" if spawn else "fork")
+
             # Workers inherit parent env at spawn time. Force them into CPU JAX
             # so they don't fight over the GPU when importing joint_rerank.
             @contextlib.contextmanager
@@ -274,6 +293,7 @@ def polish_all(
                         os.environ.pop("JAX_PLATFORMS", None)
                     else:
                         os.environ["JAX_PLATFORMS"] = prev
+
             jax_pin_ctx = _pin_jax_cpu()
             pool_ctx = ProcessPoolExecutor(
                 max_workers=n_workers,
@@ -294,14 +314,18 @@ def polish_all(
                     elapsed = time.perf_counter() - t0
                     rate = done / elapsed
                     eta = (n - done) / rate if rate > 0 else float("inf")
-                    print(f"  {done:>5}/{n}  ({rate:.1f} cands/s, ETA {eta:.0f}s)",
-                          flush=True)
+                    print(
+                        f"  {done:>5}/{n}  ({rate:.1f} cands/s, ETA {eta:.0f}s)",
+                        flush=True,
+                    )
 
     elapsed = time.perf_counter() - t0
     if verbose:
-        print(f"[parallel_stage2] done: {elapsed:.1f}s "
-              f"({elapsed / n * 1000:.0f}ms/cand, "
-              f"{n * n_workers / elapsed:.1f}x speedup vs ideal)")
+        print(
+            f"[parallel_stage2] done: {elapsed:.1f}s "
+            f"({elapsed / n * 1000:.0f}ms/cand, "
+            f"{n * n_workers / elapsed:.1f}x speedup vs ideal)"
+        )
 
     return [r for r in results if r is not None]  # type: ignore
 
@@ -338,6 +362,7 @@ def estimate_spin_restore_chunk(
     """
     try:
         import pynvml
+
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -362,7 +387,7 @@ def estimate_spin_restore_chunk(
 
 
 def polish_all_with_batched_spin_restore(
-    candidates,                 # list of ArcFirstCandidate
+    candidates,  # list of ArcFirstCandidate
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
     pose_features: dict[tuple[str, int], PoseFeatures],
@@ -419,7 +444,7 @@ def polish_all_with_batched_spin_restore(
 
     B = len(candidates)
     K = len(probes)
-    n_vars = n_arcs + 3 * K   # (ml, sx, sy) per probe under Patch B
+    n_vars = n_arcs + 3 * K  # (ml, sx, sy) per probe under Patch B
     probe_names_order = [p.name for p in probes]
 
     # Pre-build full y0 batch (cheap numpy work — no JAX state). Spin
@@ -447,12 +472,18 @@ def polish_all_with_batched_spin_restore(
     first_hi = min(spin_restore_chunk, B)
     first_pairs = [(c.ha, c.aa) for c in candidates[first_lo:first_hi]]
     probe_set_bs = build_batched_probe_static(
-        first_pairs, probes, holes, n_arcs=n_arcs,
-        sdf_by_name=sdf_by_name, head_pitch_deg=head_pitch_deg,
+        first_pairs,
+        probes,
+        holes,
+        n_arcs=n_arcs,
+        sdf_by_name=sdf_by_name,
+        head_pitch_deg=head_pitch_deg,
     )
     spin_restore = make_batched_spin_restore_partial(
-        probe_set_bs, weights,
-        n_spins=n_spins_restore, n_rounds=spin_restore_rounds,
+        probe_set_bs,
+        weights,
+        n_spins=n_spins_restore,
+        n_rounds=spin_restore_rounds,
     )
     obj_batched, _ = make_batched_reduced_objective(probe_set_bs, weights)
     extract_arrays = obj_batched.extract_arrays  # type: ignore[attr-defined]
@@ -469,30 +500,36 @@ def polish_all_with_batched_spin_restore(
             bs_chunk = probe_set_bs
         else:
             bs_chunk = build_batched_probe_static(
-                chunk_pairs, probes, holes, n_arcs=n_arcs,
-                sdf_by_name=sdf_by_name, head_pitch_deg=head_pitch_deg,
+                chunk_pairs,
+                probes,
+                holes,
+                n_arcs=n_arcs,
+                sdf_by_name=sdf_by_name,
+                head_pitch_deg=head_pitch_deg,
             )
         y0_chunk = jnp.asarray(y0_np[lo:hi])
         varying = extract_arrays(bs_chunk)
         y0_restored_chunk = spin_restore(y0_chunk, *varying)
         y0_restored_chunk.block_until_ready()
-        y0_restored_chunks.append(
-            np.asarray(y0_restored_chunk, dtype=np.float64)
-        )
+        y0_restored_chunks.append(np.asarray(y0_restored_chunk, dtype=np.float64))
 
         if verbose:
             t_chunk = time.perf_counter() - t_chunk0
-            print(f"  chunk {chunk_idx + 1}/{n_chunks} "
-                  f"[{lo}:{hi}] (n={hi - lo}): {t_chunk:.1f}s")
+            print(
+                f"  chunk {chunk_idx + 1}/{n_chunks} "
+                f"[{lo}:{hi}] (n={hi - lo}): {t_chunk:.1f}s"
+            )
 
         del bs_chunk, y0_chunk, y0_restored_chunk, varying
 
     y0_restored_np = np.concatenate(y0_restored_chunks, axis=0)
     t_sr = time.perf_counter() - t_sr0
     if verbose:
-        print(f"  batched spin-restore total ({B} cands, "
-              f"{n_chunks} chunks): {t_sr:.2f}s "
-              f"({t_sr / B * 1000:.1f} ms/cand)")
+        print(
+            f"  batched spin-restore total ({B} cands, "
+            f"{n_chunks} chunks): {t_sr:.2f}s "
+            f"({t_sr / B * 1000:.1f} ms/cand)"
+        )
 
     # Clear JAX in-process caches before spawning CPU workers so we
     # don't hold GPU memory while subprocesses fight for resources.
@@ -500,17 +537,19 @@ def polish_all_with_batched_spin_restore(
     jax.clear_caches()
 
     # Now polish via scipy SLSQP per candidate, skipping spin-restore
-    polish_inputs = [
-        (cand.ha, cand.aa, float("nan"))
-        for cand in candidates
-    ]
+    polish_inputs = [(cand.ha, cand.aa, float("nan")) for cand in candidates]
     y0_list = [y0_restored_np[i] for i in range(B)]
 
     if verbose:
-        print(f"  starting multiproc SLSQP polish ({n_workers or 'auto'} workers, "
-              f"skip_spin_restore=True)")
+        print(
+            f"  starting multiproc SLSQP polish ({n_workers or 'auto'} workers, "
+            f"skip_spin_restore=True)"
+        )
     return polish_all(
-        polish_inputs, probes, holes, pose_features,
+        polish_inputs,
+        probes,
+        holes,
+        pose_features,
         weights=weights,
         head_pitch_deg=head_pitch_deg,
         reduced_slsqp_max_iter=reduced_slsqp_max_iter,
@@ -565,7 +604,8 @@ def _variant_at_ap(cand, arc_idx: int, new_ap: float):
         cost=cand.aa.cost,
     )
     return type(cand)(
-        ha=cand.ha, aa=new_aa,
+        ha=cand.ha,
+        aa=new_aa,
         ml_seed=dict(cand.ml_seed),
         spin_seed=dict(cand.spin_seed),
         ap_intersection_min_width_deg=cand.ap_intersection_min_width_deg,
@@ -583,7 +623,7 @@ def polish_all_adaptive(
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
     pose_features: dict[tuple[str, int], PoseFeatures],
-    atlas,                       # for per-arc envelope reconstruction
+    atlas,  # for per-arc envelope reconstruction
     *,
     weights: JointWeights = JointWeights(),
     head_pitch_deg: float = 0.0,
@@ -626,8 +666,11 @@ def polish_all_adaptive(
     # holes, SDFs, weights, skip_spin_restore=True) match phase 3 exactly,
     # so one pool is correct.
     with polish_worker_pool(
-        probes, holes, pose_features,
-        weights=weights, head_pitch_deg=head_pitch_deg,
+        probes,
+        holes,
+        pose_features,
+        weights=weights,
+        head_pitch_deg=head_pitch_deg,
         reduced_slsqp_max_iter=reduced_slsqp_max_iter,
         sdf_by_name=sdf_by_name,
         n_workers=n_workers,
@@ -636,12 +679,19 @@ def polish_all_adaptive(
         if verbose:
             print(f"[adaptive] phase 1: single-seed polish ({len(candidates)} cands)")
         initial = polish_all_with_batched_spin_restore(
-            candidates, probes, holes, pose_features,
-            weights=weights, head_pitch_deg=head_pitch_deg,
+            candidates,
+            probes,
+            holes,
+            pose_features,
+            weights=weights,
+            head_pitch_deg=head_pitch_deg,
             reduced_slsqp_max_iter=reduced_slsqp_max_iter,
-            sdf_by_name=sdf_by_name, n_workers=n_workers,
+            sdf_by_name=sdf_by_name,
+            n_workers=n_workers,
             spin_restore_chunk=spin_restore_chunk,
-            n_arcs=n_arcs, executor=pool, verbose=verbose,
+            n_arcs=n_arcs,
+            executor=pool,
+            verbose=verbose,
         )
 
         # Identify boundary candidates
@@ -651,15 +701,17 @@ def polish_all_adaptive(
             if boundary_lo <= mv <= boundary_hi:
                 boundary_idxs.append(i)
         if verbose:
-            print(f"[adaptive] phase 2: {len(boundary_idxs)} boundary candidates "
-                  f"({len(boundary_idxs) / max(1, len(candidates)) * 100:.1f}%)")
+            print(
+                f"[adaptive] phase 2: {len(boundary_idxs)} boundary candidates "
+                f"({len(boundary_idxs) / max(1, len(candidates)) * 100:.1f}%)"
+            )
 
         if not boundary_idxs:
             return initial
 
         # Build retry variants
         retry_variants = []
-        retry_owner: list[int] = []   # parallel: which boundary_idxs[i] each came from
+        retry_owner: list[int] = []  # parallel: which boundary_idxs[i] each came from
         for i in boundary_idxs:
             cand = candidates[i]
             envs = _per_arc_envelopes(cand, atlas)
@@ -680,12 +732,19 @@ def polish_all_adaptive(
             return initial
 
         retry_polished = polish_all_with_batched_spin_restore(
-            retry_variants, probes, holes, pose_features,
-            weights=weights, head_pitch_deg=head_pitch_deg,
+            retry_variants,
+            probes,
+            holes,
+            pose_features,
+            weights=weights,
+            head_pitch_deg=head_pitch_deg,
             reduced_slsqp_max_iter=reduced_slsqp_max_iter,
-            sdf_by_name=sdf_by_name, n_workers=n_workers,
+            sdf_by_name=sdf_by_name,
+            n_workers=n_workers,
             spin_restore_chunk=spin_restore_chunk,
-            n_arcs=n_arcs, executor=pool, verbose=verbose,
+            n_arcs=n_arcs,
+            executor=pool,
+            verbose=verbose,
         )
 
     # Merge: for each original candidate, take lex-best across {initial, retries}

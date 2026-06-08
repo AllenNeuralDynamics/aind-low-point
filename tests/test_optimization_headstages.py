@@ -43,9 +43,7 @@ def _make_probe_like_mesh(
         slab = trimesh.creation.box(
             extents=(2 * shank_radius, 2 * shank_radius, shank_height / shank_n_stacks)
         )
-        slab.apply_translation(
-            (0.0, 0.0, (k + 0.5) * shank_height / shank_n_stacks)
-        )
+        slab.apply_translation((0.0, 0.0, (k + 0.5) * shank_height / shank_n_stacks))
         pieces.append(slab)
     # Body: a stack of wide thin slabs.
     for k in range(body_n_stacks):
@@ -193,9 +191,7 @@ def test_pairwise_headstage_clearances_hull_path_distance():
     obj_a = make_fcl_convex(box)
     obj_b = make_fcl_convex(box)
     layout = VariableLayout(arc_ids=("a",), probe_names=("p0", "p1"))
-    ctx = OptimizerContext(
-        layout=layout, probes=(), headstage_fcl_objs=(obj_a, obj_b)
-    )
+    ctx = OptimizerContext(layout=layout, probes=(), headstage_fcl_objs=(obj_a, obj_b))
     evals = [
         _dummy_eval(np.eye(3), np.zeros(3)),
         _dummy_eval(np.eye(3), np.array([10.0, 0.0, 0.0])),

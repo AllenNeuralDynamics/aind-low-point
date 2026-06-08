@@ -13,7 +13,8 @@ from pathlib import Path
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.arc_first_principled import (
-    enumerate_arc_first_candidates, find_target_in_candidates,
+    enumerate_arc_first_candidates,
+    find_target_in_candidates,
 )
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
@@ -28,8 +29,10 @@ HOLES = "scratch/0283-300-04.holes.yml"
 def main() -> int:
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     runtime = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(runtime.plan_state, runtime, n)
-              for n in runtime.plan_state.probes]
+    probes = [
+        _probe_static_info(runtime.plan_state, runtime, n)
+        for n in runtime.plan_state.probes
+    ]
     holes = load_holes(Path(HOLES))
     compiled = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in compiled:
@@ -37,18 +40,24 @@ def main() -> int:
         holes = _transform_holes(holes, R, t)
     print(f"{len(holes)} holes from {HOLES}")
 
-    atlas = build_visibility_atlas(probes, holes, n_top=128, n_spin=72,
-                                   verbose=False)
+    atlas = build_visibility_atlas(probes, holes, n_top=128, n_spin=72, verbose=False)
     cands = enumerate_arc_first_candidates(
-        probes, atlas, max_arcs=3, max_probes_per_arc=4,
-        per_arc_max_hole_tuples=50, global_max_candidates=200_000,
-        verbose=False)
+        probes,
+        atlas,
+        max_arcs=3,
+        max_probes_per_arc=4,
+        per_arc_max_hole_tuples=50,
+        global_max_candidates=200_000,
+        verbose=False,
+    )
     rank = find_target_in_candidates(cands, MANUAL_H)
     print(f"enumerated {len(cands)} candidates; manual MANUAL_H rank = {rank}")
     if rank is not None:
         c = cands[rank]
-        print(f"  manual is reachable in the pool at rank {rank} "
-              f"(was None with the wrong 0274 bores)")
+        print(
+            f"  manual is reachable in the pool at rank {rank} "
+            f"(was None with the wrong 0274 bores)"
+        )
     else:
         print("  manual NOT in pool — atlas visibility may need a wider grid")
     return 0

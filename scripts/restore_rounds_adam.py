@@ -43,15 +43,23 @@ def _wrap(a):
     return (a + 180.0) % 360.0 - 180.0
 
 
-def converged_restore(cand, probes, holes, sdf_by_name, n_arcs, well, K,
-                      max_rounds=8):
+def converged_restore(cand, probes, holes, sdf_by_name, n_arcs, well, K, max_rounds=8):
     """Iterate single rounds (feeding spins back) until no probe moves ≥0.5°."""
     seed = None
     prev = None
     nr = 0
     for nr in range(1, max_rounds + 1):
-        y = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                        with_well=True, n_rounds=1, seed_spins_deg=seed)
+        y = run_restore(
+            cand,
+            probes,
+            holes,
+            sdf_by_name,
+            n_arcs,
+            well,
+            with_well=True,
+            n_rounds=1,
+            seed_spins_deg=seed,
+        )
         sp = spins_deg_from_reduced(y, n_arcs, K)
         if prev is not None and float(np.abs(_wrap(sp - prev)).max()) < 0.5:
             return y, nr
@@ -67,41 +75,48 @@ def main() -> int:
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     cand = pool["candidates"][IDX]
     n_arcs = int(pool["results"][IDX].n_arcs)
-    st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                             bvh_cache=bvh, sdf_by_name=sdf_by_name)
+    st = _build_probe_static(
+        probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+    )
     comp = compile_all_transforms(cfg.transforms)
     brain_sdf = maybe_build_brain_sdf(rt, comp)
     cov_data = build_coverage_data(probes, st)
     adam_eval = build_adam_kernel(st, n_arcs, K, well, cov_data, brain_sdf=brain_sdf)
-    v = make_fcl_validator(st, n_arcs, fixtures=tuple(fixtures),
-                           fixture_bvhs=fixture_bvhs)
+    v = make_fcl_validator(
+        st, n_arcs, fixtures=tuple(fixtures), fixture_bvhs=fixture_bvhs
+    )
 
     def coverage(x):
         Rs, ts, tips, mask = _poses(st, x, n_arcs)
-        return float(coverage_total_over_probes(Rs, ts, tips, mask, cov_data,
-                                                n_samples=41))
+        return float(
+            coverage_total_over_probes(Rs, ts, tips, mask, cov_data, n_samples=41)
+        )
 
-    y2 = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                     with_well=True, n_rounds=2)
-    yc, nconv = converged_restore(cand, probes, holes, sdf_by_name, n_arcs,
-                                  well, K)
+    y2 = run_restore(
+        cand, probes, holes, sdf_by_name, n_arcs, well, with_well=True, n_rounds=2
+    )
+    yc, nconv = converged_restore(cand, probes, holes, sdf_by_name, n_arcs, well, K)
     print(f"cand {IDX}  probes={names}  (converged at round {nconv})\n")
 
     for label, y_red in (("2-round", y2), (f"converged({nconv})", yc)):
         rest_sp = spins_deg_from_reduced(y_red, n_arcs, K)
         arc_aps, mls, sets = make_basin_sets(y_red, st, n_arcs, K)
         zero = np.zeros(K)
-        x0 = [build_y(arc_aps, n_arcs, mls, sp, zero, zero, zero)
-              for sp in sets["A_restore1"]]
+        x0 = [
+            build_y(arc_aps, n_arcs, mls, sp, zero, zero, zero)
+            for sp in sets["A_restore1"]
+        ]
         viol, xa = adam_eval(x0)
         br = int(np.argmin(viol))
         fcl = float(np.asarray(v.slacks(xa[br])).min())
         asp = np.round(spins_deg_from_phase1(xa[br], n_arcs, K), 0).astype(int)
         print(f"[{label:>12}] restore {np.round(rest_sp, 0).astype(int).tolist()}")
         print(f"{'':>14} ADAM    {asp.tolist()}")
-        print(f"{'':>14} viol {viol[br]:+.3f}  fcl {fcl:+.3f}  "
-              f"coverage {coverage(xa[br]):.3f}  "
-              f"{'FEAS' if fcl >= -1e-4 else 'infeas'}\n")
+        print(
+            f"{'':>14} viol {viol[br]:+.3f}  fcl {fcl:+.3f}  "
+            f"coverage {coverage(xa[br]):.3f}  "
+            f"{'FEAS' if fcl >= -1e-4 else 'infeas'}\n"
+        )
     return 0
 
 

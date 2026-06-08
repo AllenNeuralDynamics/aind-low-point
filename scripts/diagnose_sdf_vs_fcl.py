@@ -31,6 +31,7 @@ _sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fcl
 import jax.numpy as jnp
 import numpy as np
+from run_optimizer import _probe_static_info, _transform_holes
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
@@ -44,7 +45,6 @@ from aind_low_point.optimization.sdf_jax import (
 )
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from run_optimizer import _probe_static_info, _transform_holes  # noqa: E402
 
 
 def _fcl_pair_signed_clearance(obj_a, obj_b) -> float:
@@ -55,7 +55,9 @@ def _fcl_pair_signed_clearance(obj_a, obj_b) -> float:
     if d > 0.0:
         return d
     cr = fcl.CollisionResult()
-    fcl.collide(obj_a, obj_b, fcl.CollisionRequest(num_max_contacts=8, enable_contact=True), cr)
+    fcl.collide(
+        obj_a, obj_b, fcl.CollisionRequest(num_max_contacts=8, enable_contact=True), cr
+    )
     if cr.contacts:
         return -float(max(c.penetration_depth for c in cr.contacts))
     return 0.0
@@ -65,8 +67,9 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_patchAB.pkl"))
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_patchAB.pkl")
+    )
     p.add_argument("--cand", type=int, default=5113)
     p.add_argument("--probe-a", type=str, default="VM")
     p.add_argument("--probe-b", type=str, default="CA1")
@@ -92,8 +95,9 @@ def main() -> int:
         for p in probes
     }
     bvh_cache = {
-        p.name: (make_fcl_bvh(p.collision_mesh)
-                 if p.collision_mesh is not None else None)
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+        )
         for p in probes
     }
 
@@ -113,8 +117,10 @@ def main() -> int:
         spacing = jnp.asarray(sdf.spacing, dtype=jnp.float32)
         d = trilinear_sdf(grid, origin, spacing, surf)
         d_np = np.asarray(d)
-        print(f"  {p.name} (kind={p.kind}): self-SDF on its own surface samples: "
-              f"mean={d_np.mean():+.4f}, max|d|={np.max(np.abs(d_np)):+.4f}")
+        print(
+            f"  {p.name} (kind={p.kind}): self-SDF on its own surface samples: "
+            f"mean={d_np.mean():+.4f}, max|d|={np.max(np.abs(d_np)):+.4f}"
+        )
 
     # === Sanity 2: are SDFs different objects for VM and CA1? ===
     print()
@@ -134,8 +140,12 @@ def main() -> int:
     cand = data["candidates"][args.cand]
     jc = data["results"][args.cand]
     statics = _build_probe_static(
-        probes, holes_list, cand.ha, cand.aa,
-        bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+        probes,
+        holes_list,
+        cand.ha,
+        cand.aa,
+        bvh_cache=bvh_cache,
+        sdf_by_name=sdf_by_name,
     )
     n_arcs = jc.n_arcs
     arc_aps = np.asarray(jc.reduced_y[:n_arcs], dtype=np.float64)
@@ -157,17 +167,23 @@ def main() -> int:
         spin_deg = float(np.degrees(np.arctan2(sy, sx)))
         ap = float(arc_aps[st.arc_idx])
         R, t = pose_from_optimizer_vars(
-            target_LPS=st.target_LPS, ap_deg=ap, ml_deg=ml,
+            target_LPS=st.target_LPS,
+            ap_deg=ap,
+            ml_deg=ml,
             spin_deg=spin_deg,
-            offset_R_mm=0.0, offset_A_mm=0.0, past_target_mm=0.0,
+            offset_R_mm=0.0,
+            offset_A_mm=0.0,
+            past_target_mm=0.0,
             recording_center_local=st.pivot_local,
         )
         return R, t
 
     print()
     print("=" * 70)
-    print(f"At Stage 2 polished pose for cand #{args.cand} "
-          f"({args.probe_a} vs {args.probe_b})")
+    print(
+        f"At Stage 2 polished pose for cand #{args.cand} "
+        f"({args.probe_a} vs {args.probe_b})"
+    )
     print("=" * 70)
     Ra, ta = _stage2_pose(sa_static, idx_a)
     Rb, tb = _stage2_pose(sb_static, idx_b)
@@ -176,14 +192,18 @@ def main() -> int:
     print(f"  ||t_a − t_b|| = {np.linalg.norm(ta - tb):.3f} mm")
 
     # FCL on full mesh
-    sa_static.bvh_obj.setTransform(fcl.Transform(
-        np.ascontiguousarray(Ra, dtype=np.float64),
-        np.ascontiguousarray(ta, dtype=np.float64),
-    ))
-    sb_static.bvh_obj.setTransform(fcl.Transform(
-        np.ascontiguousarray(Rb, dtype=np.float64),
-        np.ascontiguousarray(tb, dtype=np.float64),
-    ))
+    sa_static.bvh_obj.setTransform(
+        fcl.Transform(
+            np.ascontiguousarray(Ra, dtype=np.float64),
+            np.ascontiguousarray(ta, dtype=np.float64),
+        )
+    )
+    sb_static.bvh_obj.setTransform(
+        fcl.Transform(
+            np.ascontiguousarray(Rb, dtype=np.float64),
+            np.ascontiguousarray(tb, dtype=np.float64),
+        )
+    )
     fcl_d = _fcl_pair_signed_clearance(sa_static.bvh_obj, sb_static.bvh_obj)
     print(f"  FCL (full mesh): {fcl_d:+.4f} mm")
 
@@ -237,8 +257,10 @@ def main() -> int:
         worst_idx = int(np.argmin(d_in))
         worst_idx_global = int(np.argsort(d_raw)[0])
         print(f"  raw-A vertices in B's SDF grid: {in_b.sum()}/{len(d_raw)}")
-        print(f"  worst raw-A vertex in B: SDF = {d_in.min():+.4f} mm "
-              f"(at vertex {worst_idx_global} of probe A's raw mesh)")
+        print(
+            f"  worst raw-A vertex in B: SDF = {d_in.min():+.4f} mm "
+            f"(at vertex {worst_idx_global} of probe A's raw mesh)"
+        )
         print(f"  10 deepest: {sorted(d_in)[:10]}")
 
     # === Direct test 2: get FCL contact points, look them up in BOTH SDFs ===
@@ -248,7 +270,8 @@ def main() -> int:
     print("=" * 70)
     cr = fcl.CollisionResult()
     fcl.collide(
-        sa_static.bvh_obj, sb_static.bvh_obj,
+        sa_static.bvh_obj,
+        sb_static.bvh_obj,
         fcl.CollisionRequest(num_max_contacts=8, enable_contact=True),
         cr,
     )
@@ -258,26 +281,37 @@ def main() -> int:
         depth = float(c.penetration_depth)
         # Transform contact to A's local + look up A's SDF
         local_a = (pos_world - ta) @ Ra
-        d_in_a = float(np.asarray(trilinear_sdf(
-            jnp.asarray(sdf_a.grid, dtype=jnp.float32),
-            jnp.asarray(sdf_a.origin, dtype=jnp.float32),
-            jnp.asarray(sdf_a.spacing, dtype=jnp.float32),
-            jnp.asarray(local_a.reshape(1, 3), dtype=jnp.float32),
-        ))[0])
+        d_in_a = float(
+            np.asarray(
+                trilinear_sdf(
+                    jnp.asarray(sdf_a.grid, dtype=jnp.float32),
+                    jnp.asarray(sdf_a.origin, dtype=jnp.float32),
+                    jnp.asarray(sdf_a.spacing, dtype=jnp.float32),
+                    jnp.asarray(local_a.reshape(1, 3), dtype=jnp.float32),
+                )
+            )[0]
+        )
         # Transform contact to B's local + look up B's SDF
         local_b = (pos_world - tb) @ Rb
-        d_in_b = float(np.asarray(trilinear_sdf(
-            jnp.asarray(sdf_b.grid, dtype=jnp.float32),
-            jnp.asarray(sdf_b.origin, dtype=jnp.float32),
-            jnp.asarray(sdf_b.spacing, dtype=jnp.float32),
-            jnp.asarray(local_b.reshape(1, 3), dtype=jnp.float32),
-        ))[0])
-        print(f"  contact[{k}] world={pos_world.round(3).tolist()} "
-              f"depth={depth:+.4f}")
-        print(f"    A-SDF at this point: {d_in_a:+.4f} mm "
-              f"(local_a={local_a.round(3).tolist()})")
-        print(f"    B-SDF at this point: {d_in_b:+.4f} mm "
-              f"(local_b={local_b.round(3).tolist()})")
+        d_in_b = float(
+            np.asarray(
+                trilinear_sdf(
+                    jnp.asarray(sdf_b.grid, dtype=jnp.float32),
+                    jnp.asarray(sdf_b.origin, dtype=jnp.float32),
+                    jnp.asarray(sdf_b.spacing, dtype=jnp.float32),
+                    jnp.asarray(local_b.reshape(1, 3), dtype=jnp.float32),
+                )
+            )[0]
+        )
+        print(f"  contact[{k}] world={pos_world.round(3).tolist()} depth={depth:+.4f}")
+        print(
+            f"    A-SDF at this point: {d_in_a:+.4f} mm "
+            f"(local_a={local_a.round(3).tolist()})"
+        )
+        print(
+            f"    B-SDF at this point: {d_in_b:+.4f} mm "
+            f"(local_b={local_b.round(3).tolist()})"
+        )
         # Check if local is within shank OBB
         for label, sdf, R, t in [("A", sdf_a, Ra, ta), ("B", sdf_b, Rb, tb)]:
             local = (pos_world - t) @ R
@@ -288,8 +322,10 @@ def main() -> int:
                 inside = np.all(q <= 0)
                 if inside:
                     margin = -float(q.max())
-                    print(f"    INSIDE {label}'s shank OBB #{s_i} "
-                          f"(margin={margin:.4f} mm)")
+                    print(
+                        f"    INSIDE {label}'s shank OBB #{s_i} "
+                        f"(margin={margin:.4f} mm)"
+                    )
 
     return 0
 

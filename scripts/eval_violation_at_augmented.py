@@ -40,7 +40,6 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import numpy as np
 
-
 _W: dict = {}
 
 
@@ -79,10 +78,15 @@ def _worker_init(config_path: str, holes_path: str):
         p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
         for p in probes
     }
-    _W.update(dict(
-        probes=probes, holes=holes, sdf_by_name=sdf_by_name,
-        fixtures=fixtures, bvh_cache=bvh_cache,
-    ))
+    _W.update(
+        dict(
+            probes=probes,
+            holes=holes,
+            sdf_by_name=sdf_by_name,
+            fixtures=fixtures,
+            bvh_cache=bvh_cache,
+        )
+    )
 
 
 def _eval_cand(payload):
@@ -98,8 +102,12 @@ def _eval_cand(payload):
 
     idx, ha, aa, n_arcs, x_aug = payload
     statics = _build_probe_static(
-        _W["probes"], _W["holes"], ha, aa,
-        bvh_cache=_W["bvh_cache"], sdf_by_name=_W["sdf_by_name"],
+        _W["probes"],
+        _W["holes"],
+        ha,
+        aa,
+        bvh_cache=_W["bvh_cache"],
+        sdf_by_name=_W["sdf_by_name"],
     )
     # Violation-only: drop coverage + margin rewards.
     weights_viol = Phase1Weights(
@@ -109,8 +117,11 @@ def _eval_cand(payload):
     )
     try:
         fn_viol, _ = make_phase1_objective(
-            statics, n_arcs, coverage_data=None,
-            fixtures=_W["fixtures"], weights=weights_viol,
+            statics,
+            n_arcs,
+            coverage_data=None,
+            fixtures=_W["fixtures"],
+            weights=weights_viol,
         )
         viol = float(fn_viol(np.asarray(x_aug, dtype=np.float64)))
     except Exception:
@@ -120,7 +131,9 @@ def _eval_cand(payload):
     try:
         cov_data = build_coverage_data(_W["probes"], statics)
         fn_full, _ = make_phase1_objective(
-            statics, n_arcs, coverage_data=cov_data,
+            statics,
+            n_arcs,
+            coverage_data=cov_data,
             fixtures=_W["fixtures"],
             weights=Phase1Weights(
                 # Zero everything but coverage so we can recover -coverage
@@ -148,10 +161,15 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--in-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb_augmented.pkl"))
-    p.add_argument("--out-pkl", type=Path, default=None,
-                   help="Output pkl path (default: overwrite in-pkl)")
+    p.add_argument(
+        "--in-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb_augmented.pkl")
+    )
+    p.add_argument(
+        "--out-pkl",
+        type=Path,
+        default=None,
+        help="Output pkl path (default: overwrite in-pkl)",
+    )
     p.add_argument("--n-workers", type=int, default=8)
     p.add_argument("--limit", type=int, default=None)
     args = p.parse_args()
@@ -164,8 +182,10 @@ def main() -> int:
     results = data["results"]
     aug_x = data.get("augmented_phase1_x")
     if aug_x is None:
-        raise SystemExit("Input pkl lacks ``augmented_phase1_x`` — run "
-                         "augment_polish_with_offsets.py first.")
+        raise SystemExit(
+            "Input pkl lacks ``augmented_phase1_x`` — run "
+            "augment_polish_with_offsets.py first."
+        )
     n_total = len(cands)
     n_process = args.limit if args.limit else n_total
     print(f"Loaded {n_total} cands; will eval {n_process}", flush=True)
@@ -180,7 +200,8 @@ def main() -> int:
     t0 = time.time()
     try:
         with ProcessPoolExecutor(
-            max_workers=args.n_workers, mp_context=ctx,
+            max_workers=args.n_workers,
+            mp_context=ctx,
             initializer=_worker_init,
             initargs=(str(args.config), str(args.holes)),
         ) as pool:
@@ -198,8 +219,11 @@ def main() -> int:
                     elapsed = time.time() - t0
                     rate = n_done / elapsed
                     eta = (len(payloads) - n_done) / rate if rate > 0 else 0
-                    print(f"  {n_done}/{len(payloads)}  ({rate:.1f} cands/s, "
-                          f"ETA {eta:.0f}s)", flush=True)
+                    print(
+                        f"  {n_done}/{len(payloads)}  ({rate:.1f} cands/s, "
+                        f"ETA {eta:.0f}s)",
+                        flush=True,
+                    )
     finally:
         if prev_jax is None:
             _os.environ.pop("JAX_PLATFORMS", None)
@@ -212,24 +236,30 @@ def main() -> int:
     finite = viol[~np.isnan(viol)]
     if finite.size:
         print("\nviolation-only fn stats:")
-        print(f"  min={finite.min():.2f}  max={finite.max():.2e}  "
-              f"median={np.median(finite):.2f}")
+        print(
+            f"  min={finite.min():.2f}  max={finite.max():.2e}  "
+            f"median={np.median(finite):.2f}"
+        )
         for thresh in (1, 10, 100, 1000):
             n_below = int(np.sum(finite < thresh))
-            print(f"  fn < {thresh:>5}: {n_below} cands "
-                  f"({n_below / finite.size * 100:.1f}%)")
+            print(
+                f"  fn < {thresh:>5}: {n_below} cands "
+                f"({n_below / finite.size * 100:.1f}%)"
+            )
     finite_cov = cov[~np.isnan(cov)]
     if finite_cov.size:
         print("\ncoverage at augmented pose:")
-        print(f"  min={finite_cov.min():.2f}  max={finite_cov.max():.2f}  "
-              f"median={np.median(finite_cov):.2f}")
+        print(
+            f"  min={finite_cov.min():.2f}  max={finite_cov.max():.2f}  "
+            f"median={np.median(finite_cov):.2f}"
+        )
 
     data["violation_fn"] = viol
     data["coverage_at_aug"] = cov
     print(f"\nSaving to {out_path}...", flush=True)
     with open(out_path, "wb") as f:
         pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    print(f"  saved ({out_path.stat().st_size / (1024*1024):.1f} MB)")
+    print(f"  saved ({out_path.stat().st_size / (1024 * 1024):.1f} MB)")
     return 0
 
 

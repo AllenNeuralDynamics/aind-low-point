@@ -40,7 +40,8 @@ from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
-    PHASE1_PER_PROBE_VARS, reduced_to_phase1,
+    PHASE1_PER_PROBE_VARS,
+    reduced_to_phase1,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config
@@ -67,13 +68,15 @@ def _manual_pose_parts(plan_path, statics, n_arcs):
     per_probe = []
     for st in statics:
         pp = probe_poses[st.name]
-        per_probe.append({
-            "ml": float(pp["slider_ml"]),
-            "spin": float(pp["spin"]),
-            "off_R": float(pp["offsets_RA"][0]),
-            "off_A": float(pp["offsets_RA"][1]),
-            "depth": float(pp["past_target_mm"]),
-        })
+        per_probe.append(
+            {
+                "ml": float(pp["slider_ml"]),
+                "spin": float(pp["spin"]),
+                "off_R": float(pp["offsets_RA"][0]),
+                "off_A": float(pp["offsets_RA"][1]),
+                "depth": float(pp["past_target_mm"]),
+            }
+        )
     return arc_aps, per_probe
 
 
@@ -97,7 +100,7 @@ def _build_x(arc_aps, per_probe, statics, n_arcs):
 def _report(label, x, validator):
     s = validator.slacks(x)
     n_viol = int((s < -1e-4).sum())
-    feas = (n_viol == 0)
+    feas = n_viol == 0
     tag = "FEAS" if feas else "FAIL"
     print(f"\n[{tag}] {label}")
     print(f"   n_viol={n_viol}/{len(s)}  min_slack={s.min():+.4f} mm")
@@ -111,10 +114,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--plan", type=Path,
-                   default=Path("examples/836656-config-T12.plan.yml"))
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb_augmented.pkl"))
+    p.add_argument(
+        "--plan", type=Path, default=Path("examples/836656-config-T12.plan.yml")
+    )
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb_augmented.pkl")
+    )
     p.add_argument("--cand", type=int, default=4195)
     args = p.parse_args()
 
@@ -152,20 +157,25 @@ def main() -> int:
     cand = data["candidates"][args.cand]
     jc = data["results"][args.cand]
     statics = _build_probe_static(
-        probes, holes, cand.ha, cand.aa,
-        bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+        probes,
+        holes,
+        cand.ha,
+        cand.aa,
+        bvh_cache=bvh_cache,
+        sdf_by_name=sdf_by_name,
     )
     n_arcs = jc.n_arcs
     n_probes = len(statics)
 
     validator = make_fcl_validator(
-        statics, n_arcs, fixtures=fixtures, fixture_bvhs=fixture_bvhs,
+        statics,
+        n_arcs,
+        fixtures=fixtures,
+        fixture_bvhs=fixture_bvhs,
     )
 
     # Manual pose decomposed
-    manual_arc_aps, manual_per_probe = _manual_pose_parts(
-        args.plan, statics, n_arcs
-    )
+    manual_arc_aps, manual_per_probe = _manual_pose_parts(args.plan, statics, n_arcs)
 
     # Stage 2 polished pose
     x_s2 = reduced_to_phase1(jc.reduced_y, n_arcs, n_probes)
@@ -175,41 +185,54 @@ def main() -> int:
         off = n_arcs + PHASE1_PER_PROBE_VARS * i
         sx = float(x_s2[off + 1])
         sy = float(x_s2[off + 2])
-        s2_per_probe.append({
-            "ml": float(x_s2[off + 0]),
-            "spin": float(np.degrees(np.arctan2(sy, sx))),
-            "off_R": 0.0, "off_A": 0.0, "depth": 0.0,
-        })
+        s2_per_probe.append(
+            {
+                "ml": float(x_s2[off + 0]),
+                "spin": float(np.degrees(np.arctan2(sy, sx))),
+                "off_R": 0.0,
+                "off_A": 0.0,
+                "depth": 0.0,
+            }
+        )
 
     print(f"\nCand #{args.cand}: n_probes={n_probes}, n_arcs={n_arcs}")
     print(f"  manual arc_aps:  {[float(v) for v in manual_arc_aps]}")
     print(f"  S2     arc_aps:  {[float(v) for v in s2_arc_aps]}")
 
     # ===== Pose 1: Stage 2 polished (control — known FAIL) =====
-    _report("POSE 1: Stage 2 polished (off=depth=0)",
-            x_s2, validator)
+    _report("POSE 1: Stage 2 polished (off=depth=0)", x_s2, validator)
 
     # ===== Pose 2: Stage 2 arc_ap + ml, but MANUAL spin (and zero off/depth) =====
     pose2 = [
-        {"ml": s2_per_probe[i]["ml"],
-         "spin": manual_per_probe[i]["spin"],
-         "off_R": 0.0, "off_A": 0.0, "depth": 0.0}
+        {
+            "ml": s2_per_probe[i]["ml"],
+            "spin": manual_per_probe[i]["spin"],
+            "off_R": 0.0,
+            "off_A": 0.0,
+            "depth": 0.0,
+        }
         for i in range(n_probes)
     ]
     x_pose2 = _build_x(s2_arc_aps, pose2, statics, n_arcs)
-    _report("POSE 2: Manual spin + S2 ml/arc_ap (off=depth=0)",
-            x_pose2, validator)
+    _report("POSE 2: Manual spin + S2 ml/arc_ap (off=depth=0)", x_pose2, validator)
 
     # ===== Pose 3: Manual spin + manual ml + manual arc_ap, off=depth=0 =====
     pose3 = [
-        {"ml": manual_per_probe[i]["ml"],
-         "spin": manual_per_probe[i]["spin"],
-         "off_R": 0.0, "off_A": 0.0, "depth": 0.0}
+        {
+            "ml": manual_per_probe[i]["ml"],
+            "spin": manual_per_probe[i]["spin"],
+            "off_R": 0.0,
+            "off_A": 0.0,
+            "depth": 0.0,
+        }
         for i in range(n_probes)
     ]
     x_pose3 = _build_x(manual_arc_aps, pose3, statics, n_arcs)
-    _report("POSE 3: Manual spin + manual ml + manual arc_ap "
-            "(off=depth=0)", x_pose3, validator)
+    _report(
+        "POSE 3: Manual spin + manual ml + manual arc_ap (off=depth=0)",
+        x_pose3,
+        validator,
+    )
 
     # ===== Pose 4: Full manual (sanity check — should be FEAS) =====
     x_pose4 = _build_x(manual_arc_aps, manual_per_probe, statics, n_arcs)
@@ -217,40 +240,51 @@ def main() -> int:
 
     # ===== Pose 5: Manual spin + manual ml + manual arc_ap + manual depth, off=0 =====
     pose5 = [
-        {"ml": manual_per_probe[i]["ml"],
-         "spin": manual_per_probe[i]["spin"],
-         "off_R": 0.0, "off_A": 0.0,
-         "depth": manual_per_probe[i]["depth"]}
+        {
+            "ml": manual_per_probe[i]["ml"],
+            "spin": manual_per_probe[i]["spin"],
+            "off_R": 0.0,
+            "off_A": 0.0,
+            "depth": manual_per_probe[i]["depth"],
+        }
         for i in range(n_probes)
     ]
     x_pose5 = _build_x(manual_arc_aps, pose5, statics, n_arcs)
-    _report("POSE 5: Manual spin + manual ml + manual arc_ap + "
-            "manual depth (off=0; should match pose 4 since manual "
-            "offsets are 0)", x_pose5, validator)
+    _report(
+        "POSE 5: Manual spin + manual ml + manual arc_ap + "
+        "manual depth (off=0; should match pose 4 since manual "
+        "offsets are 0)",
+        x_pose5,
+        validator,
+    )
 
     # ===== Pose 6: S2 polish + manual depth (no spin change) =====
     pose6 = [
-        {"ml": s2_per_probe[i]["ml"],
-         "spin": s2_per_probe[i]["spin"],
-         "off_R": 0.0, "off_A": 0.0,
-         "depth": manual_per_probe[i]["depth"]}
+        {
+            "ml": s2_per_probe[i]["ml"],
+            "spin": s2_per_probe[i]["spin"],
+            "off_R": 0.0,
+            "off_A": 0.0,
+            "depth": manual_per_probe[i]["depth"],
+        }
         for i in range(n_probes)
     ]
     x_pose6 = _build_x(s2_arc_aps, pose6, statics, n_arcs)
-    _report("POSE 6: S2 polish + manual depth (NO spin change)",
-            x_pose6, validator)
+    _report("POSE 6: S2 polish + manual depth (NO spin change)", x_pose6, validator)
 
     # ===== Pose 7: Manual spin + manual depth + S2 ml/arc =====
     pose7 = [
-        {"ml": s2_per_probe[i]["ml"],
-         "spin": manual_per_probe[i]["spin"],
-         "off_R": 0.0, "off_A": 0.0,
-         "depth": manual_per_probe[i]["depth"]}
+        {
+            "ml": s2_per_probe[i]["ml"],
+            "spin": manual_per_probe[i]["spin"],
+            "off_R": 0.0,
+            "off_A": 0.0,
+            "depth": manual_per_probe[i]["depth"],
+        }
         for i in range(n_probes)
     ]
     x_pose7 = _build_x(s2_arc_aps, pose7, statics, n_arcs)
-    _report("POSE 7: Manual spin + manual depth + S2 ml/arc",
-            x_pose7, validator)
+    _report("POSE 7: Manual spin + manual depth + S2 ml/arc", x_pose7, validator)
 
     print("\n" + "=" * 72)
     print("Now testing: do Phase 1 + Phase 2 chain recover feasibility")
@@ -259,38 +293,59 @@ def main() -> int:
 
     # Inline the chain on each warm-start of interest
     from scipy.optimize import minimize as _scipy_minimize
+
     from aind_low_point.optimization.stage3_phase1_jax import (
-        Phase1Weights, make_phase1_objective,
+        Phase1Weights,
+        make_phase1_objective,
     )
     from aind_low_point.optimization.stage3_phase2_jax import (
-        Phase2Weights, make_phase2,
+        Phase2Weights,
+        make_phase2,
     )
     from scripts.run_phase1_sample import (
-        build_coverage_data as _build_cov, phase1_bounds,
+        build_coverage_data as _build_cov,
+    )
+    from scripts.run_phase1_sample import (
+        phase1_bounds,
     )
 
     coverage_data = _build_cov(probes, statics)
     bounds = phase1_bounds(n_arcs, n_probes)
     p1_fun, p1_jac = make_phase1_objective(
-        statics, n_arcs, coverage_data=coverage_data,
-        fixtures=fixtures, weights=Phase1Weights(),
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
+        fixtures=fixtures,
+        weights=Phase1Weights(),
     )
 
     def _run_chain(x0, label):
         r1 = _scipy_minimize(
-            p1_fun, x0, jac=p1_jac, method="L-BFGS-B", bounds=bounds,
+            p1_fun,
+            x0,
+            jac=p1_jac,
+            method="L-BFGS-B",
+            bounds=bounds,
             options=dict(maxiter=80, ftol=1e-5, gtol=1e-5),
         )
         x1 = np.asarray(r1.x, dtype=np.float64)
         p2 = make_phase2(
-            statics, n_arcs, coverage_data=coverage_data,
-            fixtures=fixtures, weights=Phase2Weights(min_clearance_mm=0.3),
+            statics,
+            n_arcs,
+            coverage_data=coverage_data,
+            fixtures=fixtures,
+            weights=Phase2Weights(min_clearance_mm=0.3),
         )
         r2 = _scipy_minimize(
-            p2["fun"], x1, jac=p2["jac"], method="trust-constr",
-            bounds=bounds, constraints=p2["constraints_nlc"],
-            options=dict(maxiter=80, xtol=1e-6, gtol=1e-5,
-                         initial_tr_radius=1.0, verbose=0),
+            p2["fun"],
+            x1,
+            jac=p2["jac"],
+            method="trust-constr",
+            bounds=bounds,
+            constraints=p2["constraints_nlc"],
+            options=dict(
+                maxiter=80, xtol=1e-6, gtol=1e-5, initial_tr_radius=1.0, verbose=0
+            ),
         )
         x2 = np.asarray(r2.x, dtype=np.float64)
         _report(label + " (chain exit)", x2, validator)

@@ -28,7 +28,6 @@ Run::
 from __future__ import annotations
 
 import argparse
-import contextlib
 import multiprocessing as mp
 import os as _os
 import pickle
@@ -41,7 +40,6 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import numpy as np
 from scipy.optimize import minimize
-
 
 # Worker-local globals (set in _worker_init)
 _W: dict = {}
@@ -83,17 +81,24 @@ def _worker_init(config_path: str, holes_path: str):
         p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
         for p in probes
     }
-    _W.update(dict(
-        probes=probes, holes=holes, sdf_by_name=sdf_by_name,
-        fixtures=fixtures, bvh_cache=bvh_cache,
-    ))
+    _W.update(
+        dict(
+            probes=probes,
+            holes=holes,
+            sdf_by_name=sdf_by_name,
+            fixtures=fixtures,
+            bvh_cache=bvh_cache,
+        )
+    )
 
 
-def _offset_only_bounds(x_full, n_arcs: int, n_probes: int,
-                        off_max: float = 2.0, depth_max: float = 3.0):
+def _offset_only_bounds(
+    x_full, n_arcs: int, n_probes: int, off_max: float = 2.0, depth_max: float = 3.0
+):
     from aind_low_point.optimization.stage3_phase1_jax import (
         PHASE1_PER_PROBE_VARS,
     )
+
     bounds: list[tuple[float, float]] = []
     for j in range(n_arcs):
         v = float(x_full[j])
@@ -121,24 +126,35 @@ def _augment_cand(payload):
 
     idx, ha, aa, reduced_y, n_arcs, offset_iter = payload
     statics = _build_probe_static(
-        _W["probes"], _W["holes"], ha, aa,
-        bvh_cache=_W["bvh_cache"], sdf_by_name=_W["sdf_by_name"],
+        _W["probes"],
+        _W["holes"],
+        ha,
+        aa,
+        bvh_cache=_W["bvh_cache"],
+        sdf_by_name=_W["sdf_by_name"],
     )
     n_probes = len(statics)
     coverage_data = build_coverage_data(_W["probes"], statics)
     fn_p1, jac_p1 = make_phase1_objective(
-        statics, n_arcs, coverage_data=coverage_data,
-        fixtures=_W["fixtures"], weights=Phase1Weights(),
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
+        fixtures=_W["fixtures"],
+        weights=Phase1Weights(),
     )
     x0 = reduced_to_phase1(reduced_y, n_arcs, n_probes)
     bounds = _offset_only_bounds(x0, n_arcs, n_probes)
     try:
         r = minimize(
-            fn_p1, x0, jac=jac_p1, method="L-BFGS-B", bounds=bounds,
+            fn_p1,
+            x0,
+            jac=jac_p1,
+            method="L-BFGS-B",
+            bounds=bounds,
             options=dict(maxiter=offset_iter, ftol=1e-5, gtol=1e-5),
         )
         return idx, np.asarray(r.x, dtype=np.float64), float(r.fun)
-    except Exception as e:  # noqa: BLE001 — worker should never crash whole run
+    except Exception:
         return idx, x0, float("inf")
 
 
@@ -146,14 +162,18 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--in-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb.pkl"))
-    p.add_argument("--out-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb_augmented.pkl"))
+    p.add_argument("--in-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb.pkl"))
+    p.add_argument(
+        "--out-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb_augmented.pkl")
+    )
     p.add_argument("--offset-iter", type=int, default=20)
     p.add_argument("--n-workers", type=int, default=None)
-    p.add_argument("--limit", type=int, default=None,
-                   help="Augment only the first N cands (for testing)")
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Augment only the first N cands (for testing)",
+    )
     args = p.parse_args()
 
     with open(args.in_pkl, "rb") as f:
@@ -192,14 +212,19 @@ def main() -> int:
             for i in range(n_process):
                 cand = cands[i]
                 jc = results[i]
-                payloads.append((
-                    i, cand.ha, cand.aa, jc.reduced_y, jc.n_arcs,
-                    args.offset_iter,
-                ))
+                payloads.append(
+                    (
+                        i,
+                        cand.ha,
+                        cand.aa,
+                        jc.reduced_y,
+                        jc.n_arcs,
+                        args.offset_iter,
+                    )
+                )
 
             n_done = 0
-            for idx, x_aug, fn_opt in pool.map(_augment_cand, payloads,
-                                                chunksize=10):
+            for idx, x_aug, fn_opt in pool.map(_augment_cand, payloads, chunksize=10):
                 augmented_x[idx] = x_aug
                 offset_fn[idx] = fn_opt
                 n_done += 1
@@ -207,9 +232,10 @@ def main() -> int:
                     elapsed = time.time() - t0
                     rate = n_done / elapsed
                     eta = (n_process - n_done) / rate if rate > 0 else 0
-                    print(f"  {n_done}/{n_process}  "
-                          f"({rate:.1f} cands/s, ETA {eta:.0f}s)",
-                          flush=True)
+                    print(
+                        f"  {n_done}/{n_process}  ({rate:.1f} cands/s, ETA {eta:.0f}s)",
+                        flush=True,
+                    )
     finally:
         if prev_jax is None:
             _os.environ.pop("JAX_PLATFORMS", None)
@@ -217,19 +243,24 @@ def main() -> int:
             _os.environ["JAX_PLATFORMS"] = prev_jax
 
     wall = time.time() - t0
-    print(f"\nAugmentation wall: {wall:.0f}s ({n_process / wall:.1f} cands/s)",
-          flush=True)
+    print(
+        f"\nAugmentation wall: {wall:.0f}s ({n_process / wall:.1f} cands/s)", flush=True
+    )
 
     # Stats on the fixability signal
     finite = offset_fn[~np.isnan(offset_fn)]
     if finite.size:
-        print(f"\nOffset-polish residual fn:")
-        print(f"  min={finite.min():.2f}  max={finite.max():.2e}  "
-              f"median={np.median(finite):.2f}")
+        print("\nOffset-polish residual fn:")
+        print(
+            f"  min={finite.min():.2f}  max={finite.max():.2e}  "
+            f"median={np.median(finite):.2f}"
+        )
         for thresh in (200, 1000, 5000):
             n_below = int(np.sum(finite < thresh))
-            print(f"  fn < {thresh:>5}: {n_below} cands "
-                  f"({n_below / finite.size * 100:.1f}%)")
+            print(
+                f"  fn < {thresh:>5}: {n_below} cands "
+                f"({n_below / finite.size * 100:.1f}%)"
+            )
 
     # Save augmented pkl
     out = dict(data)  # shallow copy

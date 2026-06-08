@@ -31,6 +31,7 @@ from pathlib import Path
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import numpy as np
+from aind_low_point.optimization.spin_restore_jax import spin_restore_jax
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.arc_first_principled import (
@@ -47,7 +48,6 @@ from aind_low_point.optimization.parallel_stage2 import (
 )
 from aind_low_point.optimization.pose_features import precompute_pose_features
 from aind_low_point.optimization.sdf import build_probe_sdf
-from aind_low_point.optimization.spin_restore_jax import spin_restore_jax
 from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
@@ -94,22 +94,30 @@ def main() -> int:
 
     print("Atlas + enumeration...", flush=True)
     t0 = time.perf_counter()
-    atlas = build_visibility_atlas(probes, holes_list,
-                                    n_top=args.n_top, n_spin=args.n_spin,
-                                    verbose=False)
+    atlas = build_visibility_atlas(
+        probes, holes_list, n_top=args.n_top, n_spin=args.n_spin, verbose=False
+    )
     candidates = enumerate_arc_first_candidates(
-        probes, atlas, max_arcs=3, max_probes_per_arc=4,
+        probes,
+        atlas,
+        max_arcs=3,
+        max_probes_per_arc=4,
         per_arc_max_hole_tuples=args.per_arc_cap,
         global_max_candidates=args.global_cap,
         verbose=False,
     )
-    print(f"  done in {time.perf_counter() - t0:.1f}s "
-          f"({len(candidates)} candidates)", flush=True)
+    print(
+        f"  done in {time.perf_counter() - t0:.1f}s ({len(candidates)} candidates)",
+        flush=True,
+    )
 
     print("SDFs + pose features...", flush=True)
-    sdf_by_name = {p.name: build_probe_sdf(
-        runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-    ) for p in probes}
+    sdf_by_name = {
+        p.name: build_probe_sdf(
+            runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
+        )
+        for p in probes
+    }
     pose_features = precompute_pose_features(probes, holes_list)
 
     # Stratify by max-arc envelope width
@@ -121,12 +129,11 @@ def main() -> int:
     max_widths = np.array(max_widths)
 
     bins = {
-        "narrow (<5°)": [i for i in range(len(candidates))
-                          if max_widths[i] < 5.0],
-        "medium (5-15°)": [i for i in range(len(candidates))
-                            if 5.0 <= max_widths[i] < 15.0],
-        "wide (>=15°)": [i for i in range(len(candidates))
-                          if max_widths[i] >= 15.0],
+        "narrow (<5°)": [i for i in range(len(candidates)) if max_widths[i] < 5.0],
+        "medium (5-15°)": [
+            i for i in range(len(candidates)) if 5.0 <= max_widths[i] < 15.0
+        ],
+        "wide (>=15°)": [i for i in range(len(candidates)) if max_widths[i] >= 15.0],
     }
     random.seed(args.seed)
     sample_per_bin: dict[str, list[int]] = {}
@@ -140,7 +147,8 @@ def main() -> int:
         flat_sample.extend([(name, i) for i in ids])
     N = len(flat_sample)
     if N == 0:
-        print("No candidates."); return 1
+        print("No candidates.")
+        return 1
 
     sample_cands = [candidates[i] for _, i in flat_sample]
     weights = replace(JointWeights(), min_arc_ap_sep_deg=16.0)
@@ -149,33 +157,45 @@ def main() -> int:
     # ----- Initial y0 -----
     print()
     print("Building initial y0 per candidate (midpoint AP + anchor seeds)")
-    y0_init = np.stack([build_initial_y0(c, probes, n_arcs=n_arcs)
-                         for c in sample_cands])  # (N, n_vars)
+    y0_init = np.stack(
+        [build_initial_y0(c, probes, n_arcs=n_arcs) for c in sample_cands]
+    )  # (N, n_vars)
 
     # ===== Method A: batched round-robin =====
     print()
     print(f"Method A: batched round-robin spin restore ({N} cands)", flush=True)
+    import jax.numpy as jnp
+
     from aind_low_point.optimization.batched_spin_restore import (
         make_batched_spin_restore,
     )
     from aind_low_point.optimization.batched_static import (
         build_batched_probe_static,
     )
-    import jax.numpy as jnp
+
     pairs = [(c.ha, c.aa) for c in sample_cands]
     bs = build_batched_probe_static(
-        pairs, probes, holes_list, n_arcs=n_arcs,
+        pairs,
+        probes,
+        holes_list,
+        n_arcs=n_arcs,
         sdf_by_name=sdf_by_name,
     )
     spin_restore_RR = make_batched_spin_restore(
-        bs, weights, n_spins=8, n_rounds=2,
+        bs,
+        weights,
+        n_spins=8,
+        n_rounds=2,
     )
     t0 = time.perf_counter()
     y0_RR = np.asarray(spin_restore_RR(jnp.asarray(y0_init)), dtype=np.float64)
-    print(f"  done in {time.perf_counter() - t0:.1f}s  "
-          f"({(time.perf_counter() - t0) / N * 1000:.0f} ms/cand)")
+    print(
+        f"  done in {time.perf_counter() - t0:.1f}s  "
+        f"({(time.perf_counter() - t0) / N * 1000:.0f} ms/cand)"
+    )
 
     import jax
+
     del spin_restore_RR, bs
     jax.clear_caches()
 
@@ -186,7 +206,11 @@ def main() -> int:
     t0 = time.perf_counter()
     for i, c in enumerate(sample_cands):
         statics = _build_probe_static(
-            probes, holes_list, c.ha, c.aa, sdf_by_name=sdf_by_name,
+            probes,
+            holes_list,
+            c.ha,
+            c.aa,
+            sdf_by_name=sdf_by_name,
         )
         y0_PW[i] = spin_restore_jax(y0_init[i], statics, n_arcs)
     t_pw = time.perf_counter() - t0
@@ -194,14 +218,21 @@ def main() -> int:
 
     # ===== Polish each restored y0 =====
     print()
-    print(f"Polishing {N} candidates × 2 methods = {2 * N} polishes "
-          f"(skip_spin_restore=True)", flush=True)
+    print(
+        f"Polishing {N} candidates × 2 methods = {2 * N} polishes "
+        f"(skip_spin_restore=True)",
+        flush=True,
+    )
     polish_pairs = [(c.ha, c.aa, float("nan")) for c in sample_cands]
     # Polish A
     t0 = time.perf_counter()
     results_RR = polish_all(
-        polish_pairs, probes, holes_list, pose_features,
-        weights=weights, sdf_by_name=sdf_by_name,
+        polish_pairs,
+        probes,
+        holes_list,
+        pose_features,
+        weights=weights,
+        sdf_by_name=sdf_by_name,
         n_workers=args.n_workers,
         y0_per_candidate=[y0_RR[i] for i in range(N)],
         skip_spin_restore=True,
@@ -211,8 +242,12 @@ def main() -> int:
     print(f"  polish (A): {t_a:.1f}s")
     t0 = time.perf_counter()
     results_PW = polish_all(
-        polish_pairs, probes, holes_list, pose_features,
-        weights=weights, sdf_by_name=sdf_by_name,
+        polish_pairs,
+        probes,
+        holes_list,
+        pose_features,
+        weights=weights,
+        sdf_by_name=sdf_by_name,
         n_workers=args.n_workers,
         y0_per_candidate=[y0_PW[i] for i in range(N)],
         skip_spin_restore=True,
@@ -228,8 +263,7 @@ def main() -> int:
     print("=" * 80)
     mv_A = np.array([r.metrics.max_violation for r in results_RR])
     mv_B = np.array([r.metrics.max_violation for r in results_PW])
-    print(f"  {'bin':<18}{'cand':>6}{'mv_RR':>10}{'mv_PW':>10}"
-          f"{'PW-RR':>10}  comment")
+    print(f"  {'bin':<18}{'cand':>6}{'mv_RR':>10}{'mv_PW':>10}{'PW-RR':>10}  comment")
     for i, (bin_name, cand_idx) in enumerate(flat_sample):
         d = mv_B[i] - mv_A[i]
         comment = ""
@@ -238,8 +272,10 @@ def main() -> int:
                 comment = "  RR better"
             else:
                 comment = "  PW better"
-        print(f"  {bin_name:<18}{cand_idx:>6}{mv_A[i]:>10.4f}"
-              f"{mv_B[i]:>10.4f}{d:>+10.4f}{comment}")
+        print(
+            f"  {bin_name:<18}{cand_idx:>6}{mv_A[i]:>10.4f}"
+            f"{mv_B[i]:>10.4f}{d:>+10.4f}{comment}"
+        )
 
     print()
     print("=" * 80)
@@ -247,17 +283,25 @@ def main() -> int:
     print("=" * 80)
     print(f"  RR median max_viol : {float(np.median(mv_A)):.4f}")
     print(f"  PW median max_viol : {float(np.median(mv_B)):.4f}")
-    print(f"  PW wins (|PW - RR| > 0.1, PW lower) : "
-          f"{int(np.sum((mv_B + 0.1 < mv_A)))} / {N}")
-    print(f"  RR wins (|PW - RR| > 0.1, RR lower) : "
-          f"{int(np.sum((mv_A + 0.1 < mv_B)))} / {N}")
-    print(f"  effectively tied (|PW - RR| ≤ 0.1)  : "
-          f"{int(np.sum(np.abs(mv_A - mv_B) <= 0.1))} / {N}")
+    print(
+        f"  PW wins (|PW - RR| > 0.1, PW lower) : "
+        f"{int(np.sum((mv_B + 0.1 < mv_A)))} / {N}"
+    )
+    print(
+        f"  RR wins (|PW - RR| > 0.1, RR lower) : "
+        f"{int(np.sum((mv_A + 0.1 < mv_B)))} / {N}"
+    )
+    print(
+        f"  effectively tied (|PW - RR| ≤ 0.1)  : "
+        f"{int(np.sum(np.abs(mv_A - mv_B) <= 0.1))} / {N}"
+    )
 
     # Speed
     print()
-    print(f"  spin restore wall: RR ~{t_a:.0f}ms/cand (batched), "
-          f"PW ~{t_pw / N * 1000:.0f}ms/cand (sequential)")
+    print(
+        f"  spin restore wall: RR ~{t_a:.0f}ms/cand (batched), "
+        f"PW ~{t_pw / N * 1000:.0f}ms/cand (sequential)"
+    )
 
     return 0
 

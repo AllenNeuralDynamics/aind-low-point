@@ -336,6 +336,7 @@ def _sdf_jnp_payload(sdf) -> dict:
     if cached is not None:
         return cached
     import jax.numpy as jnp
+
     payload = dict(
         grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
         origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
@@ -622,9 +623,7 @@ def _update_pose_and_pairwise_clearances(
                 if sa is None or sb is None:
                     # Probe with no SDF falls back to BVH for that pair.
                     out.append(
-                        _signed_pair_clearance(
-                            statics[ia].bvh_obj, statics[ib].bvh_obj
-                        )
+                        _signed_pair_clearance(statics[ia].bvh_obj, statics[ib].bvh_obj)
                     )
                     continue
                 hbb, hbs, hss = pairwise_signed_clearance_dual_hard_mins_jit(
@@ -632,11 +631,18 @@ def _update_pose_and_pairwise_clearances(
                     jnp.asarray(t_a, dtype=jnp.float32),
                     jnp.asarray(R_b, dtype=jnp.float32),
                     jnp.asarray(t_b, dtype=jnp.float32),
-                    sa["grid"], sa["origin"], sa["spacing"],
-                    sb["grid"], sb["origin"], sb["spacing"],
-                    sa["surface"], sb["surface"],
-                    sa["shank_centers"], sa["shank_halves"],
-                    sb["shank_centers"], sb["shank_halves"],
+                    sa["grid"],
+                    sa["origin"],
+                    sa["spacing"],
+                    sb["grid"],
+                    sb["origin"],
+                    sb["spacing"],
+                    sa["surface"],
+                    sb["surface"],
+                    sa["shank_centers"],
+                    sa["shank_halves"],
+                    sb["shank_centers"],
+                    sb["shank_halves"],
                 )
                 out.append(float(jnp.minimum(jnp.minimum(hbb, hbs), hss)))
         return out
@@ -930,9 +936,7 @@ def _build_starts(
     for st in statics:
         spin_rad = float(np.pi / 2 - st.assigned_hole.slot_theta_rad)
         spin_warm.append(float(np.rad2deg(spin_rad)))
-        spin_warm_xy.append(
-            (float(np.cos(spin_rad)), float(np.sin(spin_rad)))
-        )
+        spin_warm_xy.append((float(np.cos(spin_rad)), float(np.sin(spin_rad))))
 
     # Helper: required ML at a given ap_arc for probe i.
     def _ml_at_ap(probe_idx: int, ap: float) -> float:
@@ -965,7 +969,7 @@ def _build_starts(
     for a in range(n_arcs):
         start1[a] = float(aa.arc_centroids_deg[a])
     for i, st in enumerate(statics):
-        start1[n_arcs + 3 * i] = 0.0          # ml
+        start1[n_arcs + 3 * i] = 0.0  # ml
         start1[n_arcs + 3 * i + 1] = spin_warm_xy[i][0]  # sx
         start1[n_arcs + 3 * i + 2] = spin_warm_xy[i][1]  # sy
 
@@ -1002,9 +1006,9 @@ def _build_starts(
             start2[a] = float(aa.arc_centroids_deg[a])
     for i, st in enumerate(statics):
         ap_i = float(start2[st.arc_idx])
-        start2[n_arcs + 3 * i] = _ml_at_ap(i, ap_i)            # ml
-        start2[n_arcs + 3 * i + 1] = spin_warm_xy[i][0]         # sx
-        start2[n_arcs + 3 * i + 2] = spin_warm_xy[i][1]         # sy
+        start2[n_arcs + 3 * i] = _ml_at_ap(i, ap_i)  # ml
+        start2[n_arcs + 3 * i + 1] = spin_warm_xy[i][0]  # sx
+        start2[n_arcs + 3 * i + 2] = spin_warm_xy[i][1]  # sy
 
     # Start 3: same APs as start 2, alternating spin offsets per on-arc
     # neighbour (odd-indexed gets spin + 180°, i.e. (sx, sy) negated).
@@ -1043,13 +1047,13 @@ def _reduced_bounds(
     for _ in range(n_arcs):
         bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-60.0, +60.0))    # ml
+        bounds.append((-60.0, +60.0))  # ml
         # (sx, sy) bounds at ±1.1 — the unit_circle_penalty pulls
         # magnitude toward 1; a small allowance keeps the optimizer
         # away from a rectangular constraint boundary while letting
         # the penalty do the work.
-        bounds.append((-1.1, +1.1))       # sx
-        bounds.append((-1.1, +1.1))       # sy
+        bounds.append((-1.1, +1.1))  # sx
+        bounds.append((-1.1, +1.1))  # sy
     return bounds
 
 
@@ -1100,8 +1104,12 @@ def _slsqp_reduced(
                 method="L-BFGS-B",
                 jac=jac,
                 bounds=bounds,
-                options={"maxiter": max_iter, "ftol": 1e-4, "gtol": 1e-5,
-                         "disp": False},
+                options={
+                    "maxiter": max_iter,
+                    "ftol": 1e-4,
+                    "gtol": 1e-5,
+                    "disp": False,
+                },
             )
         except Exception:
             return y0, float("inf")
@@ -1118,8 +1126,7 @@ def _slsqp_reduced(
             y0,
             method="L-BFGS-B",
             bounds=bounds,
-            options={"maxiter": max_iter, "ftol": 1e-6, "gtol": 1e-5,
-                     "disp": False},
+            options={"maxiter": max_iter, "ftol": 1e-6, "gtol": 1e-5, "disp": False},
         )
     except Exception:
         return y0, float("inf")
@@ -1435,6 +1442,7 @@ def _push_restore_full_x(  # noqa: C901
             return x
     return x
 
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -1523,6 +1531,7 @@ def _inner_solve_worker_init(
     # try to acquire the GPU on first import — guaranteed OOM with 15
     # workers. Pin workers to CPU before any JAX import gets pulled in.
     import os as _os
+
     _os.environ["JAX_PLATFORMS"] = "cpu"
     global _INNER_WORKER_STATE
     # Build per-worker BVH cache ONCE here. Each worker may handle
@@ -1731,12 +1740,15 @@ def optimize_joint(  # noqa: C901
 
     if use_atlas_stage1:
         if verbose:
-            print(f"[optimize_joint] Stage 1: building target-aligned atlas "
-                  f"(step={atlas_ap_step_deg}°, excursion=±{atlas_max_excursion_deg}°)...")
+            print(
+                f"[optimize_joint] Stage 1: building target-aligned atlas "
+                f"(step={atlas_ap_step_deg}°, excursion=±{atlas_max_excursion_deg}°)..."
+            )
         from aind_low_point.optimization.atlas import atlas_stage1 as _atlas_stage1
         from aind_low_point.optimization.hole_assignment import (
             build_cost_matrix as _build_cost_matrix,
         )
+
         # Per-cell viol matrix to apply LSAP's hard-reject in addition
         # to atlas non-empty check.
         cost_mat_for_atlas = _build_cost_matrix(
@@ -1744,6 +1756,7 @@ def optimize_joint(  # noqa: C901
         )
         # Per-cell viol — extract from multi_pose_evaluate. Cheap to redo.
         from aind_low_point.optimization.hole_assignment import multi_pose_evaluate
+
         K_p = len(assignment_probes)
         N_h = len(holes)
         viol_for_atlas = np.zeros((K_p, N_h))
@@ -1751,7 +1764,8 @@ def optimize_joint(  # noqa: C901
             for jj, hh in enumerate(holes):
                 viol_for_atlas[ii, jj] = multi_pose_evaluate(pp, hh).min_violation_sq
         _atlas, hole_assignments = _atlas_stage1(
-            probes, holes,
+            probes,
+            holes,
             ap_step_deg=atlas_ap_step_deg,
             ap_max_excursion_deg=atlas_max_excursion_deg,
             max_target_miss_mm=atlas_max_target_miss_mm,
@@ -1764,8 +1778,10 @@ def optimize_joint(  # noqa: C901
         )
         t_lsap = time.time()
         if verbose:
-            print(f"[optimize_joint] atlas Stage 1: {t_lsap - t_pose:.2f}s "
-                  f"({len(hole_assignments)} HAs)")
+            print(
+                f"[optimize_joint] atlas Stage 1: {t_lsap - t_pose:.2f}s "
+                f"({len(hole_assignments)} HAs)"
+            )
     else:
         if verbose:
             print(f"[optimize_joint] Stage 1: solving top-{k_holes_pool} LSAP...")
@@ -1819,7 +1835,11 @@ def optimize_joint(  # noqa: C901
             )
         for aa in arc_assignments:
             jc = score_joint(
-                ha, aa, probes, holes, pose_features,
+                ha,
+                aa,
+                probes,
+                holes,
+                pose_features,
                 weights=eff_weights,
                 head_pitch_deg=head_pitch_deg,
                 reduced_slsqp_max_iter=reduced_slsqp_max_iter,
@@ -1911,6 +1931,7 @@ def optimize_joint(  # noqa: C901
         # 'spawn' avoids inheriting CUDA contexts from JAX-GPU used in
         # Stage 2 — fork() leaves CUDA contexts in an unusable state.
         import multiprocessing as _mp
+
         _spawn_ctx = _mp.get_context("spawn")
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=n_workers,

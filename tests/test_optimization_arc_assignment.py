@@ -371,8 +371,11 @@ def _qp_oracle(c, lo, hi):
         for i in range(len(c) - 1)
     ]
     res = minimize(
-        lambda a: float(np.sum((a - c) ** 2)), np.clip(c, lo, hi).astype(float),
-        method="SLSQP", bounds=list(zip(lo, hi)), constraints=cons,
+        lambda a: float(np.sum((a - c) ** 2)),
+        np.clip(c, lo, hi).astype(float),
+        method="SLSQP",
+        bounds=list(zip(lo, hi)),
+        constraints=cons,
         options={"ftol": 1e-12, "maxiter": 800},
     )
     return res.x
@@ -404,7 +407,7 @@ def test_bounded_isotonic_box_clamp_stays_feasible():
 
 def _feasible_instance(rng):
     n = int(rng.integers(2, 8))
-    slack = (_HI - _LO) - (n - 1) * _SEP            # ≥ 0 for n ≤ 8
+    slack = (_HI - _LO) - (n - 1) * _SEP  # ≥ 0 for n ≤ 8
     extra = rng.uniform(0.0, 1.0, n - 1)
     extra *= rng.uniform(0.0, slack) / max(extra.sum(), 1e-9)
     true = np.concatenate([[0.0], np.cumsum(_SEP + extra)])
@@ -423,7 +426,7 @@ def test_bounded_isotonic_feasible_and_l2_optimal_random():
         out = bounded_isotonic_arc_aps(c, lo, hi, _SEP)
         worst_v = max(worst_v, _max_violation(out, lo, hi, c))
         oracle = _qp_oracle(c, lo, hi)
-        if _max_violation(oracle, lo, hi, c) < 1e-6:   # only where oracle converged
+        if _max_violation(oracle, lo, hi, c) < 1e-6:  # only where oracle converged
             worst_obj = max(
                 worst_obj,
                 abs(float(np.sum((out - c) ** 2)) - float(np.sum((oracle - c) ** 2))),

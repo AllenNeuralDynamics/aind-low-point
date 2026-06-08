@@ -1914,9 +1914,7 @@ class TrameController:
             # trimesh's barycentric-coord computation divides by 0 on
             # those and emits a RuntimeWarning. Output is still correct.
             with np.errstate(invalid="ignore", divide="ignore"):
-                _, dists, _ = trimesh.proximity.closest_point(
-                    geom.raw, [local_pt]
-                )
+                _, dists, _ = trimesh.proximity.closest_point(geom.raw, [local_pt])
             d = float(dists[0])
             if d < best_dist:
                 best_dist = d

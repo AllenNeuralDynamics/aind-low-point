@@ -104,14 +104,12 @@ class _AtlasArrays:
 
     # Each key is (probe_idx, hole_id).
     ap_sorted: dict
-    ml_sorted: dict        # parallel to ap_sorted
-    spin_sorted: dict      # parallel to ap_sorted
-    ap_min_max: dict       # (probe_idx, hole_id) -> (ap_min, ap_max)
+    ml_sorted: dict  # parallel to ap_sorted
+    spin_sorted: dict  # parallel to ap_sorted
+    ap_min_max: dict  # (probe_idx, hole_id) -> (ap_min, ap_max)
 
 
-def _build_atlas_arrays(
-    atlas: Atlas, probe_names: list[str]
-) -> _AtlasArrays:
+def _build_atlas_arrays(atlas: Atlas, probe_names: list[str]) -> _AtlasArrays:
     """Pre-pack atlas anchors into numpy arrays per (probe, hole).
 
     Anchors are sorted by ``ap_deg`` so ``np.searchsorted`` finds the
@@ -176,16 +174,20 @@ class ArcFirstCandidate:
 
     ha: HoleAssignment
     aa: ArcAssignment
-    ml_seed: dict[str, float]              # probe_name → ml warm-start
-    spin_seed: dict[str, float]            # probe_name → spin warm-start
+    ml_seed: dict[str, float]  # probe_name → ml warm-start
+    spin_seed: dict[str, float]  # probe_name → spin warm-start
 
     # Cheap pre-polish signals
-    ap_intersection_min_width_deg: float   # min over arcs of (hi - lo) of envelope intersection
-    min_intra_arc_ml_slack_deg: float      # min over arcs of (min pairwise ml diff − min_ml_sep)
-    total_atlas_anchors: int               # Σ over (probe, hole) of anchor counts
-    ap_centeredness_sum: float             # Σ over probes of (1 − |anchor_ap − arc_ap|/ap_tol)
-    arc_ap_pairwise_min_sep_deg: float     # min over arc pairs of |AP_i - AP_j|
-    composite_order_score: float           # weighted sum of the above
+    ap_intersection_min_width_deg: (
+        float  # min over arcs of (hi - lo) of envelope intersection
+    )
+    min_intra_arc_ml_slack_deg: (
+        float  # min over arcs of (min pairwise ml diff − min_ml_sep)
+    )
+    total_atlas_anchors: int  # Σ over (probe, hole) of anchor counts
+    ap_centeredness_sum: float  # Σ over probes of (1 − |anchor_ap − arc_ap|/ap_tol)
+    arc_ap_pairwise_min_sep_deg: float  # min over arc pairs of |AP_i - AP_j|
+    composite_order_score: float  # weighted sum of the above
     components: dict[str, float] = field(default_factory=dict)
 
 
@@ -308,17 +310,19 @@ def _enumerate_arc_hole_tuples(
             len(aa.ap_sorted[(probe_indices[k], holes[k])])
             for k in range(len(probe_indices))
         )
-        out.append({
-            "holes": holes,
-            "ap_lo": lo,
-            "ap_hi": hi,
-            "ap_mid": ap_mid,
-            "seed_ml": seed_ml,
-            "seed_spin": seed_spin,
-            "seed_ap": seed_ap,
-            "min_ml_diff": min_diff,
-            "total_anchors": total_anchors,
-        })
+        out.append(
+            {
+                "holes": holes,
+                "ap_lo": lo,
+                "ap_hi": hi,
+                "ap_mid": ap_mid,
+                "seed_ml": seed_ml,
+                "seed_spin": seed_spin,
+                "seed_ap": seed_ap,
+                "min_ml_diff": min_diff,
+                "total_anchors": total_anchors,
+            }
+        )
     return out
 
 
@@ -362,14 +366,14 @@ def _find_ml_sep_anchors_arr(
         spins_arr = aa.spin_sorted[key]
         # Closest-AP subset, capped at max_anchors_per_probe
         order = np.argsort(np.abs(aps_arr - target_ap))[:max_anchors_per_probe]
-        sorted_per_probe.append((
-            mls_arr[order], spins_arr[order], aps_arr[order]
-        ))
+        sorted_per_probe.append((mls_arr[order], spins_arr[order], aps_arr[order]))
 
     best: list = [None]
     call_count = [0]
 
-    def search(idx: int, mls: list[float], spins: list[float], aps: list[float]) -> bool:
+    def search(
+        idx: int, mls: list[float], spins: list[float], aps: list[float]
+    ) -> bool:
         call_count[0] += 1
         if call_count[0] >= max_calls:
             return False
@@ -470,7 +474,7 @@ def ml_anchors_mrv(  # noqa: C901
                 return False
             mls, spins, aps = cand[p]
             rest = remaining - {p}
-            for j in np.nonzero(viab[p])[0]:        # closest-AP order
+            for j in np.nonzero(viab[p])[0]:  # closest-AP order
                 chosen[p] = (float(mls[j]), float(spins[j]), float(aps[j]))
                 if rec(placed_mls + [float(mls[j])], rest):
                     return True
@@ -487,7 +491,7 @@ def ml_anchors_mrv(  # noqa: C901
         m = [c[0] for c in combo]
         return min(abs(m[i] - m[j]) for i in range(n) for j in range(i + 1, n))
 
-    combo = search(min_ml_sep_deg)              # strict first (common path)
+    combo = search(min_ml_sep_deg)  # strict first (common path)
     if combo is not None:
         return combo, min_gap(combo)
     # Soft fallback: binary-search the largest achievable separation, return
@@ -618,10 +622,12 @@ def enumerate_arc_first_candidates(
     # Replaces per-call min(anchors, key=lambda) which was the hot spot.
     if verbose:
         import time as _time
+
         _t = _time.perf_counter()
     atlas_arr = _build_atlas_arrays(atlas, probe_names)
     if verbose:
         import time as _time
+
         print(f"[arc-first] atlas arrays built in {_time.perf_counter() - _t:.2f}s")
 
     if composite_weights is None:
@@ -645,17 +651,19 @@ def enumerate_arc_first_candidates(
             return cached
         if verbose:
             import time as _time
+
             _arc_t = _time.perf_counter()
-        out = _enumerate_arc_hole_tuples(
-            key, atlas_arr, min_ml_sep_deg=min_ml_sep_deg
-        )
+        out = _enumerate_arc_hole_tuples(key, atlas_arr, min_ml_sep_deg=min_ml_sep_deg)
         if verbose:
             import time as _time
+
             _dt = _time.perf_counter() - _arc_t
             if _dt > 0.1:
-                print(f"[arc-first] arc-group {key} (size {len(key)}): "
-                      f"enumerated {len(out)} hole-tuples in {_dt:.2f}s",
-                      flush=True)
+                print(
+                    f"[arc-first] arc-group {key} (size {len(key)}): "
+                    f"enumerated {len(out)} hole-tuples in {_dt:.2f}s",
+                    flush=True,
+                )
         if per_arc_max_hole_tuples is not None and len(out) > per_arc_max_hole_tuples:
             # Sort by AP-intersection width (wider = polish-friendlier) and keep
             # top-N. NB: this is a hard discrete cap; if a hole-tuple's
@@ -686,10 +694,12 @@ def enumerate_arc_first_candidates(
             continue
         n_partitions_kept += 1
         if verbose and n_partitions % 50 == 0:
-            print(f"[arc-first] partition {n_partitions}: "
-                  f"per-arc tuple counts = {[len(t) for t in per_arc_tuples]}, "
-                  f"cumulative candidates = {len(candidates)}",
-                  flush=True)
+            print(
+                f"[arc-first] partition {n_partitions}: "
+                f"per-arc tuple counts = {[len(t) for t in per_arc_tuples]}, "
+                f"cumulative candidates = {len(candidates)}",
+                flush=True,
+            )
 
         # Cross-arc Cartesian
         for combo in itertools.product(*per_arc_tuples):
@@ -785,22 +795,27 @@ def enumerate_arc_first_candidates(
                     for i in range(len(canonical_aps))
                     for j in range(i + 1, len(canonical_aps))
                 )
-                if len(canonical_aps) >= 2 else float("inf")
+                if len(canonical_aps) >= 2
+                else float("inf")
             )
 
             # Composite (un-normalized — caller can re-rank if desired)
             ml_slack_for_score = (
-                10.0 if min_intra_arc_ml_slack_deg == float("inf")
+                10.0
+                if min_intra_arc_ml_slack_deg == float("inf")
                 else min(min_intra_arc_ml_slack_deg, 30.0)
             )
             arc_sep_for_score = (
-                30.0 if arc_ap_pairwise_min_sep_deg == float("inf")
+                30.0
+                if arc_ap_pairwise_min_sep_deg == float("inf")
                 else min(arc_ap_pairwise_min_sep_deg, 60.0)
             )
             comp = (
-                composite_weights["ap_intersection_min_width_deg"] * ap_intersection_min_width_deg
+                composite_weights["ap_intersection_min_width_deg"]
+                * ap_intersection_min_width_deg
                 + composite_weights["min_intra_arc_ml_slack_deg"] * ml_slack_for_score
-                + composite_weights["total_atlas_anchors"] * np.log1p(total_atlas_anchors)
+                + composite_weights["total_atlas_anchors"]
+                * np.log1p(total_atlas_anchors)
                 + composite_weights["ap_centeredness_sum"] * ap_centeredness_sum
                 + composite_weights["arc_ap_pairwise_min_sep_deg"] * arc_sep_for_score
             )
@@ -819,23 +834,29 @@ def enumerate_arc_first_candidates(
                 arc_centroids_deg=tuple(float(a) for a in canonical_aps),
                 cost=-comp,
             )
-            candidates.append(ArcFirstCandidate(
-                ha=ha, aa=aa,
-                ml_seed=ml_seed, spin_seed=spin_seed,
-                ap_intersection_min_width_deg=float(ap_intersection_min_width_deg),
-                min_intra_arc_ml_slack_deg=float(min_intra_arc_ml_slack_deg),
-                total_atlas_anchors=int(total_atlas_anchors),
-                ap_centeredness_sum=float(ap_centeredness_sum),
-                arc_ap_pairwise_min_sep_deg=float(arc_ap_pairwise_min_sep_deg),
-                composite_order_score=float(comp),
-                components=components,
-            ))
+            candidates.append(
+                ArcFirstCandidate(
+                    ha=ha,
+                    aa=aa,
+                    ml_seed=ml_seed,
+                    spin_seed=spin_seed,
+                    ap_intersection_min_width_deg=float(ap_intersection_min_width_deg),
+                    min_intra_arc_ml_slack_deg=float(min_intra_arc_ml_slack_deg),
+                    total_atlas_anchors=int(total_atlas_anchors),
+                    ap_centeredness_sum=float(ap_centeredness_sum),
+                    arc_ap_pairwise_min_sep_deg=float(arc_ap_pairwise_min_sep_deg),
+                    composite_order_score=float(comp),
+                    components=components,
+                )
+            )
 
     candidates.sort(key=lambda c: -c.composite_order_score)
     if verbose:
-        print(f"[arc-first] enumerated {n_partitions} partitions "
-              f"({n_partitions_kept} with valid arcs); "
-              f"{len(candidates)} candidates")
+        print(
+            f"[arc-first] enumerated {n_partitions} partitions "
+            f"({n_partitions_kept} with valid arcs); "
+            f"{len(candidates)} candidates"
+        )
     return candidates
 
 

@@ -226,8 +226,11 @@ def _qp_chain_box(c: NDArray, lo: NDArray, hi: NDArray, sep: float) -> NDArray:
     ]
     x0 = np.clip(c, lo, hi)
     res = minimize(
-        lambda a: float(np.sum((a - c) ** 2)), x0, method="SLSQP",
-        bounds=list(zip(lo.tolist(), hi.tolist())), constraints=cons,
+        lambda a: float(np.sum((a - c) ** 2)),
+        x0,
+        method="SLSQP",
+        bounds=list(zip(lo.tolist(), hi.tolist())),
+        constraints=cons,
         options={"ftol": 1e-12, "maxiter": 500},
     )
     return np.asarray(res.x, dtype=np.float64)

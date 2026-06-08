@@ -79,9 +79,9 @@ from scripts.run_phase1_sample import (
 #
 # If a future probe has a different geometry, override here.
 BODY_LONG_AXIS_LOCAL = {
-    "quadbase-alpha":    np.array([0.0, 1.0, 0.0]),
+    "quadbase-alpha": np.array([0.0, 1.0, 0.0]),
     "quadbase-dovetail": np.array([0.0, 1.0, 0.0]),
-    "2.1":               np.array([0.0, 1.0, 0.0]),
+    "2.1": np.array([0.0, 1.0, 0.0]),
     # default fallback below
 }
 _DEFAULT_LONG_AXIS = np.array([0.0, 1.0, 0.0])
@@ -131,7 +131,9 @@ def _orbit_basis(ap_deg: float, ml_deg: float) -> tuple[np.ndarray, np.ndarray]:
 
 
 def spin_to_align_y_with(
-    target_dir_world: np.ndarray, ap_deg: float, ml_deg: float,
+    target_dir_world: np.ndarray,
+    ap_deg: float,
+    ml_deg: float,
 ) -> float:
     """Closed-form spin (deg) that best aligns probe local +y with
     ``target_dir_world`` under ``arc_angles_to_affine(ap, ml, spin)``.
@@ -167,9 +169,11 @@ def optimal_spin_for_gap(
     Equivalent to ``spin_to_align_y_with(gap × axis_z_world)``, but the
     direct atan2 form avoids needing the rotation-axis vector.
     """
-    if not (abs(long_axis_local[0]) < 1e-6
-            and abs(long_axis_local[2]) < 1e-6
-            and abs(abs(long_axis_local[1]) - 1.0) < 1e-6):
+    if not (
+        abs(long_axis_local[0]) < 1e-6
+        and abs(long_axis_local[2]) < 1e-6
+        and abs(abs(long_axis_local[1]) - 1.0) < 1e-6
+    ):
         raise NotImplementedError(
             f"optimal_spin_for_gap currently assumes long_axis_local "
             f"= (0, ±1, 0); got {long_axis_local}. Update derivation "
@@ -226,8 +230,12 @@ def per_probe_spin_candidates(
             h1 = [spin_align_y, spin_align_y + 180.0]
         else:
             # 1-shank: spin free for threading; offer 4 orientations.
-            h1 = [spin_align_y, spin_align_y + 90.0,
-                  spin_align_y + 180.0, spin_align_y + 270.0]
+            h1 = [
+                spin_align_y,
+                spin_align_y + 90.0,
+                spin_align_y + 180.0,
+                spin_align_y + 270.0,
+            ]
 
         # H2: for each close neighbor, get the geometric optimum spin.
         # 4-shank: snap to nearest H1 entry. Otherwise add to candidate set.
@@ -240,7 +248,10 @@ def per_probe_spin_candidates(
                 continue
             gap_dir = gap / norm
             sp_a, sp_b = optimal_spin_for_gap(
-                body_long_axis_local(kind), ap_i, ml_i, gap_dir,
+                body_long_axis_local(kind),
+                ap_i,
+                ml_i,
+                gap_dir,
             )
             h2_candidates.extend([sp_a, sp_b])
 
@@ -251,8 +262,7 @@ def per_probe_spin_candidates(
             for sp in h2_candidates:
                 d_slot = abs(_wrap_deg(sp - spin_align_y))
                 d_flip = abs(_wrap_deg(sp - (spin_align_y + 180.0)))
-                snapped.add(spin_align_y if d_slot < d_flip
-                            else spin_align_y + 180.0)
+                snapped.add(spin_align_y if d_slot < d_flip else spin_align_y + 180.0)
             cands = list(set(h1) | snapped)
         else:
             cands = list(h1) + h2_candidates
@@ -301,8 +311,8 @@ def _dedup_angles(angles: list[float], tol_deg: float = 5.0) -> list[float]:
 # used the wrong distance (deep targets, not the bodies that actually interact
 # above the brain) and a guessed threshold ≈ the whole mouse brain.
 
-N_ZBINS = 120     # height bins for the r(z) revolution profile
-N_THETA = 24      # angular samples when meshing the swept surface
+N_ZBINS = 120  # height bins for the r(z) revolution profile
+N_THETA = 24  # angular samples when meshing the swept surface
 
 
 def swept_profile(mesh_verts: np.ndarray, rec_center_local: np.ndarray) -> tuple:
@@ -346,7 +356,10 @@ def swept_surface_world(prof: tuple, R0: np.ndarray, target: np.ndarray) -> np.n
 
 
 def inside_swept(
-    world_pts: np.ndarray, prof: tuple, R0: np.ndarray, target: np.ndarray,
+    world_pts: np.ndarray,
+    prof: tuple,
+    R0: np.ndarray,
+    target: np.ndarray,
 ) -> np.ndarray:
     """Boolean mask: which world points lie inside the swept solid."""
     zc, rmax, z_lo, z_hi = prof
@@ -358,7 +371,14 @@ def inside_swept(
 
 
 def swept_overlap(
-    prof_i, R0_i, t_i, surf_i, prof_j, R0_j, t_j, surf_j,
+    prof_i,
+    R0_i,
+    t_i,
+    surf_i,
+    prof_j,
+    R0_j,
+    t_j,
+    surf_j,
 ) -> tuple[bool, float, np.ndarray | None]:
     """``(overlap, gap_mm, contact_world)`` between two swept solids.
 
@@ -374,8 +394,8 @@ def swept_overlap(
     from scipy.spatial import cKDTree
 
     tree_j = cKDTree(surf_j)
-    in_j = inside_swept(surf_i, prof_j, R0_j, t_j)   # i-surf points inside j
-    in_i = inside_swept(surf_j, prof_i, R0_i, t_i)   # j-surf points inside i
+    in_j = inside_swept(surf_i, prof_j, R0_j, t_j)  # i-surf points inside j
+    in_i = inside_swept(surf_j, prof_i, R0_i, t_i)  # j-surf points inside i
     if not (in_j.any() or in_i.any()):
         return False, float(tree_j.query(surf_i)[0].min()), None
     # Penetration ≈ deepest inside point's distance to the other boundary;
@@ -423,12 +443,12 @@ def build_coupling_graph(
     for i, st in enumerate(statics):
         kind = probe_kind_by_name.get(st.name, "default")
         if kind not in prof_by_kind:
-            prof_by_kind[kind] = swept_profile(
-                mesh_verts_by_kind[kind], st.pivot_local)
+            prof_by_kind[kind] = swept_profile(mesh_verts_by_kind[kind], st.pivot_local)
         prof = prof_by_kind[kind]
         profs.append(prof)
         R0 = arc_angles_to_affine(
-            float(arc_aps[st.arc_idx]), float(ml_per_probe[i]), 0.0)
+            float(arc_aps[st.arc_idx]), float(ml_per_probe[i]), 0.0
+        )
         R0s.append(R0)
         surfs.append(swept_surface_world(prof, R0, target_LPS[i]))
 
@@ -437,12 +457,19 @@ def build_coupling_graph(
     contact: dict[tuple[int, int], np.ndarray] = {}
     for i, j in itertools.combinations(range(K), 2):
         overlap, gap, ctr = swept_overlap(
-            profs[i], R0s[i], target_LPS[i], surfs[i],
-            profs[j], R0s[j], target_LPS[j], surfs[j])
+            profs[i],
+            R0s[i],
+            target_LPS[i],
+            surfs[i],
+            profs[j],
+            R0s[j],
+            target_LPS[j],
+            surfs[j],
+        )
         if overlap:
             coupling[i].append(j)
             coupling[j].append(i)
-            tightness[(i, j)] = -gap   # penetration depth (positive)
+            tightness[(i, j)] = -gap  # penetration depth (positive)
             contact[(i, j)] = ctr
     return coupling, tightness, contact
 
@@ -455,6 +482,7 @@ def build_coupling_graph(
 @dataclass(frozen=True)
 class Assignment:
     """A partial spin assignment plus its score."""
+
     spins: tuple[tuple[int, float], ...]  # ((probe_idx, spin_deg), ...)
     score: float
 
@@ -485,8 +513,14 @@ def beam_search_assignments(
             for spin in candidates[probe_idx]:
                 trial = partial.spins + ((probe_idx, spin),)
                 s = _score_assignment(
-                    trial, coupling, target_LPS, arc_aps, ml_per_probe,
-                    statics, probe_kind_by_name, D_far_mm,
+                    trial,
+                    coupling,
+                    target_LPS,
+                    arc_aps,
+                    ml_per_probe,
+                    statics,
+                    probe_kind_by_name,
+                    D_far_mm,
                 )
                 new_beam.append(Assignment(spins=trial, score=s))
         # Keep top beam_B by score
@@ -524,7 +558,10 @@ def _score_assignment(
                 continue
             gap_dir = (target_LPS[j] - target_LPS[i]) / d
             sp_opt_a, sp_opt_b = optimal_spin_for_gap(
-                body_long_axis_local(kind_i), ap_i, ml_i, gap_dir,
+                body_long_axis_local(kind_i),
+                ap_i,
+                ml_i,
+                gap_dir,
             )
             # Distance to closer of the two optima
             d_a = abs(_wrap_deg(spin_i - sp_opt_a))
@@ -545,7 +582,9 @@ def _score_assignment(
 
 
 def x_with_spins(
-    x_base: np.ndarray, statics: list, n_arcs: int,
+    x_base: np.ndarray,
+    statics: list,
+    n_arcs: int,
     spin_overrides: dict[int, float],
 ) -> np.ndarray:
     """Take an existing phase1_x and override each probe's (sx, sy)
@@ -560,30 +599,51 @@ def x_with_spins(
 
 
 def run_chain(
-    x0: np.ndarray, statics: list, n_arcs: int, coverage_data,
-    fixtures, validator,
+    x0: np.ndarray,
+    statics: list,
+    n_arcs: int,
+    coverage_data,
+    fixtures,
+    validator,
 ) -> tuple[np.ndarray, np.ndarray, bool, float]:
     """Run Phase 1 + Phase 2 + FCL validator. Returns
     (x2, s_fcl, feas, cov_at_x2)."""
     n_probes = len(statics)
     bounds = phase1_bounds(n_arcs, n_probes)
     p1_fun, p1_jac = make_phase1_objective(
-        statics, n_arcs, coverage_data=coverage_data,
-        fixtures=fixtures, weights=Phase1Weights(),
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
+        fixtures=fixtures,
+        weights=Phase1Weights(),
     )
-    r1 = minimize(p1_fun, x0, jac=p1_jac, method="L-BFGS-B",
-                  bounds=bounds,
-                  options=dict(maxiter=80, ftol=1e-5, gtol=1e-5))
+    r1 = minimize(
+        p1_fun,
+        x0,
+        jac=p1_jac,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options=dict(maxiter=80, ftol=1e-5, gtol=1e-5),
+    )
     x1 = np.asarray(r1.x, dtype=np.float64)
     p2 = make_phase2(
-        statics, n_arcs, coverage_data=coverage_data,
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
         fixtures=fixtures,
         weights=Phase2Weights(min_clearance_mm=0.3),
     )
-    r2 = minimize(p2["fun"], x1, jac=p2["jac"], method="trust-constr",
-                  bounds=bounds, constraints=p2["constraints_nlc"],
-                  options=dict(maxiter=80, xtol=1e-6, gtol=1e-5,
-                               initial_tr_radius=1.0, verbose=0))
+    r2 = minimize(
+        p2["fun"],
+        x1,
+        jac=p2["jac"],
+        method="trust-constr",
+        bounds=bounds,
+        constraints=p2["constraints_nlc"],
+        options=dict(
+            maxiter=80, xtol=1e-6, gtol=1e-5, initial_tr_radius=1.0, verbose=0
+        ),
+    )
     x2 = np.asarray(r2.x, dtype=np.float64)
     s_fcl = validator.slacks(x2)
     feas = bool(s_fcl.size == 0 or s_fcl.min() >= -1e-4)
@@ -591,14 +651,22 @@ def run_chain(
     # coverage value (lambda_thread=lambda_clearance=... = 0, only
     # -coverage_total left).
     cov_w = Phase1Weights(
-        lambda_thread=0.0, lambda_clearance=0.0, lambda_kinematic=0.0,
-        lambda_bounds=0.0, lambda_clearance_fixture=0.0,
-        lambda_margin_clear=0.0, lambda_margin_thread=0.0,
-        lambda_margin_clear_fixture=0.0, lambda_unit_circle=0.0,
+        lambda_thread=0.0,
+        lambda_clearance=0.0,
+        lambda_kinematic=0.0,
+        lambda_bounds=0.0,
+        lambda_clearance_fixture=0.0,
+        lambda_margin_clear=0.0,
+        lambda_margin_thread=0.0,
+        lambda_margin_clear_fixture=0.0,
+        lambda_unit_circle=0.0,
     )
     cov_fn, _ = make_phase1_objective(
-        statics, n_arcs, coverage_data=coverage_data,
-        fixtures=fixtures, weights=cov_w,
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
+        fixtures=fixtures,
+        weights=cov_w,
     )
     cov = -float(cov_fn(x2))
     return x2, s_fcl, feas, cov
@@ -613,13 +681,21 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_unitcircle.pkl"))
-    p.add_argument("--top-n", type=int, default=50,
-                   help="Top N cands by violation_fn to spin-search")
-    p.add_argument("--max-assignments-per-cand", type=int, default=8,
-                   help="After beam search, max # spin assignments to "
-                        "actually polish per cand.")
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_unitcircle.pkl")
+    )
+    p.add_argument(
+        "--top-n",
+        type=int,
+        default=50,
+        help="Top N cands by violation_fn to spin-search",
+    )
+    p.add_argument(
+        "--max-assignments-per-cand",
+        type=int,
+        default=8,
+        help="After beam search, max # spin assignments to actually polish per cand.",
+    )
     p.add_argument("--beam-b", type=int, default=64)
     p.add_argument("--out-dir", type=Path, required=True)
     args = p.parse_args()
@@ -658,8 +734,10 @@ def main() -> int:
     viol = np.asarray(data["violation_fn"])
     order = np.argsort(viol)
     cand_idxs = order[: args.top_n].tolist()
-    print(f"Selected top-{args.top_n} cands by violation_fn (viol range "
-          f"{viol[cand_idxs[0]]:.2f} to {viol[cand_idxs[-1]]:.2f})")
+    print(
+        f"Selected top-{args.top_n} cands by violation_fn (viol range "
+        f"{viol[cand_idxs[0]]:.2f} to {viol[cand_idxs[-1]]:.2f})"
+    )
 
     # _ProbeStatic doesn't carry the probe `kind`; build a lookup from
     # the runtime probes list. Needed for body-asymmetry vector +
@@ -673,35 +751,46 @@ def main() -> int:
         cand = data["candidates"][int(cand_idx)]
         jc = data["results"][int(cand_idx)]
         statics = _build_probe_static(
-            probes, holes, cand.ha, cand.aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            probes,
+            holes,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         n_arcs = jc.n_arcs
         n_probes = len(statics)
         coverage_data = build_coverage_data(probes, statics)
         validator = make_fcl_validator(
-            statics, n_arcs, fixtures=fixtures, fixture_bvhs=fixture_bvhs,
+            statics,
+            n_arcs,
+            fixtures=fixtures,
+            fixture_bvhs=fixture_bvhs,
         )
 
         x_aug = np.asarray(
-            data["augmented_phase1_x"][int(cand_idx)], dtype=np.float64,
+            data["augmented_phase1_x"][int(cand_idx)],
+            dtype=np.float64,
         )
         arc_aps = x_aug[:n_arcs]
-        ml_per_probe = np.array([
-            x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i]
-            for i in range(n_probes)
-        ])
+        ml_per_probe = np.array(
+            [x_aug[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
+        )
         target_LPS = np.array([st.target_LPS for st in statics])
 
         # Build coupling graph (spin-swept-volume overlap) + candidates + beam.
         mesh_verts_by_kind = {
-            k: np.asarray(
-                runtime.asset_catalog.get_geometry(f"probe:{k}").raw.vertices)
+            k: np.asarray(runtime.asset_catalog.get_geometry(f"probe:{k}").raw.vertices)
             for k in set(probe_kind_by_name.values())
         }
         coupling, _tightness, _contact = build_coupling_graph(
-            statics, arc_aps, ml_per_probe, target_LPS,
-            mesh_verts_by_kind, probe_kind_by_name)
+            statics,
+            arc_aps,
+            ml_per_probe,
+            target_LPS,
+            mesh_verts_by_kind,
+            probe_kind_by_name,
+        )
         # Seed: current spin of each probe in the augmented warm-start
         # so the chain at least has the option of "keep current spin".
         seed_spins = {}
@@ -711,21 +800,34 @@ def main() -> int:
             sy_w = float(x_aug[off + 2])
             seed_spins[i] = float(np.degrees(np.arctan2(sy_w, sx_w)))
         spin_cands = per_probe_spin_candidates(
-            statics, coupling, target_LPS, arc_aps, ml_per_probe,
-            probe_kind_by_name, seed_spins=seed_spins,
+            statics,
+            coupling,
+            target_LPS,
+            arc_aps,
+            ml_per_probe,
+            probe_kind_by_name,
+            seed_spins=seed_spins,
         )
         beam = beam_search_assignments(
-            statics, spin_cands, coupling, target_LPS,
-            arc_aps, ml_per_probe, probe_kind_by_name,
+            statics,
+            spin_cands,
+            coupling,
+            target_LPS,
+            arc_aps,
+            ml_per_probe,
+            probe_kind_by_name,
             beam_B=args.beam_b,
         )
 
         # Take top-K assignments, run chain on each
         to_polish = beam[: args.max_assignments_per_cand]
-        print(f"\n[rank {rank+1}/{len(cand_idxs)}] cand#{int(cand_idx)} "
-              f"viol_fn={viol[int(cand_idx)]:.2f}  "
-              f"spin_cands_per_probe={[len(spin_cands[i]) for i in range(n_probes)]}  "
-              f"assignments_to_polish={len(to_polish)}", flush=True)
+        print(
+            f"\n[rank {rank + 1}/{len(cand_idxs)}] cand#{int(cand_idx)} "
+            f"viol_fn={viol[int(cand_idx)]:.2f}  "
+            f"spin_cands_per_probe={[len(spin_cands[i]) for i in range(n_probes)]}  "
+            f"assignments_to_polish={len(to_polish)}",
+            flush=True,
+        )
 
         best = None  # (feas, cov, x2)
         for asg_i, asg in enumerate(to_polish):
@@ -733,13 +835,21 @@ def main() -> int:
             x0 = x_with_spins(x_aug, statics, n_arcs, overrides)
             t0 = time.time()
             x2, s_fcl, feas, cov = run_chain(
-                x0, statics, n_arcs, coverage_data, fixtures, validator,
+                x0,
+                statics,
+                n_arcs,
+                coverage_data,
+                fixtures,
+                validator,
             )
             wall = time.time() - t0
             tag = "FEAS" if feas else "FAIL"
-            print(f"    asg{asg_i}: score={asg.score:.2f} "
-                  f"fcl_min={s_fcl.min():+.4f} cov={cov:.2f} "
-                  f"wall={wall:.1f}s {tag}", flush=True)
+            print(
+                f"    asg{asg_i}: score={asg.score:.2f} "
+                f"fcl_min={s_fcl.min():+.4f} cov={cov:.2f} "
+                f"wall={wall:.1f}s {tag}",
+                flush=True,
+            )
             if best is None or (feas, cov) > (best[0], best[1]):
                 best = (feas, cov, x2, s_fcl)
 
@@ -757,20 +867,25 @@ def main() -> int:
         cfg_local = ConfigModel.from_yaml(args.config)
         rt_local = build_runtime_from_config(cfg_local)
         statics_local = _build_probe_static(
-            probes, holes,
+            probes,
+            holes,
             data["candidates"][cand_idx].ha,
             data["candidates"][cand_idx].aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         n_arcs = data["results"][cand_idx].n_arcs
         _apply_x_to_plan_state(rt_local.plan_state, x2, statics_local, n_arcs)
         candidate_cfg = save_plan_to_config(rt_local.plan_state, cfg_local)
         tag = "feas" if feas else "fail"
-        fname = (f"plan-{rank:03d}-{tag}-cand{cand_idx:05d}-"
-                 f"cov{cov:05.2f}.yml")
+        fname = f"plan-{rank:03d}-{tag}-cand{cand_idx:05d}-cov{cov:05.2f}.yml"
         with open(args.out_dir / fname, "w") as f:
-            yaml.safe_dump(candidate_cfg.model_dump(mode="json"),
-                            f, sort_keys=False, default_flow_style=False)
+            yaml.safe_dump(
+                candidate_cfg.model_dump(mode="json"),
+                f,
+                sort_keys=False,
+                default_flow_style=False,
+            )
     return 0
 
 

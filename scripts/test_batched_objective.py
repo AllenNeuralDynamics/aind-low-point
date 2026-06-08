@@ -15,7 +15,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import yaml
@@ -42,7 +41,6 @@ from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
-
 
 MANUAL_H = {"MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12}
 
@@ -109,10 +107,12 @@ def main() -> int:
 
     # ---- Build the two objectives ----
     import os as _os
+
     diag_zero = _os.environ.get("DIAG_ZERO")
     weights = JointWeights()
     if diag_zero:
         from dataclasses import replace
+
         kwargs = {k: 0.0 for k in diag_zero.split(",")}
         weights = replace(weights, **kwargs)
         print(f"  [diag] zeroed: {list(kwargs.keys())}")
@@ -128,7 +128,7 @@ def main() -> int:
     # ---- Initial y from manual ----
     y0_np = initial_y_from_aa([(ha, aa)], probes, n_arcs=batched.n_arcs)
     print(f"y0 shape: {y0_np.shape}")
-    print(f"y0[0] arc APs: {y0_np[0, :batched.n_arcs]}")
+    print(f"y0[0] arc APs: {y0_np[0, : batched.n_arcs]}")
     y_batch = jnp.asarray(y0_np)
 
     # ---- Forward eval ----
@@ -144,8 +144,8 @@ def main() -> int:
     if hasattr(val_ref, "block_until_ready"):
         val_ref.block_until_ready()
     t2 = time.perf_counter()
-    print(f"  batched val: {float(val_batched[0]):+.6f}  (compile+run {t1-t0:.2f}s)")
-    print(f"  reference   : {float(val_ref):+.6f}  (compile+run {t2-t1:.2f}s)")
+    print(f"  batched val: {float(val_batched[0]):+.6f}  (compile+run {t1 - t0:.2f}s)")
+    print(f"  reference   : {float(val_ref):+.6f}  (compile+run {t2 - t1:.2f}s)")
     rel = abs(float(val_batched[0]) - float(val_ref)) / max(abs(float(val_ref)), 1e-6)
     print(f"  rel error  : {rel:.2e}")
 
@@ -163,23 +163,27 @@ def main() -> int:
     g_ref_np = np.asarray(g_ref)
     n_nan_b = int(np.sum(np.isnan(g_batched_np)))
     n_nan_r = int(np.sum(np.isnan(g_ref_np)))
-    print(f"  NaN counts: batched={n_nan_b}/{g_batched_np.size}, "
-          f"ref={n_nan_r}/{g_ref_np.size}")
+    print(
+        f"  NaN counts: batched={n_nan_b}/{g_batched_np.size}, "
+        f"ref={n_nan_r}/{g_ref_np.size}"
+    )
     max_abs_err = float(np.nanmax(np.abs(g_batched_np - g_ref_np)))
     rel_err = max_abs_err / max(float(np.nanmax(np.abs(g_ref_np))), 1e-6)
     print(f"  max |Δgrad| (nan-skipped): {max_abs_err:.4e}  rel: {rel_err:.4e}")
     print(f"  ref grad[:10]: {g_ref_np[:10]}")
     print(f"  bat grad[:10]: {g_batched_np[:10]}")
     if rel_err > 1e-3:
-        print(f"  ⚠ Gradient mismatch — check per-probe pose path")
+        print("  ⚠ Gradient mismatch — check per-probe pose path")
         print(f"  ref grad : {g_ref_np[:8]} ...")
         print(f"  batched  : {g_batched_np[:8]} ...")
 
     # ---- Verdict ----
     print()
     ok = rel < 1e-4 and rel_err < 1e-3
-    print("PASS" if ok else "FAIL", "— batched objective matches reference"
-          if ok else "— mismatch above tolerance")
+    print(
+        "PASS" if ok else "FAIL",
+        "— batched objective matches reference" if ok else "— mismatch above tolerance",
+    )
     return 0 if ok else 1
 
 

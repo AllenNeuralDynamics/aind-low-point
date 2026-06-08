@@ -31,6 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.hole_assignment import (
     AssignmentProbe,
     multi_pose_evaluate,
@@ -40,7 +41,6 @@ from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
     shank_capsules_from_pose,
 )
-from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.recording import (
     RecordingGeometry,
@@ -207,9 +207,7 @@ def _max_g_at_pose(
     )
     if not capsules:
         return float("inf")
-    gs = [
-        shaft_section_oval_value(sh, sec) for sh in capsules for sec in hole.sections
-    ]
+    gs = [shaft_section_oval_value(sh, sec) for sh in capsules for sec in hole.sections]
     return float(max(gs)) if gs else float("inf")
 
 

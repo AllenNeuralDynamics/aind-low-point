@@ -52,14 +52,18 @@ def _poses(st, x, n_arcs):
     Rs, ts, tips = [], [], []
     for i, s in enumerate(st):
         off = n_arcs + PPV * i
-        ml, sx, sy, oR, oA, dep = x[off:off + 6]
+        ml, sx, sy, oR, oA, dep = x[off : off + 6]
         spin = float(np.degrees(np.arctan2(sy, sx)))
         R, tt = pose_from_optimizer_vars(
             target_LPS=jnp.asarray(s.target_LPS, jnp.float32),
-            ap_deg=jnp.float32(arc_aps[s.arc_idx]), ml_deg=jnp.float32(ml),
-            spin_deg=jnp.float32(spin), offset_R_mm=jnp.float32(oR),
-            offset_A_mm=jnp.float32(oA), past_target_mm=jnp.float32(dep),
-            recording_center_local=jnp.asarray(s.pivot_local, jnp.float32))
+            ap_deg=jnp.float32(arc_aps[s.arc_idx]),
+            ml_deg=jnp.float32(ml),
+            spin_deg=jnp.float32(spin),
+            offset_R_mm=jnp.float32(oR),
+            offset_A_mm=jnp.float32(oA),
+            past_target_mm=jnp.float32(dep),
+            recording_center_local=jnp.asarray(s.pivot_local, jnp.float32),
+        )
         Rs.append(R)
         ts.append(tt)
         tips.append(np.asarray(s.shank_tips_local, np.float32))
@@ -68,8 +72,8 @@ def _poses(st, x, n_arcs):
     tips_p = np.zeros((P, maxsh, 3), np.float32)
     mask_p = np.zeros((P, maxsh), np.float32)
     for i in range(P):
-        tips_p[i, :len(tips[i])] = tips[i]
-        mask_p[i, :len(tips[i])] = 1.0
+        tips_p[i, : len(tips[i])] = tips[i]
+        mask_p[i, : len(tips[i])] = 1.0
     return jnp.stack(Rs), jnp.stack(ts), jnp.asarray(tips_p), jnp.asarray(mask_p)
 
 
@@ -82,18 +86,21 @@ def _assign_key(cand):
 def main() -> int:
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     rt = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(rt.plan_state, rt, n)
-              for n in rt.plan_state.probes]
+    probes = [_probe_static_info(rt.plan_state, rt, n) for n in rt.plan_state.probes]
     holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
     comp = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in comp:
         R, t = comp["implant_to_lps"].rotate_translate
         holes = _transform_holes(holes, R, t)
-    bvh = {p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-           for p in probes}
+    bvh = {
+        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
+        for p in probes
+    }
     fixtures = build_fixture_sdf_data(rt)
-    fbvh = {f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw)
-            for f in fixtures}
+    fbvh = {
+        f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw)
+        for f in fixtures
+    }
 
     rer = pickle.load(open("scratch/full_rerank_0283.pkl", "rb"))
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
@@ -106,23 +113,36 @@ def main() -> int:
     for k in range(K):
         r = records[k]
         cand = pool["candidates"][r["idx"]]
-        st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                                 bvh_cache=bvh, sdf_by_name=None)
+        st = _build_probe_static(
+            probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=None
+        )
         if cov_data is None:
             cov_data = build_coverage_data(probes, st)
         Rs, ts, tips, mask = _poses(st, np.asarray(r["pose"], float), r["n_arcs"])
-        cov_pp = np.asarray(coverage_per_probe_over_probes(
-            Rs, ts, tips, mask, cov_data, n_samples=41), float)
+        cov_pp = np.asarray(
+            coverage_per_probe_over_probes(Rs, ts, tips, mask, cov_data, n_samples=41),
+            float,
+        )
         coverage = float(cov_pp.sum())
         names = [s.name for s in st]
-        v = make_fcl_validator(st, r["n_arcs"], fixtures=tuple(fixtures),
-                               fixture_bvhs=fbvh)
+        v = make_fcl_validator(
+            st, r["n_arcs"], fixtures=tuple(fixtures), fixture_bvhs=fbvh
+        )
         fcl = float(np.asarray(v.slacks(r["pose"])).min())
-        rows.append(dict(
-            idx=r["idx"], rank=k, n_arcs=r["n_arcs"], viol=r["viol"],
-            coverage=coverage, penalties=r["viol"] + coverage, fcl=fcl,
-            feasible=fcl >= -1e-4, key=_assign_key(cand),
-            cov_pp=dict(zip(names, cov_pp))))
+        rows.append(
+            dict(
+                idx=r["idx"],
+                rank=k,
+                n_arcs=r["n_arcs"],
+                viol=r["viol"],
+                coverage=coverage,
+                penalties=r["viol"] + coverage,
+                fcl=fcl,
+                feasible=fcl >= -1e-4,
+                key=_assign_key(cand),
+                cov_pp=dict(zip(names, cov_pp)),
+            )
+        )
 
     feas = [x for x in rows if x["feasible"]]
     print(f"\nFCL-feasible in top-{K}: {len(feas)}/{K}")
@@ -130,17 +150,23 @@ def main() -> int:
     # (1) feasibles ranked by COVERAGE (high = better)
     feas_by_cov = sorted(feas, key=lambda x: -x["coverage"])
     print("\n=== feasibles ranked by COVERAGE ===")
-    print(f"{'covrank':>7} {'cand':>6} {'sortrank':>8} {'coverage':>9} "
-          f"{'penalty':>8} {'fcl':>7}")
+    print(
+        f"{'covrank':>7} {'cand':>6} {'sortrank':>8} {'coverage':>9} "
+        f"{'penalty':>8} {'fcl':>7}"
+    )
     for j, x in enumerate(feas_by_cov[:25]):
         tag = " <-- MANUAL" if x["idx"] == MANUAL else ""
-        print(f"{j+1:>7} {x['idx']:>6} {x['rank']+1:>8} {x['coverage']:>9.3f} "
-              f"{x['penalties']:>8.3f} {x['fcl']:>+7.3f}{tag}")
+        print(
+            f"{j + 1:>7} {x['idx']:>6} {x['rank'] + 1:>8} {x['coverage']:>9.3f} "
+            f"{x['penalties']:>8.3f} {x['fcl']:>+7.3f}{tag}"
+        )
     man = next((x for x in feas if x["idx"] == MANUAL), None)
     if man:
         mrank = [x["idx"] for x in feas_by_cov].index(MANUAL) + 1
-        print(f"manual #{MANUAL}: coverage {man['coverage']:.3f}, "
-              f"coverage-rank {mrank}/{len(feas)} among feasibles")
+        print(
+            f"manual #{MANUAL}: coverage {man['coverage']:.3f}, "
+            f"coverage-rank {mrank}/{len(feas)} among feasibles"
+        )
 
     # (1b) PER-PROBE coverage breakout — exposes the "sacrifice one probe for
     # total" pattern. Columns = probes (probe order); ``min`` flags the worst
@@ -156,8 +182,10 @@ def main() -> int:
             mn, mean = min(vals), sum(vals) / len(vals)
             cells = " ".join(f"{v:>7.3f}" for v in vals)
             worst = pnames[int(np.argmin(vals))]
-            print(f"{x['idx']:>6} {x['coverage']:>7.3f} {cells} "
-                  f"{mn:>7.3f} {mn / mean if mean else 0:>8.2f}  worst={worst}{tag}")
+            print(
+                f"{x['idx']:>6} {x['coverage']:>7.3f} {cells} "
+                f"{mn:>7.3f} {mn / mean if mean else 0:>8.2f}  worst={worst}{tag}"
+            )
 
         for x in feas_by_cov[:15]:
             _row(x, tag=" <-- MANUAL" if x["idx"] == MANUAL else "")
@@ -165,26 +193,30 @@ def main() -> int:
             _row(man, tag=" <-- MANUAL")
         # Which probe is starved most often across the feasibles?
         from collections import Counter
-        worst_ct = Counter(
-            min(x["cov_pp"], key=x["cov_pp"].get) for x in feas)
-        print(f"worst-probe frequency across {len(feas)} feasibles: "
-              f"{dict(worst_ct.most_common())}")
+
+        worst_ct = Counter(min(x["cov_pp"], key=x["cov_pp"].get) for x in feas)
+        print(
+            f"worst-probe frequency across {len(feas)} feasibles: "
+            f"{dict(worst_ct.most_common())}"
+        )
 
     # (2) diversity among top-coverage feasibles
     print("\n=== diversity (distinct hole+arc assignment) ===")
     for N in (10, 20, len(feas_by_cov)):
         keys = {tuple(x["key"]) for x in feas_by_cov[:N]}
         holes_sets = {x["key"][0] for x in feas_by_cov[:N]}
-        print(f"  top-{N:>3} feasibles by coverage: {len(keys)} distinct "
-              f"(ha,arc) families, {len(holes_sets)} distinct hole-tuples")
+        print(
+            f"  top-{N:>3} feasibles by coverage: {len(keys)} distinct "
+            f"(ha,arc) families, {len(holes_sets)} distinct hole-tuples"
+        )
 
     # (3) feasibility vs rank (deciles)
     print("\n=== feasibility vs sort-rank ===")
     band = max(1, K // 10)
     for b in range(0, K, band):
-        chunk = rows[b:b + band]
+        chunk = rows[b : b + band]
         nf = sum(1 for x in chunk if x["feasible"])
-        print(f"  rank {b+1:>4}-{b+len(chunk):>4}: {nf}/{len(chunk)} feasible")
+        print(f"  rank {b + 1:>4}-{b + len(chunk):>4}: {nf}/{len(chunk)} feasible")
 
     out = Path("scratch/ingest_top_enriched.pkl")
     with open(out, "wb") as f:

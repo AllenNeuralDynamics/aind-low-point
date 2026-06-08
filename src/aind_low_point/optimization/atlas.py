@@ -20,13 +20,11 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import Iterable
 
 import numpy as np
+from aind_mri_utils.arc_angles import vector_to_arc_angles
 from numpy.typing import NDArray
 from scipy.optimize import minimize
-
-from aind_mri_utils.arc_angles import vector_to_arc_angles
 
 from aind_low_point.optimization.geometry import shaft_section_oval_value
 from aind_low_point.optimization.hole_assignment import HoleAssignment
@@ -36,7 +34,6 @@ from aind_low_point.optimization.kinematics import (
     shank_capsules_from_pose,
 )
 from aind_low_point.optimization.recording import get_recording_geometry
-
 
 # ---------------------------------------------------------------------------
 # Atlas data structures
@@ -112,13 +109,18 @@ def _pose_score(
         pivot_local = np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
     R, pose_tip = pose_from_optimizer_vars(
         target_LPS=probe_static.target_LPS,
-        ap_deg=ap_deg, ml_deg=ml_deg, spin_deg=spin_deg,
-        offset_R_mm=off_R_mm, offset_A_mm=off_A_mm,
+        ap_deg=ap_deg,
+        ml_deg=ml_deg,
+        spin_deg=spin_deg,
+        offset_R_mm=off_R_mm,
+        offset_A_mm=off_A_mm,
         past_target_mm=depth_mm,
         recording_center_local=pivot_local,
     )
     shanks = shank_capsules_from_pose(
-        R, pose_tip, probe_static.shank_tips_local,
+        R,
+        pose_tip,
+        probe_static.shank_tips_local,
         shaft_length_mm=shaft_length_mm,
         shank_radius_mm=shank_radius_mm,
     )
@@ -148,7 +150,9 @@ def _find_anchor_at_ap(
     max_target_miss_mm: float,
     threading_tol: float,
     starts: tuple[tuple[float, float], ...] = (
-        (0.0, 0.0), (15.0, 0.0), (-15.0, 0.0),
+        (0.0, 0.0),
+        (15.0, 0.0),
+        (-15.0, 0.0),
     ),
     shaft_length_mm: float = 10.0,
     shank_radius_mm: float = 0.05,
@@ -157,16 +161,24 @@ def _find_anchor_at_ap(
     (ml, spin) starts. Returns the best anchor (lowest threading max_g)
     that passes both lex-feasibility checks, or ``None``."""
     bounds = [
-        (-45.0, 45.0), (-180.0, 180.0),
-        (-2.0, 2.0), (-2.0, 2.0), (-3.0, 3.0),
+        (-45.0, 45.0),
+        (-180.0, 180.0),
+        (-2.0, 2.0),
+        (-2.0, 2.0),
+        (-3.0, 3.0),
     ]
 
     def f(x):
         ml, spin, off_R, off_A, depth = x
         max_g, miss = _pose_score(
-            probe_static, hole,
-            ap_deg=ap_deg, ml_deg=ml, spin_deg=spin,
-            off_R_mm=off_R, off_A_mm=off_A, depth_mm=depth,
+            probe_static,
+            hole,
+            ap_deg=ap_deg,
+            ml_deg=ml,
+            spin_deg=spin,
+            off_R_mm=off_R,
+            off_A_mm=off_A,
+            depth_mm=depth,
             shaft_length_mm=shaft_length_mm,
             shank_radius_mm=shank_radius_mm,
         )
@@ -182,16 +194,24 @@ def _find_anchor_at_ap(
         x0 = np.array([ml0, spin0, 0.0, 0.0, 0.0], dtype=np.float64)
         try:
             res = minimize(
-                f, x0, method="SLSQP", bounds=bounds,
+                f,
+                x0,
+                method="SLSQP",
+                bounds=bounds,
                 options={"maxiter": 40, "ftol": 1e-6, "disp": False},
             )
         except Exception:
             continue
         x = res.x
         max_g, miss = _pose_score(
-            probe_static, hole,
-            ap_deg=ap_deg, ml_deg=x[0], spin_deg=x[1],
-            off_R_mm=x[2], off_A_mm=x[3], depth_mm=x[4],
+            probe_static,
+            hole,
+            ap_deg=ap_deg,
+            ml_deg=x[0],
+            spin_deg=x[1],
+            off_R_mm=x[2],
+            off_A_mm=x[3],
+            depth_mm=x[4],
             shaft_length_mm=shaft_length_mm,
             shank_radius_mm=shank_radius_mm,
         )
@@ -201,9 +221,13 @@ def _find_anchor_at_ap(
             continue
         rec = PoseAnchor(
             ap_deg=ap_deg,
-            ml_deg=float(x[0]), spin_deg=float(x[1]),
-            off_R_mm=float(x[2]), off_A_mm=float(x[3]), depth_mm=float(x[4]),
-            threading_max_g=max_g, target_miss_mm=miss,
+            ml_deg=float(x[0]),
+            spin_deg=float(x[1]),
+            off_R_mm=float(x[2]),
+            off_A_mm=float(x[3]),
+            depth_mm=float(x[4]),
+            threading_max_g=max_g,
+            target_miss_mm=miss,
         )
         if best is None or rec.threading_max_g < best.threading_max_g:
             best = rec
@@ -225,7 +249,15 @@ def _find_interval(
     abandon_after_failures: int,
     max_target_miss_mm: float,
     threading_tol: float,
-    seed_retry_offsets_deg: tuple[float, ...] = (0.0, -2.0, +2.0, -4.0, +4.0, -6.0, +6.0),
+    seed_retry_offsets_deg: tuple[float, ...] = (
+        0.0,
+        -2.0,
+        +2.0,
+        -4.0,
+        +4.0,
+        -6.0,
+        +6.0,
+    ),
 ) -> tuple[float | None, float | None, list[PoseAnchor]]:
     """Sweep arc-AP outward from ``ap_seed_deg`` to find the interval
     where target-valid anchors exist.
@@ -240,7 +272,9 @@ def _find_interval(
     for off in seed_retry_offsets_deg:
         candidate = ap_seed_deg + off
         a = _find_anchor_at_ap(
-            probe_static, hole, candidate,
+            probe_static,
+            hole,
+            candidate,
             max_target_miss_mm=max_target_miss_mm,
             threading_tol=threading_tol,
         )
@@ -261,7 +295,9 @@ def _find_interval(
     while ap - ap_seed_deg < ap_max_excursion_deg and failures < abandon_after_failures:
         ap += ap_step_deg
         a = _find_anchor_at_ap(
-            probe_static, hole, ap,
+            probe_static,
+            hole,
+            ap,
             max_target_miss_mm=max_target_miss_mm,
             threading_tol=threading_tol,
         )
@@ -278,7 +314,9 @@ def _find_interval(
     while ap_seed_deg - ap < ap_max_excursion_deg and failures < abandon_after_failures:
         ap -= ap_step_deg
         a = _find_anchor_at_ap(
-            probe_static, hole, ap,
+            probe_static,
+            hole,
+            ap,
             max_target_miss_mm=max_target_miss_mm,
             threading_tol=threading_tol,
         )
@@ -355,7 +393,8 @@ def build_atlas(
         for h_idx, hole in enumerate(holes):
             seed = _target_aligned_ap(probe, hole)
             ap_min, ap_max, anchors = _find_interval(
-                probe, hole,
+                probe,
+                hole,
                 ap_seed_deg=seed,
                 ap_step_deg=ap_step_deg,
                 ap_max_excursion_deg=ap_max_excursion_deg,
@@ -372,11 +411,14 @@ def build_atlas(
             )
         if verbose:
             valid = [
-                h_id for h_id in hole_ids
+                h_id
+                for h_id in hole_ids
                 if entries[(probe.name, h_id)].ap_min is not None
             ]
-            print(f"  [atlas] {probe.name:>5}: {len(valid)}/{len(hole_ids)} "
-                  f"valid holes → {sorted(valid)}")
+            print(
+                f"  [atlas] {probe.name:>5}: {len(valid)}/{len(hole_ids)} "
+                f"valid holes → {sorted(valid)}"
+            )
     return Atlas(entries=entries, probe_names=probe_names, hole_ids=hole_ids)
 
 
@@ -473,7 +515,8 @@ def enumerate_hole_assignments(
     valid_holes_per_probe: list[list[int]] = []
     for probe in probes:
         valid = [
-            j for j, h in enumerate(holes)
+            j
+            for j, h in enumerate(holes)
             if atlas.entries[(probe.name, h.id)].ap_min is not None
         ]
         valid_holes_per_probe.append(valid)
@@ -497,7 +540,9 @@ def enumerate_hole_assignments(
                 )
                 for i in range(K)
             ]
-            if not _admits_arc_cover(ints, max_arcs=max_arcs, min_sep_deg=min_arc_sep_deg):
+            if not _admits_arc_cover(
+                ints, max_arcs=max_arcs, min_sep_deg=min_arc_sep_deg
+            ):
                 n_dropped_arc += 1
                 continue
         cost = 0.0
@@ -532,7 +577,9 @@ def atlas_stage1(
     """
     atlas = build_atlas(probes, holes, verbose=verbose, **atlas_kwargs)
     his = enumerate_hole_assignments(
-        atlas, probes, holes,
+        atlas,
+        probes,
+        holes,
         viol_mat=viol_mat,
         cost_for_ordering=cost_for_ordering,
         arc_cover=True,
@@ -541,6 +588,8 @@ def atlas_stage1(
         cap=cap_hole_assignments,
     )
     if verbose:
-        print(f"  [atlas] enumerated {len(his)} feasible H assignments "
-              f"(capped at {cap_hole_assignments})")
+        print(
+            f"  [atlas] enumerated {len(his)} feasible H assignments "
+            f"(capped at {cap_hole_assignments})"
+        )
     return atlas, his

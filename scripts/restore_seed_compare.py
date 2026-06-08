@@ -65,36 +65,47 @@ def facing_seeds(rt, statics, arc_aps, ml, target_LPS, probe_kind, well, names):
         for k in set(probe_kind.values())
     }
     coupling, tight, contact = build_coupling_graph(
-        statics, arc_aps, ml, target_LPS, mesh_by_kind, probe_kind)
-    profs = {k: swept_profile(mesh_by_kind[k], statics[0].pivot_local)
-             for k in mesh_by_kind}  # pivot per-kind below
-    wg, wo, wsp = (jnp.asarray(well.grid), jnp.asarray(well.origin),
-                   jnp.asarray(well.spacing))
+        statics, arc_aps, ml, target_LPS, mesh_by_kind, probe_kind
+    )
+    profs = {
+        k: swept_profile(mesh_by_kind[k], statics[0].pivot_local) for k in mesh_by_kind
+    }  # pivot per-kind below
+    wg, wo, wsp = (
+        jnp.asarray(well.grid),
+        jnp.asarray(well.origin),
+        jnp.asarray(well.spacing),
+    )
     seeds = {}
     for i, st in enumerate(statics):
         ap_i, ml_i = float(arc_aps[st.arc_idx]), float(ml[i])
         prof = swept_profile(mesh_by_kind[probe_kind[st.name]], st.pivot_local)
         R0 = arc_angles_to_affine(ap_i, ml_i, 0.0)
         surf = swept_surface_world(prof, R0, target_LPS[i])
-        partners = [(tight[(min(i, j), max(i, j))],
-                     contact[(min(i, j), max(i, j))] - target_LPS[i])
-                    for j in coupling[i]]
+        partners = [
+            (
+                tight[(min(i, j), max(i, j))],
+                contact[(min(i, j), max(i, j))] - target_LPS[i],
+            )
+            for j in coupling[i]
+        ]
         d = np.asarray(trilinear_sdf(wg, wo, wsp, jnp.asarray(surf)))
         if float(d.min()) < 0:
             partners.append((float(-d.min()), surf[int(d.argmin())] - target_LPS[i]))
-        if not partners:                       # decoupled → keep atlas/threading
+        if not partners:  # decoupled → keep atlas/threading
             seeds[st.name] = spin_to_align_y_with(
-                st.assigned_hole.slot_major_dir(), ap_i, ml_i)
+                st.assigned_hole.slot_major_dir(), ap_i, ml_i
+            )
             continue
         partners.sort(key=lambda p: -p[0])
         opt_a, opt_b = optimal_spin_for_gap(
-            body_long_axis_local(probe_kind[st.name]), ap_i, ml_i, partners[0][1])
-        if is_four_shank(st):                  # snap to threadable slot
-            slot = spin_to_align_y_with(
-                st.assigned_hole.slot_major_dir(), ap_i, ml_i)
+            body_long_axis_local(probe_kind[st.name]), ap_i, ml_i, partners[0][1]
+        )
+        if is_four_shank(st):  # snap to threadable slot
+            slot = spin_to_align_y_with(st.assigned_hole.slot_major_dir(), ap_i, ml_i)
             cands = [slot, slot + 180.0]
             seeds[st.name] = min(
-                [opt_a, opt_b], key=lambda s: min(abs(_wrap(s - c)) for c in cands))
+                [opt_a, opt_b], key=lambda s: min(abs(_wrap(s - c)) for c in cands)
+            )
             seeds[st.name] = min(cands, key=lambda c: abs(_wrap(seeds[st.name] - c)))
         else:
             seeds[st.name] = opt_a
@@ -109,8 +120,9 @@ def main() -> int:
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     cand = pool["candidates"][IDX]
     n_arcs = int(pool["results"][IDX].n_arcs)
-    st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                             bvh_cache=bvh, sdf_by_name=sdf_by_name)
+    st = _build_probe_static(
+        probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+    )
     comp = compile_all_transforms(cfg.transforms)
     brain_sdf = maybe_build_brain_sdf(rt, comp)
     pm = PlanningModel.model_validate(yaml.safe_load(open(PLAN)))
@@ -137,23 +149,36 @@ def main() -> int:
 
     seeds = {"atlas": None, "manual": manual_seed, "facing": facing}
     for label, seed in seeds.items():
-        y_red = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                            with_well=True, seed_spins_deg=seed)
+        y_red = run_restore(
+            cand,
+            probes,
+            holes,
+            sdf_by_name,
+            n_arcs,
+            well,
+            with_well=True,
+            seed_spins_deg=seed,
+        )
         rest_sp = spins_deg_from_reduced(y_red, n_arcs, K)
         arc_aps_r, mls, sets = make_basin_sets(y_red, st, n_arcs, K)
         zero = np.zeros(K)
-        x0 = [build_y(arc_aps_r, n_arcs, mls, sp, zero, zero, zero)
-              for sp in sets["A_restore1"]]
+        x0 = [
+            build_y(arc_aps_r, n_arcs, mls, sp, zero, zero, zero)
+            for sp in sets["A_restore1"]
+        ]
         viol, xa = adam_eval(x0)
         br = int(np.argmin(viol))
-        v = make_fcl_validator(st, n_arcs, fixtures=tuple(fixtures),
-                               fixture_bvhs=fixture_bvhs)
+        v = make_fcl_validator(
+            st, n_arcs, fixtures=tuple(fixtures), fixture_bvhs=fixture_bvhs
+        )
         fcl = float(np.asarray(v.slacks(xa[br])).min())
         asp = np.round(spins_deg_from_phase1(xa[br], n_arcs, K), 0)
         print(f"\n[{label:>6}] restore spins = {np.round(rest_sp, 0)}")
         print(f"         ADAM spins    = {asp}")
-        print(f"         viol {viol[br]:+.3f}  fcl {fcl:+.3f} "
-              f"{'FEAS' if fcl >= -1e-4 else 'infeas'}")
+        print(
+            f"         viol {viol[br]:+.3f}  fcl {fcl:+.3f} "
+            f"{'FEAS' if fcl >= -1e-4 else 'infeas'}"
+        )
     return 0
 
 

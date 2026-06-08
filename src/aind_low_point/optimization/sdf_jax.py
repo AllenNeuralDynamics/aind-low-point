@@ -53,7 +53,7 @@ _D_RAS_TO_LPS = jnp.diag(jnp.array([-1.0, -1.0, 1.0]))
 # to the signed slack (constraint form), before any squaring — so
 # first-order gradient contributions scale linearly with the gain.
 SLACK_GAIN_BODY_BODY = 1.0
-SLACK_GAIN_BODY_SHANK_CORNERS = 1.0   # voxel-SDF lookup → mm-native magnitude
+SLACK_GAIN_BODY_SHANK_CORNERS = 1.0  # voxel-SDF lookup → mm-native magnitude
 SLACK_GAIN_BODY_SHANK_OBB = 100.0
 SLACK_GAIN_SHANK_SHANK = 100.0
 SLACK_GAIN_FIXTURE_BODY = 1.0
@@ -113,9 +113,7 @@ def _rot_z(angle_rad: Array) -> Array:
     )
 
 
-def arc_angles_to_rotation(
-    ap_deg: Array, ml_deg: Array, spin_deg: Array
-) -> Array:
+def arc_angles_to_rotation(ap_deg: Array, ml_deg: Array, spin_deg: Array) -> Array:
     """Convention-matched ``arc_angles_to_affine`` in JAX.
 
     Mirrors :func:`aind_mri_utils.arc_angles.arc_angles_to_affine` with
@@ -161,9 +159,7 @@ def pose_from_optimizer_vars(
     return R, pose_tip
 
 
-def _cubic_kernel(
-    t: Array, y0: Array, y1: Array, y2: Array, y3: Array
-) -> Array:
+def _cubic_kernel(t: Array, y0: Array, y1: Array, y2: Array, y3: Array) -> Array:
     """Catmull-Rom cubic interpolation of 4 samples at fractional ``t``.
 
     Samples ``y0..y3`` are at integer offsets ``{-1, 0, 1, 2}`` relative
@@ -207,9 +203,12 @@ def tricubic_sdf(
     f = coords - i0  # fractional in [0, 1)
 
     in_bounds = (
-        (i0[..., 0] >= 1) & (i0[..., 0] <= Nx - 3)
-        & (i0[..., 1] >= 1) & (i0[..., 1] <= Ny - 3)
-        & (i0[..., 2] >= 1) & (i0[..., 2] <= Nz - 3)
+        (i0[..., 0] >= 1)
+        & (i0[..., 0] <= Nx - 3)
+        & (i0[..., 1] >= 1)
+        & (i0[..., 1] <= Ny - 3)
+        & (i0[..., 2] >= 1)
+        & (i0[..., 2] <= Nz - 3)
     )
     ix = jnp.clip(i0[..., 0], 1, Nx - 3)
     iy = jnp.clip(i0[..., 1], 1, Ny - 3)
@@ -371,8 +370,7 @@ def trilinear_sdf(
     # Addressing stays fp32 — voxel indices must be exact regardless of the
     # value precision.
     coords = (
-        query_local.astype(jnp.float32)
-        - jnp.asarray(origin, jnp.float32)
+        query_local.astype(jnp.float32) - jnp.asarray(origin, jnp.float32)
     ) / jnp.asarray(spacing, jnp.float32)  # (..., 3) in voxel units
     i0 = jnp.floor(coords).astype(jnp.int32)
     f = coords - i0  # fractional parts
@@ -413,9 +411,7 @@ def trilinear_sdf(
     # interp value carried at the grid dtype; cast back to fp32 so the
     # cross-point reduction (soft-min / top-k) downstream accumulates fp32.
     interp = (c0 * (1 - fz) + c1 * fz).astype(jnp.float32)
-    return jnp.where(
-        in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32)
-    )
+    return jnp.where(in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32))
 
 
 def pairwise_signed_clearance(
@@ -445,24 +441,25 @@ def pairwise_signed_clearance(
     # local_in_a = R_a^T @ (world_b - t_a)
     world_b = surface_b @ R_b.T + t_b  # (N, 3)
     local_in_a = (world_b - t_a) @ R_a  # equivalent to R_a^T @ (world_b - t_a).T
-    sd_b_in_a = trilinear_sdf(
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a
-    )
+    sd_b_in_a = trilinear_sdf(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a)
     # Symmetric direction
     world_a = surface_a @ R_a.T + t_a
     local_in_b = (world_a - t_b) @ R_b
-    sd_a_in_b = trilinear_sdf(
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b
-    )
+    sd_a_in_b = trilinear_sdf(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b)
     return jnp.minimum(jnp.min(sd_b_in_a), jnp.min(sd_a_in_b))
 
 
 def pairwise_signed_clearance_probe_fixture_body(
-    R_p: Array, t_p: Array,
-    sdf_p_grid: Array, sdf_p_origin: Array, sdf_p_spacing: Array,
-    sdf_f_grid: Array, sdf_f_origin: Array, sdf_f_spacing: Array,
-    surface_p: Array,           # (Np, 3) probe envelope samples in probe local
-    surface_f: Array,           # (Nf, 3) fixture envelope samples in world LPS
+    R_p: Array,
+    t_p: Array,
+    sdf_p_grid: Array,
+    sdf_p_origin: Array,
+    sdf_p_spacing: Array,
+    sdf_f_grid: Array,
+    sdf_f_origin: Array,
+    sdf_f_spacing: Array,
+    surface_p: Array,  # (Np, 3) probe envelope samples in probe local
+    surface_f: Array,  # (Nf, 3) fixture envelope samples in world LPS
     *,
     beta: float = 20.0,
     top_k: int = 16,
@@ -490,18 +487,28 @@ def pairwise_signed_clearance_probe_fixture_body(
     """
     world_surface_p = surface_p @ R_p.T + t_p
     return pairwise_signed_clearance_probe_fixture_body_world(
-        R_p, t_p, sdf_p_grid, sdf_p_origin, sdf_p_spacing,
-        sdf_f_grid, sdf_f_origin, sdf_f_spacing,
-        world_surface_p, surface_f,
-        beta=beta, top_k=top_k, interp=interp,
+        R_p,
+        t_p,
+        sdf_p_grid,
+        sdf_p_origin,
+        sdf_p_spacing,
+        sdf_f_grid,
+        sdf_f_origin,
+        sdf_f_spacing,
+        world_surface_p,
+        surface_f,
+        beta=beta,
+        top_k=top_k,
+        interp=interp,
     )
 
 
 def pairwise_signed_clearance_probe_obb_fixture_world(
-    R_p: Array, t_p: Array,
+    R_p: Array,
+    t_p: Array,
     fixture_surface_world: Array,  # (Nf, 3) fixture envelope samples in world LPS
-    shank_centers: Array,          # (S, 3) probe OBB centers in probe local
-    shank_halves: Array,           # (S, 3) probe OBB half-extents
+    shank_centers: Array,  # (S, 3) probe OBB centers in probe local
+    shank_halves: Array,  # (S, 3) probe OBB half-extents
     *,
     beta: float = 20.0,
     top_k: int = 8,
@@ -530,20 +537,23 @@ def pairwise_signed_clearance_probe_obb_fixture_world(
     # For each probe OBB, signed distance of each fixture surface point
     # to that OBB. Shape: (S, Nf).
     d_obbs = jax.vmap(
-        lambda c, h: _obb_sdf_world_to_local(
-            fixture_surface_world, R_p, t_p, c, h
-        )
+        lambda c, h: _obb_sdf_world_to_local(fixture_surface_world, R_p, t_p, c, h)
     )(shank_centers, shank_halves)
     pool = d_obbs.reshape(-1)
     return _hard_soft(pool, beta=beta, top_k=top_k)
 
 
 def pairwise_signed_clearance_probe_fixture_body_world(
-    R_p: Array, t_p: Array,
-    sdf_p_grid: Array, sdf_p_origin: Array, sdf_p_spacing: Array,
-    sdf_f_grid: Array, sdf_f_origin: Array, sdf_f_spacing: Array,
-    world_surface_p: Array,     # (Np, 3) pre-transformed probe envelope samples in world
-    surface_f: Array,           # (Nf, 3) fixture envelope samples in world LPS
+    R_p: Array,
+    t_p: Array,
+    sdf_p_grid: Array,
+    sdf_p_origin: Array,
+    sdf_p_spacing: Array,
+    sdf_f_grid: Array,
+    sdf_f_origin: Array,
+    sdf_f_spacing: Array,
+    world_surface_p: Array,  # (Np, 3) pre-transformed probe envelope samples in world
+    surface_f: Array,  # (Nf, 3) fixture envelope samples in world LPS
     *,
     beta: float = 20.0,
     top_k: int = 16,
@@ -558,7 +568,10 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
 
     d_p_in_f = sdf_lookup(
-        sdf_f_grid, sdf_f_origin, sdf_f_spacing, world_surface_p,
+        sdf_f_grid,
+        sdf_f_origin,
+        sdf_f_spacing,
+        world_surface_p,
     )
 
     local_f_in_p = (surface_f - t_p) @ R_p
@@ -572,27 +585,53 @@ def pairwise_signed_clearance_probe_fixture_body_world(
 
 @jax.jit
 def pairwise_signed_clearance_jit(
-    R_a, t_a, R_b, t_b,
-    sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-    sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-    surface_a, surface_b,
+    R_a,
+    t_a,
+    R_b,
+    t_b,
+    sdf_a_grid,
+    sdf_a_origin,
+    sdf_a_spacing,
+    sdf_b_grid,
+    sdf_b_origin,
+    sdf_b_spacing,
+    surface_a,
+    surface_b,
 ):
     return pairwise_signed_clearance(
-        R_a, t_a, R_b, t_b,
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-        surface_a, surface_b,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        sdf_a_grid,
+        sdf_a_origin,
+        sdf_a_spacing,
+        sdf_b_grid,
+        sdf_b_origin,
+        sdf_b_spacing,
+        surface_a,
+        surface_b,
     )
 
 
 @jax.jit
 def pairwise_signed_clearance_dual_hard_mins_jit(
-    R_a, t_a, R_b, t_b,
-    sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-    sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-    surface_a, surface_b,
-    shank_centers_a, shank_halves_a,
-    shank_centers_b, shank_halves_b,
+    R_a,
+    t_a,
+    R_b,
+    t_b,
+    sdf_a_grid,
+    sdf_a_origin,
+    sdf_a_spacing,
+    sdf_b_grid,
+    sdf_b_origin,
+    sdf_b_spacing,
+    surface_a,
+    surface_b,
+    shank_centers_a,
+    shank_halves_a,
+    shank_centers_b,
+    shank_halves_b,
 ):
     """JIT'd wrapper returning the three hard mins from dual-rep
     clearance: ``(hbb, hbs, hss)``. Used by per-pair metric evaluation
@@ -603,12 +642,22 @@ def pairwise_signed_clearance_dual_hard_mins_jit(
     per-pair cost to a few ms.
     """
     (hbb, _), (hbs, _), (hss, _) = pairwise_signed_clearance_dual(
-        R_a, t_a, R_b, t_b,
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-        surface_a, surface_b,
-        shank_centers_a, shank_halves_a,
-        shank_centers_b, shank_halves_b,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        sdf_a_grid,
+        sdf_a_origin,
+        sdf_a_spacing,
+        sdf_b_grid,
+        sdf_b_origin,
+        sdf_b_spacing,
+        surface_a,
+        surface_b,
+        shank_centers_a,
+        shank_halves_a,
+        shank_centers_b,
+        shank_halves_b,
     )
     return hbb, hbs, hss
 
@@ -651,13 +700,15 @@ def _obb_sample_points_local(
     """
     # (S, 24, 3) = (S, 1, 3) + (1, 24, 3) * (S, 1, 3)
     return (
-        centers[:, None, :]
-        + _SHANK_SAMPLE_SIGNS[None, :, :] * half_extents[:, None, :]
+        centers[:, None, :] + _SHANK_SAMPLE_SIGNS[None, :, :] * half_extents[:, None, :]
     )
 
 
 def _shank_world_samples(
-    R: Array, t: Array, centers_local: Array, halves_local: Array,
+    R: Array,
+    t: Array,
+    centers_local: Array,
+    halves_local: Array,
 ) -> Array:
     """Return ``(S * 24, 3)`` world-frame surface-sample positions of
     all shank boxes of one probe at pose ``(R, t)``.
@@ -669,7 +720,8 @@ def _shank_world_samples(
 
 def _obb_sdf_world_to_local(
     query_world: Array,  # (M, 3)
-    R: Array, t: Array,
+    R: Array,
+    t: Array,
     center_local: Array,  # (3,) shank center in probe-local
     half_extents: Array,  # (3,) shank half-extents
 ) -> Array:
@@ -683,8 +735,14 @@ def _obb_sdf_world_to_local(
 
 
 def obb_obb_signed_distance(
-    R_a: Array, t_a: Array, center_a: Array, halves_a: Array,
-    R_b: Array, t_b: Array, center_b: Array, halves_b: Array,
+    R_a: Array,
+    t_a: Array,
+    center_a: Array,
+    halves_a: Array,
+    R_b: Array,
+    t_b: Array,
+    center_b: Array,
+    halves_b: Array,
 ) -> Array:
     """Signed distance between two oriented boxes via Separating Axis
     Theorem. Closed-form, exact, fully differentiable.
@@ -755,15 +813,15 @@ def obb_obb_signed_distance(
         sq = jnp.sum(axis * axis)
         soft_norm = jnp.sqrt(sq + jnp.float32(1e-12))
         is_valid = sq > jnp.float32(1e-12)
-        axis_n = axis / soft_norm   # finite gradient everywhere
+        axis_n = axis / soft_norm  # finite gradient everywhere
         sep = _separation_along(axis_n)
         # When axes are parallel, the cross-product axis is degenerate;
         # substitute a very negative separation so max-selection skips it.
         return jnp.where(is_valid, sep, jnp.float32(-1e6))
 
-    sep_cross = jnp.stack([
-        _cross_axis_sep(i, j) for i in range(3) for j in range(3)
-    ])  # (9,)
+    sep_cross = jnp.stack(
+        [_cross_axis_sep(i, j) for i in range(3) for j in range(3)]
+    )  # (9,)
 
     all_separations = jnp.concatenate(
         [sep_face_a, sep_face_b, sep_cross], axis=0
@@ -791,7 +849,10 @@ def _hard_soft(values: Array, *, beta: float, top_k: int) -> tuple[Array, Array]
 
 
 def shank_only_pair_clearance(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
     world_surface_a: Array,
     world_surface_b: Array,
     shank_centers_a: Array,
@@ -829,25 +890,25 @@ def shank_only_pair_clearance(
     body_shank_chunks = []
     if Sa > 0:
         d_body_b_vs_a_obbs = jax.vmap(
-            lambda c, h: _obb_sdf_world_to_local(
-                world_surface_b, R_a, t_a, c, h
-            )
+            lambda c, h: _obb_sdf_world_to_local(world_surface_b, R_a, t_a, c, h)
         )(shank_centers_a, shank_halves_a)  # (Sa, Nbody)
         if shank_mask_a is not None:
             d_body_b_vs_a_obbs = jnp.where(
                 shank_mask_a.astype(bool)[:, None],
-                d_body_b_vs_a_obbs, _EMPTY_CLEARANCE_SENTINEL)
+                d_body_b_vs_a_obbs,
+                _EMPTY_CLEARANCE_SENTINEL,
+            )
         body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
     if Sb > 0:
         d_body_a_vs_b_obbs = jax.vmap(
-            lambda c, h: _obb_sdf_world_to_local(
-                world_surface_a, R_b, t_b, c, h
-            )
+            lambda c, h: _obb_sdf_world_to_local(world_surface_a, R_b, t_b, c, h)
         )(shank_centers_b, shank_halves_b)
         if shank_mask_b is not None:
             d_body_a_vs_b_obbs = jnp.where(
                 shank_mask_b.astype(bool)[:, None],
-                d_body_a_vs_b_obbs, _EMPTY_CLEARANCE_SENTINEL)
+                d_body_a_vs_b_obbs,
+                _EMPTY_CLEARANCE_SENTINEL,
+            )
         body_shank_chunks.append(d_body_a_vs_b_obbs.reshape(-1))
     body_shank_pool = (
         jnp.concatenate(body_shank_chunks, axis=0)
@@ -856,23 +917,28 @@ def shank_only_pair_clearance(
     )
 
     if Sa > 0 and Sb > 0:
+
         def _pair_distance(ca, ha, cb, hb):
-            return obb_obb_signed_distance(
-                R_a, t_a, ca, ha, R_b, t_b, cb, hb
-            )
+            return obb_obb_signed_distance(R_a, t_a, ca, ha, R_b, t_b, cb, hb)
+
         d_sa_vs_sb = jax.vmap(
-            lambda ca, ha: jax.vmap(
-                lambda cb, hb: _pair_distance(ca, ha, cb, hb)
-            )(shank_centers_b, shank_halves_b)
+            lambda ca, ha: jax.vmap(lambda cb, hb: _pair_distance(ca, ha, cb, hb))(
+                shank_centers_b, shank_halves_b
+            )
         )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
         if shank_mask_a is not None or shank_mask_b is not None:
-            ma = (shank_mask_a.astype(bool) if shank_mask_a is not None
-                  else jnp.ones((Sa,), bool))
-            mb = (shank_mask_b.astype(bool) if shank_mask_b is not None
-                  else jnp.ones((Sb,), bool))
+            ma = (
+                shank_mask_a.astype(bool)
+                if shank_mask_a is not None
+                else jnp.ones((Sa,), bool)
+            )
+            mb = (
+                shank_mask_b.astype(bool)
+                if shank_mask_b is not None
+                else jnp.ones((Sb,), bool)
+            )
             pair_valid = ma[:, None] & mb[None, :]
-            d_sa_vs_sb = jnp.where(
-                pair_valid, d_sa_vs_sb, _EMPTY_CLEARANCE_SENTINEL)
+            d_sa_vs_sb = jnp.where(pair_valid, d_sa_vs_sb, _EMPTY_CLEARANCE_SENTINEL)
         shank_shank_pool = d_sa_vs_sb.reshape(-1)
     else:
         shank_shank_pool = jnp.zeros((0,), dtype=world_surface_a.dtype)
@@ -884,9 +950,16 @@ def shank_only_pair_clearance(
 
 
 def body_shank_corners_pair_clearance(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
-    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
-    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
     shank_centers_a: Array,
     shank_halves_a: Array,
     shank_centers_b: Array,
@@ -925,8 +998,7 @@ def body_shank_corners_pair_clearance(
         ).reshape(-1)
         if shank_mask_a is not None:
             m = jnp.repeat(shank_mask_a.astype(bool), _SHANK_SAMPLES_PER_BOX)
-            d_corners_a_in_b = jnp.where(
-                m, d_corners_a_in_b, _EMPTY_CLEARANCE_SENTINEL)
+            d_corners_a_in_b = jnp.where(m, d_corners_a_in_b, _EMPTY_CLEARANCE_SENTINEL)
         chunks.append(d_corners_a_in_b)
     if Sb > 0:
         corners_b_world = _shank_world_samples(
@@ -938,21 +1010,25 @@ def body_shank_corners_pair_clearance(
         ).reshape(-1)
         if shank_mask_b is not None:
             m = jnp.repeat(shank_mask_b.astype(bool), _SHANK_SAMPLES_PER_BOX)
-            d_corners_b_in_a = jnp.where(
-                m, d_corners_b_in_a, _EMPTY_CLEARANCE_SENTINEL)
+            d_corners_b_in_a = jnp.where(m, d_corners_b_in_a, _EMPTY_CLEARANCE_SENTINEL)
         chunks.append(d_corners_b_in_a)
     pool = (
-        jnp.concatenate(chunks, axis=0)
-        if chunks
-        else jnp.zeros((0,), dtype=R_a.dtype)
+        jnp.concatenate(chunks, axis=0) if chunks else jnp.zeros((0,), dtype=R_a.dtype)
     )
     return _hard_soft(pool, beta=beta, top_k=top_k)
 
 
 def body_body_pair_clearance(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
-    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
-    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
     world_surface_a: Array,
     world_surface_b: Array,
     *,
@@ -973,13 +1049,9 @@ def body_body_pair_clearance(
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     local_b_in_a = (world_surface_b - t_a) @ R_a
-    d_b_in_a = sdf_lookup(
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a
-    )
+    d_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a)
     local_a_in_b = (world_surface_a - t_b) @ R_b
-    d_a_in_b = sdf_lookup(
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b
-    )
+    d_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b)
     pool = jnp.concatenate([d_b_in_a.reshape(-1), d_a_in_b.reshape(-1)])
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
 
@@ -999,10 +1071,10 @@ class PairClearance(NamedTuple):
     saturating-margin reward.
     """
 
-    body_body: tuple[Array, Array]            # voxel-SDF, mm-native
-    body_shank_corners: tuple[Array, Array]   # shank OBB corners → voxel SDF
-    body_shank_obb: tuple[Array, Array]       # body samples → shank OBB SDF
-    shank_shank: tuple[Array, Array]          # OBB-OBB exact SAT
+    body_body: tuple[Array, Array]  # voxel-SDF, mm-native
+    body_shank_corners: tuple[Array, Array]  # shank OBB corners → voxel SDF
+    body_shank_obb: tuple[Array, Array]  # body samples → shank OBB SDF
+    shank_shank: tuple[Array, Array]  # OBB-OBB exact SAT
 
 
 class FixtureClearance(NamedTuple):
@@ -1012,7 +1084,7 @@ class FixtureClearance(NamedTuple):
     """
 
     body: tuple[Array, Array]  # body voxel-SDF vs fixture surface samples
-    obb: tuple[Array, Array]   # probe OBBs SDF vs fixture surface samples
+    obb: tuple[Array, Array]  # probe OBBs SDF vs fixture surface samples
 
 
 # Per-category gains, ordered to match the NamedTuple fields. Sites
@@ -1034,13 +1106,22 @@ FIXTURE_PAIR_SLACK_GAINS = (
 
 
 def dual_rep_pair_clearance(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
-    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
-    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
     world_surface_a: Array,
     world_surface_b: Array,
-    shank_centers_a: Array, shank_halves_a: Array,
-    shank_centers_b: Array, shank_halves_b: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
     *,
     beta: float = 20.0,
     top_k_body_body: int = 16,
@@ -1059,25 +1140,52 @@ def dual_rep_pair_clearance(
     source of truth for "what counts as dual-rep probe-pair clearance".
     """
     body_body = body_body_pair_clearance(
-        R_a, t_a, R_b, t_b,
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-        world_surface_a, world_surface_b,
-        beta=beta, top_k=top_k_body_body, interp=interp,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        sdf_a_grid,
+        sdf_a_origin,
+        sdf_a_spacing,
+        sdf_b_grid,
+        sdf_b_origin,
+        sdf_b_spacing,
+        world_surface_a,
+        world_surface_b,
+        beta=beta,
+        top_k=top_k_body_body,
+        interp=interp,
     )
     body_shank_corners = body_shank_corners_pair_clearance(
-        R_a, t_a, R_b, t_b,
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-        shank_centers_a, shank_halves_a,
-        shank_centers_b, shank_halves_b,
-        beta=beta, top_k=top_k_body_shank, interp=interp,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        sdf_a_grid,
+        sdf_a_origin,
+        sdf_a_spacing,
+        sdf_b_grid,
+        sdf_b_origin,
+        sdf_b_spacing,
+        shank_centers_a,
+        shank_halves_a,
+        shank_centers_b,
+        shank_halves_b,
+        beta=beta,
+        top_k=top_k_body_shank,
+        interp=interp,
     )
     body_shank_obb, shank_shank = shank_only_pair_clearance(
-        R_a, t_a, R_b, t_b,
-        world_surface_a, world_surface_b,
-        shank_centers_a, shank_halves_a,
-        shank_centers_b, shank_halves_b,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        world_surface_a,
+        world_surface_b,
+        shank_centers_a,
+        shank_halves_a,
+        shank_centers_b,
+        shank_halves_b,
         beta=beta,
         top_k_body_shank=top_k_body_shank,
         top_k_shank_shank=top_k_shank_shank,
@@ -1091,12 +1199,18 @@ def dual_rep_pair_clearance(
 
 
 def dual_rep_fixture_clearance(
-    R_p: Array, t_p: Array,
-    sdf_p_grid: Array, sdf_p_origin: Array, sdf_p_spacing: Array,
-    fx_grid: Array, fx_origin: Array, fx_spacing: Array,
+    R_p: Array,
+    t_p: Array,
+    sdf_p_grid: Array,
+    sdf_p_origin: Array,
+    sdf_p_spacing: Array,
+    fx_grid: Array,
+    fx_origin: Array,
+    fx_spacing: Array,
     world_surface_p: Array,
     fx_surface: Array,
-    shank_centers: Array, shank_halves: Array,
+    shank_centers: Array,
+    shank_halves: Array,
     *,
     beta: float = 20.0,
     top_k_body: int = 16,
@@ -1112,31 +1226,49 @@ def dual_rep_fixture_clearance(
     misses at the α-wrap closing cap.
     """
     body = pairwise_signed_clearance_probe_fixture_body_world(
-        R_p, t_p,
-        sdf_p_grid, sdf_p_origin, sdf_p_spacing,
-        fx_grid, fx_origin, fx_spacing,
-        world_surface_p, fx_surface,
-        beta=beta, top_k=top_k_body, interp=interp,
+        R_p,
+        t_p,
+        sdf_p_grid,
+        sdf_p_origin,
+        sdf_p_spacing,
+        fx_grid,
+        fx_origin,
+        fx_spacing,
+        world_surface_p,
+        fx_surface,
+        beta=beta,
+        top_k=top_k_body,
+        interp=interp,
     )
     obb = pairwise_signed_clearance_probe_obb_fixture_world(
-        R_p, t_p,
+        R_p,
+        t_p,
         fx_surface,
-        shank_centers, shank_halves,
-        beta=beta, top_k=top_k_obb,
+        shank_centers,
+        shank_halves,
+        beta=beta,
+        top_k=top_k_obb,
     )
     return FixtureClearance(body=body, obb=obb)
 
 
 def pairwise_signed_clearance_dual(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
-    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
-    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
-    surface_a: Array,           # (Nbody, 3) body envelope samples (a-local)
-    surface_b: Array,           # (Nbody, 3) body envelope samples (b-local)
-    shank_centers_a: Array,     # (Sa, 3) shank centres in a-local
-    shank_halves_a: Array,      # (Sa, 3) shank half-extents
-    shank_centers_b: Array,     # (Sb, 3)
-    shank_halves_b: Array,      # (Sb, 3)
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
+    surface_a: Array,  # (Nbody, 3) body envelope samples (a-local)
+    surface_b: Array,  # (Nbody, 3) body envelope samples (b-local)
+    shank_centers_a: Array,  # (Sa, 3) shank centres in a-local
+    shank_halves_a: Array,  # (Sa, 3) shank half-extents
+    shank_centers_b: Array,  # (Sb, 3)
+    shank_halves_b: Array,  # (Sb, 3)
     *,
     beta: float = 20.0,
     top_k_body_body: int = 16,
@@ -1183,12 +1315,22 @@ def pairwise_signed_clearance_dual(
     world_surface_a = surface_a @ R_a.T + t_a
     world_surface_b = surface_b @ R_b.T + t_b
     return pairwise_signed_clearance_dual_world(
-        R_a, t_a, R_b, t_b,
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing,
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing,
-        world_surface_a, world_surface_b,
-        shank_centers_a, shank_halves_a,
-        shank_centers_b, shank_halves_b,
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        sdf_a_grid,
+        sdf_a_origin,
+        sdf_a_spacing,
+        sdf_b_grid,
+        sdf_b_origin,
+        sdf_b_spacing,
+        world_surface_a,
+        world_surface_b,
+        shank_centers_a,
+        shank_halves_a,
+        shank_centers_b,
+        shank_halves_b,
         beta=beta,
         top_k_body_body=top_k_body_body,
         top_k_body_shank=top_k_body_shank,
@@ -1198,11 +1340,18 @@ def pairwise_signed_clearance_dual(
 
 
 def pairwise_signed_clearance_dual_world(
-    R_a: Array, t_a: Array, R_b: Array, t_b: Array,
-    sdf_a_grid: Array, sdf_a_origin: Array, sdf_a_spacing: Array,
-    sdf_b_grid: Array, sdf_b_origin: Array, sdf_b_spacing: Array,
-    world_surface_a: Array,    # (Nbody, 3) body envelope samples in WORLD
-    world_surface_b: Array,    # (Nbody, 3) body envelope samples in WORLD
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
+    world_surface_a: Array,  # (Nbody, 3) body envelope samples in WORLD
+    world_surface_b: Array,  # (Nbody, 3) body envelope samples in WORLD
     shank_centers_a: Array,
     shank_halves_a: Array,
     shank_centers_b: Array,
@@ -1229,13 +1378,9 @@ def pairwise_signed_clearance_dual_world(
 
     # 1+2: body-body (per-sample, not min-reduced).
     local_in_a = (world_surface_b - t_a) @ R_a
-    d_body_b_in_a = sdf_lookup(
-        sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a
-    )
+    d_body_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a)
     local_in_b = (world_surface_a - t_b) @ R_b
-    d_body_a_in_b = sdf_lookup(
-        sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b
-    )
+    d_body_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b)
     body_body_pool = jnp.concatenate(
         [d_body_b_in_a.reshape(-1), d_body_a_in_b.reshape(-1)], axis=0
     )
@@ -1257,26 +1402,18 @@ def pairwise_signed_clearance_dual_world(
     body_shank_chunks = []
     if Sa > 0:
         ca_in_b = (corners_a_world - t_b) @ R_b
-        d_corners_a_in_b = sdf_lookup(
-            sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
-        )
+        d_corners_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b)
         body_shank_chunks.append(d_corners_a_in_b.reshape(-1))
         d_body_b_vs_a_obbs = jax.vmap(
-            lambda c, h: _obb_sdf_world_to_local(
-                world_surface_b, R_a, t_a, c, h
-            )
+            lambda c, h: _obb_sdf_world_to_local(world_surface_b, R_a, t_a, c, h)
         )(shank_centers_a, shank_halves_a)
         body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
     if Sb > 0:
         cb_in_a = (corners_b_world - t_a) @ R_a
-        d_corners_b_in_a = sdf_lookup(
-            sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
-        )
+        d_corners_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a)
         body_shank_chunks.append(d_corners_b_in_a.reshape(-1))
         d_body_a_vs_b_obbs = jax.vmap(
-            lambda c, h: _obb_sdf_world_to_local(
-                world_surface_a, R_b, t_b, c, h
-            )
+            lambda c, h: _obb_sdf_world_to_local(world_surface_a, R_b, t_b, c, h)
         )(shank_centers_b, shank_halves_b)
         body_shank_chunks.append(d_body_a_vs_b_obbs.reshape(-1))
     body_shank_pool = (
@@ -1293,13 +1430,12 @@ def pairwise_signed_clearance_dual_world(
     if Sa > 0 and Sb > 0:
         # vmap outer over A's OBBs, inner over B's OBBs.
         def _pair_distance(ca, ha, cb, hb):
-            return obb_obb_signed_distance(
-                R_a, t_a, ca, ha, R_b, t_b, cb, hb
-            )
+            return obb_obb_signed_distance(R_a, t_a, ca, ha, R_b, t_b, cb, hb)
+
         d_sa_vs_sb = jax.vmap(
-            lambda ca, ha: jax.vmap(
-                lambda cb, hb: _pair_distance(ca, ha, cb, hb)
-            )(shank_centers_b, shank_halves_b)
+            lambda ca, ha: jax.vmap(lambda cb, hb: _pair_distance(ca, ha, cb, hb))(
+                shank_centers_b, shank_halves_b
+            )
         )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
         shank_shank_chunks.append(d_sa_vs_sb.reshape(-1))
     shank_shank_pool = (

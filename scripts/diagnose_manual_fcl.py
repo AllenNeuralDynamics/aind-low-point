@@ -119,9 +119,11 @@ def _print_pose(label, x, statics, n_arcs):
         sx = float(x[off + 1])
         sy = float(x[off + 2])
         spin = float(np.degrees(np.arctan2(sy, sx)))
-        print(f"  {st.name:<8} arc_idx={st.arc_idx} ml={float(x[off]):+7.2f} "
-              f"spin={spin:+7.2f}°  off_R={float(x[off+3]):+5.2f} "
-              f"off_A={float(x[off+4]):+5.2f}  depth={float(x[off+5]):+5.2f}")
+        print(
+            f"  {st.name:<8} arc_idx={st.arc_idx} ml={float(x[off]):+7.2f} "
+            f"spin={spin:+7.2f}°  off_R={float(x[off + 3]):+5.2f} "
+            f"off_A={float(x[off + 4]):+5.2f}  depth={float(x[off + 5]):+5.2f}"
+        )
 
 
 def _report_fcl(label, x, validator):
@@ -130,8 +132,10 @@ def _report_fcl(label, x, validator):
         print(f"  {label}: no FCL pairs")
         return
     n_viol = int((s < -1e-4).sum())
-    print(f"  {label}: n_viol={n_viol}/{len(s)}  "
-          f"min_slack={s.min():+.4f}  feasible={n_viol == 0}")
+    print(
+        f"  {label}: n_viol={n_viol}/{len(s)}  "
+        f"min_slack={s.min():+.4f}  feasible={n_viol == 0}"
+    )
     if n_viol:
         for name, slack in validator.violating_pairs(x):
             print(f"      {name}: {slack:+.4f} mm")
@@ -141,10 +145,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--plan", type=Path,
-                   default=Path("examples/836656-config-T12.plan.yml"))
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_lbfgsb_augmented.pkl"))
+    p.add_argument(
+        "--plan", type=Path, default=Path("examples/836656-config-T12.plan.yml")
+    )
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_lbfgsb_augmented.pkl")
+    )
     p.add_argument("--cand", type=int, default=4195)
     args = p.parse_args()
 
@@ -182,21 +188,29 @@ def main() -> int:
     cand = data["candidates"][args.cand]
     jc = data["results"][args.cand]
     statics = _build_probe_static(
-        probes, holes, cand.ha, cand.aa,
-        bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+        probes,
+        holes,
+        cand.ha,
+        cand.aa,
+        bvh_cache=bvh_cache,
+        sdf_by_name=sdf_by_name,
     )
     n_arcs = jc.n_arcs
     n_probes = len(statics)
     coverage_data = build_coverage_data(probes, statics)
-    print(f"\nCand #{args.cand}: n_probes={n_probes}, n_arcs={n_arcs}, "
-          f"violation_fn={data['violation_fn'][args.cand]:.2f}")
-    print(f"  Probe → hole:")
+    print(
+        f"\nCand #{args.cand}: n_probes={n_probes}, n_arcs={n_arcs}, "
+        f"violation_fn={data['violation_fn'][args.cand]:.2f}"
+    )
+    print("  Probe → hole:")
     for st in statics:
-        print(f"    {st.name:<8} → hole #{st.assigned_hole.id}  "
-              f"arc_idx={st.arc_idx}")
+        print(f"    {st.name:<8} → hole #{st.assigned_hole.id}  arc_idx={st.arc_idx}")
 
     validator = make_fcl_validator(
-        statics, n_arcs, fixtures=fixtures, fixture_bvhs=fixture_bvhs,
+        statics,
+        n_arcs,
+        fixtures=fixtures,
+        fixture_bvhs=fixture_bvhs,
     )
 
     # ===== Pose 1: manual plan.yml =====
@@ -206,38 +220,51 @@ def main() -> int:
 
     # ===== Pose 2: Stage 2 polished =====
     x_s2 = reduced_to_phase1(jc.reduced_y, n_arcs, n_probes)
-    _print_pose("Pose 2: STAGE 2 polished (off=depth=0)",
-                x_s2, statics, n_arcs)
+    _print_pose("Pose 2: STAGE 2 polished (off=depth=0)", x_s2, statics, n_arcs)
     _report_fcl("FCL @ Stage 2 polished", x_s2, validator)
 
     # ===== Pose 3: Augmented =====
-    x_aug = np.asarray(data["augmented_phase1_x"][args.cand],
-                       dtype=np.float64)
-    _print_pose("Pose 3: AUGMENTED (offset polish exit)",
-                x_aug, statics, n_arcs)
+    x_aug = np.asarray(data["augmented_phase1_x"][args.cand], dtype=np.float64)
+    _print_pose("Pose 3: AUGMENTED (offset polish exit)", x_aug, statics, n_arcs)
     _report_fcl("FCL @ Augmented", x_aug, validator)
 
     # ===== Pose 4: Phase 2 chain exit =====
-    print("\nRunning Phase 1 + Phase 2 chain from augmented warm-start...",
-          flush=True)
+    print("\nRunning Phase 1 + Phase 2 chain from augmented warm-start...", flush=True)
     bounds = phase1_bounds(n_arcs, n_probes)
     p1_fun, p1_jac = make_phase1_objective(
-        statics, n_arcs, coverage_data=coverage_data,
-        fixtures=fixtures, weights=Phase1Weights(),
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
+        fixtures=fixtures,
+        weights=Phase1Weights(),
     )
-    r1 = minimize(p1_fun, x_aug, jac=p1_jac, method="L-BFGS-B",
-                  bounds=bounds, options=dict(maxiter=80, ftol=1e-5,
-                                              gtol=1e-5))
+    r1 = minimize(
+        p1_fun,
+        x_aug,
+        jac=p1_jac,
+        method="L-BFGS-B",
+        bounds=bounds,
+        options=dict(maxiter=80, ftol=1e-5, gtol=1e-5),
+    )
     x_p1 = np.asarray(r1.x, dtype=np.float64)
     p2 = make_phase2(
-        statics, n_arcs, coverage_data=coverage_data,
+        statics,
+        n_arcs,
+        coverage_data=coverage_data,
         fixtures=fixtures,
         weights=Phase2Weights(min_clearance_mm=0.3),
     )
-    r2 = minimize(p2["fun"], x_p1, jac=p2["jac"], method="trust-constr",
-                  bounds=bounds, constraints=p2["constraints_nlc"],
-                  options=dict(maxiter=80, xtol=1e-6, gtol=1e-5,
-                               initial_tr_radius=1.0, verbose=0))
+    r2 = minimize(
+        p2["fun"],
+        x_p1,
+        jac=p2["jac"],
+        method="trust-constr",
+        bounds=bounds,
+        constraints=p2["constraints_nlc"],
+        options=dict(
+            maxiter=80, xtol=1e-6, gtol=1e-5, initial_tr_radius=1.0, verbose=0
+        ),
+    )
     x_p2 = np.asarray(r2.x, dtype=np.float64)
     _print_pose("Pose 4: PHASE 2 chain exit", x_p2, statics, n_arcs)
     _report_fcl("FCL @ Phase 2 exit", x_p2, validator)
@@ -245,8 +272,10 @@ def main() -> int:
     # ===== Delta summary =====
     print("\n=== Per-probe pose deltas (Phase 2 exit − manual) ===")
     for ai in range(n_arcs):
-        print(f"  arc_aps[{ai}]: manual={x_manual[ai]:+6.2f}  "
-              f"→ P2={x_p2[ai]:+6.2f}  (Δ={x_p2[ai] - x_manual[ai]:+6.2f})")
+        print(
+            f"  arc_aps[{ai}]: manual={x_manual[ai]:+6.2f}  "
+            f"→ P2={x_p2[ai]:+6.2f}  (Δ={x_p2[ai] - x_manual[ai]:+6.2f})"
+        )
     for i, st in enumerate(statics):
         off = n_arcs + PHASE1_PER_PROBE_VARS * i
         sx_m = float(x_manual[off + 1])
@@ -260,9 +289,11 @@ def main() -> int:
         d_oR = float(x_p2[off + 3] - x_manual[off + 3])
         d_oA = float(x_p2[off + 4] - x_manual[off + 4])
         d_dep = float(x_p2[off + 5] - x_manual[off + 5])
-        print(f"  {st.name:<8} Δml={d_ml:+7.2f} Δspin={d_spin:+7.2f}° "
-              f"Δoff_R={d_oR:+5.2f} Δoff_A={d_oA:+5.2f} "
-              f"Δdep={d_dep:+5.2f}")
+        print(
+            f"  {st.name:<8} Δml={d_ml:+7.2f} Δspin={d_spin:+7.2f}° "
+            f"Δoff_R={d_oR:+5.2f} Δoff_A={d_oA:+5.2f} "
+            f"Δdep={d_dep:+5.2f}"
+        )
 
     return 0
 

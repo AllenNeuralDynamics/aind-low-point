@@ -35,6 +35,7 @@ _sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fcl
 import jax.numpy as jnp
 import numpy as np
+from run_optimizer import _probe_static_info, _transform_holes
 from scipy.optimize import minimize
 
 from aind_low_point.config import ConfigModel
@@ -45,7 +46,6 @@ from aind_low_point.optimization.coverage_jax import (
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import (
-    JointWeights,
     _build_probe_static,
     compute_fixture_max_violation,
 )
@@ -63,13 +63,10 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     FixtureSDFData,
     Phase1Weights,
     make_phase1_objective,
-    phase1_n_vars,
     reduced_to_phase1,
 )
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from run_optimizer import _probe_static_info, _transform_holes  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Stratified sampling
@@ -94,22 +91,20 @@ def stratified_sample(
     Each stratum returns up to N indices (or all available).
     """
     max_viols = np.array([float(r.metrics.max_violation) for r in results])
-    lex_keys = np.array(
-        [r.metrics.lex_key() for r in results], dtype=object
-    )
+    lex_keys = np.array([r.metrics.lex_key() for r in results], dtype=object)
     rank_order = sorted(range(len(results)), key=lambda i: results[i].metrics.lex_key())
 
     top = [i for i in rank_order if max_viols[i] <= 0.001][:n_top]
-    near = [i for i in rank_order
-            if 0.001 < max_viols[i] <= 0.5][:n_near]
-    boundary = [i for i in rank_order
-                if 0.5 < max_viols[i] <= 5.0][:n_boundary]
+    near = [i for i in rank_order if 0.001 < max_viols[i] <= 0.5][:n_near]
+    boundary = [i for i in rank_order if 0.5 < max_viols[i] <= 5.0][:n_boundary]
 
     rng = np.random.default_rng(seed)
-    other_pool = [i for i in range(len(results))
-                  if max_viols[i] > 5.0 and max_viols[i] < 1e6]
-    other = list(rng.choice(other_pool, size=min(n_other, len(other_pool)),
-                            replace=False))
+    other_pool = [
+        i for i in range(len(results)) if max_viols[i] > 5.0 and max_viols[i] < 1e6
+    ]
+    other = list(
+        rng.choice(other_pool, size=min(n_other, len(other_pool)), replace=False)
+    )
 
     chosen = top + near + boundary + other
     # Dedup while preserving order
@@ -117,7 +112,8 @@ def stratified_sample(
     out = []
     for i in chosen:
         if i not in seen:
-            seen.add(int(i)); out.append(int(i))
+            seen.add(int(i))
+            out.append(int(i))
     return out
 
 
@@ -132,13 +128,13 @@ def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
     for _ in range(n_arcs):
         bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-60.0, +60.0))     # ml
+        bounds.append((-60.0, +60.0))  # ml
         # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
-        bounds.append((-1.1, +1.1))        # sx
-        bounds.append((-1.1, +1.1))        # sy
-        bounds.append((-3.0, +3.0))        # off_R (mm)
-        bounds.append((-3.0, +3.0))        # off_A (mm)
-        bounds.append((-2.0, +2.0))        # depth (mm past target)
+        bounds.append((-1.1, +1.1))  # sx
+        bounds.append((-1.1, +1.1))  # sy
+        bounds.append((-3.0, +3.0))  # off_R (mm)
+        bounds.append((-3.0, +3.0))  # off_A (mm)
+        bounds.append((-2.0, +2.0))  # depth (mm past target)
     return bounds
 
 
@@ -207,13 +203,15 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
             spacing_mm=0.2,
             strip_shanks_first=False,
         )
-        out.append(FixtureSDFData(
-            name=key,
-            grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
-            origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
-            spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
-            surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
-        ))
+        out.append(
+            FixtureSDFData(
+                name=key,
+                grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
+                origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
+                spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
+                surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
+            )
+        )
     return tuple(out)
 
 
@@ -247,8 +245,11 @@ def build_brain_sdf(
         process=False,
     )
     sdf = build_probe_sdf(
-        world, spacing_mm=spacing_mm, pad_mm=pad_mm,
-        n_surface_points=1, sign_type="fwn",
+        world,
+        spacing_mm=spacing_mm,
+        pad_mm=pad_mm,
+        n_surface_points=1,
+        sign_type="fwn",
     )
     return BrainSDFData(
         grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
@@ -311,10 +312,12 @@ def final_feasibility_report(
         if st.bvh_obj is None:
             continue
         R, t = final_pose[st.name]
-        st.bvh_obj.setTransform(fcl.Transform(
-            np.ascontiguousarray(R, dtype=np.float64),
-            np.ascontiguousarray(t, dtype=np.float64),
-        ))
+        st.bvh_obj.setTransform(
+            fcl.Transform(
+                np.ascontiguousarray(R, dtype=np.float64),
+                np.ascontiguousarray(t, dtype=np.float64),
+            )
+        )
         manager.registerObject(st.bvh_obj)
         objs_by_key[f"probe:{st.name}"] = st.bvh_obj
 
@@ -364,9 +367,9 @@ def final_feasibility_report(
                 c_res = fcl.CollisionResult()
                 fcl.collide(objs_by_key[ka], objs_by_key[kb], coll_req, c_res)
                 if c_res.contacts:
-                    pair_results.append((ka, kb, -1.0))   # colliding
+                    pair_results.append((ka, kb, -1.0))  # colliding
                 else:
-                    pair_results.append((ka, kb, 0.0))    # touching only
+                    pair_results.append((ka, kb, 0.0))  # touching only
 
     overlaps = [(ka, kb, d) for ka, kb, d in pair_results if d < 0.0]
     return {
@@ -383,7 +386,8 @@ def final_feasibility_report(
 
 
 def build_coverage_data(
-    probes, statics,
+    probes,
+    statics,
 ) -> tuple[GaussianCoverageData, ...]:
     """One Gaussian-mode CoverageData per probe, taken from the probe's
     target_LPS and density_sigma_mm (and the per-kind recording range).
@@ -410,8 +414,9 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
-    p.add_argument("--polish-pkl", type=Path,
-                   default=Path("/tmp/full_polish_patchAB.pkl"))
+    p.add_argument(
+        "--polish-pkl", type=Path, default=Path("/tmp/full_polish_patchAB.pkl")
+    )
     p.add_argument("--n-top", type=int, default=5)
     p.add_argument("--n-near", type=int, default=5)
     p.add_argument("--n-boundary", type=int, default=5)
@@ -447,16 +452,20 @@ def main() -> int:
     print("Building fixture FCL objects for final check...")
     t0 = time.time()
     fixtures_fcl = build_fixture_collision_objs(runtime)
-    print(f"  {len(fixtures_fcl)} fixtures built in {time.time() - t0:.1f}s: "
-          f"{list(fixtures_fcl.keys())}")
+    print(
+        f"  {len(fixtures_fcl)} fixtures built in {time.time() - t0:.1f}s: "
+        f"{list(fixtures_fcl.keys())}"
+    )
 
     print("Building fixture α-wrap SDFs for Phase 1 clearance...")
     t0 = time.time()
     fixtures_sdf = build_fixture_sdf_data(runtime)
     print(f"  {len(fixtures_sdf)} fixture SDFs in {time.time() - t0:.1f}s")
     brain_sdf = maybe_build_brain_sdf(runtime, compiled)
-    print(f"  brain-containment: "
-          f"{'ON' if brain_sdf is not None else 'OFF (no brain asset)'}")
+    print(
+        f"  brain-containment: "
+        f"{'ON' if brain_sdf is not None else 'OFF (no brain asset)'}"
+    )
 
     with open(args.polish_pkl, "rb") as f:
         data = pickle.load(f)
@@ -466,16 +475,21 @@ def main() -> int:
 
     sample_idxs = stratified_sample(
         results,
-        n_top=args.n_top, n_near=args.n_near,
-        n_boundary=args.n_boundary, n_other=args.n_other,
+        n_top=args.n_top,
+        n_near=args.n_near,
+        n_boundary=args.n_boundary,
+        n_other=args.n_other,
         seed=args.seed,
     )
-    print(f"Sampled {len(sample_idxs)} cands: {sample_idxs[:10]}{' ...' if len(sample_idxs) > 10 else ''}")
+    print(
+        f"Sampled {len(sample_idxs)} cands: {sample_idxs[:10]}{' ...' if len(sample_idxs) > 10 else ''}"
+    )
     print()
 
     bvh_cache = {
-        p.name: (make_fcl_bvh(p.collision_mesh)
-                 if p.collision_mesh is not None else None)
+        p.name: (
+            make_fcl_bvh(p.collision_mesh) if p.collision_mesh is not None else None
+        )
         for p in probes
     }
     weights = Phase1Weights()
@@ -483,13 +497,16 @@ def main() -> int:
     # Header. ``mv_fix2`` is the Stage 2 fixture-vs-probe penetration
     # diagnostic at the raw polished y (before Phase 1); ``mv_p1`` is
     # the post-Phase 1 min clearance across all pairs incl. fixtures.
-    print(f"{'cand#':>5} {'rank':>5} {'mv_before':>10} {'mv_fix2':>8} "
-          f"{'fn0':>10} {'fn_end':>10} "
-          f"{'iter':>4} {'mv_p1':>8} {'cov_p1':>8} {'final':>6} {'wall_s':>7}")
+    print(
+        f"{'cand#':>5} {'rank':>5} {'mv_before':>10} {'mv_fix2':>8} "
+        f"{'fn0':>10} {'fn_end':>10} "
+        f"{'iter':>4} {'mv_p1':>8} {'cov_p1':>8} {'final':>6} {'wall_s':>7}"
+    )
 
     # Pre-rank for printing
     rank_by_idx = {
-        i: r for r, (i, _) in enumerate(
+        i: r
+        for r, (i, _) in enumerate(
             sorted(enumerate(results), key=lambda kv: kv[1].metrics.lex_key())
         )
     }
@@ -499,15 +516,20 @@ def main() -> int:
         jc = results[cand_idx]
         mv_before = float(jc.metrics.max_violation)
         statics = _build_probe_static(
-            probes, holes_list, cand.ha, cand.aa,
-            bvh_cache=bvh_cache, sdf_by_name=sdf_by_name,
+            probes,
+            holes_list,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
         )
         n_arcs = jc.n_arcs
 
         # Build coverage data (Gaussian centroid, matching Stage 2's mode).
         coverage_data = build_coverage_data(probes, statics)
         fun, jac = make_phase1_objective(
-            statics, n_arcs,
+            statics,
+            n_arcs,
             coverage_data=coverage_data,
             fixtures=fixtures_sdf,
             weights=weights,
@@ -529,7 +551,11 @@ def main() -> int:
 
         t0 = time.time()
         res = minimize(
-            fun, x0, jac=jac, method="L-BFGS-B", bounds=bounds,
+            fun,
+            x0,
+            jac=jac,
+            method="L-BFGS-B",
+            bounds=bounds,
             options=dict(maxiter=args.slsqp_max_iter, ftol=1e-4, gtol=1e-5),
         )
         wall = time.time() - t0
@@ -538,6 +564,7 @@ def main() -> int:
         x_opt = np.asarray(res.x, dtype=np.float64)
         final_pose: dict = {}
         from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
+
         arc_aps = x_opt[:n_arcs]
         for i, st in enumerate(statics):
             off = n_arcs + PHASE1_PER_PROBE_VARS * i
@@ -550,9 +577,13 @@ def main() -> int:
             spin_deg = float(np.degrees(np.arctan2(sy, sx)))
             ap = float(arc_aps[st.arc_idx])
             R, t = pose_from_optimizer_vars(
-                target_LPS=st.target_LPS, ap_deg=ap, ml_deg=ml,
+                target_LPS=st.target_LPS,
+                ap_deg=ap,
+                ml_deg=ml,
                 spin_deg=spin_deg,
-                offset_R_mm=off_R, offset_A_mm=off_A, past_target_mm=depth,
+                offset_R_mm=off_R,
+                offset_A_mm=off_A,
+                past_target_mm=depth,
                 recording_center_local=st.pivot_local,
             )
             final_pose[st.name] = (R, t)
@@ -565,9 +596,7 @@ def main() -> int:
         mv_p1 = mv_before  # placeholder; real value via final_check below
 
         # Final feasibility via FCL + broadphase + fixtures.
-        feas = final_feasibility_report(
-            probes, statics, final_pose, fixtures_fcl
-        )
+        feas = final_feasibility_report(probes, statics, final_pose, fixtures_fcl)
         feas_flag = "FEAS" if feas["feasible"] else "FAIL"
         coverage_after = -res.fun + (
             # Back out coverage from the soft objective by adding back
@@ -578,27 +607,30 @@ def main() -> int:
         )
         cov_p1 = max(0.0, -res.fun)
 
-        print(f"{cand_idx:>5} {rank_by_idx[cand_idx]:>5} "
-              f"{mv_before:>10.4f} {mv_fixture_stage2:>8.3f} "
-              f"{fn0:>10.2f} {res.fun:>10.2f} "
-              f"{res.nit:>4} {feas['min_clearance']:>8.3f} "
-              f"{cov_p1:>8.2f} {feas_flag:>6} {wall:>7.2f}")
+        print(
+            f"{cand_idx:>5} {rank_by_idx[cand_idx]:>5} "
+            f"{mv_before:>10.4f} {mv_fixture_stage2:>8.3f} "
+            f"{fn0:>10.2f} {res.fun:>10.2f} "
+            f"{res.nit:>4} {feas['min_clearance']:>8.3f} "
+            f"{cov_p1:>8.2f} {feas_flag:>6} {wall:>7.2f}"
+        )
         # Surface the worst pair for diagnosing why Phase 1 fails FCL.
         # Also compute JAX dual-rep clearance for the same pair so we
         # can see whether JAX is blind to the collision or just
         # under-penalising it.
+        import jax.numpy as _jnp
+
         from aind_low_point.optimization.sdf_jax import (
             pairwise_signed_clearance_dual as _dual,
         )
-        import jax.numpy as _jnp
 
         worst = sorted(feas["pair_clearances"], key=lambda t: t[2])[:3]
         probe_names = [st.name for st in statics]
         for ka, kb, d in worst:
             line = f"      worst: {ka} ↔ {kb}: FCL={d:+.3f}"
             if ka.startswith("probe:") and kb.startswith("probe:"):
-                a_name = ka[len("probe:"):]
-                b_name = kb[len("probe:"):]
+                a_name = ka[len("probe:") :]
+                b_name = kb[len("probe:") :]
                 if a_name in probe_names and b_name in probe_names:
                     ai = probe_names.index(a_name)
                     bi = probe_names.index(b_name)
@@ -619,14 +651,22 @@ def main() -> int:
                         _jnp.asarray(sb.sdf_data["spacing"], dtype=_jnp.float32),
                         _jnp.asarray(sa.sdf_data["surface"], dtype=_jnp.float32),
                         _jnp.asarray(sb.sdf_data["surface"], dtype=_jnp.float32),
-                        _jnp.asarray(sa.sdf_data.get("shank_centers",
-                            np.zeros((0, 3))), dtype=_jnp.float32),
-                        _jnp.asarray(sa.sdf_data.get("shank_halves",
-                            np.zeros((0, 3))), dtype=_jnp.float32),
-                        _jnp.asarray(sb.sdf_data.get("shank_centers",
-                            np.zeros((0, 3))), dtype=_jnp.float32),
-                        _jnp.asarray(sb.sdf_data.get("shank_halves",
-                            np.zeros((0, 3))), dtype=_jnp.float32),
+                        _jnp.asarray(
+                            sa.sdf_data.get("shank_centers", np.zeros((0, 3))),
+                            dtype=_jnp.float32,
+                        ),
+                        _jnp.asarray(
+                            sa.sdf_data.get("shank_halves", np.zeros((0, 3))),
+                            dtype=_jnp.float32,
+                        ),
+                        _jnp.asarray(
+                            sb.sdf_data.get("shank_centers", np.zeros((0, 3))),
+                            dtype=_jnp.float32,
+                        ),
+                        _jnp.asarray(
+                            sb.sdf_data.get("shank_halves", np.zeros((0, 3))),
+                            dtype=_jnp.float32,
+                        ),
                     )
                     line += (
                         f"  | JAX hard: bb={float(hbb):+.3f} "

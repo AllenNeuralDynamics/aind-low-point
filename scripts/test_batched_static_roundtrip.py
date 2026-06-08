@@ -16,9 +16,10 @@ Run::
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import yaml
-from pathlib import Path
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.arc_assignment import ArcAssignment
@@ -45,9 +46,7 @@ def parse_manual_plan(plan_path: Path, probe_names: list[str]):
     probe_to_arc_idx = {}
     probe_to_hole = {}
     # Hole IDs from a known manual mapping
-    manual_H = {
-        "MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12
-    }
+    manual_H = {"MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12}
     for name in probe_names:
         spec = mp["probes"][name]
         probe_to_arc_idx[name] = letter_to_idx[spec["arc"]]
@@ -112,8 +111,10 @@ def main() -> int:
 
         # arc_idx
         if int(batched.probe_arc_idx[0, i]) != ref.arc_idx:
-            print(f"  probe {i} {ref.name:<5}: arc_idx mismatch "
-                  f"batched={int(batched.probe_arc_idx[0, i])} ref={ref.arc_idx} ✗")
+            print(
+                f"  probe {i} {ref.name:<5}: arc_idx mismatch "
+                f"batched={int(batched.probe_arc_idx[0, i])} ref={ref.arc_idx} ✗"
+            )
             ok = False
 
         # target_LPS
@@ -131,17 +132,21 @@ def main() -> int:
             ref.pivot_local.astype(np.float32),
             atol=1e-5,
         ):
-            print(f"  probe {i} {ref.name:<5}: pivot_local mismatch "
-                  f"batched={np.asarray(batched.probe_pivot_local[0, i])} "
-                  f"ref={ref.pivot_local} ✗")
+            print(
+                f"  probe {i} {ref.name:<5}: pivot_local mismatch "
+                f"batched={np.asarray(batched.probe_pivot_local[0, i])} "
+                f"ref={ref.pivot_local} ✗"
+            )
             ok = False
 
         # shank tips (padded)
         nsh_ref = ref.shank_tips_local.shape[0]
         nsh_batched = int(batched.probe_shank_mask[0, i].sum())
         if nsh_ref != nsh_batched:
-            print(f"  probe {i} {ref.name:<5}: shank count mismatch "
-                  f"batched={nsh_batched} ref={nsh_ref} ✗")
+            print(
+                f"  probe {i} {ref.name:<5}: shank count mismatch "
+                f"batched={nsh_batched} ref={nsh_ref} ✗"
+            )
             ok = False
         elif not np.allclose(
             np.asarray(batched.probe_shank_tips[0, i, :nsh_ref]),
@@ -155,8 +160,10 @@ def main() -> int:
         S_ref = ref.section_axes.shape[0]
         active_sections = int(batched.section_mask[0, i].sum())
         if S_ref != active_sections:
-            print(f"  probe {i} {ref.name:<5}: section count mismatch "
-                  f"batched={active_sections} ref={S_ref} ✗")
+            print(
+                f"  probe {i} {ref.name:<5}: section count mismatch "
+                f"batched={active_sections} ref={S_ref} ✗"
+            )
             ok = False
             continue
 
@@ -177,23 +184,33 @@ def main() -> int:
             b = np.asarray(bat_arr)
             if not np.allclose(b, r, atol=1e-5):
                 max_d = float(np.max(np.abs(b - r)))
-                print(f"  probe {i} {ref.name:<5}: section {fname} mismatch "
-                      f"max|d|={max_d:.2e} ✗")
+                print(
+                    f"  probe {i} {ref.name:<5}: section {fname} mismatch "
+                    f"max|d|={max_d:.2e} ✗"
+                )
                 sec_ok = False
                 ok = False
         if sec_ok:
-            print(f"  probe {i} {ref.name:<5}: arc={ref.arc_idx} "
-                  f"shanks={nsh_ref} sections={S_ref} ✓")
+            print(
+                f"  probe {i} {ref.name:<5}: arc={ref.arc_idx} "
+                f"shanks={nsh_ref} sections={S_ref} ✓"
+            )
 
     # Bounds spot-check
     n_arcs = batched.n_arcs
-    print(f"\nBounds (B=1):")
-    print(f"  arc_aps lo/hi: {float(batched.bounds_lo[0, 0]):.0f} / "
-          f"{float(batched.bounds_hi[0, 0]):.0f}")
-    print(f"  ml lo/hi:      {float(batched.bounds_lo[0, n_arcs]):.0f} / "
-          f"{float(batched.bounds_hi[0, n_arcs]):.0f}")
-    print(f"  spin lo/hi:    {float(batched.bounds_lo[0, n_arcs + 1]):.0f} / "
-          f"{float(batched.bounds_hi[0, n_arcs + 1]):.0f}")
+    print("\nBounds (B=1):")
+    print(
+        f"  arc_aps lo/hi: {float(batched.bounds_lo[0, 0]):.0f} / "
+        f"{float(batched.bounds_hi[0, 0]):.0f}"
+    )
+    print(
+        f"  ml lo/hi:      {float(batched.bounds_lo[0, n_arcs]):.0f} / "
+        f"{float(batched.bounds_hi[0, n_arcs]):.0f}"
+    )
+    print(
+        f"  spin lo/hi:    {float(batched.bounds_lo[0, n_arcs + 1]):.0f} / "
+        f"{float(batched.bounds_hi[0, n_arcs + 1]):.0f}"
+    )
 
     print()
     if ok:

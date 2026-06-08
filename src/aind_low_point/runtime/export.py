@@ -173,9 +173,7 @@ def export_plan_geometry(
     # propagates into the rig-frame angle readout below.
     R_sfr, _ = plan_state.kinematics.subject_from_rig.rotate_translate
     R_sfr_arr = np.asarray(R_sfr, dtype=np.float64)
-    head_pitch_about_L = float(
-        np.rad2deg(np.arctan2(R_sfr_arr[2, 1], R_sfr_arr[1, 1]))
-    )
+    head_pitch_about_L = float(np.rad2deg(np.arctan2(R_sfr_arr[2, 1], R_sfr_arr[1, 1])))
 
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():

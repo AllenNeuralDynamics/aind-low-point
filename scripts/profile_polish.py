@@ -37,8 +37,8 @@ from aind_low_point.optimization.arc_first_principled import (
 )
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import (
-    JointWeights,
     _STAGE2_TIMINGS,
+    JointWeights,
     stage2_timings,
 )
 from aind_low_point.optimization.parallel_stage2 import (
@@ -62,8 +62,12 @@ def main() -> int:
     p.add_argument("--per-arc-cap", type=int, default=50)
     p.add_argument("--global-cap", type=int, default=200_000)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--target-full-pool-size", type=int, default=8908,
-                   help="For wall-time extrapolation")
+    p.add_argument(
+        "--target-full-pool-size",
+        type=int,
+        default=8908,
+        help="For wall-time extrapolation",
+    )
     args = p.parse_args()
 
     phase_t = {}
@@ -84,14 +88,17 @@ def main() -> int:
     phase_t["setup"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    atlas = build_visibility_atlas(probes, holes_list,
-                                    n_top=args.n_top, n_spin=args.n_spin,
-                                    verbose=False)
+    atlas = build_visibility_atlas(
+        probes, holes_list, n_top=args.n_top, n_spin=args.n_spin, verbose=False
+    )
     phase_t["atlas"] = time.perf_counter() - t
 
     t = time.perf_counter()
     candidates = enumerate_arc_first_candidates(
-        probes, atlas, max_arcs=3, max_probes_per_arc=4,
+        probes,
+        atlas,
+        max_arcs=3,
+        max_probes_per_arc=4,
         per_arc_max_hole_tuples=args.per_arc_cap,
         global_max_candidates=args.global_cap,
         verbose=False,
@@ -99,9 +106,12 @@ def main() -> int:
     phase_t["arc_first_enum"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    sdf_by_name = {p.name: build_probe_sdf_from_alpha_wrap(
-        runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-    ) for p in probes}
+    sdf_by_name = {
+        p.name: build_probe_sdf_from_alpha_wrap(
+            runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
+        )
+        for p in probes
+    }
     phase_t["sdf_build"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -120,13 +130,20 @@ def main() -> int:
         _STAGE2_TIMINGS[k] = 0.0
 
     print()
-    print(f"Polishing {n} candidates (n_workers=1, sequential — for "
-          f"_STAGE2_TIMINGS visibility)...", flush=True)
+    print(
+        f"Polishing {n} candidates (n_workers=1, sequential — for "
+        f"_STAGE2_TIMINGS visibility)...",
+        flush=True,
+    )
     t = time.perf_counter()
     results = polish_all_with_batched_spin_restore(
-        sample, probes, holes_list, pose_features,
-        weights=weights, sdf_by_name=sdf_by_name,
-        n_workers=1,        # sequential so _STAGE2_TIMINGS accumulates in parent
+        sample,
+        probes,
+        holes_list,
+        pose_features,
+        weights=weights,
+        sdf_by_name=sdf_by_name,
+        n_workers=1,  # sequential so _STAGE2_TIMINGS accumulates in parent
         n_arcs=3,
         verbose=True,
     )
@@ -161,7 +178,12 @@ def main() -> int:
     print(f"Wall-time extrapolation to {args.target_full_pool_size} candidates")
     print("=" * 70)
     # Atlas, arc_first, sdf, pose_features are one-time
-    one_time = phase_t["atlas"] + phase_t["arc_first_enum"] + phase_t["sdf_build"] + phase_t["pose_features"]
+    one_time = (
+        phase_t["atlas"]
+        + phase_t["arc_first_enum"]
+        + phase_t["sdf_build"]
+        + phase_t["pose_features"]
+    )
     # Polish scales with n_cands / n_workers
     polish_per_cand_seq = phase_t["polish_full"] / n
     # Spin restore is roughly constant compile + linear runtime
@@ -170,16 +192,20 @@ def main() -> int:
         polish_full_seq = polish_per_cand_seq * args.target_full_pool_size
         polish_full_par = polish_full_seq / nw
         total = one_time + polish_full_par
-        print(f"  full polish ({nw}-worker)  : ~{polish_full_par:.0f}s  "
-              f"=> {total / 60:.1f} min total")
+        print(
+            f"  full polish ({nw}-worker)  : ~{polish_full_par:.0f}s  "
+            f"=> {total / 60:.1f} min total"
+        )
 
     # ------- Polish quality sanity -------
     max_viols = np.array([r.metrics.max_violation for r in results])
     print()
     print("Polish quality on sample:")
-    print(f"  min={max_viols.min():.4f}  "
-          f"median={float(np.median(max_viols)):.4f}  "
-          f"max={max_viols.max():.4f}")
+    print(
+        f"  min={max_viols.min():.4f}  "
+        f"median={float(np.median(max_viols)):.4f}  "
+        f"max={max_viols.max():.4f}"
+    )
     feasible_count = int(np.sum(max_viols <= 1e-3))
     print(f"  strictly feasible: {feasible_count}/{n}")
 
@@ -191,8 +217,7 @@ def main() -> int:
     targets = sorted(s2.items(), key=lambda kv: -kv[1])
     for k, v in targets[:3]:
         per = v / n * 1000
-        print(f"  • {k}: {per:.0f} ms/cand "
-              f"({v / total_s2 * 100:.0f}% of polish wall)")
+        print(f"  • {k}: {per:.0f} ms/cand ({v / total_s2 * 100:.0f}% of polish wall)")
 
     return 0
 
