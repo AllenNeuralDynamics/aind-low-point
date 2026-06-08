@@ -40,6 +40,7 @@ import jax.numpy as jnp
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
+    dual_rep_fixture_clearance,
     shank_only_pair_clearance,
 )
 
@@ -292,3 +293,96 @@ def swept_pair_clearances(
         return hard, soft
 
     return jax.vmap(_pair)(pair_a, pair_b)
+
+
+# Category order MUST match FIXTURE_PAIR_SLACK_GAINS and the unrolled loop's
+# (body, obb) tuple order.
+N_FIXTURE_CATEGORIES = 2
+
+
+def swept_fixture_clearances(
+    Rs,
+    ts,
+    tables: dict,
+    fixtures,
+    probe_idx,
+    *,
+    beta: float,
+    top_k_body: int,
+    top_k_obb: int,
+):
+    """Probe-fixture clearance, vmapped over probes per fixture.
+
+    The fixtures have heterogeneous grid shapes (well / cone / headframe), so
+    they stay a Python loop (one constant grid each); the ×P probe replication is
+    collapsed to a single ``jax.vmap`` that gathers each probe's grid / OBB / real
+    extent from the per-kind table by ``kind_id`` (the padded probe grid needs
+    ``n_real_p``; the padded OBB rows are masked). The fixture grids are their own
+    constants — never padded.
+
+    Parameters
+    ----------
+    Rs, ts : (P,3,3), (P,3) world poses.
+    tables : output of :func:`build_padded_probe_tables`.
+    fixtures : sequence of FixtureSDFData (``.grid/.origin/.spacing/.surface``).
+    probe_idx : (n_sdf_probes,) int32 — probe indices with an SDF (static).
+
+    Returns
+    -------
+    hard, soft : (n_fixtures, n_sdf_probes, 2) — per (fixture, probe) clearance in
+        category order (body, obb), matching ``FIXTURE_PAIR_SLACK_GAINS`` and the
+        unrolled ``for fx: for i:`` loop.
+    """
+    grids = tables["grids"]
+    origins = tables["origins"]
+    spacings = tables["spacings"]
+    surfaces = tables["surfaces"]
+    obb_c = tables["obb_centers"]
+    obb_h = tables["obb_halves"]
+    obb_m = tables["obb_mask"]
+    real_shapes = tables["real_shapes"]
+    kind_id = tables["kind_id"]
+    world_surf = (
+        jnp.matmul(surfaces[kind_id], jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+    )
+    idx = jnp.asarray(probe_idx, jnp.int32)
+
+    def _per_fixture(fg, fo, fs, fsurf):
+        def _probe(i):
+            k = kind_id[i]
+            fc = dual_rep_fixture_clearance(
+                Rs[i],
+                ts[i],
+                grids[k],
+                origins[k],
+                spacings[k],
+                fg,
+                fo,
+                fs,
+                world_surf[i],
+                fsurf,
+                obb_c[k],
+                obb_h[k],
+                beta=beta,
+                top_k_body=top_k_body,
+                top_k_obb=top_k_obb,
+                n_real_p=real_shapes[k],
+                shank_mask=obb_m[k],
+            )
+            return jnp.stack([fc.body[0], fc.obb[0]]), jnp.stack(
+                [fc.body[1], fc.obb[1]]
+            )
+
+        return jax.vmap(_probe)(idx)  # (n_sdf_probes, 2) each
+
+    hards, softs = [], []
+    for fx in fixtures:
+        h, s = _per_fixture(
+            jnp.asarray(fx.grid),
+            jnp.asarray(fx.origin, jnp.float32),
+            jnp.asarray(fx.spacing, jnp.float32),
+            jnp.asarray(fx.surface, jnp.float32),
+        )
+        hards.append(h)
+        softs.append(s)
+    return jnp.stack(hards), jnp.stack(softs)

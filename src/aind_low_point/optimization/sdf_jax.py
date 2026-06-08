@@ -523,6 +523,7 @@ def pairwise_signed_clearance_probe_obb_fixture_world(
     *,
     beta: float = 20.0,
     top_k: int = 8,
+    shank_mask: Array | None = None,
 ) -> tuple[Array, Array]:
     """Probe-OBB vs fixture clearance via fixture surface samples →
     probe OBB analytic SDF.
@@ -534,6 +535,11 @@ def pairwise_signed_clearance_probe_obb_fixture_world(
     grazing the well bore rim — invisible to the body-vs-fixture-body
     SDF check because the body α-wrap closing cap under-inflates at
     the shank-strip boundary).
+
+    ``shank_mask`` (``(S,)`` bool/0-1, optional) marks which OBB rows are real vs
+    padding when the per-kind OBB table is padded to a uniform ``max_S``; invalid
+    rows are set to the no-collision sentinel so they never win the min/soft-min.
+    ``None`` ⇒ no padding (legacy), identical to before.
 
     Returns ``(hard_min, soft_min)`` over the pool of all
     (fixture_point, probe_OBB) signed distances. Negative ⇒ at least
@@ -550,6 +556,10 @@ def pairwise_signed_clearance_probe_obb_fixture_world(
     d_obbs = jax.vmap(
         lambda c, h: _obb_sdf_world_to_local(fixture_surface_world, R_p, t_p, c, h)
     )(shank_centers, shank_halves)
+    if shank_mask is not None:
+        d_obbs = jnp.where(
+            shank_mask.astype(bool)[:, None], d_obbs, _EMPTY_CLEARANCE_SENTINEL
+        )
     pool = d_obbs.reshape(-1)
     return _hard_soft(pool, beta=beta, top_k=top_k)
 
@@ -569,14 +579,21 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     beta: float = 20.0,
     top_k: int = 16,
     interp: str = "trilinear",
+    n_real_p: Array | None = None,
 ) -> tuple[Array, Array]:
     """Same as :func:`pairwise_signed_clearance_probe_fixture_body` but
     takes pre-transformed world-frame probe surface samples. Callers
     iterating over ``n_fixtures × n_probes`` pairs should hoist
     ``world_surface[i] = surface[i] @ R[i].T + t[i]`` once per probe
     (per Phase 1's body-body hoist).
+
+    ``n_real_p`` is the probe grid's real (unpadded) extent, for the fixture-
+    surface-vs-probe-grid query when ``sdf_p_grid`` is a padded slot of a
+    per-kind table (see clearance_sweep). The fixture grid is its own constant
+    (never padded), so its query needs no real extent. ``None`` ⇒ unchanged.
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
+    kw_p = {} if n_real_p is None else {"n_real": n_real_p}
 
     d_p_in_f = sdf_lookup(
         sdf_f_grid,
@@ -586,7 +603,7 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     )
 
     local_f_in_p = (surface_f - t_p) @ R_p
-    d_f_in_p = sdf_lookup(sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p)
+    d_f_in_p = sdf_lookup(sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p, **kw_p)
 
     distances = jnp.concatenate([d_p_in_f.reshape(-1), d_f_in_p.reshape(-1)])
     hard_min = jnp.min(distances)
@@ -1236,6 +1253,8 @@ def dual_rep_fixture_clearance(
     top_k_body: int = 16,
     top_k_obb: int = 8,
     interp: str = "trilinear",
+    n_real_p: Array | None = None,
+    shank_mask: Array | None = None,
 ) -> FixtureClearance:
     """Both probe-fixture clearance categories in one call.
 
@@ -1244,6 +1263,10 @@ def dual_rep_fixture_clearance(
     catches probe shank / transition-zone contact with fixture
     surfaces (well-bore-rim grazing) that the body voxel direction
     misses at the α-wrap closing cap.
+
+    ``n_real_p`` / ``shank_mask`` carry the probe grid's real extent and the OBB
+    validity mask when the probe grid/OBB come from a padded per-kind table (the
+    fixture vmap; see clearance_sweep). Both ``None`` ⇒ unchanged behaviour.
     """
     body = pairwise_signed_clearance_probe_fixture_body_world(
         R_p,
@@ -1259,6 +1282,7 @@ def dual_rep_fixture_clearance(
         beta=beta,
         top_k=top_k_body,
         interp=interp,
+        n_real_p=n_real_p,
     )
     obb = pairwise_signed_clearance_probe_obb_fixture_world(
         R_p,
@@ -1267,6 +1291,7 @@ def dual_rep_fixture_clearance(
         shank_centers,
         shank_halves,
         beta=beta,
+        shank_mask=shank_mask,
         top_k=top_k_obb,
     )
     return FixtureClearance(body=body, obb=obb)
