@@ -30,6 +30,8 @@ parameter, so a padded-OBB fixture path would not be bit-exact.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 
@@ -42,6 +44,45 @@ from aind_low_point.optimization.sdf_jax import (
 # Category order MUST match PROBE_PAIR_SLACK_GAINS and the unrolled loop's
 # (body_body, body_shank_corners, body_shank_obb, shank_shank) tuple order.
 N_PAIR_CATEGORIES = 4
+
+
+# ---------------------------------------------------------------------------
+# bf16 grid-storage policy (shared by Phase-1 and Phase-2)
+# ---------------------------------------------------------------------------
+#
+# Which SDFs get bf16 storage lives here, in ONE place: every *collision* grid —
+# the per-probe probe grids, the swept-pair ``sdf_table`` grids, and the fixture
+# (well/cone/headframe) grids. ``trilinear_sdf`` is dtype-polymorphic (bf16
+# gather/blend, fp32 reduction — rank-safe for the 5000-sample SDF pools). The
+# brain SDF is deliberately NOT cast: it's a few-point shank-tip query, the
+# few-element regime where bf16 erodes rank. ``grid_dtype == float32`` ⇒ no-op.
+
+
+def cast_fixture_grids(fixtures, grid_dtype):
+    """Return ``fixtures`` with each fixture's SDF grid stored at ``grid_dtype``.
+
+    Cast fixtures BEFORE they are closure-captured by the JIT builder. No-op for
+    float32.
+    """
+    if grid_dtype == jnp.float32:
+        return fixtures
+    return tuple(replace(fx, grid=jnp.asarray(fx.grid, grid_dtype)) for fx in fixtures)
+
+
+def cast_packed_grids(packed: dict, grid_dtype) -> dict:
+    """Cast the collision grids in a packed/shared statics dict (from
+    ``_pack_statics``) to ``grid_dtype`` IN PLACE: the per-probe ``sdf_grids``
+    tuple (fixture loop) and the ``sdf_table`` grids (pair sweep). Brain is left
+    fp32. No-op for float32. Returns ``packed`` for chaining.
+    """
+    if grid_dtype == jnp.float32:
+        return packed
+    packed["sdf_grids"] = tuple(jnp.asarray(g, grid_dtype) for g in packed["sdf_grids"])
+    packed["sdf_table"] = {
+        **packed["sdf_table"],
+        "grids": jnp.asarray(packed["sdf_table"]["grids"], grid_dtype),
+    }
+    return packed
 
 
 def build_padded_probe_tables(

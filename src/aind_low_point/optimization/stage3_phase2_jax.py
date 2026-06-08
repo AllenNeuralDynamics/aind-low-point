@@ -31,7 +31,11 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.clearance_sweep import swept_pair_clearances
+from aind_low_point.optimization.clearance_sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+    swept_pair_clearances,
+)
 from aind_low_point.optimization.coverage_jax import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -692,6 +696,7 @@ def make_phase2(
     brain_sdf: "BrainSDFData | None" = None,
     coverage_ceilings: "tuple[float, ...] | None" = None,
     coverage_weights: "tuple[float, ...] | None" = None,
+    grid_dtype=jnp.bfloat16,
     hessian: str = "none",
 ) -> dict:
     """Build Phase 2 scipy callables.
@@ -716,13 +721,19 @@ def make_phase2(
         if coverage_weights is not None
         else None
     )
+    # bf16 collision-grid storage (probe + every fixture); see clearance_sweep
+    # for the policy. Cast fixtures BEFORE _build_jit closure-captures them; the
+    # dtype is in the cache key for the same reason.
+    fixtures = cast_fixture_grids(fixtures, grid_dtype)
+    dtype_key = jnp.dtype(grid_dtype).name
     sig = _signature(statics, n_arcs, weights, fixtures, brain_sdf) + (
         ceil_key,
         wcov_key,
+        dtype_key,
     )
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
-            sig[:-2],
+            sig[:-3],
             weights,
             coverage_data,
             fixtures,
@@ -735,7 +746,7 @@ def make_phase2(
     else:
         _CACHE_STATS["hits"] += 1
     jit = _JIT_CACHE[sig]
-    packed = _pack_statics(statics, n_arcs)
+    packed = cast_packed_grids(_pack_statics(statics, n_arcs), grid_dtype)
 
     def fun(x: NDArray) -> float:
         return float(jit["obj"](jnp.asarray(x, dtype=jnp.float32), **packed))

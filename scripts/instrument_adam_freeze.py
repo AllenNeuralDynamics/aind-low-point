@@ -28,6 +28,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from aind_low_point.optimization.clearance_sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+)
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
@@ -68,6 +72,9 @@ def build_cw_fns(
     """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids)."""
     w = weights if weights is not None else Phase1Weights()
     sig = _signature(st, n_arcs, w)
+    # bf16 all collision grids (fixture + probe + table), like the chunked
+    # builder. See clearance_sweep for the policy.
+    (thick,) = cast_fixture_grids((thick,), jnp.bfloat16)
     jit_obj, _ = _build_jit(
         sig,
         w,
@@ -85,14 +92,9 @@ def build_cw_fns(
     vobj = jax.jit(jax.vmap(obj_cw, in_axes=in_axes))
     vgrad = jax.jit(jax.vmap(jax.grad(obj_cw, argnums=0), in_axes=in_axes))
     pack = _pack_statics(st, n_arcs)
-    shared = {k: pack[k] for k in ARG_ORDER if k not in PER_CAND}
-    shared["sdf_grids"] = tuple(
-        jnp.asarray(g, jnp.bfloat16) for g in shared["sdf_grids"]
+    shared = cast_packed_grids(
+        {k: pack[k] for k in ARG_ORDER if k not in PER_CAND}, jnp.bfloat16
     )
-    shared["sdf_table"] = {
-        **shared["sdf_table"],
-        "grids": jnp.asarray(shared["sdf_table"]["grids"], jnp.bfloat16),
-    }
     stacked = {k: jnp.stack([jnp.asarray(pack[k])]) for k in PER_CAND}
     arglist = [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
     return vobj, vgrad, arglist

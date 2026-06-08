@@ -699,9 +699,14 @@ def _build_jit(  # noqa: C901
     return jit_obj, jit_grad
 
 
-def _pack_statics(statics, n_arcs: int) -> dict:
+def _pack_statics(statics, n_arcs: int, build_table: bool = True) -> dict:
     """Pack per-candidate static data into padded jnp tensors. Mirrors
     Stage 2's ``_pack_statics`` exactly so per-probe data lines up.
+
+    ``build_table`` controls whether the padded swept-pair ``sdf_table`` is
+    built. The batched ``build_arglist`` reuses a single shared template table
+    and only needs the per-candidate keys, so it passes ``build_table=False`` to
+    skip the (per-chunk) edge-pad + stack of the probe grids.
     """
     P = len(statics)
     max_shanks, max_sections = MAX_SHANKS_PAD, MAX_SECTIONS_PAD
@@ -804,14 +809,15 @@ def _pack_statics(statics, n_arcs: int) -> dict:
     # arg; the unrolled fixture loop still uses the per-probe tuples above. The
     # grids are edge-padded so trilinear is bit-exact with the unpadded grids
     # (real extent carried in ``real_shapes``); see clearance_sweep.
-    out["sdf_table"] = build_padded_probe_tables(
-        out["sdf_grids"],
-        out["sdf_origins"],
-        out["sdf_spacings"],
-        out["sdf_surfaces"],
-        out["shank_obb_centers"],
-        out["shank_obb_halves"],
-    )
+    if build_table:
+        out["sdf_table"] = build_padded_probe_tables(
+            out["sdf_grids"],
+            out["sdf_origins"],
+            out["sdf_spacings"],
+            out["sdf_surfaces"],
+            out["shank_obb_centers"],
+            out["shank_obb_halves"],
+        )
     return out
 
 

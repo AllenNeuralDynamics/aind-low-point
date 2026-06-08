@@ -27,6 +27,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_low_point.config import ConfigModel
+from aind_low_point.optimization.clearance_sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+)
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
@@ -159,6 +163,9 @@ def make_batched_phase1_chunked(  # noqa: C901
     (the cross-point reduction stays fp32). The grid is ~200x larger than
     the surface points, so bf16 on the grid alone captures the storage win.
     """
+    # bf16 the fixture grids too (all collision SDFs share the dtype), before
+    # _build_jit closure-captures them. See clearance_sweep for the policy.
+    fixtures = cast_fixture_grids(fixtures, grid_dtype)
     base_sig = _signature(template_statics, n_arcs, weights)
     jit_obj, _ = _build_jit(
         base_sig,
@@ -190,20 +197,16 @@ def make_batched_phase1_chunked(  # noqa: C901
     # Shared per-probe constants are identical across all candidates;
     # build them once from the template.
     tpack = _pack_statics(template_statics, n_arcs)
-    shared = {k: tpack[k] for k in ARG_ORDER if k not in PER_CAND}
-    if grid_dtype != jnp.float32:
-        # bf16 grid storage for both the per-probe tuple (fixture loop) and the
-        # padded swept-pair table (pair loop). trilinear_sdf is dtype-polymorphic.
-        shared["sdf_grids"] = tuple(
-            jnp.asarray(g, grid_dtype) for g in shared["sdf_grids"]
-        )
-        shared["sdf_table"] = {
-            **shared["sdf_table"],
-            "grids": jnp.asarray(shared["sdf_table"]["grids"], grid_dtype),
-        }
+    # bf16 grid storage for both the per-probe tuple (fixture loop) and the
+    # padded swept-pair table (pair loop). See clearance_sweep for the policy.
+    shared = cast_packed_grids(
+        {k: tpack[k] for k in ARG_ORDER if k not in PER_CAND}, grid_dtype
+    )
 
     def build_arglist(statics_list):
-        packs = [_pack_statics(s, n_arcs) for s in statics_list]
+        # Only PER_CAND keys are used per chunk; sdf_table comes from the shared
+        # template — skip the per-chunk table build.
+        packs = [_pack_statics(s, n_arcs, build_table=False) for s in statics_list]
         stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
         return [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
 

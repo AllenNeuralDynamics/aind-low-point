@@ -30,15 +30,24 @@ for _v in (
     "NUMEXPR_NUM_THREADS",
 ):
     _os.environ.setdefault(_v, _THREADS)
-# Platform: PLATFORM=cpu (default) or gpu. On GPU, never preallocate (each
-# worker would grab the whole 10GB) and cap each worker's fraction so a few
-# workers share the GPU without OOM. Spawned workers inherit this env.
-_PLATFORM = _os.environ.get("PLATFORM", "cpu")
+# POOL=thread (default): ONE process/GPU context, N threads sharing it —
+# trust-constr/IPOPT's JAX evals release the GIL, so threads overlap and fill
+# the GPU's idle gaps (the scipy subproblem is CPU-bound and leaves the GPU
+# idle), with NO extra GPU memory. POOL=process: N worker processes (N GPU
+# contexts → memory-limited). Read here (before the platform block) so the GPU
+# memory fraction can depend on it.
+POOL = _os.environ.get("POOL", "thread")
+# Platform: PLATFORM=gpu (default) or cpu. On GPU, never preallocate. A THREAD
+# pool is one context → give it most of the card; a PROCESS pool is N contexts →
+# a small fraction each. Spawned workers inherit this env.
+_PLATFORM = _os.environ.get("PLATFORM", "gpu")
 if _PLATFORM in ("gpu", "cuda"):
     _PLATFORM = "cuda"  # JAX backend name
     _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    _default_frac = "0.9" if POOL == "thread" else "0.18"
     _os.environ.setdefault(
-        "XLA_PYTHON_CLIENT_MEM_FRACTION", _os.environ.get("GPU_MEM_FRACTION", "0.18")
+        "XLA_PYTHON_CLIENT_MEM_FRACTION",
+        _os.environ.get("GPU_MEM_FRACTION", _default_frac),
     )
 _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
@@ -50,7 +59,10 @@ from pathlib import Path  # noqa: E402
 import numpy as np  # noqa: E402
 
 TOPK = int(_os.environ.get("TOPK", "80"))
-WORKERS = int(_os.environ.get("WORKERS", "16"))
+# Default 8: the GPU-thread-shared sweet spot from the bandwidth bake-off (W=8 ≈
+# 0.067 cand/s on the shared HBM; the knee is past 4 threads). POOL=thread means
+# all 8 share one GPU context.
+WORKERS = int(_os.environ.get("WORKERS", "8"))
 P2_ITER = int(_os.environ.get("P2_ITER", "200"))
 MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
 LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "5.0"))
@@ -102,11 +114,8 @@ WARMUP = _os.environ.get("WARMUP", "1") == "1"
 # match the Phase-1 setting for the objective to be consistent across stages.
 COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
 COV_FLOOR = float(_os.environ.get("COV_FLOOR", "1.0"))
-# POOL=process: N worker processes (N GPU contexts → memory-limited on GPU).
-# POOL=thread: ONE process/GPU context, N threads sharing it — trust-constr's
-# JAX evals release the GIL, so threads overlap and fill the GPU's idle gaps
-# (the scipy subproblem is CPU-bound and leaves the GPU idle). No extra memory.
-POOL = _os.environ.get("POOL", "process")
+# POOL is read at the top (before the platform block) so the GPU memory fraction
+# can depend on it.
 
 _G: dict = {}
 
