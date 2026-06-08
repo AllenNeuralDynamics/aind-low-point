@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_low_point.optimization.clearance_sweep import swept_pair_clearances
 from aind_low_point.optimization.coverage_jax import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -47,7 +48,6 @@ from aind_low_point.optimization.sdf_jax import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_fixture_clearance,
-    dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -326,6 +326,7 @@ def _build_jit(  # noqa: C901
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
+        sdf_table=None,
     ):
         arc_aps = x[:n_arcs]
         Rs, ts = _poses_from_x(
@@ -399,41 +400,27 @@ def _build_jit(  # noqa: C901
             thread_slacks_flat.append(slack.reshape(-1))
             thread_masks_flat.append(valid.reshape(-1))
 
-        # 3-helper dual-rep (matches Stage 2 joint_rerank_jax).
+        # Probe-probe clearance, vmapped over the static pair list (one dual-rep
+        # subgraph vs C(P,2) unrolled — see clearance_sweep). Objective only needs
+        # the per-pair worst-category hard clearance for the saturating reward.
         world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
-        pair_hard_clearances: list[jnp.ndarray] = []
-        for ia, ib in sdf_pair_list:
-            pc = dual_rep_pair_clearance(
-                Rs[ia],
-                ts[ia],
-                Rs[ib],
-                ts[ib],
-                sdf_grids[ia],
-                sdf_origins[ia],
-                sdf_spacings[ia],
-                sdf_grids[ib],
-                sdf_origins[ib],
-                sdf_spacings[ib],
-                world_surfaces[ia],
-                world_surfaces[ib],
-                shank_obb_centers[ia],
-                shank_obb_halves[ia],
-                shank_obb_centers[ib],
-                shank_obb_halves[ib],
+        if sdf_pair_list and sdf_table is not None:
+            _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
+            _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
+            _phard, _ = swept_pair_clearances(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                sdf_table,
+                _pa,
+                _pb,
                 beta=beta,
                 top_k_body_body=tk_bb,
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
-            hards = jnp.stack(
-                [
-                    pc.body_body[0],
-                    pc.body_shank_corners[0],
-                    pc.body_shank_obb[0],
-                    pc.shank_shank[0],
-                ]
-            )
-            pair_hard_clearances.append(jnp.min(hards))
+            pair_hard_clearances = jnp.min(_phard, axis=1)  # (n_pairs,)
+        else:
+            pair_hard_clearances = None
 
         fixture_hard_clearances: list[jnp.ndarray] = []
         for fx in fixtures:
@@ -459,10 +446,16 @@ def _build_jit(  # noqa: C901
                 )
                 fixture_hard_clearances.append(jnp.minimum(fc.body[0], fc.obb[0]))
 
-        all_clears = pair_hard_clearances + fixture_hard_clearances
+        # pair_hard_clearances is a (n_pairs,) array (swept) or None; fixtures are
+        # a Python list of scalars. Concatenate as arrays.
+        _hard_parts = []
+        if pair_hard_clearances is not None:
+            _hard_parts.append(pair_hard_clearances)
+        if fixture_hard_clearances:
+            _hard_parts.append(jnp.stack(fixture_hard_clearances))
         reward_clear = (
-            _saturating_reward_mean(jnp.stack(all_clears), tau_c)
-            if all_clears
+            _saturating_reward_mean(jnp.concatenate(_hard_parts), tau_c)
+            if _hard_parts
             else jnp.float32(0.0)
         )
         slacks = (
@@ -510,6 +503,7 @@ def _build_jit(  # noqa: C901
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
+        sdf_table=None,
     ):
         arc_aps = x[:n_arcs]
         Rs, ts = _poses_from_x(
@@ -544,42 +538,30 @@ def _build_jit(  # noqa: C901
             thread_slacks.append(slack_masked.reshape(-1))
         thread_vec = jnp.concatenate(thread_slacks) if thread_slacks else jnp.zeros(0)
 
-        # Clearance probe-probe: d_soft − min_clear per (pair, category).
-        # 3-helper split (matches Stage 2).
+        # Clearance probe-probe: d_soft − min_clear per (pair, category), vmapped
+        # over the static pair list (one dual-rep subgraph vs C(P,2) unrolled).
+        # ``soft`` is (n_pairs, 4) in PROBE_PAIR_SLACK_GAINS category order, so
+        # ``.reshape(-1)`` reproduces the pair-major/category-minor constraint
+        # order EXACTLY (each slack is independent ⇒ bit-exact, no reduction).
         world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
-        clear_pp_slacks: list[jnp.ndarray] = []
-        for ia, ib in sdf_pair_list:
-            pc = dual_rep_pair_clearance(
-                Rs[ia],
-                ts[ia],
-                Rs[ib],
-                ts[ib],
-                sdf_grids[ia],
-                sdf_origins[ia],
-                sdf_spacings[ia],
-                sdf_grids[ib],
-                sdf_origins[ib],
-                sdf_spacings[ib],
-                world_surfaces[ia],
-                world_surfaces[ib],
-                shank_obb_centers[ia],
-                shank_obb_halves[ia],
-                shank_obb_centers[ib],
-                shank_obb_halves[ib],
+        if sdf_pair_list and sdf_table is not None:
+            _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
+            _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
+            _, _soft = swept_pair_clearances(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                sdf_table,
+                _pa,
+                _pb,
                 beta=beta,
                 top_k_body_body=tk_bb,
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
-            softs = (
-                pc.body_body[1],
-                pc.body_shank_corners[1],
-                pc.body_shank_obb[1],
-                pc.shank_shank[1],
-            )
-            for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
-                clear_pp_slacks.append((d_soft - min_clear) * gain)
-        clear_pp_vec = jnp.stack(clear_pp_slacks) if clear_pp_slacks else jnp.zeros(0)
+            _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
+            clear_pp_vec = ((_soft - min_clear) * _gains).reshape(-1)
+        else:
+            clear_pp_vec = jnp.zeros(0)
 
         # Probe-fixture clearance: dual-rep (body voxel-SDF + probe-OBB
         # vs fixture surface samples). See PairClearance / FixtureClearance

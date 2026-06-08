@@ -45,6 +45,10 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_low_point.optimization.clearance_sweep import (
+    build_padded_probe_tables,
+    swept_pair_clearances,
+)
 from aind_low_point.optimization.coverage_jax import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -61,7 +65,6 @@ from aind_low_point.optimization.sdf_jax import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_fixture_clearance,
-    dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -456,6 +459,7 @@ def _build_jit(  # noqa: C901
         shank_obb_centers,
         shank_obb_halves,
         cov_weight=1.0,
+        sdf_table=None,
     ):
         # ``cov_weight`` scales the coverage term at RUNTIME (1.0 = full,
         # 0.0 = clearance-first reduced stage). Default 1.0 is a Python
@@ -538,48 +542,32 @@ def _build_jit(  # noqa: C901
         # Pre-compute world-frame body surface samples once per probe
         # so the per-pair calls don't redo ``surface @ R.T + t``.
         world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
-        j_clear = jnp.float32(0.0)
-        pair_hard_clearances = []
-        for ia, ib in sdf_pair_list:
-            pc = dual_rep_pair_clearance(
-                Rs[ia],
-                ts[ia],
-                Rs[ib],
-                ts[ib],
-                sdf_grids[ia],
-                sdf_origins[ia],
-                sdf_spacings[ia],
-                sdf_grids[ib],
-                sdf_origins[ib],
-                sdf_spacings[ib],
-                world_surfaces[ia],
-                world_surfaces[ib],
-                shank_obb_centers[ia],
-                shank_obb_halves[ia],
-                shank_obb_centers[ib],
-                shank_obb_halves[ib],
+        # Probe-probe clearance, vmapped over the static pair list — ONE dual-rep
+        # subgraph instead of C(P,2) Python-unrolled copies (the unrolled loop is
+        # ~90% of the autodiff compile; see clearance_sweep + T0 measurement). The
+        # padded grid/OBB table is built from the loop-invariant per-probe tuples,
+        # so XLA hoists it out of the optimiser's fori_loop. Bit-parity gated.
+        if sdf_pair_list and sdf_table is not None:
+            _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
+            _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
+            _hard, _soft = swept_pair_clearances(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                sdf_table,
+                _pa,
+                _pb,
                 beta=beta,
                 top_k_body_body=tk_bb,
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
-            softs = (
-                pc.body_body[1],
-                pc.body_shank_corners[1],
-                pc.body_shank_obb[1],
-                pc.shank_shank[1],
-            )
-            for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
-                short = jnp.maximum(0.0, min_clear - d_soft) * gain
-                j_clear = j_clear + short * short
-            # Margin uses the worst hard category clearance per pair.
-            hards = (
-                pc.body_body[0],
-                pc.body_shank_corners[0],
-                pc.body_shank_obb[0],
-                pc.shank_shank[0],
-            )
-            pair_hard_clearances.append(jnp.min(jnp.stack(hards)))
+            _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
+            _short = jnp.maximum(0.0, min_clear - _soft) * _gains  # (n_pairs, 4)
+            j_clear = jnp.sum(_short * _short)
+            pair_hard_clearances = jnp.min(_hard, axis=1)  # (n_pairs,)
+        else:
+            j_clear = jnp.float32(0.0)
+            pair_hard_clearances = None
 
         # Probe-vs-fixture clearance: dual-rep (body + OBB).
         j_clear_fixture = jnp.float32(0.0)
@@ -631,9 +619,15 @@ def _build_jit(  # noqa: C901
         # Saturating per-pair clearance margin reward (mean form). Combines
         # probe-probe and probe-fixture clearances under one mean so the
         # reward is consistent regardless of how many fixtures are loaded.
-        all_hard_clearances = pair_hard_clearances + fixture_hard_clearances
-        if all_hard_clearances:
-            all_clears = jnp.stack(all_hard_clearances)
+        # pair_hard_clearances is a (n_pairs,) array (swept) or None; the fixture
+        # loop still yields a Python list of scalars. Concatenate as arrays.
+        _hard_parts = []
+        if pair_hard_clearances is not None:
+            _hard_parts.append(pair_hard_clearances)
+        if fixture_hard_clearances:
+            _hard_parts.append(jnp.stack(fixture_hard_clearances))
+        if _hard_parts:
+            all_clears = jnp.concatenate(_hard_parts)
             reward_clear = _saturating_reward_mean(all_clears, tau_c)
         else:
             reward_clear = jnp.float32(0.0)
@@ -805,6 +799,19 @@ def _pack_statics(statics, n_arcs: int) -> dict:
     out["sdf_surfaces"] = tuple(sdf_surfaces)
     out["shank_obb_centers"] = tuple(shank_obb_centers)
     out["shank_obb_halves"] = tuple(shank_obb_halves)
+    # Padded, stacked table for the vmapped probe-pair clearance sweep. Built
+    # ONCE here (not per objective eval) and passed through as a shared pytree
+    # arg; the unrolled fixture loop still uses the per-probe tuples above. The
+    # grids are edge-padded so trilinear is bit-exact with the unpadded grids
+    # (real extent carried in ``real_shapes``); see clearance_sweep.
+    out["sdf_table"] = build_padded_probe_tables(
+        out["sdf_grids"],
+        out["sdf_origins"],
+        out["sdf_spacings"],
+        out["sdf_surfaces"],
+        out["shank_obb_centers"],
+        out["shank_obb_halves"],
+    )
     return out
 
 

@@ -89,6 +89,10 @@ def build_cw_fns(
     shared["sdf_grids"] = tuple(
         jnp.asarray(g, jnp.bfloat16) for g in shared["sdf_grids"]
     )
+    shared["sdf_table"] = {
+        **shared["sdf_table"],
+        "grids": jnp.asarray(shared["sdf_table"]["grids"], jnp.bfloat16),
+    }
     stacked = {k: jnp.stack([jnp.asarray(pack[k])]) for k in PER_CAND}
     arglist = [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
     return vobj, vgrad, arglist

@@ -66,6 +66,7 @@ ARG_ORDER = [
     "sdf_surfaces",
     "shank_obb_centers",
     "shank_obb_halves",
+    "sdf_table",
 ]
 # Keys that VARY per candidate (hole/arc assignment). Everything else is a
 # per-probe constant shared across the batch.
@@ -191,9 +192,15 @@ def make_batched_phase1_chunked(  # noqa: C901
     tpack = _pack_statics(template_statics, n_arcs)
     shared = {k: tpack[k] for k in ARG_ORDER if k not in PER_CAND}
     if grid_dtype != jnp.float32:
+        # bf16 grid storage for both the per-probe tuple (fixture loop) and the
+        # padded swept-pair table (pair loop). trilinear_sdf is dtype-polymorphic.
         shared["sdf_grids"] = tuple(
             jnp.asarray(g, grid_dtype) for g in shared["sdf_grids"]
         )
+        shared["sdf_table"] = {
+            **shared["sdf_table"],
+            "grids": jnp.asarray(shared["sdf_table"]["grids"], grid_dtype),
+        }
 
     def build_arglist(statics_list):
         packs = [_pack_statics(s, n_arcs) for s in statics_list]

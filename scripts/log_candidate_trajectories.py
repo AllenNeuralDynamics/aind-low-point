@@ -120,6 +120,7 @@ def make_min_clear_one(n_arcs, n_probes, fixtures, w):
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
+        sdf_table=None,  # shared ARG_ORDER arg (swept-pair table); unused here
     ):
         arc_aps = x[:n_arcs]
         Rs, ts = [], []

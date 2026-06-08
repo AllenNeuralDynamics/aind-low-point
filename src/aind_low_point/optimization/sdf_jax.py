@@ -344,6 +344,7 @@ def trilinear_sdf(
     spacing: Array,
     query_local: Array,
     out_of_bounds_value: Array = jnp.array(1e3),
+    n_real: Array | None = None,
 ) -> Array:
     """Trilinear interpolation of an SDF voxel grid at ``query_local``
     points (which must already be in the probe's canonical local frame).
@@ -356,6 +357,13 @@ def trilinear_sdf(
     query_local : (..., 3) query points in the same local frame as the grid.
     out_of_bounds_value : scalar returned for points outside the grid bbox.
         Default 1e3 mm — "definitely far positive", safe for clearance.
+    n_real : optional (3,) real grid extent ``(nx, ny, nz)``. When the grid is a
+        padded slot of a uniform table (the swept-pair table — see
+        ``clearance_sweep``), the true extent is smaller than ``grid.shape``;
+        pass it so in-bounds / clip use the real extent and out-of-extent queries
+        return ``out_of_bounds_value`` exactly as for the unpadded grid. May be a
+        traced (dynamic) value so it works under ``vmap`` gather. ``None`` ⇒ use
+        ``grid.shape`` (unchanged behaviour for every existing caller).
 
     Returns
     -------
@@ -366,7 +374,10 @@ def trilinear_sdf(
     # Value dtype follows the grid: fp32 normally, bf16 when the grid is
     # stored bf16 (mixed-precision kernel — bf16 gather/blend, fp32 output).
     vdt = grid.dtype
-    Nx, Ny, Nz = grid.shape
+    if n_real is None:
+        Nx, Ny, Nz = grid.shape
+    else:
+        Nx, Ny, Nz = n_real[0], n_real[1], n_real[2]
     # Addressing stays fp32 — voxel indices must be exact regardless of the
     # value precision.
     coords = (
@@ -971,6 +982,8 @@ def body_shank_corners_pair_clearance(
     interp: str = "trilinear",
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
+    n_real_a: Array | None = None,
+    n_real_b: Array | None = None,
 ) -> tuple[Array, Array]:
     """Body-shank "shank corners → other body's SDF" direction ONLY.
 
@@ -986,6 +999,8 @@ def body_shank_corners_pair_clearance(
     no padding (legacy ragged tables), identical to before.
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
+    kw_a = {} if n_real_a is None else {"n_real": n_real_a}
+    kw_b = {} if n_real_b is None else {"n_real": n_real_b}
     Sa = shank_centers_a.shape[0]
     Sb = shank_centers_b.shape[0]
     chunks = []
@@ -995,7 +1010,7 @@ def body_shank_corners_pair_clearance(
         )
         ca_in_b = (corners_a_world - t_b) @ R_b
         d_corners_a_in_b = sdf_lookup(
-            sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
+            sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b, **kw_b
         ).reshape(-1)
         if shank_mask_a is not None:
             m = jnp.repeat(shank_mask_a.astype(bool), _SHANK_SAMPLES_PER_BOX)
@@ -1007,7 +1022,7 @@ def body_shank_corners_pair_clearance(
         )
         cb_in_a = (corners_b_world - t_a) @ R_a
         d_corners_b_in_a = sdf_lookup(
-            sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
+            sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a, **kw_a
         ).reshape(-1)
         if shank_mask_b is not None:
             m = jnp.repeat(shank_mask_b.astype(bool), _SHANK_SAMPLES_PER_BOX)
@@ -1036,6 +1051,8 @@ def body_body_pair_clearance(
     beta: float = 20.0,
     top_k: int = 16,
     interp: str = "trilinear",
+    n_real_a: Array | None = None,
+    n_real_b: Array | None = None,
 ) -> tuple[Array, Array]:
     """Body-body category only of the dual-rep clearance. Returns
     ``(hard_min, soft_min_topk)``. Vmap-friendly: shape-static (no
@@ -1049,10 +1066,12 @@ def body_body_pair_clearance(
     2026-05-23 jax.profiler trace).
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
+    kw_a = {} if n_real_a is None else {"n_real": n_real_a}
+    kw_b = {} if n_real_b is None else {"n_real": n_real_b}
     local_b_in_a = (world_surface_b - t_a) @ R_a
-    d_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a)
+    d_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a, **kw_a)
     local_a_in_b = (world_surface_a - t_b) @ R_b
-    d_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b)
+    d_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b, **kw_b)
     pool = jnp.concatenate([d_b_in_a.reshape(-1), d_a_in_b.reshape(-1)])
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
 
