@@ -204,9 +204,9 @@ def make_batched_phase1_chunked(  # noqa: C901
     )
 
     def build_arglist(statics_list):
-        # Only PER_CAND keys are used per chunk; sdf_table comes from the shared
-        # template — skip the per-chunk table build.
-        packs = [_pack_statics(s, n_arcs, build_table=False) for s in statics_list]
+        # Only PER_CAND keys are used per chunk; the SDF tuples + sdf_table come
+        # from the shared template — skip the per-chunk grid→device conversion.
+        packs = [_pack_statics(s, n_arcs, build_sdf=False) for s in statics_list]
         stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
         return [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
 

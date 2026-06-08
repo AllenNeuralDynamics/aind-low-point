@@ -699,14 +699,25 @@ def _build_jit(  # noqa: C901
     return jit_obj, jit_grad
 
 
-def _pack_statics(statics, n_arcs: int, build_table: bool = True) -> dict:
+# Per-probe-fixed SDF tuples + swept-pair table, cached by probe sdf-data
+# identity so they're built ONCE per probe set, not per candidate (see
+# _pack_statics). Keyed by id() of the shared, long-lived ProbeSDF data.
+_SDF_PACK_CACHE: dict = {}
+
+
+def _pack_statics(
+    statics, n_arcs: int, build_sdf: bool = True, build_table: bool = True
+) -> dict:
     """Pack per-candidate static data into padded jnp tensors. Mirrors
     Stage 2's ``_pack_statics`` exactly so per-probe data lines up.
 
-    ``build_table`` controls whether the padded swept-pair ``sdf_table`` is
-    built. The batched ``build_arglist`` reuses a single shared template table
-    and only needs the per-candidate keys, so it passes ``build_table=False`` to
-    skip the (per-chunk) edge-pad + stack of the probe grids.
+    ``build_sdf`` / ``build_table`` control whether the per-probe SDF/OBB tuples
+    and the padded swept-pair ``sdf_table`` are built. They are per-probe-fixed
+    (identical across candidates of the same probe set), so the batched
+    ``build_arglist`` — which reuses a single shared template for those and only
+    needs the per-candidate keys (arc_idx, hole sections) — passes
+    ``build_sdf=False`` to skip the per-chunk grid→device conversion + table
+    build. ``build_table`` requires ``build_sdf``.
     """
     P = len(statics)
     max_shanks, max_sections = MAX_SHANKS_PAD, MAX_SECTIONS_PAD
@@ -770,54 +781,72 @@ def _pack_statics(statics, n_arcs: int, build_table: bool = True) -> dict:
         section_mask=jnp.asarray(section_mask),
         same_arc_mask=jnp.asarray(same_arc_mask),
     )
-    # SDF + shank-OBB tuples, per-probe shapes (heterogeneous across kinds).
-    sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces = [], [], [], []
-    shank_obb_centers, shank_obb_halves = [], []
-    for s in statics:
-        if s.sdf_data is not None:
-            sdf_grids.append(jnp.asarray(s.sdf_data["grid"], dtype=jnp.float32))
-            sdf_origins.append(jnp.asarray(s.sdf_data["origin"], dtype=jnp.float32))
-            sdf_spacings.append(jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32))
-            sdf_surfaces.append(jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32))
-            shank_obb_centers.append(
-                jnp.asarray(
-                    s.sdf_data.get("shank_centers", np.zeros((0, 3), dtype=np.float32)),
-                    dtype=jnp.float32,
+    # SDF + shank-OBB tuples + the padded swept-pair table. Per-probe-FIXED
+    # (identical across candidates of the same probe set): skipped when
+    # build_sdf=False, and otherwise cached by per-probe sdf-data identity so the
+    # grid→device conversion + the (edge-pad + stack) table build happen ONCE per
+    # probe set rather than per candidate. The grids are edge-padded so trilinear
+    # is bit-exact with the unpadded grids (real extent in ``real_shapes``); see
+    # clearance_sweep. The unrolled fixture loop uses the per-probe tuples.
+    if not build_sdf:
+        return out
+    key = (tuple(id(s.sdf_data) for s in statics), bool(build_table))
+    sdf_part = _SDF_PACK_CACHE.get(key)
+    if sdf_part is None:
+        sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces = [], [], [], []
+        shank_obb_centers, shank_obb_halves = [], []
+        for s in statics:
+            if s.sdf_data is not None:
+                sdf_grids.append(jnp.asarray(s.sdf_data["grid"], dtype=jnp.float32))
+                sdf_origins.append(jnp.asarray(s.sdf_data["origin"], dtype=jnp.float32))
+                sdf_spacings.append(
+                    jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32)
                 )
-            )
-            shank_obb_halves.append(
-                jnp.asarray(
-                    s.sdf_data.get("shank_halves", np.zeros((0, 3), dtype=np.float32)),
-                    dtype=jnp.float32,
+                sdf_surfaces.append(
+                    jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32)
                 )
+                shank_obb_centers.append(
+                    jnp.asarray(
+                        s.sdf_data.get(
+                            "shank_centers", np.zeros((0, 3), dtype=np.float32)
+                        ),
+                        dtype=jnp.float32,
+                    )
+                )
+                shank_obb_halves.append(
+                    jnp.asarray(
+                        s.sdf_data.get(
+                            "shank_halves", np.zeros((0, 3), dtype=np.float32)
+                        ),
+                        dtype=jnp.float32,
+                    )
+                )
+            else:
+                sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
+                sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))
+                sdf_spacings.append(jnp.float32(1.0))
+                sdf_surfaces.append(jnp.zeros((1, 3), dtype=jnp.float32))
+                shank_obb_centers.append(jnp.zeros((0, 3), dtype=jnp.float32))
+                shank_obb_halves.append(jnp.zeros((0, 3), dtype=jnp.float32))
+        sdf_part = {
+            "sdf_grids": tuple(sdf_grids),
+            "sdf_origins": tuple(sdf_origins),
+            "sdf_spacings": tuple(sdf_spacings),
+            "sdf_surfaces": tuple(sdf_surfaces),
+            "shank_obb_centers": tuple(shank_obb_centers),
+            "shank_obb_halves": tuple(shank_obb_halves),
+        }
+        if build_table:
+            sdf_part["sdf_table"] = build_padded_probe_tables(
+                sdf_part["sdf_grids"],
+                sdf_part["sdf_origins"],
+                sdf_part["sdf_spacings"],
+                sdf_part["sdf_surfaces"],
+                sdf_part["shank_obb_centers"],
+                sdf_part["shank_obb_halves"],
             )
-        else:
-            sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
-            sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))
-            sdf_spacings.append(jnp.float32(1.0))
-            sdf_surfaces.append(jnp.zeros((1, 3), dtype=jnp.float32))
-            shank_obb_centers.append(jnp.zeros((0, 3), dtype=jnp.float32))
-            shank_obb_halves.append(jnp.zeros((0, 3), dtype=jnp.float32))
-    out["sdf_grids"] = tuple(sdf_grids)
-    out["sdf_origins"] = tuple(sdf_origins)
-    out["sdf_spacings"] = tuple(sdf_spacings)
-    out["sdf_surfaces"] = tuple(sdf_surfaces)
-    out["shank_obb_centers"] = tuple(shank_obb_centers)
-    out["shank_obb_halves"] = tuple(shank_obb_halves)
-    # Padded, stacked table for the vmapped probe-pair clearance sweep. Built
-    # ONCE here (not per objective eval) and passed through as a shared pytree
-    # arg; the unrolled fixture loop still uses the per-probe tuples above. The
-    # grids are edge-padded so trilinear is bit-exact with the unpadded grids
-    # (real extent carried in ``real_shapes``); see clearance_sweep.
-    if build_table:
-        out["sdf_table"] = build_padded_probe_tables(
-            out["sdf_grids"],
-            out["sdf_origins"],
-            out["sdf_spacings"],
-            out["sdf_surfaces"],
-            out["shank_obb_centers"],
-            out["shank_obb_halves"],
-        )
+        _SDF_PACK_CACHE[key] = sdf_part
+    out.update(sdf_part)
     return out
 
 
