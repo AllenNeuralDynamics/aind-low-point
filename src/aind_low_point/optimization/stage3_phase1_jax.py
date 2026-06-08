@@ -795,32 +795,43 @@ def _pack_statics(
     if sdf_part is None:
         sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces = [], [], [], []
         shank_obb_centers, shank_obb_halves = [], []
+        # Dedup the grid→device conversion by probe KIND: the SDF/OBB/surface are
+        # a deterministic function of the kind geometry (canonical-local), so each
+        # kind's jnp arrays are built ONCE from the first occurrence and the refs
+        # are shared. The swept-pair table then dedups by object identity to
+        # N_kinds distinct grids (vs P) — less HBM, less padding, fewer host→
+        # device conversions. (The per-probe ProbeSDF objects are otherwise all
+        # distinct, so id-based dedup alone would never fire.)
+        by_kind: dict = {}
         for s in statics:
             if s.sdf_data is not None:
-                sdf_grids.append(jnp.asarray(s.sdf_data["grid"], dtype=jnp.float32))
-                sdf_origins.append(jnp.asarray(s.sdf_data["origin"], dtype=jnp.float32))
-                sdf_spacings.append(
-                    jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32)
-                )
-                sdf_surfaces.append(
-                    jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32)
-                )
-                shank_obb_centers.append(
-                    jnp.asarray(
-                        s.sdf_data.get(
-                            "shank_centers", np.zeros((0, 3), dtype=np.float32)
+                ent = by_kind.get(s.kind)
+                if ent is None:
+                    ent = (
+                        jnp.asarray(s.sdf_data["grid"], dtype=jnp.float32),
+                        jnp.asarray(s.sdf_data["origin"], dtype=jnp.float32),
+                        jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32),
+                        jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32),
+                        jnp.asarray(
+                            s.sdf_data.get(
+                                "shank_centers", np.zeros((0, 3), dtype=np.float32)
+                            ),
+                            dtype=jnp.float32,
                         ),
-                        dtype=jnp.float32,
-                    )
-                )
-                shank_obb_halves.append(
-                    jnp.asarray(
-                        s.sdf_data.get(
-                            "shank_halves", np.zeros((0, 3), dtype=np.float32)
+                        jnp.asarray(
+                            s.sdf_data.get(
+                                "shank_halves", np.zeros((0, 3), dtype=np.float32)
+                            ),
+                            dtype=jnp.float32,
                         ),
-                        dtype=jnp.float32,
                     )
-                )
+                    by_kind[s.kind] = ent
+                sdf_grids.append(ent[0])
+                sdf_origins.append(ent[1])
+                sdf_spacings.append(ent[2])
+                sdf_surfaces.append(ent[3])
+                shank_obb_centers.append(ent[4])
+                shank_obb_halves.append(ent[5])
             else:
                 sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
                 sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))

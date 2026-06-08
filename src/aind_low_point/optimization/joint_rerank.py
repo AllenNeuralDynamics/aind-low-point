@@ -293,6 +293,10 @@ class _ProbeStatic:
     # reduced objective queries the JAX SDF kernel for pairwise
     # clearance instead of FCL BVH+collide.
     sdf_data: dict | None = None
+    # Probe kind (e.g. "2.1", "quadbase-alpha"). The SDF/OBB/surface are a
+    # deterministic function of the kind, so callers dedup per-kind statics by
+    # this (the per-probe ProbeSDF objects are otherwise distinct).
+    kind: str = ""
 
 
 _SDF_JNP_CACHE: dict[tuple, dict] = {}
@@ -435,6 +439,7 @@ def _build_probe_static(
                 section_b=s_b,
                 bvh_obj=bvh_obj,
                 sdf_data=sdf_payload,
+                kind=str(p.kind),
             )
         )
     return out

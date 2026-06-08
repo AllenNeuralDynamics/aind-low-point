@@ -6,7 +6,9 @@ autodiff through ~C(P,2) unrolled copies of the dual-rep subgraph dominates the
 XLA compile (measured: the pair loop owns ~90% of Phase-2's ~115s grad /
 constr_jac compile; fixtures ~10%). This module collapses that loop to a single
 ``jax.vmap`` over the static pair-index list, gathering each probe's grid / OBB
-from a padded ``(P, ...)`` table — one dual-rep subgraph copy instead of C(P,2).
+from a padded per-KIND ``(N_kinds, ...)`` table by ``kind_id`` (the same
+representation the spin-restore uses) — one dual-rep subgraph copy instead of
+C(P,2), and only N_kinds distinct grids stored rather than P.
 
 Grids/OBBs are padded to a common shape so they can be a single stacked operand;
 the padding is **bit-exact** for the clearance:
@@ -93,21 +95,39 @@ def build_padded_probe_tables(
     shank_obb_centers: tuple,
     shank_obb_halves: tuple,
 ) -> dict:
-    """Pad the heterogeneous per-probe SDF/OBB tuples into uniform stacked
-    tables, so a dynamic pair index can gather them inside ``jax.vmap``.
+    """Dedup the per-probe SDF/OBB tuples into a per-KIND stacked table plus a
+    per-probe ``kind_id``, so a dynamic index gathers ``grids[kind_id[i]]`` inside
+    ``jax.vmap`` — the same representation the spin-restore uses.
 
-    All inputs are length-P tuples of jnp arrays (as produced by
-    ``stage3_phase1_jax._pack_statics``). Shapes are static at trace time, so the
-    pad widths below are concrete Python ints. Returns a dict of stacked tables
-    plus the per-probe ``obb_mask`` (1.0 for real OBB rows, 0.0 for padding).
+    Same-kind probes share the *identical* SDF grid object (one ``ProbeSDF`` per
+    kind), so deduping by grid identity is bit-exact with a per-probe table while
+    storing only ``N_kinds`` distinct grids (e.g. 3 vs 7) — less padding, less
+    HBM. Inputs are length-P tuples of jnp arrays (from ``_pack_statics``); pad
+    widths are concrete Python ints at trace time. Returns the per-kind tables +
+    per-probe ``kind_id``, with ``obb_mask`` (1.0 real OBB rows, 0.0 padding).
     """
     P = len(sdf_grids)
-    gx = max(int(g.shape[0]) for g in sdf_grids)
-    gy = max(int(g.shape[1]) for g in sdf_grids)
-    gz = max(int(g.shape[2]) for g in sdf_grids)
-    nsurf = max(int(s.shape[0]) for s in sdf_surfaces)
-    max_sa = max(int(c.shape[0]) for c in shank_obb_centers)
-    max_sa = max(max_sa, 1)  # avoid a 0-width OBB axis
+    # Dedup by grid object identity → per-kind lists + per-probe kind index.
+    kind_of: dict[int, int] = {}
+    kind_id_list: list[int] = []
+    kg, ko, ks, ksurf, kobc, kobh = [], [], [], [], [], []
+    for i in range(P):
+        gid = id(sdf_grids[i])
+        if gid not in kind_of:
+            kind_of[gid] = len(kg)
+            kg.append(sdf_grids[i])
+            ko.append(sdf_origins[i])
+            ks.append(sdf_spacings[i])
+            ksurf.append(sdf_surfaces[i])
+            kobc.append(shank_obb_centers[i])
+            kobh.append(shank_obb_halves[i])
+        kind_id_list.append(kind_of[gid])
+    nk = len(kg)
+    gx = max(int(g.shape[0]) for g in kg)
+    gy = max(int(g.shape[1]) for g in kg)
+    gz = max(int(g.shape[2]) for g in kg)
+    nsurf = max(int(s.shape[0]) for s in ksurf)
+    max_sa = max(max(int(c.shape[0]) for c in kobc), 1)  # avoid 0-width OBB axis
 
     # Edge-pad (replicate boundary), NOT zero-pad: body_body queries the OTHER
     # probe's surface against this grid, and those points fall outside this
@@ -122,30 +142,28 @@ def build_padded_probe_tables(
                 ((0, gx - g.shape[0]), (0, gy - g.shape[1]), (0, gz - g.shape[2])),
                 mode="edge",
             )
-            for g in sdf_grids
+            for g in kg
         ]
     )
-    origins = jnp.stack([jnp.asarray(o, jnp.float32) for o in sdf_origins])
-    spacings = jnp.asarray([jnp.asarray(s, jnp.float32) for s in sdf_spacings])
-    surfaces = jnp.stack(
-        [jnp.pad(s, ((0, nsurf - s.shape[0]), (0, 0))) for s in sdf_surfaces]
-    )
+    origins = jnp.stack([jnp.asarray(o, jnp.float32) for o in ko])
+    spacings = jnp.asarray([jnp.asarray(s, jnp.float32) for s in ks])
+    surfaces = jnp.stack([jnp.pad(s, ((0, nsurf - s.shape[0]), (0, 0))) for s in ksurf])
 
-    obb_c = jnp.zeros((P, max_sa, 3), jnp.float32)
-    obb_h = jnp.zeros((P, max_sa, 3), jnp.float32)
-    obb_m = jnp.zeros((P, max_sa), jnp.float32)
-    for i in range(P):
-        n = int(shank_obb_centers[i].shape[0])
+    obb_c = jnp.zeros((nk, max_sa, 3), jnp.float32)
+    obb_h = jnp.zeros((nk, max_sa, 3), jnp.float32)
+    obb_m = jnp.zeros((nk, max_sa), jnp.float32)
+    for k in range(nk):
+        n = int(kobc[k].shape[0])
         if n > 0:
-            obb_c = obb_c.at[i, :n].set(shank_obb_centers[i])
-            obb_h = obb_h.at[i, :n].set(shank_obb_halves[i])
-            obb_m = obb_m.at[i, :n].set(1.0)
+            obb_c = obb_c.at[k, :n].set(kobc[k])
+            obb_h = obb_h.at[k, :n].set(kobh[k])
+            obb_m = obb_m.at[k, :n].set(1.0)
 
-    # Real (unpadded) extent per probe, so trilinear's in-bounds test uses the
+    # Real (unpadded) extent per kind, so trilinear's in-bounds test uses the
     # true extent (not the padded shape) — out-of-extent queries then return the
     # out-of-bounds sentinel exactly as for the unpadded grid.
     real_shapes = jnp.asarray(
-        [[int(g.shape[0]), int(g.shape[1]), int(g.shape[2])] for g in sdf_grids],
+        [[int(g.shape[0]), int(g.shape[1]), int(g.shape[2])] for g in kg],
         dtype=jnp.int32,
     )
 
@@ -158,6 +176,7 @@ def build_padded_probe_tables(
         obb_halves=obb_h,
         obb_mask=obb_m,
         real_shapes=real_shapes,
+        kind_id=jnp.asarray(kind_id_list, jnp.int32),
     )
 
 
@@ -195,17 +214,22 @@ def swept_pair_clearances(
     obb_h = tables["obb_halves"]
     obb_m = tables["obb_mask"]
     real_shapes = tables["real_shapes"]
-    # World-frame body surfaces, once per probe (stacked).
-    world_surf = jnp.matmul(surfaces, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+    kind_id = tables["kind_id"]  # (P,) probe → kind
+    # World-frame body surfaces, once per PROBE: gather the per-kind local
+    # surface by kind, then transform by the probe's pose.
+    world_surf = (
+        jnp.matmul(surfaces[kind_id], jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+    )
 
     def _pair(ia, ib):
         Ra, ta, Rb, tb = Rs[ia], ts[ia], Rs[ib], ts[ib]
-        ga, oa, sa = grids[ia], origins[ia], spacings[ia]
-        gb, ob, sb = grids[ib], origins[ib], spacings[ib]
-        nra, nrb = real_shapes[ia], real_shapes[ib]
+        ka, kb = kind_id[ia], kind_id[ib]  # gather grids/OBB by KIND, not probe
+        ga, oa, sa = grids[ka], origins[ka], spacings[ka]
+        gb, ob, sb = grids[kb], origins[kb], spacings[kb]
+        nra, nrb = real_shapes[ka], real_shapes[kb]
         sfa, sfb = world_surf[ia], world_surf[ib]
-        oca, oha, oma = obb_c[ia], obb_h[ia], obb_m[ia]
-        ocb, ohb, omb = obb_c[ib], obb_h[ib], obb_m[ib]
+        oca, oha, oma = obb_c[ka], obb_h[ka], obb_m[ka]
+        ocb, ohb, omb = obb_c[kb], obb_h[kb], obb_m[kb]
         bb = body_body_pair_clearance(
             Ra,
             ta,
