@@ -435,7 +435,7 @@ def _build_jit(  # noqa: C901
         dtype=jnp.int32,
     ).reshape(-1, 2)
 
-    def _objective(  # noqa: C901
+    def _objective(
         x,
         target_LPS,
         pivot_local,
