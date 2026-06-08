@@ -254,7 +254,6 @@ def main() -> int:
     in_b = d_raw < 1e2
     if in_b.sum() > 0:
         d_in = d_raw[in_b]
-        worst_idx = int(np.argmin(d_in))
         worst_idx_global = int(np.argsort(d_raw)[0])
         print(f"  raw-A vertices in B's SDF grid: {in_b.sum()}/{len(d_raw)}")
         print(

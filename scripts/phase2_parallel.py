@@ -42,12 +42,12 @@ if _PLATFORM in ("gpu", "cuda"):
     )
 _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
-import pickle
-import time
-from multiprocessing import get_context
-from pathlib import Path
+import pickle  # noqa: E402
+import time  # noqa: E402
+from multiprocessing import get_context  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-import numpy as np
+import numpy as np  # noqa: E402
 
 TOPK = int(_os.environ.get("TOPK", "80"))
 WORKERS = int(_os.environ.get("WORKERS", "16"))
@@ -463,7 +463,8 @@ def main() -> int:
     print(
         f"  {wall / 60:.2f} min wall; {compute:.0f}s total compute; "
         f"{compute / max(wall, 1e-9):.1f}x effective parallelism "
-        f"({compute / len(results):.0f}s/cand); throughput {len(results) / wall:.2f} cand/s"
+        f"({compute / len(results):.0f}s/cand); "
+        f"throughput {len(results) / wall:.2f} cand/s"
     )
     print(
         f"  per-cand secs (1st incl compile if WARMUP off): "

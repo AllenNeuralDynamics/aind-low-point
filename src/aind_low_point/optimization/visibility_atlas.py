@@ -178,7 +178,7 @@ def _build_check_for_hole(
     """Returns a closure check(target, top_sample, spin_deg, tips_local, centroid_local)
     → (valid, ap_deg, ml_deg). Sections are closure-captured to keep the JIT
     cache key clean (one compile per hole-section-count signature)."""
-    n_sections = len(sections_packed)
+    _n_sections = len(sections_packed)
 
     def check(target, top_sample, spin_deg, tips_local, centroid_local):
         D_lps = top_sample - target
@@ -334,7 +334,8 @@ def build_visibility_atlas(
                 1 for pn in probe_names if entries[(pn, hole.id)].ap_min is not None
             )
             print(
-                f"  [vis-atlas] hole {hole.id}: {valid_count}/{len(probes)} probes valid "
+                f"  [vis-atlas] hole {hole.id}: "
+                f"{valid_count}/{len(probes)} probes valid "
                 f"({time.perf_counter() - t0:.2f}s)"
             )
 
@@ -348,7 +349,8 @@ def build_visibility_atlas(
                 len(entries[(probe.name, hid)].anchors) for hid in valid_hids
             )
             print(
-                f"  [vis-atlas] {probe.name:>5}: {len(valid_hids)}/{len(hole_ids)} holes "
+                f"  [vis-atlas] {probe.name:>5}: "
+                f"{len(valid_hids)}/{len(hole_ids)} holes "
                 f"({n_anchors_total} anchors total)"
             )
     return Atlas(entries=entries, probe_names=probe_names, hole_ids=hole_ids)

@@ -167,7 +167,7 @@ def stratified_sample(results, rng, n_per_bin):
     return out
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
@@ -295,7 +295,8 @@ def main() -> int:
         for name, idxs in picks.items():
             vs = [f"{float(viol[int(i)]):.1f}" for i in idxs]
             print(
-                f"  {name:<10}: {len(idxs):>2}  cands={[int(i) for i in idxs]}  viol={vs}"
+                f"  {name:<10}: {len(idxs):>2}  "
+                f"cands={[int(i) for i in idxs]}  viol={vs}"
             )
     elif args.stratify_by_offset_fn:
         if not have_augmented:
@@ -309,7 +310,8 @@ def main() -> int:
         for name, idxs in picks.items():
             fns = [f"{float(offset_fn[int(i)]):+.1f}" for i in idxs]
             print(
-                f"  {name:<13}: {len(idxs):>2}  cands={[int(i) for i in idxs]}  fn={fns}"
+                f"  {name:<13}: {len(idxs):>2}  "
+                f"cands={[int(i) for i in idxs]}  fn={fns}"
             )
     else:
         rng = np.random.default_rng(args.seed)
@@ -338,7 +340,7 @@ def main() -> int:
                 sdf_by_name=sdf_by_name,
             )
             n_arcs = jc.n_arcs
-            n_vars = phase1_n_vars(n_arcs, len(statics))
+            _n_vars = phase1_n_vars(n_arcs, len(statics))
             coverage_data = build_coverage_data(probes, statics)
             bounds = phase1_bounds(n_arcs, len(statics))
             if have_augmented and len(augmented_x[cand_idx]) > 0:
@@ -408,7 +410,7 @@ def main() -> int:
             t0 = time.time()
             s_fcl = validator.slacks(x2)
             p3_wall = time.time() - t0
-            x3 = x2  # validator-only; no pose change
+            _x3 = x2  # validator-only; no pose change
             r3_nit = 0
             p3_fcl = float(np.min(s_fcl)) if s_fcl.size else 0.0
             p3_fcl_viol = int(np.sum(s_fcl < -1e-4)) if s_fcl.size else 0

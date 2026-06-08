@@ -91,7 +91,7 @@ def stratified_sample(
     Each stratum returns up to N indices (or all available).
     """
     max_viols = np.array([float(r.metrics.max_violation) for r in results])
-    lex_keys = np.array([r.metrics.lex_key() for r in results], dtype=object)
+    _lex_keys = np.array([r.metrics.lex_key() for r in results], dtype=object)
     rank_order = sorted(range(len(results)), key=lambda i: results[i].metrics.lex_key())
 
     top = [i for i in rank_order if max_viols[i] <= 0.001][:n_top]
@@ -482,7 +482,8 @@ def main() -> int:
         seed=args.seed,
     )
     print(
-        f"Sampled {len(sample_idxs)} cands: {sample_idxs[:10]}{' ...' if len(sample_idxs) > 10 else ''}"
+        f"Sampled {len(sample_idxs)} cands: {sample_idxs[:10]}"
+        f"{' ...' if len(sample_idxs) > 10 else ''}"
     )
     print()
 
@@ -593,12 +594,12 @@ def main() -> int:
         # Approximation here: use the JAX dual hard mins by transforming
         # each probe and walking pair list; defer to the final FCL check
         # for the true ground truth.
-        mv_p1 = mv_before  # placeholder; real value via final_check below
+        _mv_p1 = mv_before  # placeholder; real value via final_check below
 
         # Final feasibility via FCL + broadphase + fixtures.
         feas = final_feasibility_report(probes, statics, final_pose, fixtures_fcl)
         feas_flag = "FEAS" if feas["feasible"] else "FAIL"
-        coverage_after = -res.fun + (
+        _coverage_after = -res.fun + (
             # Back out coverage from the soft objective by adding back
             # the (residual) penalties. Easier: just don't try — coverage
             # signal magnitude per Phase 1 is fn_end ≈ -coverage when

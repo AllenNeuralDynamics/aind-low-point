@@ -271,7 +271,7 @@ def main() -> int:
 
     # ------- Summary -------
     max_viols = np.array([float(r.metrics.max_violation) for r in results])
-    coverages = np.array([float(r.metrics.approximate_coverage) for r in results])
+    _coverages = np.array([float(r.metrics.approximate_coverage) for r in results])
     n_feasible = int(np.sum(max_viols <= 1e-3))
     n_near_feasible = int(np.sum(max_viols <= 0.5))
     n_polish_succeeded = int(np.sum(max_viols < 100))

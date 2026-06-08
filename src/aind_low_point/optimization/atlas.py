@@ -427,7 +427,7 @@ def build_atlas(
 # ---------------------------------------------------------------------------
 
 
-def _admits_arc_cover(
+def _admits_arc_cover(  # noqa: C901
     intervals: list[tuple[float, float]],
     max_arcs: int = 3,
     min_sep_deg: float = 16.0,

@@ -312,7 +312,8 @@ def main() -> int:
         well.surface,
     )
     print(
-        f"JAX clearance probe_fixture_body: hard={float(hard):+.4f}, soft={float(soft):+.4f}"
+        "JAX clearance probe_fixture_body: "
+        f"hard={float(hard):+.4f}, soft={float(soft):+.4f}"
     )
 
     # === Look at FCL contact points and check both SDFs ===
@@ -355,14 +356,16 @@ def main() -> int:
         )
         print(f"  contact[{k}] world={pos_world.round(3).tolist()} depth={depth:+.4f}")
         print(
-            f"    {args.probe}-SDF at contact: {d_in_probe:+.4f} (local_p={local_p.round(3).tolist()})"
+            f"    {args.probe}-SDF at contact: {d_in_probe:+.4f} "
+            f"(local_p={local_p.round(3).tolist()})"
         )
         print(f"    well-SDF  at contact: {d_in_well:+.4f}")
 
     # === Look at where probe surface samples are wrt the well ===
     print(f"\n{'=' * 70}")
+    n_probe_surface = len(np.asarray(probe_sdf.surface_points))
     print(
-        f"How many of {args.probe}'s {len(np.asarray(probe_sdf.surface_points))} surface "
+        f"How many of {args.probe}'s {n_probe_surface} surface "
         f"samples are inside the well envelope?"
     )
     print(f"{'=' * 70}")
@@ -380,7 +383,8 @@ def main() -> int:
     if len(di) > 0:
         n_inside = int(np.sum(di < 0))
         print(
-            f"  {n_inside}/{len(di)} probe samples have well-SDF < 0 (inside well envelope)"
+            f"  {n_inside}/{len(di)} probe samples have well-SDF < 0 "
+            "(inside well envelope)"
         )
         print(f"  min well-SDF over probe samples: {di.min():+.4f} mm")
         print(f"  10 deepest: {sorted(di)[:10]}")

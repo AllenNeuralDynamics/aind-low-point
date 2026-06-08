@@ -176,7 +176,7 @@ def polish_worker_pool(
             os.environ["JAX_PLATFORMS"] = prev_jax_platforms
 
 
-def polish_all(
+def polish_all(  # noqa: C901
     candidates: list[tuple[HoleAssignment, ArcAssignment, float]],
     probes: list[ProbeStaticInfo],
     holes: list[Hole],
@@ -618,7 +618,7 @@ def _variant_at_ap(cand, arc_idx: int, new_ap: float):
     )
 
 
-def polish_all_adaptive(
+def polish_all_adaptive(  # noqa: C901
     candidates,
     probes: list[ProbeStaticInfo],
     holes: list[Hole],

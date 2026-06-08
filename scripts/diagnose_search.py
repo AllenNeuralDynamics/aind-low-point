@@ -111,7 +111,7 @@ def _partition_signature(
     return tuple(sorted(tuple(sorted(g)) for g in groups.values()))
 
 
-def main():
+def main():  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)
@@ -340,7 +340,8 @@ def main():
             f"{n}:{aa.probe_to_arc_idx.get(n, '-')}" for n in probe_names
         )
         print(
-            f"  {rank:>4}  {aa.cost:>10.4f}  {cents:>30}  {len(aa.arc_centroids_deg):>6}  "
+            f"  {rank:>4}  {aa.cost:>10.4f}  {cents:>30}  "
+            f"{len(aa.arc_centroids_deg):>6}  "
             f"{mapping}{is_seed}"
         )
     if seed_rank_arc > 10 and seed_rank_arc > 0:

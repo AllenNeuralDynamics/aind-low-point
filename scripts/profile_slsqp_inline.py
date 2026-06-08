@@ -198,7 +198,8 @@ def main():
             options={"maxiter": 50, "ftol": 1e-4, "disp": False},
         )
     print(
-        "  trace saved (open .json.gz under {trace_dir}/plugins/profile/ at ui.perfetto.dev)"
+        "  trace saved "
+        "(open .json.gz under {trace_dir}/plugins/profile/ at ui.perfetto.dev)"
     )
 
 

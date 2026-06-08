@@ -39,7 +39,7 @@ from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path)
     p.add_argument("holes", type=Path)

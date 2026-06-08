@@ -121,7 +121,7 @@ def main() -> int:
         )
         # one eval to trigger any lazy compile in this signature
         _ = p2["fun"](x0)
-        t_build = time.perf_counter() - t0
+        _t_build = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         res = minimize(

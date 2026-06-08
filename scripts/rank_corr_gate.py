@@ -164,7 +164,7 @@ def main() -> int:
     print(f"top-10 overlap (ADAM vs scipy): {len(top_a & top_s)}/10")
 
     # FCL confirm: is the top of each ranking actually feasible?
-    validator = make_fcl_validator(
+    _validator = make_fcl_validator(
         statics_list[0], n_arcs, fixtures=(well,), fixture_bvhs=fixture_bvhs
     )
     print("\nTop-8 by ADAM violation (FCL on each):")

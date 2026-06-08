@@ -789,7 +789,8 @@ def obb_obb_signed_distance(
 
         Negative ⇒ overlap by that depth; positive ⇒ separated.
         """
-        # Projection of A's half-box onto axis: r_a = sum_i |halves_a[i] * (axis_a[i] . axis_w)|
+        # Projection of A's half-box onto axis:
+        # r_a = sum_i |halves_a[i] * (axis_a[i] . axis_w)|
         proj_a = jnp.sum(jnp.abs(axes_a * axis_w[None, :]).T * halves_a[:, None].T)
         # Simpler form: r_a = halves_a . |axes_a.T @ axis_w|
         proj_a = jnp.dot(halves_a, jnp.abs(axes_a.T @ axis_w))

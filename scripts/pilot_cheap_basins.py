@@ -164,17 +164,18 @@ def main() -> int:
             [statics] * B, n_arcs, Phase1Weights(), (well,), coverage_data=None
         )
         x_adam = adam(x0, bgrad, lo, hi, steps=200, lr=0.02)
-        viol = np.asarray(bobj(x_adam))
+        _viol = np.asarray(bobj(x_adam))
         fcls = np.array(
             [float(np.asarray(validator.slacks(x_adam[i])).min()) for i in range(B)]
         )
 
         print(
-            f"\n=== cand {cand_idx} (manual tuple={'yes' if cand_idx == 4195 else 'no'}) ==="
+            f"\n=== cand {cand_idx} "
+            f"(manual tuple={'yes' if cand_idx == 4195 else 'no'}) ==="
         )
         best = {}
         for name in basin_sets:
-            mask = np.array([l == name for l in labels])
+            mask = np.array([label == name for label in labels])
             best_fcl = fcls[mask].max()
             best[name] = best_fcl
             feas = (fcls[mask] >= -1e-4).sum()

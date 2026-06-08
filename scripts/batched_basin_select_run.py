@@ -58,7 +58,7 @@ BF16_STORE = _os.environ.get("BF16_STORE", "0") == "1"
 PROFILE_CHUNK = _os.environ.get("PROFILE_CHUNK", "0") == "1"
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     print(f"JAX devices: {jax.devices()}")
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     runtime = build_runtime_from_config(cfg)

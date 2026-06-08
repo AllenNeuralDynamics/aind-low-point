@@ -651,7 +651,7 @@ def _apply_seed_polish_to_plan_state(
         plan.past_target_mm = float(depth)
 
 
-def main():
+def main():  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path, help="Path to input config YAML")
     p.add_argument("holes", type=Path, help="Path to holes YAML")

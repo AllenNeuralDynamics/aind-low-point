@@ -263,7 +263,7 @@ def _kernel(
     return vobj, barg, make_runner(mkad, vg)
 
 
-def run_group(
+def run_group(  # noqa: C901
     n_arcs, cands, *, probes, holes, sdf_fine, sdf_coarse, bvh, well_soft, brain_sdf
 ):
     K = len(probes)

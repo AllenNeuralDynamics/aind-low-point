@@ -125,7 +125,7 @@ def _best_fit_hole_id(
     return best_id, float(best_max_g)
 
 
-def main():
+def main():  # noqa: C901
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("config", type=Path, help="Path to input config YAML")
     p.add_argument("holes", type=Path, help="Path to holes YAML")

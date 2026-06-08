@@ -53,7 +53,7 @@ def main() -> int:
     rank = find_target_in_candidates(cands, MANUAL_H)
     print(f"enumerated {len(cands)} candidates; manual MANUAL_H rank = {rank}")
     if rank is not None:
-        c = cands[rank]
+        _ = cands[rank]
         print(
             f"  manual is reachable in the pool at rank {rank} "
             f"(was None with the wrong 0274 bores)"

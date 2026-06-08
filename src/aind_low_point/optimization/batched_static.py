@@ -314,7 +314,7 @@ def build_batched_probe_static(
 
     # SDF table (placeholders if no SDFs)
     if sdf_table is None:
-        n_kinds = 0
+        _n_kinds = 0
         sdf_grids = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
         sdf_grid_shapes = jnp.zeros((1, 3), dtype=jnp.int32)
         sdf_origins = jnp.zeros((1, 3), dtype=jnp.float32)
@@ -323,7 +323,7 @@ def build_batched_probe_static(
         sdf_shank_centers_table: tuple[jnp.ndarray, ...] = ()
         sdf_shank_halves_table: tuple[jnp.ndarray, ...] = ()
     else:
-        n_kinds = int(sdf_table["grids"].shape[0])
+        _n_kinds = int(sdf_table["grids"].shape[0])
         sdf_grids = sdf_table["grids"]
         sdf_grid_shapes = sdf_table["shapes"]
         sdf_origins = sdf_table["origins"]

@@ -325,7 +325,8 @@ def main() -> int:
     # depth-greedy ADAM puncture the brain bottom for coverage).
     brain_sdf = maybe_build_brain_sdf(runtime, compiled)
     print(
-        f"brain-containment: {'ON' if brain_sdf is not None else 'OFF (no brain asset)'}"
+        "brain-containment: "
+        f"{'ON' if brain_sdf is not None else 'OFF (no brain asset)'}"
     )
 
     data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
@@ -376,6 +377,9 @@ def main() -> int:
     n_neg = sum(1 for r in records if r["viol"] < 0)
     man = idx_to_rec.get(MANUAL)
     obj_label = "objective (-coverage+penalties)" if COVERAGE else "violation"
+    feasibility_label = (
+        "NOT a feasibility count with coverage on" if COVERAGE else "soft-feasible"
+    )
     print(f"\n=== global basin-selected ranking ({len(records)} cands) ===")
     print(f"sort key = Phase 1 {obj_label}")
     if man is not None:
@@ -385,7 +389,7 @@ def main() -> int:
         )
     print(
         f"sort-value < 0: {n_neg}/{len(records)} "
-        f"({'NOT a feasibility count with coverage on' if COVERAGE else 'soft-feasible'})"
+        f"({feasibility_label})"
     )
 
     # FCL on the top-K — REBUILD statics on demand (no global retention).

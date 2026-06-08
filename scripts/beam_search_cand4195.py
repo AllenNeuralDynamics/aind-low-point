@@ -235,13 +235,6 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     feas_results = [r for r in results_sorted if r[2]]
     print(f"\nSaving {len(feas_results)} FEAS plans to {out_dir}/")
-    # Reload the chain output for each FEAS k — we need x2 not just final spins.
-    # Map k → x2 from `results` order matches `to_polish` order.
-    # `results` was appended in to_polish order; rebuild a dict keyed by k.
-    x2_by_k = {}
-    for k_idx, asg in enumerate(to_polish):
-        # results was appended once per k in order, so x2 lives at index k_idx
-        pass
     # Actually we need x2 per k — but I didn't save x2. Re-polish the FEAS ones
     # for save. (Cheaper than threading x2 through the result tuple.)
     for save_idx, r in enumerate(feas_results, start=1):

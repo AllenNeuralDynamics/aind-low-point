@@ -38,7 +38,7 @@ def parse_manual_plan(plan_path: Path, probe_names: list[str]):
     with open(plan_path) as f:
         mp = yaml.safe_load(f)
     arcs = mp["arcs"]
-    arc_letters_in_order = list(arcs.keys())
+    _arc_letters_in_order = list(arcs.keys())
     # canonical = ascending AP
     arc_letters_sorted = sorted(arcs.keys(), key=lambda k: arcs[k])
     letter_to_idx = {k: i for i, k in enumerate(arc_letters_sorted)}

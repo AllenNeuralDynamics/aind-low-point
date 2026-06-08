@@ -780,7 +780,7 @@ def compute_fixture_max_violation(
     return float(max_viol)
 
 
-def _evaluate_reduced_metrics(
+def _evaluate_reduced_metrics(  # noqa: C901
     y: NDArray,
     statics: list[_ProbeStatic],
     n_arcs: int,
@@ -910,7 +910,7 @@ def _evaluate_reduced_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _build_starts(
+def _build_starts(  # noqa: C901
     statics: list[_ProbeStatic],
     aa: ArcAssignment,
     pose_features: dict[tuple[str, int], PoseFeatures],

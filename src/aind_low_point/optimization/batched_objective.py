@@ -102,8 +102,8 @@ def make_batched_reduced_objective(  # noqa: C901
     """
     K = static.K
     n_arcs = static.n_arcs
-    SH = static.SH
-    S = static.S
+    _SH = static.SH
+    _S = static.S
 
     # Closure-captured per-probe constants (same across batch)
     target_LPS = static.probe_target_lps[0]  # (K, 3)

@@ -196,7 +196,7 @@ class ArcFirstCandidate:
 # ---------------------------------------------------------------------------
 
 
-def _enumerate_arc_hole_tuples(
+def _enumerate_arc_hole_tuples(  # noqa: C901
     probe_indices: tuple[int, ...],
     aa: _AtlasArrays,
     *,
@@ -211,7 +211,8 @@ def _enumerate_arc_hole_tuples(
     Returns dicts with:
         holes: tuple of hole_ids parallel to ``probe_indices``
         ap_lo, ap_hi, ap_mid: envelope intersection + midpoint
-        seed_ml, seed_spin, seed_ap: per-probe seed anchor data (parallel to probe_indices)
+        seed_ml, seed_spin, seed_ap: per-probe seed anchor data
+            (parallel to probe_indices)
         min_ml_diff: min pairwise ml diff after anchor selection
         total_anchors: Σ anchor counts at the chosen holes
     """
@@ -575,7 +576,7 @@ def emit_seed(
 # ---------------------------------------------------------------------------
 
 
-def enumerate_arc_first_candidates(
+def enumerate_arc_first_candidates(  # noqa: C901
     probes,
     atlas: Atlas,
     *,
