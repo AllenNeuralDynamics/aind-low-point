@@ -62,7 +62,11 @@ from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.batched_phase1_build import (
     make_batched_phase1_chunked,
 )
-from scripts.run_optimizer import _probe_static_info, _transform_holes
+from scripts.run_optimizer import (
+    _probe_static_info,
+    _transform_holes,
+    retro_opts_from_env,
+)
 from scripts.run_phase1_sample import (
     build_coverage_data,
     build_fixture_sdf_data,
@@ -79,8 +83,11 @@ CHUNK = int(_os.environ.get("CHUNK", "32"))
 # WIDE=1 adds the joint 2^K flip set (the large spin search); off by default.
 WIDE = _os.environ.get("WIDE", "0") == "1"
 IDXS = [int(x) for x in _os.environ.get("IDXS", "4195").split(",")]
-CONFIG = "examples/836656-config-T12.yml"
-HOLES = "scratch/0283-300-04.holes.yml"
+# Subject is config-driven: CONFIG selects the YAML, HOLES the implant-bore file
+# (placed into the scene by the config's own implant_to_lps in setup()). Defaults
+# reproduce the 836656 test subject; override for any other subject.
+CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
+HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
 POOL_PKL = "scratch/full_polish_0283.pkl"
 RERANK_PKL = "scratch/full_rerank_0283.pkl"
 
@@ -88,7 +95,10 @@ RERANK_PKL = "scratch/full_rerank_0283.pkl"
 def setup():
     cfg = ConfigModel.from_yaml(CONFIG)
     rt = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(rt.plan_state, rt, n) for n in rt.plan_state.probes]
+    _ro = retro_opts_from_env(rt)
+    probes = [
+        _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
+    ]
     holes = load_holes(Path(HOLES))
     comp = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in comp:
@@ -136,8 +146,18 @@ def enum_seed_y0(cand, probes, n_arcs, seed_spins_deg=None):
     return y0
 
 
-def run_restore(cand, probes, holes, sdf_by_name, n_arcs, well, *, with_well,
-                seed_spins_deg=None, n_rounds=2):
+def run_restore(
+    cand,
+    probes,
+    holes,
+    sdf_by_name,
+    n_arcs,
+    well,
+    *,
+    with_well,
+    seed_spins_deg=None,
+    n_rounds=2,
+):
     """Round-robin spin restore for one candidate; returns reduced-layout
     y0_restored (n_arcs+3K,). ``seed_spins_deg`` overrides the atlas spin seed
     (to test whether a heuristic seed reaches a different basin); ``n_rounds``
@@ -170,13 +190,25 @@ def spins_deg_from_reduced(y_red, n_arcs, K):
 
 def spins_deg_from_phase1(x, n_arcs, K):
     return np.array(
-        [float(np.degrees(np.arctan2(x[n_arcs + PPV * k + 2], x[n_arcs + PPV * k + 1])))
-         for k in range(K)]
+        [
+            float(
+                np.degrees(np.arctan2(x[n_arcs + PPV * k + 2], x[n_arcs + PPV * k + 1]))
+            )
+            for k in range(K)
+        ]
     )
 
 
-def build_adam_kernel(st, n_arcs, n_probes, well_obj, coverage_data,
-                      brain_sdf=None, bounds=None, steps=None):
+def build_adam_kernel(
+    st,
+    n_arcs,
+    n_probes,
+    well_obj,
+    coverage_data,
+    brain_sdf=None,
+    bounds=None,
+    steps=None,
+):
     """Build the production Phase-1 ADAM kernel once for ONE candidate (st and
     coverage are constant across basin sets). Returns an ``eval(x0_rows)``
     closure mapping basin rows → (viol[R], x_adam[R, n_vars]). ``brain_sdf``
@@ -190,9 +222,13 @@ def build_adam_kernel(st, n_arcs, n_probes, well_obj, coverage_data,
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
     fixtures = () if well_obj is None else (well_obj,)
-    vobj, _g, build_arglist, make_adam = make_batched_phase1_chunked(
-        st, n_arcs, Phase1Weights(), fixtures,
-        coverage_data=coverage_data, grid_dtype=jnp.float32,
+    vobj, _g, build_arglist, make_adam, _mks = make_batched_phase1_chunked(
+        st,
+        n_arcs,
+        Phase1Weights(),
+        fixtures,
+        coverage_data=coverage_data,
+        grid_dtype=jnp.float32,
         brain_sdf=brain_sdf,
     )
     run_adam = make_adam(lo, hi, steps=STEPS if steps is None else steps, lr=0.02)
@@ -210,13 +246,13 @@ def build_adam_kernel(st, n_arcs, n_probes, well_obj, coverage_data,
         viol = np.empty(x0_all.shape[0], np.float32)
         xout = np.empty_like(x0_all)
         for s in range(0, x0_all.shape[0], cs):
-            x0 = jnp.asarray(x0_all[s:s + cs])
+            x0 = jnp.asarray(x0_all[s : s + cs])
             cargs = build_arglist([st] * cs)
             xa = run_adam(x0, cargs)
             vc = vobj(xa, *cargs)
             xa.block_until_ready()
-            xout[s:s + cs] = np.asarray(xa)
-            viol[s:s + cs] = np.asarray(vc)
+            xout[s : s + cs] = np.asarray(xa)
+            viol[s : s + cs] = np.asarray(vc)
         return viol[:n], xout[:n]
 
     return _eval
@@ -229,29 +265,39 @@ def make_basin_sets(y_red, st, n_arcs, n_probes):
     arc_aps = y_red[:n_arcs]
     mls = np.array([y_red[n_arcs + 3 * i] for i in range(n_probes)])
     restore_sp = spins_deg_from_reduced(y_red, n_arcs, n_probes)
-    h1 = np.array([
-        spin_to_align_y_with(s.assigned_hole.slot_major_dir(),
-                             float(arc_aps[s.arc_idx]), float(mls[i]))
-        for i, s in enumerate(st)
-    ])
+    h1 = np.array(
+        [
+            spin_to_align_y_with(
+                s.assigned_hole.slot_major_dir(),
+                float(arc_aps[s.arc_idx]),
+                float(mls[i]),
+            )
+            for i, s in enumerate(st)
+        ]
+    )
     one = np.array([not is_four_shank(s) for s in st])
     sets = {
         "A_restore1": [restore_sp],
         "B_prod3": [restore_sp, h1, np.where(one, h1 + 180.0, h1)],
     }
     if WIDE:
-        sets["C_flip2^K"] = [restore_sp + 180.0 * np.array(bits)
-                             for bits in product([0, 1], repeat=n_probes)]
+        sets["C_flip2^K"] = [
+            restore_sp + 180.0 * np.array(bits)
+            for bits in product([0, 1], repeat=n_probes)
+        ]
     return arc_aps, mls, sets
 
 
-def fcl_verdict(idx, pose, n_arcs, probes, holes, bvh, sdf_by_name, fixtures,
-                fixture_bvhs, pool):
+def fcl_verdict(
+    idx, pose, n_arcs, probes, holes, bvh, sdf_by_name, fixtures, fixture_bvhs, pool
+):
     cand = pool["candidates"][idx]
-    st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                             bvh_cache=bvh, sdf_by_name=sdf_by_name)
-    v = make_fcl_validator(st, n_arcs, fixtures=tuple(fixtures),
-                           fixture_bvhs=fixture_bvhs)
+    st = _build_probe_static(
+        probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+    )
+    v = make_fcl_validator(
+        st, n_arcs, fixtures=tuple(fixtures), fixture_bvhs=fixture_bvhs
+    )
     return float(np.asarray(v.slacks(pose)).min())
 
 
@@ -266,8 +312,9 @@ def main() -> int:
     for idx in IDXS:
         cand = pool["candidates"][idx]
         n_arcs = int(pool["results"][idx].n_arcs)
-        st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                                 bvh_cache=bvh, sdf_by_name=sdf_by_name)
+        st = _build_probe_static(
+            probes, holes, cand.ha, cand.aa, bvh_cache=bvh, sdf_by_name=sdf_by_name
+        )
         coverage_data = build_coverage_data(probes, st)
         adam_eval = build_adam_kernel(st, n_arcs, K, well, coverage_data)
         seed_sp = spins_deg_from_reduced(enum_seed_y0(cand, probes, n_arcs), n_arcs, K)
@@ -275,49 +322,77 @@ def main() -> int:
         # Reference: durable chain-A pose (restore→L-BFGS→ADAM) for this cand.
         ref = rec_by_idx.get(idx, {})
         ref_pose = ref.get("pose")
-        ref_sp = (spins_deg_from_phase1(np.asarray(ref_pose), n_arcs, K)
-                  if ref_pose is not None else None)
+        ref_sp = (
+            spins_deg_from_phase1(np.asarray(ref_pose), n_arcs, K)
+            if ref_pose is not None
+            else None
+        )
         ref_fcl = ref.get("fcl")
 
-        print(f"\n{'='*78}\ncand {idx}  n_arcs={n_arcs}  "
-              f"holes={dict(cand.ha.probe_to_hole)}")
+        print(
+            f"\n{'=' * 78}\ncand {idx}  n_arcs={n_arcs}  "
+            f"holes={dict(cand.ha.probe_to_hole)}"
+        )
         names = [p.name for p in probes]
         print(f"probes        : {names}")
-        print(f"enum spin_seed: {np.round(seed_sp,1)}")
+        print(f"enum spin_seed: {np.round(seed_sp, 1)}")
         if ref_sp is not None:
-            print(f"chain-A spins : {np.round(ref_sp,1)}  "
-                  f"(durable rerank, fcl={ref_fcl})")
+            print(
+                f"chain-A spins : {np.round(ref_sp, 1)}  "
+                f"(durable rerank, fcl={ref_fcl})"
+            )
 
         for with_well in (True, False):
             tag = "WELL" if with_well else "no-well"
             t0 = time.time()
-            y_red = run_restore(cand, probes, holes, sdf_by_name, n_arcs, well,
-                                with_well=with_well)
+            y_red = run_restore(
+                cand, probes, holes, sdf_by_name, n_arcs, well, with_well=with_well
+            )
             rest_sp = spins_deg_from_reduced(y_red, n_arcs, K)
-            d_ref = (np.round(np.abs(((rest_sp - ref_sp + 180) % 360) - 180), 1)
-                     if ref_sp is not None else None)
-            print(f"\n[restore {tag}] {time.time()-t0:.1f}s  "
-                  f"spins={np.round(rest_sp,1)}")
+            d_ref = (
+                np.round(np.abs(((rest_sp - ref_sp + 180) % 360) - 180), 1)
+                if ref_sp is not None
+                else None
+            )
+            print(
+                f"\n[restore {tag}] {time.time() - t0:.1f}s  "
+                f"spins={np.round(rest_sp, 1)}"
+            )
             if d_ref is not None:
-                print(f"   |Δ to chain-A| per probe: {d_ref}  "
-                      f"(max {float(np.max(d_ref)):.1f}°)")
+                print(
+                    f"   |Δ to chain-A| per probe: {d_ref}  "
+                    f"(max {float(np.max(d_ref)):.1f}°)"
+                )
 
             arc_aps, mls, sets = make_basin_sets(y_red, st, n_arcs, K)
             for sname, basins in sets.items():
                 zero = np.zeros(K)
-                x0_rows = [build_y(arc_aps, n_arcs, mls, sp, zero, zero, zero)
-                           for sp in basins]
+                x0_rows = [
+                    build_y(arc_aps, n_arcs, mls, sp, zero, zero, zero) for sp in basins
+                ]
                 t1 = time.time()
                 viol, xa = adam_eval(x0_rows)
                 br = int(np.argmin(viol))
-                fcl = fcl_verdict(idx, xa[br], n_arcs, probes, holes, bvh,
-                                  sdf_by_name, fixtures, fixture_bvhs, pool)
+                fcl = fcl_verdict(
+                    idx,
+                    xa[br],
+                    n_arcs,
+                    probes,
+                    holes,
+                    bvh,
+                    sdf_by_name,
+                    fixtures,
+                    fixture_bvhs,
+                    pool,
+                )
                 feas = fcl >= -1e-4
                 win_sp = spins_deg_from_phase1(xa[br], n_arcs, K)
-                print(f"   {sname:>11} ({len(basins):>3} basin): "
-                      f"viol {viol[br]:>+8.3f}  fcl {fcl:>+7.3f}  "
-                      f"{'FEAS' if feas else 'infeas'}  {time.time()-t1:.0f}s  "
-                      f"win_spins={np.round(win_sp,1)}")
+                print(
+                    f"   {sname:>11} ({len(basins):>3} basin): "
+                    f"viol {viol[br]:>+8.3f}  fcl {fcl:>+7.3f}  "
+                    f"{'FEAS' if feas else 'infeas'}  {time.time() - t1:.0f}s  "
+                    f"win_spins={np.round(win_sp, 1)}"
+                )
     return 0
 
 

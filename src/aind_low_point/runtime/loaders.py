@@ -60,7 +60,13 @@ def load_geometry(src: Union[str, Path], loader: str, **kwargs) -> GeometryOut:
 
 
 def trimesh_from_sitk_mask(mask: sitk.Image) -> trimesh.Trimesh:
-    """Convert a SimpleITK mask image to a trimesh."""
+    """Convert a SimpleITK mask image to a trimesh.
+
+    ``mask_to_trimesh`` (aind_mri_utils >=0.12.1) zero-pads the mask before
+    marching cubes, so a mask that reaches the volume boundary (e.g. a brain
+    skull-strip filling the field of view) still closes into a watertight mesh.
+    No local padding is needed here.
+    """
     structure_mesh = mask_to_trimesh(mask)
     trimesh.repair.fix_normals(structure_mesh)
     trimesh.repair.fix_inversion(structure_mesh)
@@ -113,34 +119,22 @@ def csv_points(path: str, max_points: int | None = None) -> NDArray[np.float64]:
     return pts
 
 
-@register_loader
-def ccf_annotation_region(
-    path: str,
+def ccf_region_label_ids(
     *,
     acronym: str | None = None,
     label_id: int | None = None,
     include_descendants: bool = True,
-) -> trimesh.Trimesh:
-    """Mesh a single CCF region out of a label-mapped annotation volume.
+    hemisphere: str = "both",
+) -> list[int]:
+    """Resolve a CCF region to the annotation-volume label ids that belong to it.
 
-    The volume at ``path`` must be a NIFTI/NRRD where each voxel's
-    intensity is its CCF structure id (e.g. ``ccf_annotation_in_subject.nii.gz``
-    produced by the AIND ANTs registration pipeline — already warped
-    into subject space). Specify the structure either by ``acronym``
-    (looked up in the bundled CCF ontology) or by ``label_id``
-    directly.
-
-    ``include_descendants=True`` (default) includes voxels labelled
-    with any descendant structure of ``acronym`` — typical, since the
-    annotation volume's voxels are tagged with leaf-level region IDs
-    rather than the parent acronym a user normally types.
-
-    Returns the surface mesh of the (binary) thresholded mask, in the
-    annotation volume's native frame.
+    Shared by ``ccf_annotation_region`` (which *meshes* the matching voxels) and
+    the retro point-cloud masker (which tests point *membership* against the same
+    ids) so both agree exactly. Applies the lateralized-annotation sign
+    convention (IBL: left = negated id).
     """
     if acronym is None and label_id is None:
-        raise ValueError("ccf_annotation_region: must specify acronym or label_id")
-
+        raise ValueError("ccf_region_label_ids: must specify acronym or label_id")
     ids: set[int] = set()
     if acronym is not None:
         from aind_low_point.ccf_ontology import CCFOntology
@@ -158,13 +152,73 @@ def ccf_annotation_region(
             ids.add(structure.id)
     if label_id is not None:
         ids.add(int(label_id))
+    hemi = hemisphere.lower()
+    if hemi in {"both", "b"}:
+        return list(ids) + [-i for i in ids]
+    if hemi in {"left", "l"}:
+        return [-i for i in ids]
+    if hemi in {"right", "r"}:
+        return list(ids)
+    raise ValueError(
+        f"hemisphere must be 'left', 'right', or 'both', got {hemisphere!r}"
+    )
+
+
+@register_loader
+def ccf_annotation_region(
+    path: str,
+    *,
+    acronym: str | None = None,
+    label_id: int | None = None,
+    include_descendants: bool = True,
+    hemisphere: str = "both",
+) -> trimesh.Trimesh:
+    """Mesh a single CCF region out of a label-mapped annotation volume.
+
+    The volume at ``path`` must be a NIFTI/NRRD where each voxel's
+    intensity is its CCF structure id (e.g. ``ccf_annotation_in_subject.nii.gz``
+    produced by the AIND ANTs registration pipeline — already warped
+    into subject space). Specify the structure either by ``acronym``
+    (looked up in the bundled CCF ontology) or by ``label_id``
+    directly.
+
+    ``include_descendants=True`` (default) includes voxels labelled
+    with any descendant structure of ``acronym`` — typical, since the
+    annotation volume's voxels are tagged with leaf-level region IDs
+    rather than the parent acronym a user normally types.
+
+    ``hemisphere`` selects one side of a **lateralized** annotation, where
+    left-hemisphere voxels carry the *negated* structure id (IBL
+    convention, as produced by
+    ``aind_registration_utils.annotations.lateralize_and_compact_ccf_image``):
+
+    - ``"both"`` (default) — match ``±id`` (bilateral). On a non-lateralized
+      annotation (only positive ids) this is identical to the legacy
+      behaviour.
+    - ``"left"`` — match ``-id`` only.
+    - ``"right"`` — match ``+id`` only.
+
+    Splitting hemispheres at label level is exact and robust to the
+    nonlinear CCF→subject warp, unlike a geometric midsagittal cut on the
+    meshed region (which collapses for near-midline nuclei).
+
+    Returns the surface mesh of the (binary) thresholded mask, in the
+    annotation volume's native frame.
+    """
+    match_ids = ccf_region_label_ids(
+        acronym=acronym,
+        label_id=label_id,
+        include_descendants=include_descendants,
+        hemisphere=hemisphere,
+    )
 
     annotation = sitk.ReadImage(path)
     arr = sitk.GetArrayFromImage(annotation)
-    mask = np.isin(arr, list(ids)).astype(np.uint8)
+    mask = np.isin(arr, match_ids).astype(np.uint8)
     if not mask.any():
         raise ValueError(
-            f"ccf_annotation_region: no voxels matched ids={sorted(ids)} in {path}"
+            f"ccf_annotation_region: no voxels matched ids={sorted(match_ids)} "
+            f"(hemisphere={hemisphere!r}) in {path}"
         )
     mask_img = sitk.GetImageFromArray(mask)
     mask_img.CopyInformation(annotation)

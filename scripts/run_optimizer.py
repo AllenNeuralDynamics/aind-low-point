@@ -84,6 +84,46 @@ class RetroDensityOpts:
     sigma_mm: float = 0.3
 
 
+def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
+    """``RetroDensityOpts()`` when ``RETRO_DENSITY`` is enabled in the env and the
+    retro asset is present in ``runtime``; otherwise ``None``. Lets every driver
+    opt into density (KDE) coverage uniformly with ``RETRO_DENSITY=1`` — off by
+    default, so subjects without a retro cloud keep the single-point target."""
+    import os as _os
+
+    if _os.environ.get("RETRO_DENSITY", "0").lower() not in ("1", "true", "yes", "on"):
+        return None
+    opts = RetroDensityOpts()
+    if runtime is not None:
+        try:
+            if runtime.asset_catalog.get_spec(opts.retro_asset_key) is None:
+                return None
+        except Exception:
+            return None
+    return opts
+
+
+def _resolve_coverage_weight(runtime, name: str, plan) -> float:
+    """Per-probe coverage weight: env ``COVERAGE_WEIGHTS="PROBE:w,..."`` wins,
+    else the probe's target-spec ``metadata.coverage_weight``, else 1.0."""
+    import os as _os
+
+    env = _os.environ.get("COVERAGE_WEIGHTS", "")
+    for tok in env.split(","):
+        if ":" in tok and tok.split(":", 1)[0].strip() == name:
+            return float(tok.split(":", 1)[1])
+    tk = getattr(plan, "target_key", None)
+    if tk is not None:
+        try:
+            spec = runtime.asset_catalog.get_spec(tk)
+            w = spec.metadata.get("coverage_weight") if spec is not None else None
+            if w is not None:
+                return float(w)
+        except Exception:
+            pass
+    return 1.0
+
+
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
     """Apply a rigid transform (R, t) to every hole's positions and axis.
     Oval ``a/b/theta`` (in the per-axis basis) are invariant under
@@ -109,33 +149,144 @@ def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Ho
     return out
 
 
-def _resolve_masked_retro_points(
-    runtime, probe_name: str, opts: RetroDensityOpts
-) -> np.ndarray:
-    """Return the retro-asset points in world LPS, clipped to the
-    intersection of all configured masks. Raises with a clear message
-    if any asset is missing or the masked cloud is empty."""
+def _voxel_values_at(sitk_img, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Nearest-voxel value of a SimpleITK volume at physical points ``pts`` (in
+    the volume's own physical space). Returns ``(values, in_bounds)`` with
+    out-of-bounds points getting value 0.
+
+    Uses SimpleITK's own ``TransformPhysicalPointToIndex`` for the physical→voxel
+    mapping (handles origin/spacing/direction correctly) rather than re-deriving
+    the affine by hand. The points are sampled once per subject and cached, so
+    the work is paid once.
+
+    SimpleITK has no batch ``TransformPhysicalPointToIndex``, so the
+    physical→index map is built as an affine from the image's own origin /
+    spacing / direction and applied to all points at once; the gather then
+    reverses (x,y,z)→(z,y,x) for the numpy array in a single place. The affine is
+    cross-checked against sitk's per-point transform on a few samples so the
+    convention can never silently drift."""
+    import SimpleITK as sitk
+
+    arr = sitk.GetArrayFromImage(sitk_img)  # (Z, Y, X)
+    nz, ny, nx = arr.shape
+    origin = np.asarray(sitk_img.GetOrigin(), dtype=np.float64)  # (x, y, z)
+    spacing = np.asarray(sitk_img.GetSpacing(), dtype=np.float64)  # (x, y, z)
+    direction = np.asarray(sitk_img.GetDirection(), dtype=np.float64).reshape(3, 3)
+    # physical = origin + direction @ (spacing * index)  ⇒  invert for index
+    rel = np.asarray(pts, np.float64) - origin
+    cont = (rel @ np.linalg.inv(direction).T) / spacing
+    idx = np.rint(cont).astype(np.intp)  # (N, 3) in (x, y, z)
+    for k in range(min(5, len(pts))):  # cheap guard against convention drift
+        ref = sitk_img.TransformPhysicalPointToIndex(tuple(float(v) for v in pts[k]))
+        if tuple(int(v) for v in idx[k]) != tuple(ref):
+            raise AssertionError(
+                f"voxel index mismatch vs SimpleITK: {idx[k]} != {ref}"
+            )
+    inb = (
+        (idx[:, 0] >= 0)
+        & (idx[:, 0] < nx)
+        & (idx[:, 1] >= 0)
+        & (idx[:, 1] < ny)
+        & (idx[:, 2] >= 0)
+        & (idx[:, 2] < nz)
+    )
+    vals = np.zeros(len(pts), dtype=arr.dtype)
+    g = idx[inb]
+    vals[inb] = arr[g[:, 2], g[:, 1], g[:, 0]]  # arr is (z, y, x)
+    return vals, inb
+
+
+# Per-subject retro arrays, computed ONCE and shared across all probes: the
+# corrected scene-LPS cloud, the brain-membership mask, and the CCF annotation
+# label at each retro point. Keyed by (runtime id, retro key, mask keys, annot
+# path) so the volume reads + 28k-point voxel lookups never repeat per probe.
+_RETRO_VOXEL_CACHE: dict = {}
+
+
+def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
     catalog, scene = runtime.asset_catalog, runtime.scene
+    key = (id(runtime), opts.retro_asset_key, tuple(opts.common_mask_keys), annot_path)
+    hit = _RETRO_VOXEL_CACHE.get(key)
+    if hit is not None:
+        return hit
+    import SimpleITK as sitk
+
+    from aind_low_point.runtime.loaders import csv_points
+
     retro_t = resolve_base_geometry(catalog, scene, opts.retro_asset_key)
     if retro_t is None:
         raise RuntimeError(
             f"--retro-density: asset {opts.retro_asset_key!r} not in scene"
         )
-    points = np.asarray(retro_t.raw, dtype=np.float64)
-    mask_keys = list(opts.common_mask_keys) + [
-        opts.per_probe_mask_fmt.format(probe=probe_name)
-    ]
-    keep = np.ones(len(points), dtype=bool)
-    for mk in mask_keys:
-        mt = resolve_base_geometry(catalog, scene, mk)
-        if mt is None:
-            raise RuntimeError(f"--retro-density: mask asset {mk!r} not in scene")
-        keep &= np.asarray(mt.raw.contains(points), dtype=bool)
-    masked = points[keep]
+    # Mask in the RAW source space: the retro CSV and the CCF annotation /
+    # brain-mask volumes are in the SAME (subject) space, so do the membership
+    # there — read the CSV points directly, BEFORE any canonicalization or scene
+    # transform, and look them up in the source volumes. The keep mask then aligns
+    # row-for-row with the app's CORRECTED scene-LPS cloud (``retro_t.raw``, same
+    # csv_points ordering), so the returned points are carried through the
+    # transforms by simply subsetting the world cloud — never re-derived.
+    world = np.asarray(retro_t.raw, dtype=np.float64)
+    retro_spec = catalog.get_spec(opts.retro_asset_key)
+    subject = np.asarray(csv_points(str(retro_spec.source_path)), dtype=np.float64)
+    if len(subject) != len(world):
+        raise RuntimeError(
+            f"--retro-density: raw CSV ({len(subject)}) vs scene cloud "
+            f"({len(world)}) length mismatch — canonicalization changed point count"
+        )
+    brain_keep = np.ones(len(subject), dtype=bool)
+    for mk in opts.common_mask_keys:
+        spec = catalog.get_spec(mk)
+        vals, inb = _voxel_values_at(sitk.ReadImage(str(spec.source_path)), subject)
+        brain_keep &= inb & (vals > 0)
+    annot_vals, annot_inb = _voxel_values_at(sitk.ReadImage(annot_path), subject)
+    # Only a few hundred distinct labels appear among the ~28k points, so collapse
+    # them once: per-probe membership is then an ``isin`` over the unique labels
+    # mapped back through ``inverse`` (O(distinct) instead of O(points)).
+    uniq, inverse = np.unique(annot_vals, return_inverse=True)
+    out = (world, brain_keep, uniq, inverse, annot_inb)
+    _RETRO_VOXEL_CACHE[key] = out
+    return out
+
+
+def _resolve_masked_retro_points(
+    runtime, probe_name: str, opts: RetroDensityOpts
+) -> np.ndarray:
+    """Retro points (corrected scene-LPS) inside the per-probe CCF region AND
+    the brain, by direct voxel lookup against the SOURCE volumes — no mesh, no
+    ``trimesh.contains`` (which is O(N_points·N_faces) without Embree).
+
+    The expensive work (loading the brain + annotation volumes and sampling them
+    at all ~28k retro points) is done ONCE per subject and cached; the per-probe
+    step is a single ``np.isin`` over the cached annotation labels. Membership
+    uses the subject-space points; the returned points are the app's corrected
+    cloud subset, so they carry the same chem-shift + rotation as the scene.
+    """
+    from aind_low_point.runtime.loaders import ccf_region_label_ids
+
+    catalog = runtime.asset_catalog
+    sspec = catalog.get_spec(opts.per_probe_mask_fmt.format(probe=probe_name))
+    if sspec is None or sspec.source_path is None:
+        raise RuntimeError(
+            f"--retro-density: structure asset for probe {probe_name!r} missing"
+        )
+    annot_path = str(sspec.source_path)
+    world, brain_keep, uniq, inverse, annot_inb = _retro_voxel_base(
+        runtime, opts, annot_path
+    )
+    acronym = sspec.metadata.get("ccf_acronym") or sspec.metadata.get("acronym")
+    match_ids = ccf_region_label_ids(
+        acronym=acronym,
+        label_id=sspec.metadata.get("label_id"),
+        hemisphere=sspec.metadata.get("hemisphere", "both"),
+    )
+    # Membership over the few hundred unique labels, mapped back to all points.
+    in_region = np.isin(uniq, match_ids)[inverse]
+    keep = brain_keep & annot_inb & in_region
+    masked = world[keep]
     if masked.shape[0] == 0:
         raise RuntimeError(
-            f"--retro-density: probe {probe_name!r} has zero points in "
-            f"{' ∩ '.join(mask_keys)} — check mask alignment"
+            f"--retro-density: probe {probe_name!r} has zero retro points in "
+            f"brain ∩ {acronym!r} — check mask/annotation alignment"
         )
     return masked
 
@@ -197,6 +348,7 @@ def _probe_static_info(
         density_sigma_mm=sigma,
         collision_mesh=collision_mesh,
         target_points=target_points,
+        coverage_weight=_resolve_coverage_weight(runtime, name, plan),
     )
 
 
@@ -319,9 +471,7 @@ def _save_alternatives(
     return out_dir
 
 
-def _run_seed_polish(
-    probes, plan_state, holes, *, args, subject_from_rig_rot=None
-):
+def _run_seed_polish(probes, plan_state, holes, *, args, subject_from_rig_rot=None):
     """Run the inner solve from a seed plan that was already applied to
     ``plan_state`` by the caller. Skips outer + middle layers entirely.
 
@@ -766,6 +916,7 @@ def main():
 
     # JAX device selection must happen before any jax import.
     import os
+
     resolved_device = args.device
     if resolved_device == "auto":
         resolved_device = "gpu" if args.sdf_clearance else "cpu"
@@ -896,6 +1047,7 @@ def main():
             f"k_joint={args.k_joint})..."
         )
         import time as _time
+
         _t_opt_start = _time.perf_counter()
         result = optimize_joint(
             probes,
@@ -939,6 +1091,7 @@ def main():
                 from aind_low_point.optimization.joint_rerank_jax import (
                     cache_stats as _jax_stats_2,
                 )
+
                 s2 = _jax_stats_2()
                 print(
                     f"[profile] Stage2 JAX cache: {s2['entries']} entries, "
@@ -950,6 +1103,7 @@ def main():
                 from aind_low_point.optimization.stage3_jax import (
                     cache_stats as _jax_stats_3,
                 )
+
                 s3 = _jax_stats_3()
                 print(
                     f"[profile] Stage3 JAX cache: {s3['entries']} entries, "
@@ -961,6 +1115,7 @@ def main():
                 from aind_low_point.optimization.joint_rerank import (
                     stage2_timings as _s2_t,
                 )
+
                 t = _s2_t()
                 total = sum(t.values()) or 1.0
                 print("[profile] Stage 2 component breakdown:")

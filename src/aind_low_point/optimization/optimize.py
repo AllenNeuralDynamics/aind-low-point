@@ -97,6 +97,10 @@ class ProbeStaticInfo:
     density_sigma_mm: float = 0.5
     collision_mesh: trimesh.Trimesh | None = field(default=None, compare=False)
     target_points: NDArray[np.floating] | None = field(default=None, compare=False)
+    # Per-target priority weight applied (after normalization) to this probe's
+    # coverage in the normalized objective's weighted SUM (the fairness floor
+    # stays unweighted). 1.0 ⇒ no preference.
+    coverage_weight: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +520,7 @@ def _slsqp_polish_constrained(
     jax_stage3: dict | None = None
     if sdf_clearance_fun is not None:
         from aind_low_point.optimization import stage3_jax as _s3
+
         jax_stage3 = _s3.make_stage3_constraints(ctx)
     if method == "SLSQP":
         constraints = []

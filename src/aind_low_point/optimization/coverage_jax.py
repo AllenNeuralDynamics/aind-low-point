@@ -70,8 +70,8 @@ def _build_kde_grid(
             continue
         i0_k = i0_g - i_min
         i1_k = i0_k + (i1_g - i0_g)
-        grid[i0_g[0]:i1_g[0], i0_g[1]:i1_g[1], i0_g[2]:i1_g[2]] += kernel[
-            i0_k[0]:i1_k[0], i0_k[1]:i1_k[1], i0_k[2]:i1_k[2]
+        grid[i0_g[0] : i1_g[0], i0_g[1] : i1_g[1], i0_g[2] : i1_g[2]] += kernel[
+            i0_k[0] : i1_k[0], i0_k[1] : i1_k[1], i0_k[2] : i1_k[2]
         ]
     grid *= inv_n
     return grid, bbox_min, float(spacing_mm)
@@ -97,8 +97,8 @@ class KdeCoverageData:
     out of the closure.
     """
 
-    grid: jnp.ndarray            # (Nx, Ny, Nz)
-    origin: jnp.ndarray          # (3,) world LPS coord of grid[0,0,0]
+    grid: jnp.ndarray  # (Nx, Ny, Nz)
+    origin: jnp.ndarray  # (3,) world LPS coord of grid[0,0,0]
     spacing_mm: float
     active_start_mm: float
     active_end_mm: float
@@ -184,9 +184,12 @@ def _trilinear_density(
     f = coords - i0
     Nx, Ny, Nz = grid.shape
     in_bounds = (
-        (i0[..., 0] >= 0) & (i0[..., 0] < Nx - 1)
-        & (i0[..., 1] >= 0) & (i0[..., 1] < Ny - 1)
-        & (i0[..., 2] >= 0) & (i0[..., 2] < Nz - 1)
+        (i0[..., 0] >= 0)
+        & (i0[..., 0] < Nx - 1)
+        & (i0[..., 1] >= 0)
+        & (i0[..., 1] < Ny - 1)
+        & (i0[..., 2] >= 0)
+        & (i0[..., 2] < Nz - 1)
     )
     ix = jnp.clip(i0[..., 0], 0, Nx - 2)
     iy = jnp.clip(i0[..., 1], 0, Ny - 2)
@@ -222,10 +225,10 @@ def _gaussian_density(
 
 
 def probe_coverage(
-    R: jnp.ndarray,             # (3, 3)
-    t: jnp.ndarray,             # (3,)
+    R: jnp.ndarray,  # (3, 3)
+    t: jnp.ndarray,  # (3,)
     shank_tips_local: jnp.ndarray,  # (max_shanks, 3) padded
-    shank_mask: jnp.ndarray,    # (max_shanks,) float 0/1
+    shank_mask: jnp.ndarray,  # (max_shanks,) float 0/1
     cov_data: CoverageData,
     n_samples: int = 41,
 ) -> jnp.ndarray:
@@ -237,36 +240,42 @@ def probe_coverage(
     # Dispatch on the (Python-static) dataclass type to the array-param core.
     if isinstance(cov_data, GaussianCoverageData):
         return _probe_coverage_gaussian(
-            R, t, shank_tips_local, shank_mask,
-            cov_data.target_LPS, cov_data.sigma_mm,
-            cov_data.active_start_mm, cov_data.active_end_mm, n_samples,
+            R,
+            t,
+            shank_tips_local,
+            shank_mask,
+            cov_data.target_LPS,
+            cov_data.sigma_mm,
+            cov_data.active_start_mm,
+            cov_data.active_end_mm,
+            n_samples,
         )
     elif isinstance(cov_data, KdeCoverageData):
         return _probe_coverage_kde(
-            R, t, shank_tips_local, shank_mask,
-            cov_data.grid, cov_data.origin, cov_data.spacing_mm,
-            cov_data.active_start_mm, cov_data.active_end_mm, n_samples,
+            R,
+            t,
+            shank_tips_local,
+            shank_mask,
+            cov_data.grid,
+            cov_data.origin,
+            cov_data.spacing_mm,
+            cov_data.active_start_mm,
+            cov_data.active_end_mm,
+            n_samples,
         )
     raise TypeError(f"Unknown CoverageData type: {type(cov_data)}")
 
 
-def _coverage_points(R, t, shank_tips_local, active_start_mm, active_end_mm,
-                     n_samples):
+def _coverage_points(R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples):
     """Sample points along the active range per shank — ``(max_shanks,
     n_samples, 3)``. Shared by the Gaussian and KDE cores."""
     shank_dir = R @ jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
     tips_world = shank_tips_local @ R.T + t  # (max_shanks, 3)
-    s_vals = jnp.linspace(active_start_mm, active_end_mm, n_samples).astype(
-        jnp.float32
-    )
-    return (
-        tips_world[:, None, :]
-        + s_vals[None, :, None] * shank_dir[None, None, :]
-    )
+    s_vals = jnp.linspace(active_start_mm, active_end_mm, n_samples).astype(jnp.float32)
+    return tips_world[:, None, :] + s_vals[None, :, None] * shank_dir[None, None, :]
 
 
-def _coverage_reduce(values, shank_mask, active_start_mm, active_end_mm,
-                     n_samples):
+def _coverage_reduce(values, shank_mask, active_start_mm, active_end_mm, n_samples):
     """Simpson integral over samples, masked sum over shanks."""
     weights = _simpson_weights_jnp(n_samples)
     step = (active_end_mm - active_start_mm) / max(n_samples - 1, 1)
@@ -274,31 +283,54 @@ def _coverage_reduce(values, shank_mask, active_start_mm, active_end_mm,
     return jnp.sum(per_shank * shank_mask)
 
 
-def _probe_coverage_gaussian(R, t, shank_tips_local, shank_mask, target_LPS,
-                             sigma_mm, active_start_mm, active_end_mm,
-                             n_samples):
+def _probe_coverage_gaussian(
+    R,
+    t,
+    shank_tips_local,
+    shank_mask,
+    target_LPS,
+    sigma_mm,
+    active_start_mm,
+    active_end_mm,
+    n_samples,
+):
     """Gaussian-density coverage with array params (vmap-friendly: every
     per-probe quantity is an array, no closure-captured dataclass)."""
     points = _coverage_points(
-        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples)
+        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples
+    )
     values = _gaussian_density(target_LPS, sigma_mm, points)
     return _coverage_reduce(
-        values, shank_mask, active_start_mm, active_end_mm, n_samples)
+        values, shank_mask, active_start_mm, active_end_mm, n_samples
+    )
 
 
-def _probe_coverage_kde(R, t, shank_tips_local, shank_mask, grid, origin,
-                        spacing_mm, active_start_mm, active_end_mm, n_samples):
+def _probe_coverage_kde(
+    R,
+    t,
+    shank_tips_local,
+    shank_mask,
+    grid,
+    origin,
+    spacing_mm,
+    active_start_mm,
+    active_end_mm,
+    n_samples,
+):
     """Voxel-KDE coverage with array params. vmap-friendly only when the
     batched grids share a shape (see coverage_total_over_probes)."""
     points = _coverage_points(
-        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples)
+        R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples
+    )
     values = _trilinear_density(grid, origin, spacing_mm, points)
     return _coverage_reduce(
-        values, shank_mask, active_start_mm, active_end_mm, n_samples)
+        values, shank_mask, active_start_mm, active_end_mm, n_samples
+    )
 
 
-def coverage_per_probe_over_probes(Rs, ts, tips_local, shank_mask,
-                                   coverage_data, n_samples=41):
+def coverage_per_probe_over_probes(
+    Rs, ts, tips_local, shank_mask, coverage_data, n_samples=41
+):
     """Per-probe coverage as a ``(P,)`` array (NOT summed), VMAPPING the
     per-probe kernel when all probes share a coverage mode — all-Gaussian, or
     all-KDE with a uniform grid shape. Mixed modes (or heterogeneous KDE grid
@@ -324,46 +356,184 @@ def coverage_per_probe_over_probes(Rs, ts, tips_local, shank_mask,
     types = {type(cd) for cd in coverage_data}
 
     if types == {GaussianCoverageData}:
-        tgt = jnp.stack([jnp.asarray(cd.target_LPS, jnp.float32)
-                         for cd in coverage_data])               # (P, 3)
+        tgt = jnp.stack(
+            [jnp.asarray(cd.target_LPS, jnp.float32) for cd in coverage_data]
+        )  # (P, 3)
         sig = jnp.asarray([cd.sigma_mm for cd in coverage_data], jnp.float32)
-        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data],
-                         jnp.float32)
-        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
-                         jnp.float32)
+        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data], jnp.float32)
+        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data], jnp.float32)
         return jax.vmap(
             _probe_coverage_gaussian,
             in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
         )(Rs, ts, tips_local, shank_mask, tgt, sig, a0, a1, n_samples)
 
-    if types == {KdeCoverageData} and len(
-        {tuple(cd.grid.shape) for cd in coverage_data}
-    ) == 1:
+    if (
+        types == {KdeCoverageData}
+        and len({tuple(cd.grid.shape) for cd in coverage_data}) == 1
+    ):
         grids = jnp.stack([jnp.asarray(cd.grid) for cd in coverage_data])
-        orig = jnp.stack([jnp.asarray(cd.origin, jnp.float32)
-                          for cd in coverage_data])
+        orig = jnp.stack([jnp.asarray(cd.origin, jnp.float32) for cd in coverage_data])
         sp = jnp.asarray([cd.spacing_mm for cd in coverage_data], jnp.float32)
-        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data],
-                         jnp.float32)
-        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data],
-                         jnp.float32)
+        a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data], jnp.float32)
+        a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data], jnp.float32)
         return jax.vmap(
             _probe_coverage_kde,
             in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None),
         )(Rs, ts, tips_local, shank_mask, grids, orig, sp, a0, a1, n_samples)
 
     # Mixed modes or heterogeneous KDE grid shapes: unrolled loop.
-    return jnp.stack([
-        probe_coverage(Rs[i], ts[i], tips_local[i], shank_mask[i],
-                       coverage_data[i], n_samples=n_samples)
-        for i in range(P)
-    ])
+    return jnp.stack(
+        [
+            probe_coverage(
+                Rs[i],
+                ts[i],
+                tips_local[i],
+                shank_mask[i],
+                coverage_data[i],
+                n_samples=n_samples,
+            )
+            for i in range(P)
+        ]
+    )
 
 
-def coverage_total_over_probes(Rs, ts, tips_local, shank_mask, coverage_data,
-                               n_samples=41):
+def coverage_total_over_probes(
+    Rs, ts, tips_local, shank_mask, coverage_data, n_samples=41
+):
     """Sum ``probe_coverage`` over P probes. Thin reduction over
     :func:`coverage_per_probe_over_probes` (byte-identical to the previous
     per-branch sums); see that function for the vmap/loop details."""
-    return jnp.sum(coverage_per_probe_over_probes(
-        Rs, ts, tips_local, shank_mask, coverage_data, n_samples=n_samples))
+    return jnp.sum(
+        coverage_per_probe_over_probes(
+            Rs, ts, tips_local, shank_mask, coverage_data, n_samples=n_samples
+        )
+    )
+
+
+def normalized_coverage_objective(
+    per_probe, ceilings, lambda_floor=0.0, softmin_beta=20.0, weights=None
+):
+    """Aggregate per-probe coverage into a scalar, normalizing each probe by
+    its achievable ceiling, applying optional per-target weights, and adding a
+    soft-min fairness floor.
+
+    ``norm_p = coverage_p / ceiling_p`` — a fraction-of-achievable, so regions
+    with different shank counts, active areas, σ, or label density weigh
+    equally (every region's term maxes near 1.0). Per-target ``weights`` are
+    applied AFTER normalization (``wnorm_p = weight_p · norm_p``) so a weight
+    expresses relative priority on the achievable fraction, independent of a
+    region's raw coverage scale. The returned scalar is
+    ``sum(wnorm) + lambda_floor · softmin_β(wnorm)``: the sum rewards total
+    weighted coverage, the soft-min protects the worst weighted region.
+    ``lambda_floor = 0`` ⇒ plain weighted-normalized sum. ``weights = None`` ⇒
+    uniform 1.0 (exact parity with the un-weighted objective). Maximise this
+    term (the objective negates it).
+
+    Parameters
+    ----------
+    per_probe : (P,) coverage per probe (from coverage_per_probe_over_probes)
+    ceilings : (P,) per-probe achievable ceilings (see
+        :func:`coverage_ceiling_per_probe`); a static constant.
+    lambda_floor : weight on the soft-min fairness floor (over UNWEIGHTED norm).
+    softmin_beta : sharpness of the soft-min (→ hard min as β → ∞).
+    weights : (P,) optional per-target priority weights applied after
+        normalization, to the SUM term only. ``None`` ⇒ uniform (parity). The
+        floor is independent of weights — it always protects the worst-covered
+        region by achievable-fraction.
+    """
+    norm = per_probe / ceilings
+    # Weights steer the SUM (priority); the floor uses the UNWEIGHTED norm so it
+    # protects the worst-covered region by achievable-fraction regardless of
+    # priority ("no region left behind"), decoupled from the weighting.
+    wnorm = norm * weights if weights is not None else norm
+    term = jnp.sum(wnorm)
+    if lambda_floor:
+        soft_min = -jax.scipy.special.logsumexp(-softmin_beta * norm) / softmin_beta
+        term = term + lambda_floor * soft_min
+    return term
+
+
+def coverage_ceiling_per_probe(
+    statics,
+    coverage_data,
+    *,
+    ap_bound_deg=60.0,
+    ml_bound_deg=60.0,
+    offset_bound_mm=3.0,
+    depth_bound_mm=2.0,
+    n_samples=41,
+    n_spin_seeds=8,
+    max_iter=60,
+):
+    """Per-probe achievable coverage ceiling — the max of *that probe's*
+    coverage over its pose DOFs (ap, ml, spin, off_R, off_A, depth) in
+    ISOLATION (no inter-probe collisions, bounds matching ``phase1_bounds``).
+
+    A fixed per-probe constant used to normalise coverage so regions weigh
+    equally regardless of shank count, active range, σ, or (KDE) label
+    density. Multi-start over spin avoids local maxima. Mode-agnostic: works
+    for Gaussian and KDE ``coverage_data`` alike.
+
+    Parameters
+    ----------
+    statics : sequence of per-probe statics with ``target_LPS``,
+        ``pivot_local`` (recording-centre local), ``shank_tips_local``. Same
+        order as ``coverage_data``.
+    coverage_data : per-probe CoverageData (one per static).
+
+    Returns
+    -------
+    np.ndarray, shape ``(P,)`` — per-probe coverage ceiling in probe order.
+    """
+    from scipy.optimize import minimize
+
+    from aind_low_point.optimization.sdf_jax import pose_from_optimizer_vars
+
+    bounds = [
+        (-ap_bound_deg, ap_bound_deg),
+        (-ml_bound_deg, ml_bound_deg),
+        (-180.0, 180.0),
+        (-offset_bound_mm, offset_bound_mm),
+        (-offset_bound_mm, offset_bound_mm),
+        (-depth_bound_mm, depth_bound_mm),
+    ]
+    ceilings = []
+    for s, cd in zip(statics, coverage_data):
+        target = jnp.asarray(s.target_LPS, jnp.float32)
+        pivot = jnp.asarray(s.pivot_local, jnp.float32)
+        tips = jnp.asarray(np.asarray(s.shank_tips_local), jnp.float32)
+        mask = jnp.ones(tips.shape[0], jnp.float32)
+
+        def _neg(xv, _tips=tips, _mask=mask, _tgt=target, _piv=pivot, _cd=cd):
+            ap, ml, spin, oR, oA, dep = xv
+            R, t = pose_from_optimizer_vars(
+                target_LPS=_tgt,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin,
+                offset_R_mm=oR,
+                offset_A_mm=oA,
+                past_target_mm=dep,
+                recording_center_local=_piv,
+            )
+            return -probe_coverage(R, t, _tips, _mask, _cd, n_samples=n_samples)
+
+        vg = jax.jit(jax.value_and_grad(_neg))
+
+        def fun(xnp, _vg=vg):
+            v, g = _vg(jnp.asarray(xnp, jnp.float32))
+            return float(v), np.asarray(g, np.float64)
+
+        best = np.inf
+        for spin0 in np.linspace(-180.0, 180.0, n_spin_seeds, endpoint=False):
+            res = minimize(
+                fun,
+                np.array([0.0, 0.0, spin0, 0.0, 0.0, 0.0]),
+                method="L-BFGS-B",
+                jac=True,
+                bounds=bounds,
+                options={"maxiter": max_iter},
+            )
+            best = min(best, float(res.fun))
+        ceilings.append(-best)
+    return np.asarray(ceilings, np.float64)

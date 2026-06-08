@@ -182,7 +182,7 @@ def adam_pass(statics_flat, x0, n_arcs, *, coverage_data, well_obj, bounds, step
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
     fixtures = () if well_obj is None else (well_obj,)
-    _vobj, _vg, build_arglist, make_adam = make_batched_phase1_chunked(
+    _vobj, _vg, build_arglist, make_adam, _mks = make_batched_phase1_chunked(
         statics_flat[0],
         n_arcs,
         Phase1Weights(),

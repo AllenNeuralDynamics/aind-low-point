@@ -14,28 +14,24 @@ Two layers of testing:
 from __future__ import annotations
 
 import subprocess
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
-import yaml
 
+from aind_low_point.optimization.arc_assignment import ArcAssignment
 from aind_low_point.optimization.geometry import HoleSection
+from aind_low_point.optimization.hole_assignment import HoleAssignment
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.joint_rerank import (
     JointWeights,
-    optimize_joint,
     score_joint,
 )
-from aind_low_point.optimization.hole_assignment import HoleAssignment
-from aind_low_point.optimization.arc_assignment import ArcAssignment
 from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.pose_features import (
     precompute_pose_features,
     required_ap_ml_for_target,
 )
-
 
 # ---------------------------------------------------------------------------
 # Synthetic fixtures
@@ -251,14 +247,21 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "examples" / "836656-config-
 OBJ_PATH = Path(
     "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels/0283-300-04.obj"
 )
+# The config consumes the lateralized (signed L/R) CCF annotation; the build
+# fails without it. Generated per-subject by warping the lateralized CCF atlas
+# (see aind_registration_utils.annotations) — not present until regenerated.
+ANNOTATION_PATH = Path(
+    "/mnt/vast/scratch/ephys/persist/data/MRI/processed/836656/ccf"
+    "/ccf_annotation_lateralized_in_subject.nii.gz"
+)
 EXTRACT_SCRIPT = (
     Path(__file__).resolve().parents[1] / "scripts" / "extract_implant_holes.py"
 )
 
 
 @pytest.mark.skipif(
-    not CONFIG_PATH.exists() or not OBJ_PATH.exists(),
-    reason="836656 config or implant OBJ not available on this machine",
+    not CONFIG_PATH.exists() or not OBJ_PATH.exists() or not ANNOTATION_PATH.exists(),
+    reason="836656 config, implant OBJ, or lateralized annotation not available",
 )
 def test_optimize_joint_seed_in_top_k(tmp_path):
     """End-to-end: the manual-feasible (H, A) ranks in the top-10 joint
@@ -335,9 +338,7 @@ def test_optimize_joint_seed_in_top_k(tmp_path):
         assert plan.arc_id is not None
         seed_to_arc_idx[ps.name] = letter_to_idx[plan.arc_id]
 
-    subject_from_rig_rot, _ = (
-        plan_state.kinematics.subject_from_rig.rotate_translate
-    )
+    subject_from_rig_rot, _ = plan_state.kinematics.subject_from_rig.rotate_translate
     subject_from_rig_rot = np.asarray(subject_from_rig_rot, dtype=np.float64)
     if np.allclose(subject_from_rig_rot, np.eye(3)):
         subject_from_rig_rot = None
@@ -347,13 +348,13 @@ def test_optimize_joint_seed_in_top_k(tmp_path):
     # construction by calling optimize_joint with k_joint=10 but with
     # a very small inner-solve workload — and inspect via verbose.
     # Simpler: build the pool ourselves to check ranking.
+    from aind_low_point.optimization.arc_assignment import (
+        solve_top_k_arc_assignments,
+    )
     from aind_low_point.optimization.hole_assignment import (
         AssignmentProbe,
         CostWeights,
         solve_top_k_assignments,
-    )
-    from aind_low_point.optimization.arc_assignment import (
-        solve_top_k_arc_assignments,
     )
 
     assignment_probes = [

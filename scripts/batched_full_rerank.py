@@ -62,6 +62,13 @@ from scripts.test_h1_chain_cand4195 import build_y, extract_spins
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))
 STEPS = int(_os.environ.get("STEPS", "150"))
+# TWO_STAGE=1 runs a clearance-first REDUCED stage (coverage off, offsets/depth
+# pinned, STAGE1 steps) before the full coverage-aware stage (STAGE2 steps) —
+# both on ONE shared kernel via runtime cov_weight + bounds (no 2nd compile).
+# Default 0 = the legacy single full-stage pass (STEPS), byte-identical.
+TWO_STAGE = _os.environ.get("TWO_STAGE", "0") == "1"
+STAGE1 = int(_os.environ.get("STAGE1", "150"))
+STAGE2 = int(_os.environ.get("STAGE2", str(STEPS)))
 FLIP_DEGS = [int(x) for x in _os.environ.get("FLIP_DEGS", "0,180").split(",")]
 CHUNK = int(_os.environ.get("CHUNK", "64"))
 # Async pipeline depth: chunks kept in flight before the host syncs the
@@ -75,6 +82,11 @@ BF16_STORE = _os.environ.get("BF16_STORE", "1") == "1"
 # Off reproduces the feasibility-only sort. Per-probe Gaussian/KDE auto-picked
 # by build_coverage_data (discrete target -> Gaussian, point cloud -> KDE).
 COVERAGE = _os.environ.get("COVERAGE", "1") == "1"
+# COV_NORM: normalize per-probe coverage by its achievable ceiling (so regions
+# weigh equally regardless of shank count / active area / σ / density) and add
+# a soft-min fairness floor of weight COV_FLOOR. Off = legacy plain-sum coverage.
+COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
+COV_FLOOR = float(_os.environ.get("COV_FLOOR", "1.0"))
 FCL_TOPK = int(_os.environ.get("FCL_TOPK", "100"))
 # LIMIT caps candidates per n_arcs group (0 = all) — for a fast smoke test.
 LIMIT = int(_os.environ.get("LIMIT", "0"))
@@ -82,8 +94,18 @@ OUT_PATH = Path(_os.environ.get("OUT", "scratch/full_rerank_0283.pkl"))
 MANUAL = 4195  # n_arcs==3 ground-truth, for the summary line
 
 
-def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
-              well_obj, brain_sdf=None):
+def run_group(  # noqa: C901
+    n_arcs,
+    idxs,
+    *,
+    probes,
+    holes,
+    data,
+    sdf_by_name,
+    bvh_cache,
+    well_obj,
+    brain_sdf=None,
+):
     """Basin-select one n_arcs group. Builds statics locally (freed on
     return), runs ONE chunked ADAM pass, returns per-cand records
     ``[{idx, n_arcs, viol, pose}]`` (NO statics retained)."""
@@ -91,22 +113,41 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
     bounds = phase1_bounds(n_arcs, n_probes)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
+    # Reduced-stage bounds: pin (off_R, off_A, depth) to 0 so the clearance-first
+    # stage moves only arc/ml/spin (same kernel; the bounds are runtime args).
+    lo_r, hi_r = lo.copy(), hi.copy()
+    for k in range(n_probes):
+        for off in (3, 4, 5):
+            lo_r[n_arcs + PPV * k + off] = 0.0
+            hi_r[n_arcs + PPV * k + off] = 0.0
 
     print(f"[n_arcs={n_arcs}] building statics+basins for {len(idxs)} cands...")
     t0 = time.time()
     statics_flat, x0_rows, cand_of_row = [], [], []
     for ci, idx in enumerate(idxs):
         cand = data["candidates"][idx]
-        st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                                 bvh_cache=bvh_cache, sdf_by_name=sdf_by_name)
+        st = _build_probe_static(
+            probes,
+            holes,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
+        )
         x_aug = np.asarray(data["augmented_phase1_x"][idx], float)
         arc_aps = x_aug[:n_arcs]
         mls = np.array([x_aug[n_arcs + PPV * i] for i in range(n_probes)])
         inc = extract_spins(x_aug, n_arcs, n_probes)
-        h1 = np.array([
-            spin_to_align_y_with(s.assigned_hole.slot_major_dir(),
-                                 float(arc_aps[s.arc_idx]), float(mls[i]))
-            for i, s in enumerate(st)])
+        h1 = np.array(
+            [
+                spin_to_align_y_with(
+                    s.assigned_hole.slot_major_dir(),
+                    float(arc_aps[s.arc_idx]),
+                    float(mls[i]),
+                )
+                for i, s in enumerate(st)
+            ]
+        )
         one = np.array([not is_four_shank(s) for s in st])
         basins = [inc] + [np.where(one, h1 + d, h1) for d in FLIP_DEGS]
         zero = np.zeros(n_probes)
@@ -117,19 +158,53 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
     x0 = np.stack(x0_rows).astype(np.float32)
     n_basin = len(basins)
     cand_of_row = np.array(cand_of_row)
-    print(f"  {time.time()-t0:.1f}s; {x0.shape[0]} rows "
-          f"({len(idxs)} cands x {n_basin} basins)")
+    print(
+        f"  {time.time() - t0:.1f}s; {x0.shape[0]} rows "
+        f"({len(idxs)} cands x {n_basin} basins)"
+    )
 
     # Coverage targets are per-probe-fixed (target_LPS/sigma/kind, not the hole
     # assignment), so build once from any candidate's 7-probe statics and pass
     # as the shared closure — no per-candidate plumbing.
-    coverage_data = (build_coverage_data(probes, statics_flat[0])
-                     if COVERAGE else None)
+    coverage_data = build_coverage_data(probes, statics_flat[0]) if COVERAGE else None
+    # Optional per-region normalization + soft-min fairness floor. Ceilings are
+    # per-probe-fixed (target/σ/shank geometry), so compute once per group.
+    ceilings, weights = None, Phase1Weights()
+    if COVERAGE and COV_NORM:
+        from aind_low_point.optimization.coverage_jax import (
+            coverage_ceiling_per_probe,
+        )
+
+        ceilings = tuple(coverage_ceiling_per_probe(statics_flat[0], coverage_data))
+        weights = Phase1Weights(lambda_cov_floor=COV_FLOOR)
+        print(
+            f"  coverage NORMALIZED; ceilings={[round(c, 3) for c in ceilings]}, "
+            f"floor λ={COV_FLOOR}"
+        )
     grid_dtype = jnp.bfloat16 if BF16_STORE else jnp.float32
-    vobj, _vgrad, build_arglist, make_adam = make_batched_phase1_chunked(
-        statics_flat[0], n_arcs, Phase1Weights(), (well_obj,),
-        coverage_data=coverage_data, grid_dtype=grid_dtype, brain_sdf=brain_sdf)
-    run_adam = make_adam(lo, hi, steps=STEPS, lr=0.02)
+    vobj, _vgrad, build_arglist, make_adam, make_staged_adam = (
+        make_batched_phase1_chunked(
+            statics_flat[0],
+            n_arcs,
+            weights,
+            (well_obj,),
+            coverage_data=coverage_data,
+            grid_dtype=grid_dtype,
+            brain_sdf=brain_sdf,
+            coverage_ceilings=ceilings,
+        )
+    )
+    if TWO_STAGE:
+        # ONE compiled kernel; reduced (pinned bounds, cov_weight=0, STAGE1)
+        # then full (full bounds, cov_weight=1, STAGE2). Bounds / cov_weight /
+        # step-count are runtime args ⇒ no second compile.
+        run_staged = make_staged_adam(lr=0.02)
+
+        def run_adam(x0c, cargs):
+            x1 = run_staged(x0c, cargs, lo_r, hi_r, 0.0, STAGE1)
+            return run_staged(x1, cargs, lo, hi, 1.0, STAGE2)
+    else:
+        run_adam = make_adam(lo, hi, steps=STEPS, lr=0.02)
     n_rows = x0.shape[0]
     # Pad rows up to a CHUNK multiple so every chunk is a clean fixed-size
     # device slice (the vmap is compiled for exactly CHUNK rows).
@@ -147,8 +222,11 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
     x0_dev = jnp.asarray(x0, jnp.float32)
 
     n_chunks = n_tot // CHUNK
-    print(f"  pipelined ADAM (chunk={CHUNK}, depth={PIPELINE_DEPTH}, "
-          f"{STEPS} steps, {n_basin} basins, {n_chunks} chunks)...")
+    steps_str = f"reduced {STAGE1}→full {STAGE2}" if TWO_STAGE else f"{STEPS} steps"
+    print(
+        f"  pipelined ADAM (chunk={CHUNK}, depth={PIPELINE_DEPTH}, "
+        f"{steps_str}, {n_basin} basins, {n_chunks} chunks)..."
+    )
     t0 = time.time()
     viol = np.full(n_tot, np.inf)
     x_adam = np.zeros((n_tot, x0.shape[1]), np.float32)
@@ -158,24 +236,28 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
         # Syncs on GPU completion of this chunk, so the drain count tracks
         # real progress (the async dispatch loop races ahead of the GPU).
         s0, xa_f, vc_f = item
-        x_adam[s0:s0 + CHUNK] = np.asarray(xa_f)
-        viol[s0:s0 + CHUNK] = np.asarray(vc_f)
+        x_adam[s0 : s0 + CHUNK] = np.asarray(xa_f)
+        viol[s0 : s0 + CHUNK] = np.asarray(vc_f)
         drained[0] += 1
         d = drained[0]
         if d % PROGRESS_EVERY == 0 or d == n_chunks:
             el = time.time() - t0
             eta = el / d * (n_chunks - d)
-            print(f"    chunk {d}/{n_chunks} ({100*d/n_chunks:.0f}%)  "
-                  f"{el:.0f}s elapsed  ETA {eta:.0f}s", flush=True)
+            print(
+                f"    chunk {d}/{n_chunks} ({100 * d / n_chunks:.0f}%)  "
+                f"{el:.0f}s elapsed  ETA {eta:.0f}s",
+                flush=True,
+            )
 
     # Async double-buffer: dispatch run_adam/vobj (which return un-synced
     # device arrays) and keep up to PIPELINE_DEPTH chunks in flight before
     # syncing the oldest — overlaps host slice-prep with GPU compute.
     inflight: list = []
     for s in range(0, n_tot, CHUNK):
-        cargs = [a[s:s + CHUNK] if p else a
-                 for a, p in zip(full_arglist, per_cand_pos)]
-        xa = run_adam(x0_dev[s:s + CHUNK], cargs)
+        cargs = [
+            a[s : s + CHUNK] if p else a for a, p in zip(full_arglist, per_cand_pos)
+        ]
+        xa = run_adam(x0_dev[s : s + CHUNK], cargs)
         vc = vobj(xa, *cargs)
         inflight.append((s, xa, vc))
         if len(inflight) > PIPELINE_DEPTH:
@@ -184,7 +266,7 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
         _drain(item)
     viol = viol[:n_rows]
     x_adam = x_adam[:n_rows]
-    print(f"  {time.time()-t0:.1f}s ADAM")
+    print(f"  {time.time() - t0:.1f}s ADAM")
 
     # Per-candidate argmin over its basins → one record per candidate.
     records = []
@@ -192,8 +274,14 @@ def run_group(n_arcs, idxs, *, probes, holes, data, sdf_by_name, bvh_cache,
         mask = cand_of_row == ci
         rrows = np.nonzero(mask)[0]
         br = rrows[int(np.argmin(viol[rrows]))]
-        records.append(dict(idx=int(idx), n_arcs=int(n_arcs),
-                            viol=float(viol[br]), pose=x_adam[br].copy()))
+        records.append(
+            dict(
+                idx=int(idx),
+                n_arcs=int(n_arcs),
+                viol=float(viol[br]),
+                pose=x_adam[br].copy(),
+            )
+        )
     return records  # statics_flat/x_adam go out of scope → freed
 
 
@@ -201,31 +289,44 @@ def main() -> int:
     print(f"JAX devices: {jax.devices()}")
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     runtime = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(runtime.plan_state, runtime, n)
-              for n in runtime.plan_state.probes]
+    probes = [
+        _probe_static_info(runtime.plan_state, runtime, n)
+        for n in runtime.plan_state.probes
+    ]
     holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
     compiled = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in compiled:
         R, t = compiled["implant_to_lps"].rotate_translate
         holes = _transform_holes(holes, R, t)
     print(f"n_surface_points = {N_SURF}; bf16_store = {BF16_STORE}")
-    sdf_by_name = {p.name: build_probe_sdf_from_alpha_wrap(
-        runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
-        n_surface_points=N_SURF) for p in probes}
-    bvh_cache = {p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh
-                 else None for p in probes}
+    sdf_by_name = {
+        p.name: build_probe_sdf_from_alpha_wrap(
+            runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
+            n_surface_points=N_SURF,
+        )
+        for p in probes
+    }
+    bvh_cache = {
+        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
+        for p in probes
+    }
     fixtures = build_fixture_sdf_data(runtime)
     well = next(f for f in fixtures if "well" in f.name.lower())
     # FCL validation uses ALL fixtures (headframe+cone+well) for an honest
     # feasibility verdict; the soft sort uses well only (well dominates).
-    fixture_bvhs = {f.name: make_fcl_bvh(
-        runtime.asset_catalog.get_geometry(f.name).raw) for f in fixtures}
-    well_obj = (replace(well, grid=jnp.asarray(well.grid, jnp.bfloat16))
-                if BF16_STORE else well)
+    fixture_bvhs = {
+        f.name: make_fcl_bvh(runtime.asset_catalog.get_geometry(f.name).raw)
+        for f in fixtures
+    }
+    well_obj = (
+        replace(well, grid=jnp.asarray(well.grid, jnp.bfloat16)) if BF16_STORE else well
+    )
     # Brain containment: ON whenever the config has a brain asset (don't let a
     # depth-greedy ADAM puncture the brain bottom for coverage).
     brain_sdf = maybe_build_brain_sdf(runtime, compiled)
-    print(f"brain-containment: {'ON' if brain_sdf is not None else 'OFF (no brain asset)'}")
+    print(
+        f"brain-containment: {'ON' if brain_sdf is not None else 'OFF (no brain asset)'}"
+    )
 
     data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     results = data["results"]
@@ -242,18 +343,29 @@ def main() -> int:
             if k == 3 and MANUAL not in head:
                 head[-1] = MANUAL
             by_arcs[k] = head
-    print(f"pool {n_total} cands; groups "
-          f"{ {k: len(v) for k, v in sorted(by_arcs.items())} }")
+    print(
+        f"pool {n_total} cands; groups "
+        f"{ {k: len(v) for k, v in sorted(by_arcs.items())} }"
+    )
 
     t_all = time.time()
     records = []
     for n_arcs in sorted(by_arcs):
         records += run_group(
-            n_arcs, by_arcs[n_arcs], probes=probes, holes=holes, data=data,
-            sdf_by_name=sdf_by_name, bvh_cache=bvh_cache, well_obj=well_obj,
-            brain_sdf=brain_sdf)
-    print(f"\nall groups done in {(time.time()-t_all)/60:.1f} min "
-          f"({len(records)} candidates)")
+            n_arcs,
+            by_arcs[n_arcs],
+            probes=probes,
+            holes=holes,
+            data=data,
+            sdf_by_name=sdf_by_name,
+            bvh_cache=bvh_cache,
+            well_obj=well_obj,
+            brain_sdf=brain_sdf,
+        )
+    print(
+        f"\nall groups done in {(time.time() - t_all) / 60:.1f} min "
+        f"({len(records)} candidates)"
+    )
 
     # Global ranking by basin-selected violation.
     records.sort(key=lambda r: r["viol"])
@@ -267,10 +379,14 @@ def main() -> int:
     print(f"\n=== global basin-selected ranking ({len(records)} cands) ===")
     print(f"sort key = Phase 1 {obj_label}")
     if man is not None:
-        print(f"Manual (#{MANUAL}): val {man['viol']:+.3f}, "
-              f"rank {man['rank']+1}/{len(records)}")
-    print(f"sort-value < 0: {n_neg}/{len(records)} "
-          f"({'NOT a feasibility count with coverage on' if COVERAGE else 'soft-feasible'})")
+        print(
+            f"Manual (#{MANUAL}): val {man['viol']:+.3f}, "
+            f"rank {man['rank'] + 1}/{len(records)}"
+        )
+    print(
+        f"sort-value < 0: {n_neg}/{len(records)} "
+        f"({'NOT a feasibility count with coverage on' if COVERAGE else 'soft-feasible'})"
+    )
 
     # FCL on the top-K — REBUILD statics on demand (no global retention).
     print(f"\nFCL on top-{FCL_TOPK} (rebuilding statics per cand):")
@@ -278,10 +394,17 @@ def main() -> int:
     for k in range(min(FCL_TOPK, len(records))):
         r = records[k]
         cand = data["candidates"][r["idx"]]
-        st = _build_probe_static(probes, holes, cand.ha, cand.aa,
-                                 bvh_cache=bvh_cache, sdf_by_name=sdf_by_name)
-        v = make_fcl_validator(st, r["n_arcs"], fixtures=tuple(fixtures),
-                               fixture_bvhs=fixture_bvhs)
+        st = _build_probe_static(
+            probes,
+            holes,
+            cand.ha,
+            cand.aa,
+            bvh_cache=bvh_cache,
+            sdf_by_name=sdf_by_name,
+        )
+        v = make_fcl_validator(
+            st, r["n_arcs"], fixtures=tuple(fixtures), fixture_bvhs=fixture_bvhs
+        )
         fcl = float(np.asarray(v.slacks(r["pose"])).min())
         r["fcl"] = fcl
         feas = fcl >= -1e-4
@@ -289,21 +412,34 @@ def main() -> int:
         n_feas += feas
         if k < 15 or r["idx"] == MANUAL:
             tag = " <-- MANUAL" if r["idx"] == MANUAL else ""
-            print(f"  rank {k+1:>3}  cand {r['idx']:>5}  n_arcs {r['n_arcs']}  "
-                  f"viol {r['viol']:>+8.3f}  fcl {fcl:>+7.3f}  "
-                  f"{'FEAS' if feas else 'infeas'}{tag}")
+            print(
+                f"  rank {k + 1:>3}  cand {r['idx']:>5}  n_arcs {r['n_arcs']}  "
+                f"viol {r['viol']:>+8.3f}  fcl {fcl:>+7.3f}  "
+                f"{'FEAS' if feas else 'infeas'}{tag}"
+            )
     print(f"\n  FCL-feasible in top-{FCL_TOPK}: {n_feas}/{FCL_TOPK}")
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT_PATH, "wb") as f:
-        pickle.dump(dict(
-            records=records, config=dict(
-                steps=STEPS, flip_degs=FLIP_DEGS, n_surf=N_SURF,
-                bf16_store=BF16_STORE, chunk=CHUNK, fcl_topk=FCL_TOPK,
-                coverage=COVERAGE, soft_fixtures=["well"],
-                fcl_fixtures=[f.name for f in fixtures]),
-            holes_path="scratch/0283-300-04.holes.yml",
-            source_pool="scratch/full_polish_0283.pkl"), f)
+        pickle.dump(
+            dict(
+                records=records,
+                config=dict(
+                    steps=STEPS,
+                    flip_degs=FLIP_DEGS,
+                    n_surf=N_SURF,
+                    bf16_store=BF16_STORE,
+                    chunk=CHUNK,
+                    fcl_topk=FCL_TOPK,
+                    coverage=COVERAGE,
+                    soft_fixtures=["well"],
+                    fcl_fixtures=[f.name for f in fixtures],
+                ),
+                holes_path="scratch/0283-300-04.holes.yml",
+                source_pool="scratch/full_polish_0283.pkl",
+            ),
+            f,
+        )
     print(f"\nsaved durable rerank → {OUT_PATH} ({len(records)} records)")
     return 0
 

@@ -1083,6 +1083,15 @@ class DerivedTargetSpecModel(BaseModel):
     derive_from: Union[list[str], str] = Field(..., min_length=1)
     key_prefix: str = "target:"  # prepended to derive target key
 
+    # When set, each derived target re-loads its source asset's region
+    # restricted to one hemisphere ("left"/"right") at LOAD time, instead
+    # of reusing the source asset's (bilateral) mesh. Requires the source
+    # asset to load a lateralized annotation (left = negated label id);
+    # see ``ccf_annotation_region``. The hemisphere is injected into the
+    # source asset's ``loader_kwargs`` and the region is reduced normally
+    # (e.g. ``mesh_center_mass``).
+    hemisphere: Optional[str] = None
+
     # Same fields as TargetSpecModel (except key, source_key)
     kind: Kind = Kind.POINTS
     role: Role = Role.TARGET
@@ -1141,16 +1150,40 @@ class DerivedTargetSpecModel(BaseModel):
                 out.append(item)
         return out
 
-    def expand(self) -> list[TargetSpecModel]:
-        """Expand into individual TargetSpecModel instances."""
+    def expand(
+        self, asset_by_key: Optional[dict[str, "AssetSpecModel"]] = None
+    ) -> list[TargetSpecModel]:
+        """Expand into individual TargetSpecModel instances.
+
+        ``asset_by_key`` (the expanded asset roster) is only required when
+        ``hemisphere`` is set: each derived target then re-loads its source
+        asset's region for one hemisphere rather than reusing the source's
+        bilateral mesh.
+        """
         results = []
         for asset_key in self.derive_from:
             suffix = asset_key.split(":")[-1] if ":" in asset_key else asset_key
-            overrides: dict[str, Any] = {
-                "key": f"{self.key_prefix}{suffix}",
-                "source_key": asset_key,
-            }
-            kwargs = _passthrough_kwargs(self, {"derive_from", "key_prefix"}, overrides)
+            overrides: dict[str, Any] = {"key": f"{self.key_prefix}{suffix}"}
+            if self.hemisphere is not None:
+                src_asset = (asset_by_key or {}).get(asset_key)
+                if src_asset is None:
+                    raise ValueError(
+                        f"derive_from target '{self.key_prefix}{suffix}' with "
+                        f"hemisphere set requires source asset '{asset_key}' to "
+                        f"be defined with a loader"
+                    )
+                overrides["src"] = (
+                    str(src_asset.src) if src_asset.src is not None else None
+                )
+                overrides["loader"] = src_asset.loader
+                lk = dict(src_asset.loader_kwargs or {})
+                lk["hemisphere"] = self.hemisphere
+                overrides["loader_kwargs"] = lk
+            else:
+                overrides["source_key"] = asset_key
+            kwargs = _passthrough_kwargs(
+                self, {"derive_from", "key_prefix", "hemisphere"}, overrides
+            )
             results.append(TargetSpecModel(**kwargs))
         return results
 
@@ -1541,11 +1574,14 @@ class ConfigModel(BaseModel):
                 continue
             item.derive_from = matched
 
+        asset_by_key = {a.key: a for a in self.assets}
         expanded_targets: list[TargetSpecModel] = []
         for item in self.targets:
-            if isinstance(item, (RangeTargetSpecModel, DerivedTargetSpecModel)):
-                if isinstance(item, DerivedTargetSpecModel) and not item.derive_from:
+            if isinstance(item, DerivedTargetSpecModel):
+                if not item.derive_from:
                     continue  # glob match was empty; already reported
+                expanded_targets.extend(item.expand(asset_by_key))
+            elif isinstance(item, RangeTargetSpecModel):
                 expanded_targets.extend(item.expand())
             else:
                 expanded_targets.append(item)

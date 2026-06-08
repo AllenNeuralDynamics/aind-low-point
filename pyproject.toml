@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aind-low-point"
 description = "Plan neuroscience experiments"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
   { name = "Allen Institute for Neural Dynamics" },
   { name = "Galen Lynch", email = "galen@galenlynch.com" },
@@ -22,7 +22,8 @@ version = "0.1.0"
 # placement-optimizer stack; install ``[optimization]`` for that.
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
-  "aind_mri_utils>=0.10,<2",
+  "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
+  "cyipopt>=1.7.0",
   "ipyevents>=2,<3",
   "k3d>=2,<3",
   "mapbox-earcut>=2.0.0",

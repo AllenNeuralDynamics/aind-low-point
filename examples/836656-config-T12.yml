@@ -32,7 +32,7 @@ paths:
   structure_path: ${.annotations_path}/Masks
   model_path: ${.base_path}/ephys/persist/data/MRI/HeadframeModels
   hole_model_path: ${.model_path}/HoleOBJs
-  ccf_annotation_path: ${.annotations_path}/ccfv3/ccf_annotation_in_subject.nii.gz
+  ccf_annotation_path: ${.annotations_path}/ccf/ccf_annotation_lateralized_in_subject.nii.gz
 imaging:
   magnet_frequency_MHz: 599.0
   chem_shift_ppm_default: 3.9
@@ -348,6 +348,10 @@ targets:
   - static
   - target
   - hole
+# Hemisphere targets select one side of the LATERALIZED annotation at load
+# time (left = negated label id) and reduce to the per-hemisphere centre of
+# mass. This is exact and warp-robust, unlike a geometric midsagittal cut on
+# the bilateral mesh (which collapsed for near-midline nuclei VM/MD/PL/RSP).
 - derive_from:
   - structure:BLA
   - structure:CA1
@@ -357,9 +361,8 @@ targets:
   - structure:RSP
   - structure:VM
   key_prefix: 'target:L:'
-  reducer: hemisphere_center_mass
-  reducer_kwargs:
-    hemisphere: left
+  hemisphere: left
+  reducer: mesh_center_mass
   templates:
   - structure
   transform: headframe_to_lps
@@ -376,9 +379,8 @@ targets:
   - structure:RSP
   - structure:VM
   key_prefix: 'target:R:'
-  reducer: hemisphere_center_mass
-  reducer_kwargs:
-    hemisphere: right
+  hemisphere: right
+  reducer: mesh_center_mass
   templates:
   - structure
   transform: headframe_to_lps

@@ -44,9 +44,13 @@ from pathlib import Path
 from aind_low_point.optimization.arc_first_principled import emit_seed
 from aind_low_point.planning import PoseLimits
 
-CONFIG = "examples/836656-config-T12.yml"
-HOLES = "scratch/0283-300-04.holes.yml"
-ATLAS_CACHE = "scratch/atlas_0283.pkl"
+# Subject is config-driven (generalizes across subjects). The visibility atlas
+# depends on the subject's targets + implant placement, so its cache is keyed off
+# the config stem — different subjects NEVER share an atlas. Override ATLAS_CACHE
+# to force a path.
+CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
+HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
+ATLAS_CACHE = _os.environ.get("ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.pkl")
 POOL_PKL = "scratch/full_polish_0283.pkl"
 HANDOFF_PKL = "scratch/phase2_handoff.pkl"
 MANUAL_H = {"MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12}
@@ -73,11 +77,18 @@ def build_or_load_atlas():
     from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
     from aind_low_point.runtime import build_runtime_from_config
     from aind_low_point.runtime.transforms import compile_all_transforms
-    from scripts.run_optimizer import _probe_static_info, _transform_holes
+    from scripts.run_optimizer import (
+        _probe_static_info,
+        _transform_holes,
+        retro_opts_from_env,
+    )
 
     cfg = ConfigModel.from_yaml(CONFIG)
     rt = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(rt.plan_state, rt, n) for n in rt.plan_state.probes]
+    _ro = retro_opts_from_env(rt)
+    probes = [
+        _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
+    ]
     holes = load_holes(Path(HOLES))
     comp = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in comp:

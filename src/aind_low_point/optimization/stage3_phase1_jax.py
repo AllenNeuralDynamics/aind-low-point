@@ -47,7 +47,9 @@ from numpy.typing import NDArray
 
 from aind_low_point.optimization.coverage_jax import (
     CoverageData,
+    coverage_per_probe_over_probes,
     coverage_total_over_probes,
+    normalized_coverage_objective,
 )
 from aind_low_point.optimization.joint_rerank_jax import (
     MAX_SECTIONS_PAD,
@@ -76,6 +78,7 @@ class FixtureSDFData:
     from the fixture mesh (already canonicalized to world LPS) and
     closure-captured by the JIT'd objective.
     """
+
     name: str
     grid: jnp.ndarray
     origin: jnp.ndarray
@@ -93,6 +96,7 @@ class BrainSDFData:
     Only the voxel SDF is needed — containment is a point query at the
     tips, not a surface-sampling clearance.
     """
+
     grid: jnp.ndarray
     origin: jnp.ndarray
     spacing: jnp.ndarray
@@ -117,9 +121,7 @@ def phase1_unpack(x: NDArray, n_arcs: int, probe_idx: int) -> tuple[float, ...]:
     return tuple(float(x[off + k]) for k in range(PHASE1_PER_PROBE_VARS))
 
 
-def reduced_to_phase1(
-    reduced_y: NDArray, n_arcs: int, n_probes: int
-) -> NDArray:
+def reduced_to_phase1(reduced_y: NDArray, n_arcs: int, n_probes: int) -> NDArray:
     """Lift a Stage 2 reduced y ``(arc_aps, (ml, sx, sy) × P)`` to a
     Phase 1 x ``(arc_aps, (ml, sx, sy, 0, 0, 0) × P)``.
     """
@@ -135,9 +137,7 @@ def reduced_to_phase1(
     return out
 
 
-def phase1_to_full_x(
-    phase1_x: NDArray, n_arcs: int, n_probes: int
-) -> NDArray:
+def phase1_to_full_x(phase1_x: NDArray, n_arcs: int, n_probes: int) -> NDArray:
     """Convert Phase 1 x ``(ml, sx, sy, off_R, off_A, depth) × P`` to the
     legacy Stage 3 full x ``(ml, spin_deg, off_R, off_A, depth) × P``.
 
@@ -220,8 +220,8 @@ class Phase1Weights:
     # Saturating margin rewards (mean form ⇒ max contribution = λ each).
     lambda_margin_clear: float = 1.0
     lambda_margin_thread: float = 1.0
-    tau_clear_mm: float = 0.2          # saturation scale for pair clearance (mm)
-    tau_thread_gunits: float = 0.5     # saturation scale for threading slack (g-units)
+    tau_clear_mm: float = 0.2  # saturation scale for pair clearance (mm)
+    tau_thread_gunits: float = 0.5  # saturation scale for threading slack (g-units)
     # Probe-vs-fixture body clearance: reuses tau_clear_mm; same penalty
     # form as probe-probe. Set to 0 to disable fixture clearance term.
     lambda_clearance_fixture: float = 100.0
@@ -231,7 +231,7 @@ class Phase1Weights:
     # a 0.1 mm safety buffer over the α-wrap envelope's own ~50 µm
     # offset — covers the ~4% soft-FN rate where the envelope misses a
     # sharp feature and the raw mesh sticks out past it.
-    min_clearance_mm: float = 0.1      # threshold for the hard clearance penalty
+    min_clearance_mm: float = 0.1  # threshold for the hard clearance penalty
     threading_oval_tolerance: float = 0.0
     min_arc_ap_sep_deg: float = 16.0
     min_intra_arc_ml_sep_deg: float = 16.0
@@ -254,6 +254,15 @@ class Phase1Weights:
     lambda_brain: float = 500.0
     brain_margin_mm: float = 0.2
 
+    # Coverage fairness floor. Only active when per-probe ceilings are passed
+    # to the objective (which switches coverage to the normalised form
+    # cov_p / ceiling_p so regions weigh equally regardless of shank count /
+    # active area / σ / label density). ``lambda_cov_floor`` adds a soft-min
+    # over the normalised per-region fractions, so the optimiser cannot starve
+    # one region for the total. 0 ⇒ plain normalised sum (no floor).
+    lambda_cov_floor: float = 0.0
+    softmin_beta_cov: float = 20.0
+
 
 # ---------------------------------------------------------------------------
 # JIT-built objective
@@ -268,14 +277,28 @@ def _weights_key(w: Phase1Weights) -> tuple:
     return tuple(
         float(getattr(w, f))
         for f in (
-            "lambda_thread", "lambda_clearance", "lambda_kinematic",
-            "lambda_bounds", "lambda_margin_clear", "lambda_margin_thread",
-            "lambda_clearance_fixture", "lambda_margin_clear_fixture",
-            "tau_clear_mm", "tau_thread_gunits", "min_clearance_mm",
-            "threading_oval_tolerance", "min_arc_ap_sep_deg",
-            "min_intra_arc_ml_sep_deg", "comfortable_ap_deg",
-            "comfortable_ml_deg", "softmin_beta", "shaft_length_mm",
-            "lambda_brain", "brain_margin_mm",
+            "lambda_thread",
+            "lambda_clearance",
+            "lambda_kinematic",
+            "lambda_bounds",
+            "lambda_margin_clear",
+            "lambda_margin_thread",
+            "lambda_clearance_fixture",
+            "lambda_margin_clear_fixture",
+            "tau_clear_mm",
+            "tau_thread_gunits",
+            "min_clearance_mm",
+            "threading_oval_tolerance",
+            "min_arc_ap_sep_deg",
+            "min_intra_arc_ml_sep_deg",
+            "comfortable_ap_deg",
+            "comfortable_ml_deg",
+            "softmin_beta",
+            "shaft_length_mm",
+            "lambda_brain",
+            "brain_margin_mm",
+            "lambda_cov_floor",
+            "softmin_beta_cov",
         )
     ) + (int(w.top_k_body_body), int(w.top_k_body_shank), int(w.top_k_shank_shank))
 
@@ -325,6 +348,8 @@ def _build_jit(  # noqa: C901
     fixtures: tuple[FixtureSDFData, ...] = (),
     coverage_n_samples: int = 41,
     brain_sdf: "BrainSDFData | None" = None,
+    coverage_ceilings: "tuple[float, ...] | None" = None,
+    coverage_weights: "tuple[float, ...] | None" = None,
 ) -> tuple[Callable, Callable]:
     """Build the (fn, grad) pair for one signature.
 
@@ -334,11 +359,22 @@ def _build_jit(  # noqa: C901
     is a tuple of static-in-world fixture SDFs; each contributes a
     probe-vs-fixture body clearance penalty and a saturating margin
     reward across the P × n_fixtures pair list.
+
+    ``coverage_ceilings`` (one per probe) switches coverage to the
+    normalised form ``cov_p / ceiling_p`` plus a soft-min fairness floor
+    (``weights.lambda_cov_floor``); when ``None`` coverage is the legacy
+    plain sum over probes.
     """
     (
-        n_probes, n_arcs, _max_shanks, _max_sections,
-        has_sdf, per_probe_sdf_shapes, _per_probe_shank_counts,
-        _n_surf, _w_key,
+        n_probes,
+        n_arcs,
+        _max_shanks,
+        _max_sections,
+        has_sdf,
+        per_probe_sdf_shapes,
+        _per_probe_shank_counts,
+        _n_surf,
+        _w_key,
     ) = signature
 
     sdf_pair_list: list[tuple[int, int]] = []
@@ -373,6 +409,19 @@ def _build_jit(  # noqa: C901
     shaft_len = float(weights.shaft_length_mm)
     lbrain = float(getattr(weights, "lambda_brain", 0.0))
     brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
+    # Coverage normalisation: per-probe ceilings (constant) + fairness floor.
+    lcov_floor = float(getattr(weights, "lambda_cov_floor", 0.0))
+    beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
+    cov_ceilings = (
+        jnp.asarray(coverage_ceilings, dtype=jnp.float32)
+        if coverage_ceilings is not None
+        else None
+    )
+    cov_weights = (
+        jnp.asarray(coverage_weights, dtype=jnp.float32)
+        if coverage_weights is not None
+        else None
+    )
     if brain_sdf is not None:
         brain_grid = jnp.asarray(brain_sdf.grid)
         brain_origin = jnp.asarray(brain_sdf.origin)
@@ -385,14 +434,34 @@ def _build_jit(  # noqa: C901
 
     def _objective(  # noqa: C901
         x,
-        target_LPS, pivot_local, arc_idx,
-        tips_local, shank_mask,
-        s_axes, s_centers, s_e1, s_e2,
-        s_cos, s_sin, s_a, s_b, section_mask,
+        target_LPS,
+        pivot_local,
+        arc_idx,
+        tips_local,
+        shank_mask,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        section_mask,
         same_arc_mask,
-        sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces,
-        shank_obb_centers, shank_obb_halves,
+        sdf_grids,
+        sdf_origins,
+        sdf_spacings,
+        sdf_surfaces,
+        shank_obb_centers,
+        shank_obb_halves,
+        cov_weight=1.0,
     ):
+        # ``cov_weight`` scales the coverage term at RUNTIME (1.0 = full,
+        # 0.0 = clearance-first reduced stage). Default 1.0 is a Python
+        # constant for callers that don't pass it ⇒ byte-identical to the
+        # pre-cov_weight kernel; pass a traced value to share ONE compiled
+        # kernel across the reduced (0) and full (1) ADAM stages.
         arc_aps = x[:n_arcs]
         Rs = []
         ts = []
@@ -411,17 +480,28 @@ def _build_jit(  # noqa: C901
             ap = arc_aps[arc_idx[i]]
             R, t = pose_from_optimizer_vars(
                 target_LPS=target_LPS[i],
-                ap_deg=ap, ml_deg=ml, spin_deg=spin_deg,
-                offset_R_mm=off_R, offset_A_mm=off_A,
+                ap_deg=ap,
+                ml_deg=ml,
+                spin_deg=spin_deg,
+                offset_R_mm=off_R,
+                offset_A_mm=off_A,
                 past_target_mm=depth,
                 recording_center_local=pivot_local[i],
             )
             Rs.append(R)
             ts.append(t)
             g = threading_g_matrix(
-                R, t, tips_local[i],
-                s_axes[i], s_centers[i], s_e1[i], s_e2[i],
-                s_cos[i], s_sin[i], s_a[i], s_b[i],
+                R,
+                t,
+                tips_local[i],
+                s_axes[i],
+                s_centers[i],
+                s_e1[i],
+                s_e2[i],
+                s_cos[i],
+                s_sin[i],
+                s_a[i],
+                s_b[i],
                 shaft_length_mm=shaft_len,
             )  # (S, SH)
             valid_g = section_mask[i][:, None] * shank_mask[i][None, :]
@@ -435,9 +515,7 @@ def _build_jit(  # noqa: C901
 
         # AP separation (smooth_abs over arc-pair differences)
         if arc_pairs.shape[0] > 0:
-            ap_diffs = smooth_abs(
-                arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]]
-            )
+            ap_diffs = smooth_abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
             short_ap = jnp.maximum(0.0, min_arc_ap - ap_diffs)
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
@@ -459,35 +537,47 @@ def _build_jit(  # noqa: C901
         # joint_rerank_jax for shared XLA cache + per-call perf).
         # Pre-compute world-frame body surface samples once per probe
         # so the per-pair calls don't redo ``surface @ R.T + t``.
-        world_surfaces = [
-            sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)
-        ]
+        world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
         j_clear = jnp.float32(0.0)
         pair_hard_clearances = []
         for ia, ib in sdf_pair_list:
             pc = dual_rep_pair_clearance(
-                Rs[ia], ts[ia], Rs[ib], ts[ib],
-                sdf_grids[ia], sdf_origins[ia], sdf_spacings[ia],
-                sdf_grids[ib], sdf_origins[ib], sdf_spacings[ib],
-                world_surfaces[ia], world_surfaces[ib],
-                shank_obb_centers[ia], shank_obb_halves[ia],
-                shank_obb_centers[ib], shank_obb_halves[ib],
+                Rs[ia],
+                ts[ia],
+                Rs[ib],
+                ts[ib],
+                sdf_grids[ia],
+                sdf_origins[ia],
+                sdf_spacings[ia],
+                sdf_grids[ib],
+                sdf_origins[ib],
+                sdf_spacings[ib],
+                world_surfaces[ia],
+                world_surfaces[ib],
+                shank_obb_centers[ia],
+                shank_obb_halves[ia],
+                shank_obb_centers[ib],
+                shank_obb_halves[ib],
                 beta=beta,
                 top_k_body_body=tk_bb,
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
             softs = (
-                pc.body_body[1], pc.body_shank_corners[1],
-                pc.body_shank_obb[1], pc.shank_shank[1],
+                pc.body_body[1],
+                pc.body_shank_corners[1],
+                pc.body_shank_obb[1],
+                pc.shank_shank[1],
             )
             for d_soft, gain in zip(softs, PROBE_PAIR_SLACK_GAINS):
                 short = jnp.maximum(0.0, min_clear - d_soft) * gain
                 j_clear = j_clear + short * short
             # Margin uses the worst hard category clearance per pair.
             hards = (
-                pc.body_body[0], pc.body_shank_corners[0],
-                pc.body_shank_obb[0], pc.shank_shank[0],
+                pc.body_body[0],
+                pc.body_shank_corners[0],
+                pc.body_shank_obb[0],
+                pc.shank_shank[0],
             )
             pair_hard_clearances.append(jnp.min(jnp.stack(hards)))
 
@@ -500,12 +590,21 @@ def _build_jit(  # noqa: C901
                     if has_sdf and per_probe_sdf_shapes[i] is None:
                         continue
                     fc = dual_rep_fixture_clearance(
-                        Rs[i], ts[i],
-                        sdf_grids[i], sdf_origins[i], sdf_spacings[i],
-                        fx.grid, fx.origin, fx.spacing,
-                        world_surfaces[i], fx.surface,
-                        shank_obb_centers[i], shank_obb_halves[i],
-                        beta=beta, top_k_body=tk_bb, top_k_obb=tk_bs,
+                        Rs[i],
+                        ts[i],
+                        sdf_grids[i],
+                        sdf_origins[i],
+                        sdf_spacings[i],
+                        fx.grid,
+                        fx.origin,
+                        fx.spacing,
+                        world_surfaces[i],
+                        fx.surface,
+                        shank_obb_centers[i],
+                        shank_obb_halves[i],
+                        beta=beta,
+                        top_k_body=tk_bb,
+                        top_k_obb=tk_bs,
                     )
                     softs = (fc.body[1], fc.obb[1])
                     for d_soft, gain in zip(softs, FIXTURE_PAIR_SLACK_GAINS):
@@ -522,7 +621,7 @@ def _build_jit(  # noqa: C901
         j_brain = jnp.float32(0.0)
         if brain_sdf is not None:
             for i in range(n_probes):
-                world_tips = tips_local[i] @ Rs[i].T + ts[i]   # (max_shanks, 3)
+                world_tips = tips_local[i] @ Rs[i].T + ts[i]  # (max_shanks, 3)
                 d = trilinear_sdf(
                     brain_grid, brain_origin, brain_spacing, world_tips
                 )  # signed distance, negative inside
@@ -547,27 +646,49 @@ def _build_jit(  # noqa: C901
         else:
             reward_thread = jnp.float32(0.0)
 
-        # Coverage: sum across probes. ``coverage_data`` is a Python
-        # tuple closed over the trace; per-probe mode (Gaussian vs KDE)
-        # is fixed at JIT-build time.
-        if coverage_data is not None:
+        # Coverage. ``coverage_data`` is a Python tuple closed over the
+        # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.
+        # With per-probe ceilings, each region is normalised to a fraction-
+        # of-achievable and a soft-min floor protects the worst region; else
+        # it's the legacy plain sum across probes.
+        if coverage_data is not None and cov_ceilings is not None:
+            cov_pp = coverage_per_probe_over_probes(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                tips_local,
+                shank_mask,
+                coverage_data,
+                n_samples=coverage_n_samples,
+            )
+            coverage_total = normalized_coverage_objective(
+                cov_pp,
+                cov_ceilings,
+                lambda_floor=lcov_floor,
+                softmin_beta=beta_cov,
+                weights=cov_weights,
+            )
+        elif coverage_data is not None:
             # vmapped when all probes share a coverage mode (all-Gaussian /
             # all-KDE uniform grid); unrolled loop otherwise. Same result.
             coverage_total = coverage_total_over_probes(
-                jnp.stack(Rs), jnp.stack(ts), tips_local, shank_mask,
-                coverage_data, n_samples=coverage_n_samples,
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                tips_local,
+                shank_mask,
+                coverage_data,
+                n_samples=coverage_n_samples,
             )
         else:
             coverage_total = jnp.float32(0.0)
 
         # Unit-circle pull on (sx, sy). x layout is
         # (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P) — stride 6.
-        sx_arr = x[n_arcs + 1::PHASE1_PER_PROBE_VARS][:n_probes]
-        sy_arr = x[n_arcs + 2::PHASE1_PER_PROBE_VARS][:n_probes]
+        sx_arr = x[n_arcs + 1 :: PHASE1_PER_PROBE_VARS][:n_probes]
+        sy_arr = x[n_arcs + 2 :: PHASE1_PER_PROBE_VARS][:n_probes]
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (
-            - coverage_total
+            -cov_weight * coverage_total
             + lt * j_thread
             + lc * j_clear
             + float(weights.lambda_clearance_fixture) * j_clear_fixture
@@ -660,14 +781,16 @@ def _pack_statics(statics, n_arcs: int) -> dict:
             sdf_spacings.append(jnp.asarray(s.sdf_data["spacing"], dtype=jnp.float32))
             sdf_surfaces.append(jnp.asarray(s.sdf_data["surface"], dtype=jnp.float32))
             shank_obb_centers.append(
-                jnp.asarray(s.sdf_data.get("shank_centers",
-                                            np.zeros((0, 3), dtype=np.float32)),
-                            dtype=jnp.float32)
+                jnp.asarray(
+                    s.sdf_data.get("shank_centers", np.zeros((0, 3), dtype=np.float32)),
+                    dtype=jnp.float32,
+                )
             )
             shank_obb_halves.append(
-                jnp.asarray(s.sdf_data.get("shank_halves",
-                                            np.zeros((0, 3), dtype=np.float32)),
-                            dtype=jnp.float32)
+                jnp.asarray(
+                    s.sdf_data.get("shank_halves", np.zeros((0, 3), dtype=np.float32)),
+                    dtype=jnp.float32,
+                )
             )
         else:
             sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
@@ -703,6 +826,8 @@ def make_phase1_objective(
     *,
     coverage_n_samples: int = 41,
     brain_sdf: "BrainSDFData | None" = None,
+    coverage_ceilings: "tuple[float, ...] | None" = None,
+    coverage_weights: "tuple[float, ...] | None" = None,
 ) -> tuple[Callable[[NDArray], float], Callable[[NDArray], NDArray]]:
     """Build ``(fun, jac)`` scipy callables for Phase 1's soft objective.
 
@@ -744,17 +869,34 @@ def make_phase1_objective(
     )
     brain_shape = (
         tuple(int(d) for d in np.asarray(brain_sdf.grid).shape)
-        if brain_sdf is not None else None
+        if brain_sdf is not None
+        else None
+    )
+    # Ceilings are baked into the trace as constants, so distinct ceiling
+    # vectors must key distinct cached kernels.
+    ceil_key = (
+        tuple(round(float(c), 6) for c in coverage_ceilings)
+        if coverage_ceilings is not None
+        else None
+    )
+    # Per-target weights are also baked into the trace as constants → key them.
+    wcov_key = (
+        tuple(round(float(w), 6) for w in coverage_weights)
+        if coverage_weights is not None
+        else None
     )
     base_sig = _signature(statics, n_arcs, weights)
-    sig = base_sig + (fix_shapes, brain_shape)
+    sig = base_sig + (fix_shapes, brain_shape, ceil_key, wcov_key)
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
-            base_sig, weights,
+            base_sig,
+            weights,
             coverage_data=coverage_data,
             fixtures=fixtures,
             coverage_n_samples=coverage_n_samples,
             brain_sdf=brain_sdf,
+            coverage_ceilings=coverage_ceilings,
+            coverage_weights=coverage_weights,
         )
         _CACHE_STATS["misses"] += 1
     else:
