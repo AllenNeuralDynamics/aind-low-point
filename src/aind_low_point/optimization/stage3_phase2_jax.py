@@ -34,6 +34,7 @@ from numpy.typing import NDArray
 from aind_low_point.optimization.clearance_sweep import (
     cast_fixture_grids,
     cast_packed_grids,
+    swept_fixture_clearances,
     swept_pair_clearances,
 )
 from aind_low_point.optimization.coverage_jax import (
@@ -51,7 +52,6 @@ from aind_low_point.optimization.joint_rerank_jax import (
 from aind_low_point.optimization.sdf_jax import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
-    dual_rep_fixture_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -407,7 +407,6 @@ def _build_jit(  # noqa: C901
         # Probe-probe clearance, vmapped over the static pair list (one dual-rep
         # subgraph vs C(P,2) unrolled — see clearance_sweep). Objective only needs
         # the per-pair worst-category hard clearance for the saturating reward.
-        world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
@@ -426,37 +425,32 @@ def _build_jit(  # noqa: C901
         else:
             pair_hard_clearances = None
 
-        fixture_hard_clearances: list[jnp.ndarray] = []
-        for fx in fixtures:
-            for i in range(n_probes):
-                if has_sdf and sdf_shapes[i] is None:
-                    continue
-                fc = dual_rep_fixture_clearance(
-                    Rs[i],
-                    ts[i],
-                    sdf_grids[i],
-                    sdf_origins[i],
-                    sdf_spacings[i],
-                    fx.grid,
-                    fx.origin,
-                    fx.spacing,
-                    world_surfaces[i],
-                    fx.surface,
-                    shank_obb_centers[i],
-                    shank_obb_halves[i],
-                    beta=beta,
-                    top_k_body=tk_bb,
-                    top_k_obb=tk_bs,
-                )
-                fixture_hard_clearances.append(jnp.minimum(fc.body[0], fc.obb[0]))
+        # Probe-vs-fixture clearance, vmapped over probes per fixture (objective
+        # needs only the per-(fixture,probe) worst-category hard clearance).
+        if fixtures and sdf_table is not None:
+            _fidx = [
+                i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
+            ]
+            _fh, _ = swept_fixture_clearances(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                sdf_table,
+                fixtures,
+                _fidx,
+                beta=beta,
+                top_k_body=tk_bb,
+                top_k_obb=tk_bs,
+            )
+            fixture_hard_clearances = jnp.min(_fh, axis=2).reshape(-1)
+        else:
+            fixture_hard_clearances = None
 
-        # pair_hard_clearances is a (n_pairs,) array (swept) or None; fixtures are
-        # a Python list of scalars. Concatenate as arrays.
+        # pair_hard_clearances / fixture_hard_clearances are (N,) arrays or None.
         _hard_parts = []
         if pair_hard_clearances is not None:
             _hard_parts.append(pair_hard_clearances)
-        if fixture_hard_clearances:
-            _hard_parts.append(jnp.stack(fixture_hard_clearances))
+        if fixture_hard_clearances is not None:
+            _hard_parts.append(fixture_hard_clearances)
         reward_clear = (
             _saturating_reward_mean(jnp.concatenate(_hard_parts), tau_c)
             if _hard_parts
@@ -547,7 +541,6 @@ def _build_jit(  # noqa: C901
         # ``soft`` is (n_pairs, 4) in PROBE_PAIR_SLACK_GAINS category order, so
         # ``.reshape(-1)`` reproduces the pair-major/category-minor constraint
         # order EXACTLY (each slack is independent ⇒ bit-exact, no reduction).
-        world_surfaces = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
@@ -570,32 +563,28 @@ def _build_jit(  # noqa: C901
         # Probe-fixture clearance: dual-rep (body voxel-SDF + probe-OBB
         # vs fixture surface samples). See PairClearance / FixtureClearance
         # in sdf_jax.py for category definitions.
-        clear_pf_slacks: list[jnp.ndarray] = []
-        for fx in fixtures:
-            for i in range(n_probes):
-                if has_sdf and sdf_shapes[i] is None:
-                    continue
-                fc = dual_rep_fixture_clearance(
-                    Rs[i],
-                    ts[i],
-                    sdf_grids[i],
-                    sdf_origins[i],
-                    sdf_spacings[i],
-                    fx.grid,
-                    fx.origin,
-                    fx.spacing,
-                    world_surfaces[i],
-                    fx.surface,
-                    shank_obb_centers[i],
-                    shank_obb_halves[i],
-                    beta=beta,
-                    top_k_body=tk_bb,
-                    top_k_obb=tk_bs,
-                )
-                softs = (fc.body[1], fc.obb[1])
-                for d_soft, gain in zip(softs, FIXTURE_PAIR_SLACK_GAINS):
-                    clear_pf_slacks.append((d_soft - min_clear) * gain)
-        clear_pf_vec = jnp.stack(clear_pf_slacks) if clear_pf_slacks else jnp.zeros(0)
+        # Probe-fixture clearance, vmapped over probes per fixture. ``soft`` is
+        # (n_fix, n_sdf, 2) in FIXTURE_PAIR_SLACK_GAINS category order, so
+        # ``.reshape(-1)`` reproduces the fixture-major/probe-minor/category-minor
+        # constraint order EXACTLY (each slack independent ⇒ bit-exact).
+        if fixtures and sdf_table is not None:
+            _fidx = [
+                i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
+            ]
+            _, _fsoft = swept_fixture_clearances(
+                jnp.stack(Rs),
+                jnp.stack(ts),
+                sdf_table,
+                fixtures,
+                _fidx,
+                beta=beta,
+                top_k_body=tk_bb,
+                top_k_obb=tk_bs,
+            )
+            _fgains = jnp.asarray(FIXTURE_PAIR_SLACK_GAINS, jnp.float32)
+            clear_pf_vec = ((_fsoft - min_clear) * _fgains).reshape(-1)
+        else:
+            clear_pf_vec = jnp.zeros(0)
 
         # Brain containment: each shank tip must be inside the brain by at
         # least ``brain_margin``. SDF is negative inside, so the slack is
