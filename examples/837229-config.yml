@@ -28,7 +28,7 @@ paths:
   structure_path: ${.annotations_path}/Masks
   model_path: ${.base_path}/ephys/persist/data/MRI/HeadframeModels
   hole_model_path: ${.model_path}/HoleOBJs
-  ccf_annotation_path: ${.annotations_path}/ccf/ccf_annotation_in_subject.nii.gz
+  ccf_annotation_path: ${.annotations_path}/ccf/ccf_annotation_lateralized_in_subject.nii.gz
 imaging:
   magnet_frequency_MHz: 599.0
   chem_shift_ppm_default: 3.9
