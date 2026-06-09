@@ -70,35 +70,64 @@ def mesh_centroid(source: SourceGeo, **_) -> ReduceOut:
 
 
 @register_reducer
+def points_mean(source: SourceGeo, **_) -> ReduceOut:
+    """Mean of an ``(N, 3)`` point cloud.
+
+    Pairs with the ``ccf_region_voxel_points`` loader to take a CCF region's
+    voxel centroid (the anatomical region-centre target). ``source`` is the voxel
+    point cloud (passed positionally by the build step).
+    """
+    pts = np.asarray(source, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        raise TypeError(f"points_mean needs an (N, 3) cloud, got {pts.shape}")
+    if pts.shape[0] == 0:
+        raise EmptyReductionError("points_mean: empty point cloud")
+    return pts.mean(axis=0)
+
+
+@register_reducer
 def points_in_region_center_mass(
-    source: SourceGeo,
+    _source: SourceGeo,
     *,
     points: NDArray[np.float64],
+    annotation_path: str,
+    acronym: str | None = None,
+    label_id: int | None = None,
+    hemisphere: str = "both",
+    include_descendants: bool = True,
+    brain_mask_paths: tuple[str, ...] = (),
     **_,
 ) -> ReduceOut:
-    """Mean of ``points`` that lie inside the region mesh ``source``.
+    """Mean of ``points`` whose nearest annotation voxel lies in a CCF region.
 
-    This is the "average of retro-label points within a target structure"
-    target: ``source`` is the structure mesh (the region), ``points`` is the
-    retro point cloud (injected by the build step from a ``points_key`` in
-    ``reducer_kwargs`` — both must already be in the same raw frame, which they
-    are when the structure and the point asset share a transform).
+    The "average of retro-label points within a target structure" target:
+    ``points`` is the retro point cloud (injected by the build step from a
+    ``points_key`` in ``reducer_kwargs``), and region membership is decided by
+    **voxel label** against the lateralized annotation at ``annotation_path`` —
+    the same shared core (:func:`ccf_region_point_mask`) the optimizer uses, so
+    the config target and the optimizer's KDE selection agree exactly.
 
-    Hemisphere selection is handled at the loader level via
-    ``DerivedTargetSpecModel.hemisphere`` (which re-loads the source mesh with
-    ``ccf_annotation_region(hemisphere=...)`` before this reducer runs), so no
-    geometric x > 0 cut is needed or supported here.
+    ``points`` must be in the same physical frame as the annotation volume. For
+    the subject configs both are raw subject LPS mm (the retro points asset has
+    identity canonicalization); ``DerivedTargetSpecModel.expand`` enforces that
+    precondition. ``_source`` (the structure mesh) is accepted for the build
+    plumbing but ignored — selection is purely label-based.
     """
-    if not isinstance(source, trimesh.Trimesh):
-        raise TypeError(
-            f"points_in_region_center_mass needs a mesh region, got {type(source)}"
-        )
     pts = np.asarray(points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError(f"points must be (N, 3), got {pts.shape}")
-    sel = source.contains(pts)
-    n = int(sel.sum())
-    if n == 0:
+    from aind_low_point.runtime.loaders import ccf_region_point_mask
+
+    sel = ccf_region_point_mask(
+        annotation_path,
+        pts,
+        acronym=acronym,
+        label_id=label_id,
+        include_descendants=include_descendants,
+        hemisphere=hemisphere,
+        extra_mask_paths=tuple(brain_mask_paths),
+    )
+    if not sel.any():
         raise EmptyReductionError(
             "points_in_region_center_mass: no points inside region"
         )

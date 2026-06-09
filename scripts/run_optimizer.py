@@ -149,53 +149,6 @@ def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Ho
     return out
 
 
-def _voxel_values_at(sitk_img, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Nearest-voxel value of a SimpleITK volume at physical points ``pts`` (in
-    the volume's own physical space). Returns ``(values, in_bounds)`` with
-    out-of-bounds points getting value 0.
-
-    Uses SimpleITK's own ``TransformPhysicalPointToIndex`` for the physical→voxel
-    mapping (handles origin/spacing/direction correctly) rather than re-deriving
-    the affine by hand. The points are sampled once per subject and cached, so
-    the work is paid once.
-
-    SimpleITK has no batch ``TransformPhysicalPointToIndex``, so the
-    physical→index map is built as an affine from the image's own origin /
-    spacing / direction and applied to all points at once; the gather then
-    reverses (x,y,z)→(z,y,x) for the numpy array in a single place. The affine is
-    cross-checked against sitk's per-point transform on a few samples so the
-    convention can never silently drift."""
-    import SimpleITK as sitk
-
-    arr = sitk.GetArrayFromImage(sitk_img)  # (Z, Y, X)
-    nz, ny, nx = arr.shape
-    origin = np.asarray(sitk_img.GetOrigin(), dtype=np.float64)  # (x, y, z)
-    spacing = np.asarray(sitk_img.GetSpacing(), dtype=np.float64)  # (x, y, z)
-    direction = np.asarray(sitk_img.GetDirection(), dtype=np.float64).reshape(3, 3)
-    # physical = origin + direction @ (spacing * index)  ⇒  invert for index
-    rel = np.asarray(pts, np.float64) - origin
-    cont = (rel @ np.linalg.inv(direction).T) / spacing
-    idx = np.rint(cont).astype(np.intp)  # (N, 3) in (x, y, z)
-    for k in range(min(5, len(pts))):  # cheap guard against convention drift
-        ref = sitk_img.TransformPhysicalPointToIndex(tuple(float(v) for v in pts[k]))
-        if tuple(int(v) for v in idx[k]) != tuple(ref):
-            raise AssertionError(
-                f"voxel index mismatch vs SimpleITK: {idx[k]} != {ref}"
-            )
-    inb = (
-        (idx[:, 0] >= 0)
-        & (idx[:, 0] < nx)
-        & (idx[:, 1] >= 0)
-        & (idx[:, 1] < ny)
-        & (idx[:, 2] >= 0)
-        & (idx[:, 2] < nz)
-    )
-    vals = np.zeros(len(pts), dtype=arr.dtype)
-    g = idx[inb]
-    vals[inb] = arr[g[:, 2], g[:, 1], g[:, 0]]  # arr is (z, y, x)
-    return vals, inb
-
-
 # Per-subject retro arrays, computed ONCE and shared across all probes: the
 # corrected scene-LPS cloud, the brain-membership mask, and the CCF annotation
 # label at each retro point. Keyed by (runtime id, retro key, mask keys, annot
@@ -211,7 +164,7 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
         return hit
     import SimpleITK as sitk
 
-    from aind_low_point.runtime.loaders import csv_points
+    from aind_low_point.runtime.loaders import csv_points, voxel_values_at
 
     retro_t = resolve_base_geometry(catalog, scene, opts.retro_asset_key)
     if retro_t is None:
@@ -236,14 +189,12 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
     brain_keep = np.ones(len(subject), dtype=bool)
     for mk in opts.common_mask_keys:
         spec = catalog.get_spec(mk)
-        vals, inb = _voxel_values_at(sitk.ReadImage(str(spec.source_path)), subject)
+        vals, inb = voxel_values_at(sitk.ReadImage(str(spec.source_path)), subject)
         brain_keep &= inb & (vals > 0)
-    annot_vals, annot_inb = _voxel_values_at(sitk.ReadImage(annot_path), subject)
-    # Only a few hundred distinct labels appear among the ~28k points, so collapse
-    # them once: per-probe membership is then an ``isin`` over the unique labels
-    # mapped back through ``inverse`` (O(distinct) instead of O(points)).
-    uniq, inverse = np.unique(annot_vals, return_inverse=True)
-    out = (world, brain_keep, uniq, inverse, annot_inb)
+    # Sample the annotation label at every retro point once; per-probe membership
+    # is then a single shared ``ccf_region_membership`` call over these labels.
+    annot_vals, annot_inb = voxel_values_at(sitk.ReadImage(annot_path), subject)
+    out = (world, brain_keep, annot_vals, annot_inb)
     _RETRO_VOXEL_CACHE[key] = out
     return out
 
@@ -257,11 +208,16 @@ def _resolve_masked_retro_points(
 
     The expensive work (loading the brain + annotation volumes and sampling them
     at all ~28k retro points) is done ONCE per subject and cached; the per-probe
-    step is a single ``np.isin`` over the cached annotation labels. Membership
-    uses the subject-space points; the returned points are the app's corrected
-    cloud subset, so they carry the same chem-shift + rotation as the scene.
+    step is a single shared ``ccf_region_membership`` call over the cached
+    annotation labels — the same membership the config reducer uses, so the two
+    agree exactly. Membership uses the subject-space points; the returned points
+    are the app's corrected cloud subset, so they carry the same chem-shift +
+    rotation as the scene.
     """
-    from aind_low_point.runtime.loaders import ccf_region_label_ids
+    from aind_low_point.runtime.loaders import (
+        ccf_region_label_ids,
+        ccf_region_membership,
+    )
 
     catalog = runtime.asset_catalog
     sspec = catalog.get_spec(opts.per_probe_mask_fmt.format(probe=probe_name))
@@ -270,7 +226,7 @@ def _resolve_masked_retro_points(
             f"--retro-density: structure asset for probe {probe_name!r} missing"
         )
     annot_path = str(sspec.source_path)
-    world, brain_keep, uniq, inverse, annot_inb = _retro_voxel_base(
+    world, brain_keep, annot_vals, annot_inb = _retro_voxel_base(
         runtime, opts, annot_path
     )
     acronym = sspec.metadata.get("ccf_acronym") or sspec.metadata.get("acronym")
@@ -279,9 +235,9 @@ def _resolve_masked_retro_points(
         label_id=sspec.metadata.get("label_id"),
         hemisphere=sspec.metadata.get("hemisphere", "both"),
     )
-    # Membership over the few hundred unique labels, mapped back to all points.
-    in_region = np.isin(uniq, match_ids)[inverse]
-    keep = brain_keep & annot_inb & in_region
+    keep = ccf_region_membership(
+        annot_vals, annot_inb, match_ids, brain_keep=brain_keep
+    )
     masked = world[keep]
     if masked.shape[0] == 0:
         raise RuntimeError(

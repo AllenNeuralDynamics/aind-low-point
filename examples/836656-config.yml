@@ -357,9 +357,8 @@ targets:
   - structure:RSP
   - structure:VM
   key_prefix: 'target:L:'
-  reducer: hemisphere_center_mass
-  reducer_kwargs:
-    hemisphere: left
+  hemisphere: left
+  reducer: points_mean
   templates:
   - structure
   transform: headframe_to_lps
@@ -376,9 +375,8 @@ targets:
   - structure:RSP
   - structure:VM
   key_prefix: 'target:R:'
-  reducer: hemisphere_center_mass
-  reducer_kwargs:
-    hemisphere: right
+  hemisphere: right
+  reducer: points_mean
   templates:
   - structure
   transform: headframe_to_lps

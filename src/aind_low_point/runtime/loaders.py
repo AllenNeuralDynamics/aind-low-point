@@ -164,6 +164,159 @@ def ccf_region_label_ids(
     )
 
 
+def voxel_values_at(
+    sitk_img: sitk.Image, pts: NDArray[np.float64]
+) -> tuple[NDArray[np.generic], NDArray[np.bool_]]:
+    """Nearest-voxel value of a SimpleITK volume at physical points ``pts`` (in
+    the volume's own physical space). Returns ``(values, in_bounds)`` with
+    out-of-bounds points getting value 0.
+
+    Uses SimpleITK's own ``TransformPhysicalPointToIndex`` for the physical→voxel
+    mapping (handles origin/spacing/direction correctly) rather than re-deriving
+    the affine by hand. The points are typically sampled once per subject and
+    cached, so the work is paid once.
+
+    SimpleITK has no batch ``TransformPhysicalPointToIndex``, so the
+    physical→index map is built as an affine from the image's own origin /
+    spacing / direction and applied to all points at once; the gather then
+    reverses (x,y,z)→(z,y,x) for the numpy array in a single place. The affine is
+    cross-checked against sitk's per-point transform on a few samples so the
+    convention can never silently drift.
+    """
+    arr = sitk.GetArrayFromImage(sitk_img)  # (Z, Y, X)
+    nz, ny, nx = arr.shape
+    origin = np.asarray(sitk_img.GetOrigin(), dtype=np.float64)  # (x, y, z)
+    spacing = np.asarray(sitk_img.GetSpacing(), dtype=np.float64)  # (x, y, z)
+    direction = np.asarray(sitk_img.GetDirection(), dtype=np.float64).reshape(3, 3)
+    # physical = origin + direction @ (spacing * index)  ⇒  invert for index
+    rel = np.asarray(pts, np.float64) - origin
+    cont = (rel @ np.linalg.inv(direction).T) / spacing
+    idx = np.rint(cont).astype(np.intp)  # (N, 3) in (x, y, z)
+    for k in range(min(5, len(pts))):  # cheap guard against convention drift
+        ref = sitk_img.TransformPhysicalPointToIndex(tuple(float(v) for v in pts[k]))
+        if tuple(int(v) for v in idx[k]) != tuple(ref):
+            raise AssertionError(
+                f"voxel index mismatch vs SimpleITK: {idx[k]} != {ref}"
+            )
+    inb = (
+        (idx[:, 0] >= 0)
+        & (idx[:, 0] < nx)
+        & (idx[:, 1] >= 0)
+        & (idx[:, 1] < ny)
+        & (idx[:, 2] >= 0)
+        & (idx[:, 2] < nz)
+    )
+    vals = np.zeros(len(pts), dtype=arr.dtype)
+    g = idx[inb]
+    vals[inb] = arr[g[:, 2], g[:, 1], g[:, 0]]  # arr is (z, y, x)
+    return vals, inb
+
+
+def ccf_region_membership(
+    label_vals: NDArray[np.generic],
+    in_bounds: NDArray[np.bool_],
+    match_ids: list[int],
+    *,
+    brain_keep: NDArray[np.bool_] | None = None,
+) -> NDArray[np.bool_]:
+    """Boolean membership of pre-sampled annotation labels in a CCF region.
+
+    The single membership rule shared by the config reducer (one-shot, via
+    :func:`ccf_region_point_mask`) and the optimizer (which samples + caches the
+    annotation labels per subject, then calls this per probe). A point belongs to
+    the region iff its nearest-voxel label is in ``match_ids`` (from
+    :func:`ccf_region_label_ids`), it is in bounds, and — if a ``brain_keep`` mask
+    is given — it also lies inside the brain.
+    """
+    mask = np.isin(label_vals, match_ids) & in_bounds
+    if brain_keep is not None:
+        mask = mask & brain_keep
+    return mask
+
+
+def ccf_region_point_mask(
+    annotation_path: str,
+    points: NDArray[np.float64],
+    *,
+    acronym: str | None = None,
+    label_id: int | None = None,
+    include_descendants: bool = True,
+    hemisphere: str = "both",
+    extra_mask_paths: tuple[str, ...] = (),
+) -> NDArray[np.bool_]:
+    """Which ``points`` lie inside a CCF region by nearest-voxel label lookup.
+
+    ``points`` must be in the same physical frame as the annotation volume at
+    ``annotation_path`` (e.g. raw subject LPS mm for a CCF-warped-into-subject
+    annotation). Membership is exact and robust to the nonlinear CCF→subject
+    warp, unlike geometric containment of a meshed region.
+
+    Each path in ``extra_mask_paths`` (e.g. a brain mask) is sampled the same way
+    and AND-ed in as ``> 0`` — a point survives only if it is inside every mask.
+    Returns a boolean array aligned row-for-row with ``points``.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    match_ids = ccf_region_label_ids(
+        acronym=acronym,
+        label_id=label_id,
+        include_descendants=include_descendants,
+        hemisphere=hemisphere,
+    )
+    annot = sitk.ReadImage(annotation_path)
+    annot_vals, annot_inb = voxel_values_at(annot, pts)
+    brain_keep: NDArray[np.bool_] | None = None
+    for mask_path in extra_mask_paths:
+        vals, inb = voxel_values_at(sitk.ReadImage(str(mask_path)), pts)
+        keep = inb & (vals > 0)
+        brain_keep = keep if brain_keep is None else (brain_keep & keep)
+    return ccf_region_membership(
+        annot_vals, annot_inb, match_ids, brain_keep=brain_keep
+    )
+
+
+@register_loader
+def ccf_region_voxel_points(
+    path: str,
+    *,
+    acronym: str | None = None,
+    label_id: int | None = None,
+    include_descendants: bool = True,
+    hemisphere: str = "both",
+) -> NDArray[np.float64]:
+    """Physical coordinates of every voxel labelled with a CCF region.
+
+    The companion to :func:`ccf_annotation_region` (which *meshes* the matching
+    voxels): this returns the matching voxels' physical centres as an ``(N, 3)``
+    point cloud in the volume's native frame, so a downstream reducer (e.g.
+    ``points_mean``) can take the region's voxel centroid. Selecting the region
+    by label is exact and robust to the CCF→subject warp; ``hemisphere`` picks one
+    side of a lateralized annotation (left = negated id). See
+    :func:`ccf_region_label_ids` for the region/hemisphere semantics.
+
+    The voxel→physical mapping uses the same forward affine as
+    :func:`voxel_values_at` (``origin + direction @ (spacing * index)``).
+    """
+    match_ids = ccf_region_label_ids(
+        acronym=acronym,
+        label_id=label_id,
+        include_descendants=include_descendants,
+        hemisphere=hemisphere,
+    )
+    annotation = sitk.ReadImage(path)
+    arr = sitk.GetArrayFromImage(annotation)  # (Z, Y, X)
+    zyx = np.argwhere(np.isin(arr, match_ids))  # (N, 3) in (z, y, x)
+    if zyx.shape[0] == 0:
+        raise ValueError(
+            f"ccf_region_voxel_points: no voxels matched ids={sorted(match_ids)} "
+            f"(hemisphere={hemisphere!r}) in {path}"
+        )
+    idx_xyz = zyx[:, ::-1].astype(np.float64)  # (N, 3) in (x, y, z)
+    origin = np.asarray(annotation.GetOrigin(), dtype=np.float64)
+    spacing = np.asarray(annotation.GetSpacing(), dtype=np.float64)
+    direction = np.asarray(annotation.GetDirection(), dtype=np.float64).reshape(3, 3)
+    return origin + (idx_xyz * spacing) @ direction.T
+
+
 @register_loader
 def ccf_annotation_region(
     path: str,

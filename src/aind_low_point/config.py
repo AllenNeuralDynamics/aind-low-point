@@ -1172,13 +1172,9 @@ class DerivedTargetSpecModel(BaseModel):
                         f"hemisphere set requires source asset '{asset_key}' to "
                         f"be defined with a loader"
                     )
-                overrides["src"] = (
-                    str(src_asset.src) if src_asset.src is not None else None
+                self._wire_hemisphere_overrides(
+                    asset_key, src_asset, asset_by_key or {}, overrides
                 )
-                overrides["loader"] = src_asset.loader
-                lk = dict(src_asset.loader_kwargs or {})
-                lk["hemisphere"] = self.hemisphere
-                overrides["loader_kwargs"] = lk
             else:
                 overrides["source_key"] = asset_key
             kwargs = _passthrough_kwargs(
@@ -1186,6 +1182,91 @@ class DerivedTargetSpecModel(BaseModel):
             )
             results.append(TargetSpecModel(**kwargs))
         return results
+
+    def _wire_hemisphere_overrides(
+        self,
+        asset_key: str,
+        src_asset: "AssetSpecModel",
+        asset_by_key: dict[str, "AssetSpecModel"],
+        overrides: dict[str, Any],
+    ) -> None:
+        """Fill ``overrides`` so a hemisphere-set derived target selects its
+        region by **voxel label** (the canonical mechanism).
+
+        Branches on ``self.reducer`` — the differentiator already present on the
+        spec, so no extra fields are needed:
+
+        - ``points_in_region_center_mass`` (retro): keep the reducer; the target
+          renders the source structure mesh (``source_key``) but selection is by
+          voxel label, so inject the source asset's annotation path + region spec
+          (and hemisphere) into ``reducer_kwargs``. The ``points_key`` retro cloud
+          must share the annotation's frame, so guard it for identity
+          canonicalization.
+        - ``points_mean`` (anatomical): load the region's voxel cloud directly via
+          ``ccf_region_voxel_points`` and take its mean.
+        - otherwise (e.g. ``mesh_center_mass``): legacy behaviour — re-load the
+          source asset's region restricted to the hemisphere as a mesh.
+        """
+        # The region spec lives in the source asset's loader_kwargs.
+        src_lk = dict(src_asset.loader_kwargs or {})
+        region = {
+            k: src_lk[k]
+            for k in ("acronym", "label_id", "include_descendants")
+            if k in src_lk
+        }
+        src_str = str(src_asset.src) if src_asset.src is not None else None
+
+        if self.reducer == "points_in_region_center_mass":
+            # Structure mesh renders, but the reducer ignores it (label-based).
+            overrides["source_key"] = asset_key
+            rk = dict(self.reducer_kwargs or {})
+            self._guard_retro_points_frame(rk.get("points_key"), asset_by_key)
+            rk["annotation_path"] = src_str
+            rk.update(region)
+            rk["hemisphere"] = self.hemisphere
+            overrides["reducer_kwargs"] = rk
+        elif self.reducer == "points_mean":
+            overrides["src"] = src_str
+            overrides["loader"] = "ccf_region_voxel_points"
+            lk = dict(region)
+            lk["hemisphere"] = self.hemisphere
+            overrides["loader_kwargs"] = lk
+        else:
+            overrides["src"] = src_str
+            overrides["loader"] = src_asset.loader
+            lk = dict(src_lk)
+            lk["hemisphere"] = self.hemisphere
+            overrides["loader_kwargs"] = lk
+
+    @staticmethod
+    def _guard_retro_points_frame(
+        points_key: Optional[str],
+        asset_by_key: dict[str, "AssetSpecModel"],
+    ) -> None:
+        """Require the retro ``points_key`` asset to be in the annotation frame.
+
+        ``points_in_region_center_mass`` looks the retro cloud up against the
+        natively-read annotation volume, which is only valid when the retro asset
+        is in that same physical frame — i.e. it carries no canonicalization. A
+        non-identity canonicalization would silently shift the points off the
+        volume and mis-select; catch it here with a clear error rather than
+        relying on the membership happening to come out empty.
+        """
+        if points_key is None:
+            return
+        pts_asset = asset_by_key.get(points_key)
+        if pts_asset is None:
+            return  # cross-reference validation elsewhere reports a missing key
+        if (
+            pts_asset.canonicalization_ref is not None
+            or pts_asset.canonicalization is not None
+        ):
+            raise ValueError(
+                f"retro points asset '{points_key}' must be in the annotation "
+                "frame (identity canonicalization) for voxel-label selection, "
+                f"but has canonicalization "
+                f"{pts_asset.canonicalization_ref or pts_asset.canonicalization!r}"
+            )
 
 
 # Type alias for targets that can be single, range, or derived

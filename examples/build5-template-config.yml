@@ -8,7 +8,11 @@ version: 1
 
 paths:
   template_dir: "/mnt/Data/MRI/templates/AIND-MRI-T1-template-47-brain-mirror-2026-04-13"
-  atlas_dir: "${.template_dir}/brainglobe_meshes_in_build5"
+  # Lateralized CCF annotation warped into template-LPS (left = negated label
+  # id, IBL convention). Structures are meshed from this volume and per-hemisphere
+  # targets are its region voxel centroids — the same voxel-label mechanism as the
+  # subject configs. TODO(confirm exact filename under template_dir).
+  ccf_annotation_path: "${.template_dir}/ccf_annotation_in_template.nii.gz"
   probe_models_dir: "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels"
   hardware_dir: "${.probe_models_dir}"
 
@@ -91,21 +95,153 @@ assets:
     caps: [renderable]
     scene_tags: [static, brain]
 
-  # CCF region meshes from the brainglobe build5 directory. Already in
-  # template-LPS mm so canonicalization is identity. Resolved by acronym
-  # via the bundled CCF ontology.
-  - atlas_dir: "${paths.atlas_dir}"
-    acronyms: [ACB, GPe, SNr, VTA, SI, PL, ORB, SUB, BLA, MD, PVT, LHA, ACA]
-    key_prefix: "structure"
+  # CCF regions meshed from the lateralized annotation volume (template-LPS mm,
+  # so canonicalization is identity). Selecting by label — rather than loading a
+  # separate per-region brainglobe mesh — keeps rendering and per-hemisphere
+  # target selection on one source of truth. Colors are the bundled CCF colors.
+  - key: structure:ACB
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: ACB }
     canonicalization_ref: "identity-lps"
-    material_ref: structure   # provides opacity etc.; color overridden per region
-    use_ccf_color: true       # each region rendered in its bundled CCF color
     role: anatomy
     tags: [structure]
     scene_tags: [static, structure]
-    collision:
-      group: static
-      mask: []
+    metadata: { ccf_acronym: ACB, hemisphere: both }
+    material: { color: "#80CDF8", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:GPe
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: GPe }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: GPe, hemisphere: both }
+    material: { color: "#8599CC", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:SNr
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: SNr }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: SNr, hemisphere: both }
+    material: { color: "#FF90FF", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:VTA
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: VTA }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: VTA, hemisphere: both }
+    material: { color: "#FF90FF", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:SI
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: SI }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: SI, hemisphere: both }
+    material: { color: "#A2B1D8", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:PL
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: PL }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: PL, hemisphere: both }
+    material: { color: "#2FA850", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:ORB
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: ORB }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: ORB, hemisphere: both }
+    material: { color: "#248A5E", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:SUB
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: SUB }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: SUB, hemisphere: both }
+    material: { color: "#4FC244", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:BLA
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: BLA }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: BLA, hemisphere: both }
+    material: { color: "#9DE79C", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:MD
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: MD }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: MD, hemisphere: both }
+    material: { color: "#FF909F", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:PVT
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: PVT }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: PVT, hemisphere: both }
+    material: { color: "#FF909F", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:LHA
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: LHA }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: LHA, hemisphere: both }
+    material: { color: "#F2483B", opacity: 0.12 }
+    collision: { group: static, mask: [] }
+  - key: structure:ACA
+    src: "${paths.ccf_annotation_path}"
+    loader: ccf_annotation_region
+    loader_kwargs: { acronym: ACA }
+    canonicalization_ref: "identity-lps"
+    role: anatomy
+    tags: [structure]
+    scene_tags: [static, structure]
+    metadata: { ccf_acronym: ACA, hemisphere: both }
+    material: { color: "#40A666", opacity: 0.12 }
+    collision: { group: static, mask: [] }
 
   # Hardware fixtures — each in its own native frame.
   - key: implant
@@ -150,21 +286,24 @@ assets:
     templates: [probe]
 
 targets:
-  # Per-hemisphere centroids of every CCF region in the catalog. Using
-  # ``derive_from_pattern`` means the atlas pack's ``acronyms:`` list
-  # above is the single source of truth — to add or remove a region,
-  # edit one place. The pattern is resolved against asset keys after
-  # the atlas pack expands.
+  # Per-hemisphere region voxel centroids by label (exact, robust to the
+  # CCF→template warp). The ``structure:*`` glob resolves against the structure
+  # assets above, so that asset list stays the single source of truth — to add
+  # or remove a region, edit one place. ``expand`` wires each target to
+  # ``ccf_region_voxel_points`` + ``points_mean`` from the source asset and the
+  # ``hemisphere``.
   - derive_from: "structure:*"
     key_prefix: "target:L:"
-    reducer: hemisphere_center_mass
-    reducer_kwargs: { hemisphere: left }
+    hemisphere: left
+    reducer: points_mean
+    canonicalization_ref: "identity-lps"
     templates: [structure]
 
   - derive_from: "structure:*"
     key_prefix: "target:R:"
-    reducer: hemisphere_center_mass
-    reducer_kwargs: { hemisphere: right }
+    hemisphere: right
+    reducer: points_mean
+    canonicalization_ref: "identity-lps"
     templates: [structure]
 
 scene:

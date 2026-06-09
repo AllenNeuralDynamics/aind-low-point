@@ -641,8 +641,12 @@ def emit_full_config(  # noqa: C901
                 {
                     "derive_from": [f"structure:{s}" for s in structures],
                     "key_prefix": f"target:{hemi_key}:",
-                    "reducer": "hemisphere_center_mass",
-                    "reducer_kwargs": {"hemisphere": hemi_kw},
+                    # Per-hemisphere region voxel centroid by label (exact and
+                    # robust to the CCF→subject warp), not a geometric midline
+                    # cut: ``ccf_region_voxel_points`` + ``points_mean`` is wired
+                    # by ``DerivedTargetSpecModel.expand`` from ``hemisphere``.
+                    "hemisphere": hemi_kw,
+                    "reducer": "points_mean",
                     "templates": ["structure"],
                     "transform": "headframe_to_lps",
                     "scene_tags": ["static", "target", "brain"],

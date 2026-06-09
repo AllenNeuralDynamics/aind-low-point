@@ -63,6 +63,11 @@ from aind_low_point.runtime.export import (
 from aind_low_point.runtime.loaders import (
     _GEOMETRY_LOADER_REGISTRY,
     GeometryOut,
+    ccf_annotation_region,
+    ccf_region_label_ids,
+    ccf_region_membership,
+    ccf_region_point_mask,
+    ccf_region_voxel_points,
     csv_points,
     load_geometry,
     load_trimesh_lps,
@@ -70,6 +75,7 @@ from aind_low_point.runtime.loaders import (
     register_loader_fn,
     sitk_volume,
     trimesh_from_sitk_mask,
+    voxel_values_at,
 )
 from aind_low_point.runtime.reducers import (
     _REDUCER_REGISTRY,
@@ -78,6 +84,7 @@ from aind_low_point.runtime.reducers import (
     mesh_center_mass,
     mesh_centroid,
     points_in_region_center_mass,
+    points_mean,
     reduce_target,
     register_reducer,
     register_reducer_fn,
@@ -118,6 +125,11 @@ __all__ = [
     # loaders
     "GeometryOut",
     "_GEOMETRY_LOADER_REGISTRY",
+    "ccf_annotation_region",
+    "ccf_region_label_ids",
+    "ccf_region_membership",
+    "ccf_region_point_mask",
+    "ccf_region_voxel_points",
     "csv_points",
     "load_geometry",
     "load_trimesh_lps",
@@ -125,6 +137,7 @@ __all__ = [
     "register_loader_fn",
     "sitk_volume",
     "trimesh_from_sitk_mask",
+    "voxel_values_at",
     # shanks
     "detect_shank_tips_local",
     # reducers
@@ -134,6 +147,7 @@ __all__ = [
     "mesh_center_mass",
     "mesh_centroid",
     "points_in_region_center_mass",
+    "points_mean",
     "reduce_target",
     "register_reducer",
     "register_reducer_fn",
