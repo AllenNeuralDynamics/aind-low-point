@@ -74,8 +74,8 @@ class JointRange:
 @dataclass(frozen=True, slots=True)
 class PoseLimits:
     # angular limits (deg)
-    ap_deg: JointRange = field(default_factory=lambda: JointRange(-60.0, 60.0))
-    ml_deg: JointRange = field(default_factory=lambda: JointRange(-60.0, 60.0))
+    ap_deg: JointRange = field(default_factory=lambda: JointRange(-75.0, 75.0))
+    ml_deg: JointRange = field(default_factory=lambda: JointRange(-45.0, 45.0))
     spin_deg: JointRange = field(default_factory=lambda: JointRange(-180.0, 180.0))
     # translational work envelope (mm); set to None if unbounded
     x_mm: Optional[JointRange] = None

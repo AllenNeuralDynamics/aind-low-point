@@ -366,7 +366,7 @@ def build_atlas(
     holes: list[Hole],
     *,
     ap_step_deg: float = 2.0,
-    ap_max_excursion_deg: float = 60.0,
+    ap_max_excursion_deg: float = 75.0,
     abandon_after_failures: int = 2,
     max_target_miss_mm: float = 2.0,
     threading_tol: float = 0.0,

@@ -1062,9 +1062,9 @@ def _reduced_bounds(
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(n_arcs):
-        bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
+        bounds.append((-75.0 + head_pitch_deg, +75.0 + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-60.0, +60.0))  # ml
+        bounds.append((-45.0, +45.0))  # ml
         # (sx, sy) bounds at ±1.1 — the unit_circle_penalty pulls
         # magnitude toward 1; a small allowance keeps the optimizer
         # away from a rectangular constraint boundary while letting

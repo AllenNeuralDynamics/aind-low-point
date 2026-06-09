@@ -164,11 +164,9 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
 
 
 def _ap_bounds_deg(head_pitch_deg: float) -> tuple[float, float]:
-    """Per-arc AP bounds in degrees. Matches the existing reduced-bounds
-    convention (±90° around the head pitch). Loose, since SLSQP is
-    constraint-aware; for Adam we may want tighter bounds and rely on
-    penalties for feasibility."""
-    return -90.0 + head_pitch_deg, 90.0 + head_pitch_deg
+    """Per-arc AP bounds in degrees: the ±75° kinematic AP range expressed
+    around the head pitch (matches ``PoseLimits.ap_deg``)."""
+    return -75.0 + head_pitch_deg, 75.0 + head_pitch_deg
 
 
 def build_batched_probe_static(
@@ -263,7 +261,7 @@ def build_batched_probe_static(
     # ML / (sx, sy) bounds. Spin is parameterized as a 2D unit-circle
     # vector to remove the ±180° angle wrap; each component bounded
     # to ±1.5 (loose around the unit circle).
-    ml_lo, ml_hi = -55.0, 55.0
+    ml_lo, ml_hi = -45.0, 45.0
     sxy_lo, sxy_hi = -1.5, 1.5
 
     _t_margin = threading_margin_mm()

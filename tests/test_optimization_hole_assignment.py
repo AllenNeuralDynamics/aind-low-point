@@ -162,7 +162,7 @@ def test_cost_matrix_rejects_infeasible_pairs():
         ),
     ]
     holes = [
-        _make_hole(0, a=0.35, b=0.25, theta=np.pi / 2),  # too small
+        _make_hole(0, a=0.15, b=0.1, theta=np.pi / 2),  # too small at any angle
         _make_hole(1, a=0.6, b=0.35, theta=np.pi / 2),  # OK
     ]
     cost = build_cost_matrix(probes, holes)

@@ -127,9 +127,9 @@ def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
     """Box bounds for Phase 1 x = (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)."""
     bounds = []
     for _ in range(n_arcs):
-        bounds.append((-60.0 + head_pitch_deg, +60.0 + head_pitch_deg))
+        bounds.append((-75.0 + head_pitch_deg, +75.0 + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-60.0, +60.0))  # ml
+        bounds.append((-45.0, +45.0))  # ml
         # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
         bounds.append((-1.1, +1.1))  # sx
         bounds.append((-1.1, +1.1))  # sy
