@@ -25,9 +25,11 @@ STEM="$(basename "${CONFIG%.yml}")"
 POOL="scratch/${STEM}_pool.pkl"
 HANDOFF="scratch/${STEM}_phase2_handoff.pkl"
 PLANDIR="scratch/${STEM}_plans"
-# WORKERS=8: GPU thread-shared knee is past 4 (benched) — W=8 is +22% throughput
-# over W=4 at 5.3 GB HBM (safe); higher W adds only ~10-15% at rising contention.
-TOPK="${TOPK:-200}"; P2_ITER="${P2_ITER:-1000}"; WORKERS="${WORKERS:-8}"
+# WORKERS=4: GPU thread-shared knee (re-benched on real 837229 candidates after
+# the kernel vmapping). Faster GPU evals make Phase-2 more host/IPOPT-bound, so
+# the knee moved in from >4 to 4: W=2 is -18%, W=4 == W=8 (flat). 4 = full
+# throughput with less GIL/stream contention + HBM than 8.
+TOPK="${TOPK:-200}"; P2_ITER="${P2_ITER:-1000}"; WORKERS="${WORKERS:-4}"
 COARSE_N="${COARSE_N:-1000}"; REDUCED_FINE="${REDUCED_FINE:-50}"; FULL_FINE="${FULL_FINE:-50}"
 EMIT_N="${EMIT_N:-15}"
 

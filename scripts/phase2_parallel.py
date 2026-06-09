@@ -62,7 +62,7 @@ TOPK = int(_os.environ.get("TOPK", "80"))
 # Default 8: the GPU-thread-shared sweet spot from the bandwidth bake-off (W=8 ≈
 # 0.067 cand/s on the shared HBM; the knee is past 4 threads). POOL=thread means
 # all 8 share one GPU context.
-WORKERS = int(_os.environ.get("WORKERS", "8"))
+WORKERS = int(_os.environ.get("WORKERS", "4"))
 P2_ITER = int(_os.environ.get("P2_ITER", "200"))
 MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
 LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "5.0"))
