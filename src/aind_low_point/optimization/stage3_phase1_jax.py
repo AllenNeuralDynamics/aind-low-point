@@ -191,6 +191,26 @@ def _saturating_reward_mean(
     return jnp.sum(h_masked) / n_valid
 
 
+def _saturating_reward_worst(
+    slack: jnp.ndarray,
+    tau: float,
+    valid: jnp.ndarray,
+) -> jnp.ndarray:
+    """Per-probe worst-shank saturating reward, averaged over probes.
+
+    ``slack`` and ``valid`` are ``(P, K)`` where the K axis spans the
+    flattened (section × shank) entries for each probe. Picks the
+    *worst* (minimum) valid slack per probe — so the reward fires on
+    each probe's tightest shank, not an average. Probes with no valid
+    entries contribute 0.
+    """
+    big_slack = jnp.where(valid > 0, slack, jnp.inf)
+    worst = jnp.min(big_slack, axis=1)  # (P,) — tightest shank per probe
+    has_valid = jnp.any(valid > 0, axis=1)  # (P,)
+    h = jnp.where(has_valid, 1.0 - jnp.exp(-jnp.maximum(0.0, worst) / tau), 0.0)
+    return jnp.sum(h) / jnp.maximum(jnp.sum(has_valid), 1.0)
+
+
 # ---------------------------------------------------------------------------
 # Phase 1 weights
 # ---------------------------------------------------------------------------
@@ -628,11 +648,12 @@ def _build_jit(  # noqa: C901
         else:
             reward_clear = jnp.float32(0.0)
 
-        # Saturating per-(probe, shank, section) threading margin reward.
-        # Flatten the vmapped (P, S*SH) slacks/masks probe-major — same order as
-        # the old per-probe concatenate.
-        reward_thread = _saturating_reward_mean(
-            _thread_slacks.reshape(-1), tau_t, valid=_thread_masks.reshape(-1)
+        # Saturating per-probe worst-shank threading margin reward.
+        # _thread_slacks/_thread_masks are (P, S*SH) from the vmap — pass
+        # directly so _saturating_reward_worst sees each probe's tightest
+        # shank rather than averaging across all shanks.
+        reward_thread = _saturating_reward_worst(
+            _thread_slacks, tau_t, _thread_masks
         )
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the

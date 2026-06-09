@@ -26,7 +26,7 @@ from numpy.typing import NDArray
 from aind_low_point.optimization.arc_assignment import ArcAssignment
 from aind_low_point.optimization.geometry import cap_basis
 from aind_low_point.optimization.hole_assignment import HoleAssignment
-from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.holes import Hole, threading_margin_mm
 from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.recording import (
     RecordingGeometry,
@@ -266,6 +266,7 @@ def build_batched_probe_static(
     ml_lo, ml_hi = -55.0, 55.0
     sxy_lo, sxy_hi = -1.5, 1.5
 
+    _t_margin = threading_margin_mm()
     for b, (ha, aa) in enumerate(candidates):
         # Per-arc AP bounds
         for a in range(n_arcs):
@@ -299,8 +300,8 @@ def build_batched_probe_static(
                 )
                 section_cos_np[b, i, s_idx] = float(np.cos(sec.theta))
                 section_sin_np[b, i, s_idx] = float(np.sin(sec.theta))
-                section_a_np[b, i, s_idx] = float(sec.a)
-                section_b_np[b, i, s_idx] = float(sec.b)
+                section_a_np[b, i, s_idx] = max(float(sec.a) - _t_margin, 1e-3)
+                section_b_np[b, i, s_idx] = max(float(sec.b) - _t_margin, 1e-3)
                 section_mask_np[b, i, s_idx] = True
 
             if p.name in name_to_kind:

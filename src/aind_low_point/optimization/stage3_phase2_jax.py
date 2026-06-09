@@ -65,6 +65,7 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     FixtureSDFData,
     _pack_statics,
     _saturating_reward_mean,
+    _saturating_reward_worst,
 )
 
 # ---------------------------------------------------------------------------
@@ -413,8 +414,11 @@ def _build_jit(  # noqa: C901
             Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin,
             s_a, s_b, section_mask, shank_mask, shaft_len=shaft_len,
         )
-        thread_slacks_flat = (thread_tol - _tg).reshape(-1)
-        thread_masks_flat = _tvalid.reshape(-1)
+        # (P, -1): per-probe view for worst-shank reward. Hard constraint
+        # computes its own flat view from _tg/_tvalid below.
+        _n_probes_t = _tg.shape[0]
+        _thread_slacks_pp = (thread_tol - _tg).reshape(_n_probes_t, -1)
+        _thread_masks_pp = _tvalid.reshape(_n_probes_t, -1)
 
         # Probe-probe clearance, vmapped over the static pair list (one dual-rep
         # subgraph vs C(P,2) unrolled — see clearance_sweep). Objective only needs
@@ -468,8 +472,8 @@ def _build_jit(  # noqa: C901
             if _hard_parts
             else jnp.float32(0.0)
         )
-        reward_thread = _saturating_reward_mean(
-            thread_slacks_flat, tau_t, valid=thread_masks_flat
+        reward_thread = _saturating_reward_worst(
+            _thread_slacks_pp, tau_t, _thread_masks_pp
         )
 
         # Unit-circle pull on (sx, sy). x stride = PHASE1_PER_PROBE_VARS = 6.

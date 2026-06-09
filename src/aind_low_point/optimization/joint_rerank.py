@@ -61,7 +61,7 @@ from aind_low_point.optimization.hole_assignment import (
     build_cost_matrix,
     solve_top_k_assignments,
 )
-from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.holes import Hole, threading_margin_mm
 from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
 )
@@ -311,7 +311,6 @@ _SDF_JNP_CACHE: dict[tuple, dict] = {}
 _CATASTROPHIC_FN_THRESHOLD: float = 1.0e4
 _CATASTROPHIC_MAX_VIOL_SENTINEL: float = 1.0e6
 
-
 _STAGE2_TIMINGS: dict[str, float] = {
     "build_probe_static": 0.0,
     "build_starts": 0.0,
@@ -411,6 +410,16 @@ def _build_probe_static(
         s_thetas = np.array([float(s.theta) for s in sections])
         s_a = np.array([float(s.a) for s in sections])
         s_b = np.array([float(s.b) for s in sections])
+        # Inset each bore oval by the effective shank radius so the centerline
+        # threading check leaves room for the shank's finite width — see
+        # ``holes.DEFAULT_THREADING_MARGIN_MM``. This single source propagates to
+        # both the numpy ``_max_g_threading`` and the batched JAX
+        # ``threading_g_matrix`` (which read ``section_a``/``section_b``), and
+        # onward to the threading reward, constraint, and hole-fit reporting.
+        _margin = threading_margin_mm()
+        if _margin:
+            s_a = np.maximum(s_a - _margin, 1e-3)
+            s_b = np.maximum(s_b - _margin, 1e-3)
         if bvh_cache is not None and p.name in bvh_cache:
             bvh_obj = bvh_cache[p.name]
         else:
@@ -452,9 +461,12 @@ def _max_g_threading(
     ml_deg: float,
     spin_deg: float,
     shaft_length_mm: float = 10.0,
-    shank_radius_mm: float = 0.05,
 ) -> NDArray:
     """Per-(shank × section) threading ``g`` values at the given pose.
+
+    The bore ovals (``static.section_a``/``section_b``) are already inset by the
+    threading margin in ``_build_probe_static``, so the shank is modelled as a
+    thin centerline here and the inset accounts for its finite width.
 
     Returns a flat 1-D array (shape ``(n_shanks * n_sections,)``).
     Vectorised across sections using the precomputed ``cap_basis``

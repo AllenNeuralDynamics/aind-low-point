@@ -28,6 +28,7 @@ major-axis orientation.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +37,26 @@ import yaml
 from numpy.typing import NDArray
 
 from aind_low_point.optimization.geometry import HoleSection, cap_basis
+
+# Threading margin: the threading check models each shank as a thin CENTERLINE,
+# so ``g <= 0`` only means the centerline is inside the bore oval — a centerline
+# grazing the wall puts the finite-width shank EDGE through it (which FCL then
+# reports as a collision). Inset each bore oval's semi-axes by this effective
+# shank radius (mm) so ``g <= 0`` instead means the real shank clears the real
+# wall, mapping threading feasibility onto FCL feasibility. Empirically
+# 0.06–0.08 mm perfectly separates the FCL-clearing probes from the FCL-colliders
+# on the 837229 density plans (0.07 is the robust midpoint). Applied at both
+# probe-static builders (``_build_probe_static`` and ``build_batched_probe_static``)
+# so every optimizer stage — spin restore, Phase-1, Phase-2 — sees the inset.
+# NOT applied to the hole-assignment gate (``static_threading_max_g``), which
+# stays pure centerline geometry. ``THREADING_MARGIN_MM=0`` reproduces the legacy
+# centerline check.
+DEFAULT_THREADING_MARGIN_MM: float = 0.07
+
+
+def threading_margin_mm() -> float:
+    """Effective shank-radius inset (mm) applied to bore ovals (env-overridable)."""
+    return float(os.environ.get("THREADING_MARGIN_MM", DEFAULT_THREADING_MARGIN_MM))
 
 
 @dataclass(frozen=True, slots=True)
