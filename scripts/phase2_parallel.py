@@ -122,8 +122,25 @@ COV_WEIGHT = float(_os.environ.get("COV_WEIGHT", "1.0"))
 _G: dict = {}
 
 
+def _setup_compile_cache():
+    """Enable JAX's PERSISTENT (on-disk) compile cache, shared by every process.
+
+    Without this, each spawned worker recompiles the Phase-2 graph from scratch
+    (~20s) — the parent warmup only ever warmed the parent's in-memory cache,
+    which a spawn()ed worker can't see. With a disk cache, a single warmup (in
+    ONE worker) writes the compiled executables to disk and all other workers
+    LOAD them — so the parent never needs a GPU context."""
+    import jax
+
+    cache_dir = _os.environ.get("JAX_CACHE_DIR", "scratch/jax_p2_cache")
+    jax.config.update("jax_compilation_cache_dir", cache_dir)
+    jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+    jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
+
+
 def _init():
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap)."""
+    _setup_compile_cache()
     from aind_low_point.config import ConfigModel
     from aind_low_point.optimization.headstages import make_fcl_bvh
     from aind_low_point.optimization.holes import load_holes
@@ -446,32 +463,40 @@ def main() -> int:
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {WORKERS} workers"
         f" x {_THREADS} thr, maxiter={P2_ITER}, lam={LAM_CLEAR} tau={TAU_CLEAR}"
     )
-    # Pay the one-time startup ONCE, single-threaded: compiles/loads the graph
-    # into the in-process _JIT_CACHE + onto the GPU, and builds cov_data — so
-    # threads (POOL=thread) all hit the warm cache (no compile race), and
-    # spawned workers (POOL=process) load from the disk compile cache.
-    tw = time.time()
-    if POOL == "thread" or WARMUP:
-        print(
-            f"warming (single-threaded) for n_arcs "
-            f"{sorted({r['n_arcs'] for r in recs})}...",
-            flush=True,
-        )
+    # Pay the one-time compile ONCE. Threads share the PARENT's context, so warm
+    # there. Spawned workers each have their own context and can't see the
+    # parent's in-memory cache — so for a PROCESS pool we warm inside ONE worker,
+    # which writes the persistent disk cache; the rest LOAD from it. This keeps
+    # the parent GPU-free (no idle ~2.4GiB context), leaving HBM for an extra
+    # worker. Largest n_arcs first so the heaviest compile is the one warmed.
+    nstr = sorted({r["n_arcs"] for r in recs})
+    if POOL == "thread":
+        tw = time.time()
+        print(f"warming (in-parent, single-threaded) for n_arcs {nstr}...", flush=True)
         _warmup(recs)
         print(f"  warmup {time.time() - tw:.0f}s", flush=True)
-    t0 = time.time()
-    if POOL == "thread":
-        # One GPU context shared across threads (no per-worker memory); the
-        # cache is already warm so each thread starts at steady speed.
+        t0 = time.time()
+        # One GPU context shared across threads (no per-worker memory).
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(WORKERS) as ex:
             results = list(ex.map(_phase2_one, recs))
+        wall = time.time() - t0  # processing only (excludes warmup)
     else:
         ctx = get_context("spawn")
         with ctx.Pool(WORKERS, initializer=_init) as pool:
+            if WARMUP:
+                tw = time.time()
+                print(
+                    f"warming (one worker → disk cache; parent stays GPU-free) "
+                    f"for n_arcs {nstr}...",
+                    flush=True,
+                )
+                pool.apply(_warmup, (recs,))
+                print(f"  warmup {time.time() - tw:.0f}s", flush=True)
+            t0 = time.time()
             results = pool.map(_phase2_one, recs)
-    wall = time.time() - t0  # processing only (excludes warmup)
+            wall = time.time() - t0  # processing only (excludes warmup)
     compute = float(sum(r["secs"] for r in results))
     print(
         f"  {wall / 60:.2f} min wall; {compute:.0f}s total compute; "
