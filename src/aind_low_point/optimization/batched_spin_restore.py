@@ -47,65 +47,6 @@ from aind_low_point.optimization.sdf_jax import (
 )
 
 
-def make_batched_spin_restore(
-    static: BatchedProbeStatic,
-    weights: JointWeights,
-    *,
-    n_spins: int = 8,
-    n_rounds: int = 2,
-    fixtures: tuple = (),
-) -> Callable:
-    """Build a batched spin-restore function.
-
-    Returns ``restore(y) -> y`` where ``y: (B, n_vars)``. Each probe
-    has its spin set to the value (out of ``n_spins`` linearly spaced
-    over ``[-180, 180)``) that minimizes the batched objective with
-    other probes' spins held fixed.
-
-    ``n_rounds`` repeats the K-probe round-robin sweep so later probes
-    can react to early probes' updated spins.
-
-    ``fixtures`` (e.g. the well-bore SDF) are folded into the objective so
-    the spin-basin argmin accounts for probe-vs-fixture clearance — without
-    it the basin ranking is uncorrelated with FCL feasibility.
-    """
-    obj_fn, _ = make_batched_reduced_objective(static, weights, fixtures)
-    n_arcs = static.n_arcs
-    K = static.K
-
-    # Patch B: spin is parameterized as (sx, sy) on the unit circle. The
-    # spin sweep evaluates n_spins points around the circle, replacing
-    # (sx, sy) with (cos θ_k, sin θ_k).
-    spin_angles = jnp.linspace(0.0, 2.0 * jnp.pi, n_spins, endpoint=False).astype(
-        jnp.float32
-    )
-    spin_xy_grid = jnp.stack(
-        [jnp.cos(spin_angles), jnp.sin(spin_angles)], axis=-1
-    )  # (n_spins, 2)
-
-    def _round_for_probe(y, i):
-        """Sweep probe ``i``'s (sx, sy) over the unit-circle grid; update to argmin."""
-        sx_idx = n_arcs + 3 * i + 1
-        sy_idx = n_arcs + 3 * i + 2
-
-        def eval_at_sxy(sxy):
-            y_new = y.at[:, sx_idx].set(sxy[0]).at[:, sy_idx].set(sxy[1])
-            return obj_fn(y_new, static)  # (B,)
-
-        losses = jax.vmap(eval_at_sxy)(spin_xy_grid)  # (n_spins, B)
-        best_idx = jnp.argmin(losses, axis=0)  # (B,)
-        best_sxy = spin_xy_grid[best_idx]  # (B, 2)
-        return y.at[:, sx_idx].set(best_sxy[:, 0]).at[:, sy_idx].set(best_sxy[:, 1])
-
-    def restore(y):
-        for _ in range(n_rounds):
-            for i in range(K):
-                y = _round_for_probe(y, i)
-        return y
-
-    return jax.jit(restore)
-
-
 def make_batched_spin_restore_chunked(
     probe_set_static: BatchedProbeStatic,
     weights: JointWeights,
@@ -118,9 +59,8 @@ def make_batched_spin_restore_chunked(
 
     Returns ``restore(y, *varying_arrays) -> y`` where ``varying_arrays``
     is the tuple returned by ``obj_batched.extract_arrays(bs_chunk)``.
-    Same-shape chunks reuse one JIT compile (vs. the closure-capture
-    variant in :func:`make_batched_spin_restore` which bakes bs into
-    the trace, forcing a full ~75s recompile per chunk).
+    Same-shape chunks reuse one JIT compile (vs. a closure-capture variant
+    that bakes bs into the trace, forcing a full ~75s recompile per chunk).
 
     ``probe_set_static`` provides the probe-set constants (probe
     targets, pivots, shank tips, SDF tables) — these are identical
