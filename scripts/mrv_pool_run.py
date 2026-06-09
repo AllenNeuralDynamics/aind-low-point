@@ -24,7 +24,7 @@ Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 -m scripts.mrv_pool_run
 Env:  MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
-      STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=64 FCL_TOPK=300 LIMIT=0
+      STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128 FCL_TOPK=300
 """
 
 from __future__ import annotations
@@ -78,8 +78,8 @@ STAGE1 = int(_os.environ.get("STAGE1", "500"))
 STAGE2 = int(_os.environ.get("STAGE2", "500"))
 N_SPINS = int(_os.environ.get("N_SPINS", "16"))
 RESTORE_ROUNDS = int(_os.environ.get("RESTORE_ROUNDS", "4"))
-CHUNK = int(_os.environ.get("CHUNK", "64"))
-RESTORE_CHUNK = int(_os.environ.get("RESTORE_CHUNK", "32"))
+CHUNK = int(_os.environ.get("CHUNK", "256"))
+RESTORE_CHUNK = int(_os.environ.get("RESTORE_CHUNK", "128"))
 PIPELINE_DEPTH = int(_os.environ.get("PIPELINE_DEPTH", "2"))
 FCL_TOPK = int(_os.environ.get("FCL_TOPK", "300"))
 LIMIT = int(_os.environ.get("LIMIT", "0"))

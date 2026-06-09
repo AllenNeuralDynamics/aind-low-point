@@ -73,7 +73,7 @@ MMR_LAMBDA = float(_os.environ.get("MMR_LAMBDA", "0.5"))
 # "dense" (exact n×n Hessian — ~44x slower), or "hessp" (exact Hessian-VECTOR
 # products via JAX — ~2x a gradient, the affordable exact second-order).
 HESS = _os.environ.get("HESS", "none").lower()
-# Solver: "trust-constr" (scipy, default) or "ipopt" (cyipopt interior-point).
+# Solver: "ipopt" (cyipopt interior-point, default) or "trust-constr" (scipy).
 # IPOPT's restoration phase reaches feasibility from infeasible starts far
 # better than trust-constr — on the tuned-545 stalled set it rescues 9/11 vs
 # trust-constr-BFGS 0/11. We run it LIMITED-MEMORY (L-BFGS): no second-order, so
@@ -82,7 +82,7 @@ HESS = _os.environ.get("HESS", "none").lower()
 # GPU autotuner crash — and (b) it BEATS exact-Hessian IPOPT here (more rescues,
 # doesn't drive feasible cands into collision, 2-5x faster) because this NLP is
 # nonconvex and the exact Lagrangian Hessian is indefinite away from the optimum.
-SOLVER = _os.environ.get("SOLVER", "trust-constr").lower()
+SOLVER = _os.environ.get("SOLVER", "ipopt").lower()
 # IPOPT knobs (only consulted when SOLVER=ipopt). max_iter reuses P2_ITER.
 IP_HIST = int(_os.environ.get("IP_HIST", "6"))  # limited_memory_max_history
 IP_MU = _os.environ.get("IP_MU", "adaptive")  # mu_strategy
