@@ -38,19 +38,27 @@ COV_ALPHA="${COV_ALPHA:-0.2}"; COV_WEIGHT="${COV_WEIGHT:-1.0}"
 # the knee moved in from >4 to 4: W=2 is -18%, W=4 == W=8 (flat). 4 = full
 # throughput with less GIL/stream contention + HBM than 8.
 TOPK="${TOPK:-200}"; P2_ITER="${P2_ITER:-1000}"; WORKERS="${WORKERS:-4}"
+MAX_ARCS="${MAX_ARCS:-3}"  # Phase-1 loops n_arcs from this down to 1, one process each
 COARSE_N="${COARSE_N:-1000}"; REDUCED_FINE="${REDUCED_FINE:-50}"; FULL_FINE="${FULL_FINE:-50}"
 EMIT_N="${EMIT_N:-15}"
 
 echo "[$(date +%H:%M)] === subject=${STEM} ==="
 
 echo "[$(date +%H:%M)] Phase 1: MRV enumerate + restore + RProp/coarse-fine (no FCL cull) → ${POOL}"
-CONFIG="$CONFIG" HOLES="$HOLES" \
-  MAX_ARCS=3 MAX_PROBES_PER_ARC=4 FCL_TOPK=0 \
-  MINIMIZER=rprop WELL=thick N_SPINS=16 \
-  COARSE_N="$COARSE_N" REDUCED_FINE="$REDUCED_FINE" FULL_FINE="$FULL_FINE" \
-  RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
-  OUT="$POOL" JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
-  uv run --python 3.13 -m scripts.mrv_pool_run
+# One mrv_pool_run PROCESS per n_arcs group (ONLY_NARCS), largest first. Each
+# group gets a fresh GPU context so the BFC allocator can't fragment across
+# groups (the cause of the cross-group 5.9GiB restore OOM); the per-group resume
+# logic accumulates records into $POOL. A group with no candidates no-ops.
+for NA in $(seq "$MAX_ARCS" -1 1); do
+  echo "[$(date +%H:%M)]   Phase-1 group n_arcs=${NA}"
+  CONFIG="$CONFIG" HOLES="$HOLES" \
+    MAX_ARCS="$MAX_ARCS" MAX_PROBES_PER_ARC=4 FCL_TOPK=0 ONLY_NARCS="$NA" \
+    MINIMIZER=rprop WELL=thick N_SPINS=16 \
+    COARSE_N="$COARSE_N" REDUCED_FINE="$REDUCED_FINE" FULL_FINE="$FULL_FINE" \
+    RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
+    OUT="$POOL" JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
+    uv run --python 3.13 -m scripts.mrv_pool_run
+done
 
 echo "[$(date +%H:%M)] Phase 2: IPOPT + thick well on top-${TOPK} by min_clear (FCL at end) → ${HANDOFF}"
 SOLVER=ipopt CONFIG="$CONFIG" HOLES="$HOLES" \

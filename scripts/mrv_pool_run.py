@@ -85,6 +85,11 @@ FCL_TOPK = int(_os.environ.get("FCL_TOPK", "300"))
 LIMIT = int(_os.environ.get("LIMIT", "0"))
 MAX_ARCS = int(_os.environ.get("MAX_ARCS", "3"))
 MAX_PPA = int(_os.environ.get("MAX_PROBES_PER_ARC", "4"))
+# ONLY_NARCS=N restricts this invocation to a single n_arcs group. Lets a bash
+# loop run one group per PROCESS (fresh GPU each time) so the BFC allocator can't
+# fragment across groups — the cause of the cross-group restore OOM. The resume
+# logic (records keyed by n_arcs) accumulates groups across invocations.
+ONLY_NARCS = int(_os.environ.get("ONLY_NARCS", "0"))
 BF16 = _os.environ.get("BF16_STORE", "1") == "1"
 PROGRESS_EVERY = int(_os.environ.get("PROGRESS_EVERY", "25"))
 OUT = _os.environ.get("OUT", "scratch/mrv_pool_results.pkl")
@@ -502,6 +507,13 @@ def main() -> int:
             max_probes_per_arc=MAX_PPA,
         )
     )
+
+    if ONLY_NARCS:
+        by_arcs = {k: v for k, v in by_arcs.items() if k == ONLY_NARCS}
+        print(
+            f"  ONLY_NARCS={ONLY_NARCS}: "
+            + (f"{len(next(iter(by_arcs.values())))} cands" if by_arcs else "no cands")
+        )
 
     # Resume: reload any previously-saved records and skip those n_arcs groups.
     records: list = []
