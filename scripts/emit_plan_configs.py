@@ -26,21 +26,11 @@ import numpy as np
 import yaml
 
 from aind_low_point.config import ConfigModel
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.holes import load_holes
-from aind_low_point.optimization.joint_rerank import _build_probe_static
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
+from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
 from aind_low_point.runtime import (
-    build_runtime_from_config,
+    build_plan_state_from_config,
     planning_state_to_plan_model,
 )
-from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.run_optimizer import (
-    _probe_static_info,
-    _transform_holes,
-    retro_opts_from_env,
-)
-from scripts.save_chain_plans import _apply_x_to_plan_state
 
 CONFIG = os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
@@ -136,26 +126,14 @@ def _emit_manifest(meta, probe_order, path, fcl_desc):
 
 def main() -> int:
     cfg = ConfigModel.from_yaml(CONFIG)
-    rt = build_runtime_from_config(cfg)
-    _ro = retro_opts_from_env(rt)
-    probes = [
-        _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
-    ]
-    holes = load_holes(Path(HOLES))
-    comp = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in comp:
-        R, t = comp["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
-    sdf = {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        )
-        for p in probes
-    }
-    bvh = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
+    # Emission is pure-symbolic: it only writes plan parameters (arc/ml/spin/
+    # offsets/depth) from the handoff x-vector into a PlanningModel. It needs NO
+    # meshes/SDFs/BVHs — only the base PlanningState (built mesh-free from the
+    # config's plan section) plus, per probe, its name + arc_idx (both already in
+    # the handoff record). The actual 3D placement happens when the plan is
+    # loaded later.
+    base_plan_state = build_plan_state_from_config(cfg)
+    probe_names = list(base_plan_state.probes)
 
     H = pickle.load(open(HANDOFF, "rb"))
     ranked = H.get("ranked", [])  # MMR-ranked feasible plans
@@ -171,18 +149,16 @@ def main() -> int:
     meta = []
     for i, r in enumerate(ranked[:N]):
         n_arcs = r["n_arcs"]
-        ha = SimpleNamespace(probe_to_hole=r["hole"])
-        aa = SimpleNamespace(
-            probe_to_arc_idx=r["probe_to_arc_idx"],
-            arc_centroids_deg=list(r["arc_centroids_deg"]),
-        )
-        statics = _build_probe_static(
-            probes, holes, ha, aa, bvh_cache=bvh, sdf_by_name=sdf
-        )
-        # Deep-copy the base plan_state per plan (mutations must not bleed across
-        # plans); the runtime + meshes are built ONCE up front, not rebuilt per
-        # plan — rebuilding reloaded every OBJ from disk, ~2-3s/plan.
-        plan_state = copy.deepcopy(rt.plan_state)
+        # Lightweight statics: _apply_x_to_plan_state reads only .name and
+        # .arc_idx (the pose values come from the x-vector), both in the handoff.
+        # Order matches the optimizer: config probe order == x-block order.
+        statics = [
+            SimpleNamespace(name=nm, arc_idx=r["probe_to_arc_idx"][nm])
+            for nm in probe_names
+        ]
+        # Deep-copy the mesh-free base plan_state per plan (mutations must not
+        # bleed across plans).
+        plan_state = copy.deepcopy(base_plan_state)
         _apply_x_to_plan_state(
             plan_state, np.asarray(r["pose"], float), statics, n_arcs
         )

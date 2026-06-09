@@ -417,6 +417,91 @@ def load_resource(
     return geo
 
 
+def build_plan_state_from_config(
+    cfg: ConfigModel,
+    *,
+    catalog: AssetCatalog | None = None,
+    scene: Scene | None = None,
+    target_index: dict[str, Float3] | None = None,
+) -> PlanningState:
+    """Build the ``PlanningState`` from ``cfg.plan`` alone — MESH-FREE.
+
+    Only ``cfg.plan`` (arcs, calibrations, reticles, probe declarations) is
+    needed for ``inline`` and ``catalog`` target kinds, so this is the cheap
+    path for consumers that just read/write plan parameters (e.g. emitting plan
+    YAMLs). ``node`` targets need geometry resolution: pass ``catalog`` + ``scene``
+    from a full runtime build (``build_runtime_from_config`` does), otherwise a
+    node target raises. ``target_index`` is populated in place for node targets.
+    """
+    if target_index is None:
+        target_index = {}
+    kinematics = Kinematics(
+        arc_angles=dict(cfg.plan.arcs),
+        subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
+    )
+    calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
+    probes: dict[str, ProbePlan] = {}
+    for probe_name, probe_decl in cfg.plan.probes.items():
+        probe_calibrated = probe_name in calibrations
+        if probe_calibrated:
+            ap, ml = find_probe_angle(calibrations[probe_name].rotation)
+        elif probe_decl.ap_local is not None:
+            ap = probe_decl.ap_local
+            ml = probe_decl.slider_ml
+        elif probe_decl.arc is not None:
+            ap = kinematics.get_arc(probe_decl.arc)
+            ml = probe_decl.slider_ml
+        else:
+            ap = 0.0
+            ml = probe_decl.slider_ml
+        # Resolve target: inline RAS point, node, or catalog key
+        if probe_decl.target.kind == "inline":
+            target_key = None
+            target_point_RAS = tuple(probe_decl.target.point_RAS)
+        elif probe_decl.target.kind == "node":
+            if catalog is None or scene is None:
+                raise ValueError(
+                    f"Probe '{probe_name}' has a 'node' target "
+                    f"('{probe_decl.target.key}'), which needs geometry "
+                    "resolution — build_plan_state_from_config requires a full "
+                    "runtime (catalog + scene) for node targets."
+                )
+            key = probe_decl.target.key
+            transformed_points = resolve_base_geometry(catalog, scene, key)
+            if not transformed_points:
+                raise RuntimeError(
+                    f"Probe '{probe_name}' references unknown target "
+                    f"'{probe_decl.target.key}'"
+                )
+            transformed_points = transformed_points.raw
+            target_index[key] = transformed_points
+            target_key = key
+            target_point_RAS = None
+        else:  # catalog
+            target_key = probe_decl.target.key
+            target_point_RAS = None
+        probes[probe_name] = ProbePlan(
+            kind=probe_decl.kind,
+            arc_id=probe_decl.arc,
+            bind_ap_to_arc=probe_decl.bind_ap_to_arc,
+            ap_local=ap,
+            ml_local=ml,
+            spin=probe_decl.spin,
+            past_target_mm=probe_decl.past_target_mm,
+            offsets_RA=tuple(probe_decl.offsets_RA),
+            target_key=target_key,
+            target_point_RAS=target_point_RAS,
+            position_bearing_shank=probe_decl.position_bearing_shank,
+            calibrated=probe_decl.calibrated,
+        )
+    return PlanningState(
+        kinematics=kinematics,
+        probes=probes,
+        calibrations=calibrations,
+        target_index=target_index,
+    )
+
+
 def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
     # 1) collision labels → bit mapping
     labels: list[str] = []
@@ -524,64 +609,10 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
         if transformed is not None:
             target_index[key] = transformed.raw
 
-    # 6) kinematics, calibrations, plans (build PlanningState)
-    kinematics = Kinematics(
-        arc_angles=dict(cfg.plan.arcs),
-        subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
-    )
-    calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
-    probes: dict[str, ProbePlan] = {}
-    for probe_name, probe_decl in cfg.plan.probes.items():
-        probe_calibrated = probe_name in calibrations
-        if probe_calibrated:
-            ap, ml = find_probe_angle(calibrations[probe_name].rotation)
-        elif probe_decl.ap_local is not None:
-            ap = probe_decl.ap_local
-            ml = probe_decl.slider_ml
-        elif probe_decl.arc is not None:
-            ap = kinematics.get_arc(probe_decl.arc)
-            ml = probe_decl.slider_ml
-        else:
-            ap = 0.0
-            ml = probe_decl.slider_ml
-        # Resolve target: inline RAS point, node, or catalog key
-        if probe_decl.target.kind == "inline":
-            target_key = None
-            target_point_RAS = tuple(probe_decl.target.point_RAS)
-        elif probe_decl.target.kind == "node":
-            key = probe_decl.target.key
-            transformed_points = resolve_base_geometry(catalog, scene, key)
-            if not transformed_points:
-                raise RuntimeError(
-                    f"Probe '{probe_name}' references unknown target "
-                    f"'{probe_decl.target.key}'"
-                )
-            transformed_points = transformed_points.raw
-            target_index[key] = transformed_points
-            target_key = key
-            target_point_RAS = None
-        else:  # catalog
-            target_key = probe_decl.target.key
-            target_point_RAS = None
-        probes[probe_name] = ProbePlan(
-            kind=probe_decl.kind,
-            arc_id=probe_decl.arc,
-            bind_ap_to_arc=probe_decl.bind_ap_to_arc,
-            ap_local=ap,
-            ml_local=ml,
-            spin=probe_decl.spin,
-            past_target_mm=probe_decl.past_target_mm,
-            offsets_RA=tuple(probe_decl.offsets_RA),
-            target_key=target_key,
-            target_point_RAS=target_point_RAS,
-            position_bearing_shank=probe_decl.position_bearing_shank,
-            calibrated=probe_decl.calibrated,
-        )
-    plan_state = PlanningState(
-        kinematics=kinematics,
-        probes=probes,
-        calibrations=calibrations,
-        target_index=target_index,
+    # 6) kinematics, calibrations, plans — shared mesh-free helper (node targets
+    #    are resolved via the catalog + scene built above)
+    plan_state = build_plan_state_from_config(
+        cfg, catalog=catalog, scene=scene, target_index=target_index
     )
 
     return RuntimeBundle(
