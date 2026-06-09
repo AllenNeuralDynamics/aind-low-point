@@ -834,28 +834,26 @@ def obb_obb_signed_distance(
     sep_face_a = jax.vmap(_separation_along)(axes_a.T)  # (3,)
     sep_face_b = jax.vmap(_separation_along)(axes_b.T)  # (3,)
 
-    # ---- 9 cross-product candidate axes ----
+    # ---- 9 cross-product candidate axes (vmapped over the 3×3 i,j grid) ----
     # Parallel-axis guard: ``jnp.linalg.norm(axis)`` at axis=0 has NaN
     # gradient (0/0) which propagates through autodiff even when the
     # ``where`` masks the forward value out. Use soft-norm
     # ``sqrt(||axis||² + ε²)`` so the gradient stays finite when the
     # cross product collapses (parallel face normals).
-    def _cross_axis_sep(i: int, j: int) -> Array:
-        ai = axes_a[:, i]
-        bj = axes_b[:, j]
-        axis = jnp.cross(ai, bj)
+    cross_axes = jnp.cross(
+        axes_a.T[:, None, :], axes_b.T[None, :, :]
+    ).reshape(9, 3)  # cross(a_i, b_j), i-major/j-minor (== the old i,j loop order)
+
+    def _cross_axis_sep(axis: Array) -> Array:
         sq = jnp.sum(axis * axis)
         soft_norm = jnp.sqrt(sq + jnp.float32(1e-12))
         is_valid = sq > jnp.float32(1e-12)
-        axis_n = axis / soft_norm  # finite gradient everywhere
-        sep = _separation_along(axis_n)
+        sep = _separation_along(axis / soft_norm)  # finite gradient everywhere
         # When axes are parallel, the cross-product axis is degenerate;
         # substitute a very negative separation so max-selection skips it.
         return jnp.where(is_valid, sep, jnp.float32(-1e6))
 
-    sep_cross = jnp.stack(
-        [_cross_axis_sep(i, j) for i in range(3) for j in range(3)]
-    )  # (9,)
+    sep_cross = jax.vmap(_cross_axis_sep)(cross_axes)  # (9,)
 
     all_separations = jnp.concatenate(
         [sep_face_a, sep_face_b, sep_cross], axis=0
