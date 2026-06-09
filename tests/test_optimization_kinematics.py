@@ -169,15 +169,15 @@ def test_pose_at_hole_best_fit_axis_aligned_hole():
     """Axis = +z, slot major along default = +y (theta=0).
 
     cap_basis([0,0,1]) → (e1=+y, e2=-x). slot_major (theta=0) = e1 = +y.
-    pose_at_hole_best_fit:
-      z_col = -axis = -z   → local +z → world -z (shaft enters going down)
-      x_col = slot_major = +y → local +x → world +y (shank-row)
-      y_col = z_col × x_col = -z × +y = +x → local +y → world +x
+    pose_at_hole_best_fit (AIND shank-row = local +y):
+      z_col = -axis = -z      → local +z → world -z (shaft enters going down)
+      y_col = slot_major = +y → local +y → world +y (shank-row → slot major)
+      x_col = y_col × z_col = +y × -z = -x → local +x → world -x (slot minor)
     """
     hole = _make_hole(axis=[0, 0, 1], center=[0, 0, 0])
     R, tip = pose_at_hole_best_fit(hole)
-    assert np.allclose(R[:, 0], [0, 1, 0], atol=1e-9)
-    assert np.allclose(R[:, 1], [1, 0, 0], atol=1e-9)
+    assert np.allclose(R[:, 0], [-1, 0, 0], atol=1e-9)
+    assert np.allclose(R[:, 1], [0, 1, 0], atol=1e-9)
     assert np.allclose(R[:, 2], [0, 0, -1], atol=1e-9)
     # Determinant ±1 (rotation matrix).
     assert np.linalg.det(R) == pytest.approx(1.0, abs=1e-9)
@@ -228,13 +228,13 @@ def test_pose_at_hole_best_fit_threads_the_hole():
     ]
     hole = Hole(id=0, axis=axis_arr, ref_point=np.zeros(3), sections=sections)
     R, tip = pose_at_hole_best_fit(hole)
-    # 4 shanks at 250 µm pitch along local +x (slot-major in world)
+    # 4 shanks at 250 µm pitch along local +y (AIND shank-row → slot major)
     tips_local = np.array(
         [
-            [-0.375, 0.0, 0.0],
-            [-0.125, 0.0, 0.0],
-            [+0.125, 0.0, 0.0],
-            [+0.375, 0.0, 0.0],
+            [0.0, -0.375, 0.0],
+            [0.0, -0.125, 0.0],
+            [0.0, +0.125, 0.0],
+            [0.0, +0.375, 0.0],
         ]
     )
     capsules = shank_capsules_from_pose(
@@ -243,13 +243,10 @@ def test_pose_at_hole_best_fit_threads_the_hole():
     # Every shank threads every section — max g should be < 0.
     worst = max(shaft_section_oval_value(c, s) for c in capsules for s in sections)
     assert worst < 0.0, f"best-fit pose should thread the hole; worst g = {worst:.3f}"
-    # The outer shanks at ±0.375 along +y (slot major):
-    # g_bot = (0/0.6)² + (0.375/0.35)² − 1 ≈ +0.148 → outside!
-    # Wait: local +x maps to world +y (slot major). So the outer shanks
-    # are at world y = ±0.375 (in slot-major direction). Slot major has
-    # half-extent a=0.60, so they're well inside on that axis. The
-    # *minor* axis half-extent b=0.35 is what would clip — but along
-    # the minor we're at zero.
+    # Local +y (shank row) maps to world +y = slot major (half-extent a=0.60),
+    # so the outer shanks at ±0.375 are well inside on that axis; along the
+    # *minor* axis (b=0.35) they're at zero. Worst:
+    #   g_bot = (0.375/0.60)² + (0/0.35)² − 1 ≈ −0.609 → threads.
     assert worst == pytest.approx((0.375 / 0.60) ** 2 - 1.0, abs=1e-9)
 
 

@@ -47,13 +47,13 @@ def _make_hole(
 
 
 def _np24_tips() -> np.ndarray:
-    """4 shanks at 250 µm pitch along local +x."""
+    """4 shanks at 250 µm pitch along local +y (AIND shank-row convention)."""
     return np.array(
         [
             [0.0, 0.0, 0.0],
-            [0.25, 0.0, 0.0],
-            [0.5, 0.0, 0.0],
-            [0.75, 0.0, 0.0],
+            [0.0, 0.25, 0.0],
+            [0.0, 0.5, 0.0],
+            [0.0, 0.75, 0.0],
         ]
     )
 
