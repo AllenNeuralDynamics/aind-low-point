@@ -45,7 +45,10 @@ def _hole_path(hole, probe_order):
 
 
 def _leaf(p):
-    return f"cand {p['idx']}  cov {p['coverage']:.2f}  fcl {p['fcl']:+.3f}"
+    return (
+        f"plan-{p['rank']:02d}  cand {p['idx']}  "
+        f"cov {p['coverage']:.2f}  fcl {p['fcl']:+.3f}"
+    )
 
 
 def _tree_nodes(plans, remaining):
@@ -109,17 +112,20 @@ def _emit_manifest(meta, probe_order, path, fcl_desc):
     lines = [
         "# Phase-2 feasible handoff manifest",
         "",
-        f"{len(rows)} plans with FCL ≥ {fcl_desc} mm, sorted by coverage. "
-        "`path` is the hole-assignment encoding (also the plan filename).",
+        f"{len(rows)} plans with FCL ≥ {fcl_desc} mm, sorted by coverage. `plan` is "
+        "the MMR-ranked plan-file number (plan-NN); `path` is the hole encoding.",
         "",
-        "| # | cand | n_arcs | cov | fcl | path | " + " | ".join(probe_order) + " |",
-        "|" + "---|" * (6 + len(probe_order)),
+        "| cov# | plan | cand | n_arcs | cov | fcl | path | "
+        + " | ".join(probe_order)
+        + " |",
+        "|" + "---|" * (7 + len(probe_order)),
     ]
     for i, m in enumerate(rows, 1):
         cells = " | ".join(str(m["hole"][pr]) for pr in probe_order)
         lines.append(
-            f"| {i} | {m['idx']} | {m['n_arcs']} | {m['coverage']:.3f} | "
-            f"{m['fcl']:+.3f} | {_hole_path(m['hole'], probe_order)} | {cells} |"
+            f"| {i} | plan-{m['rank']:02d} | {m['idx']} | {m['n_arcs']} | "
+            f"{m['coverage']:.3f} | {m['fcl']:+.3f} | "
+            f"{_hole_path(m['hole'], probe_order)} | {cells} |"
         )
     Path(path).write_text("\n".join(lines) + "\n")
 
@@ -176,6 +182,7 @@ def main() -> int:
             )
         meta.append(
             dict(
+                rank=i + 1,  # MMR/plan-file number: this record is plan-{rank}
                 idx=r.get("idx", i),
                 n_arcs=n_arcs,
                 hole=dict(r["hole"]),
