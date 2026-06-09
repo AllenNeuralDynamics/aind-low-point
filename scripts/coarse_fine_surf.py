@@ -62,13 +62,27 @@ OUT = _os.environ.get("OUT", "scratch/coarse_fine_surf.pkl")
 
 
 def build_sdf_by_name(probes, rt, n_surf):
-    return {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
-            n_surface_points=n_surf,
-        )
-        for p in probes
-    }
+    """Map probe name → ProbeSDF, deduped per KIND at construction.
+
+    The SDF is a deterministic function of the probe *kind* mesh (the
+    ``build_probe_sdf_from_alpha_wrap`` cache is keyed by mesh hash), so every
+    probe of a kind gets the identical SDF — build it once per kind (3 not 7)
+    and share the object. Behaviour-preserving vs the old per-name build (same
+    cached content); just skips the redundant cache lookups + per-probe
+    ``replace()`` objects, matching the per-kind table dedup the kernels use.
+    """
+    by_kind: dict[str, object] = {}
+    out: dict[str, object] = {}
+    for p in probes:
+        sdf = by_kind.get(p.kind)
+        if sdf is None:
+            sdf = build_probe_sdf_from_alpha_wrap(
+                rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
+                n_surface_points=n_surf,
+            )
+            by_kind[p.kind] = sdf
+        out[p.name] = sdf
+    return out
 
 
 def run_group(n_arcs, idxs, *, common):
