@@ -232,6 +232,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: BLA
+    hemisphere: left
   material:
     color: '#9DE79C'
     opacity: 0.15
@@ -248,6 +249,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: CA1
+    hemisphere: left
   material:
     color: '#7ED04B'
     opacity: 0.15
@@ -264,6 +266,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: CLA
+    hemisphere: left
   material:
     color: '#8ADA87'
     opacity: 0.15
@@ -280,6 +283,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: MD
+    hemisphere: left
   material:
     color: '#FF909F'
     opacity: 0.15
@@ -296,6 +300,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: PL
+    hemisphere: left
   material:
     color: '#2FA850'
     opacity: 0.15
@@ -312,6 +317,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: RSP
+    hemisphere: left
   material:
     color: '#1AA698'
     opacity: 0.15
@@ -328,6 +334,7 @@ assets:
   - structure
   metadata:
     ccf_acronym: VM
+    hemisphere: left
   material:
     color: '#FF8084'
     opacity: 0.15
@@ -353,10 +360,10 @@ targets:
   - structure:RSP
   - structure:VM
   key_prefix: 'target:L:'
+  hemisphere: left
   reducer: points_in_region_center_mass
   reducer_kwargs:
     points_key: retro-targets
-    hemisphere: left
   templates:
   - structure
   transform: headframe_to_lps

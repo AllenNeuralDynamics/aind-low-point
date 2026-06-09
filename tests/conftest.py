@@ -1,6 +1,25 @@
 """Pytest configuration and shared fixtures for config tests."""
 
-import pytest
+import os
+
+# Speed/repro setup — MUST run before numpy/jax import (i.e. at conftest import,
+# which pytest does before collecting test modules). Pin BLAS/OMP threads so the
+# xdist workers don't oversubscribe the cores; force JAX to CPU; and share a
+# persistent on-disk JAX compile cache so workers and reruns LOAD compiled
+# kernels instead of paying the (non-trivial) compile cost on every test.
+for _v in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ.setdefault(_v, "1")
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault("JAX_COMPILATION_CACHE_DIR", ".jax_test_cache")
+os.environ.setdefault("JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS", "0")
+os.environ.setdefault("JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES", "-1")
+
+import pytest  # noqa: E402
 
 
 @pytest.fixture

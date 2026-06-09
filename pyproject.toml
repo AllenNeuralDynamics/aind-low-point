@@ -85,6 +85,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "interrogate",
+    "pytest-xdist>=3.8.0",
 ]
 vscode = [{ include-group = "dev" }, "ipykernel", "pip", "ipympl"]
 docs = [
@@ -123,11 +124,18 @@ skip = ".git,*.pdf,*.svg,./bonsai,*.bonsai,./docs/_build,uv.lock"
 ignore-words-list = "nd"
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers --tb=short --cov=src --cov-report=term-missing --cov-fail-under=0"
+# Fast by default: no coverage (it traces every line for a report nothing
+# gates), parallel across cores (-n auto), and the heavy JAX compile/optimize
+# tests deselected via the `slow` marker. Full run: `pytest -m "" ` (all) or
+# `pytest -m slow`; coverage: `pytest --cov=src -p no:xdist -m ""`.
+addopts = "--strict-markers --tb=short -n auto -m 'not slow'"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "slow: heavy JAX compile/optimize/mesh test — deselected by default",
+]
 
 [tool.interrogate]
 ignore-init-method = true

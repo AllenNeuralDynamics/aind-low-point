@@ -7,7 +7,7 @@ Split into focused submodules:
 - loaders    : registry-driven file loaders (trimesh, sitk_volume,
   csv_points, …) and the GeometryOut type.
 - reducers   : registry-driven point reducers
-  (mesh_centroid / mesh_center_mass / hemisphere_center_mass).
+  (mesh_centroid / mesh_center_mass / points_in_region_center_mass).
 - canonicalize : apply orientation flip + scale + optional transform to
   bring a loaded asset into canonical LPS mm.
 - chem_shift : MRI chemical-shift correction context.
@@ -75,9 +75,9 @@ from aind_low_point.runtime.reducers import (
     _REDUCER_REGISTRY,
     ReduceOut,
     SourceGeo,
-    hemisphere_center_mass,
     mesh_center_mass,
     mesh_centroid,
+    points_in_region_center_mass,
     reduce_target,
     register_reducer,
     register_reducer_fn,
@@ -131,9 +131,9 @@ __all__ = [
     "ReduceOut",
     "SourceGeo",
     "_REDUCER_REGISTRY",
-    "hemisphere_center_mass",
     "mesh_center_mass",
     "mesh_centroid",
+    "points_in_region_center_mass",
     "reduce_target",
     "register_reducer",
     "register_reducer_fn",

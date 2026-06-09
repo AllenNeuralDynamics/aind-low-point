@@ -157,3 +157,6 @@ scratch/
 .claude/
 examples/836656-config-T12_*
 examples/836656-config-cal.yml
+
+# JAX test compile cache
+.jax_test_cache/
