@@ -47,6 +47,12 @@ from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
+from aind_low_point.optimization.probe_kinematics import (
+    _orbit_basis,
+    is_four_shank,
+    spin_to_align_y_with,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
@@ -89,64 +95,6 @@ _DEFAULT_LONG_AXIS = np.array([0.0, 1.0, 0.0])
 
 def body_long_axis_local(kind: str) -> np.ndarray:
     return BODY_LONG_AXIS_LOCAL.get(kind, _DEFAULT_LONG_AXIS)
-
-
-def is_four_shank(probe_static) -> bool:
-    """Detect 4-shank probes dynamically from the static info.
-
-    Covers quadbase-alpha, quadbase-dovetail, NP 2.4, and any future
-    4-shank kinds. The threading constraint (H1) limits these to
-    {slot, slot + 180°} regardless of name.
-    """
-    return len(probe_static.shank_tips_local) >= 4
-
-
-# ---------------------------------------------------------------------------
-# Optimal spin: rotate so local long-axis is perpendicular to gap_dir
-# ---------------------------------------------------------------------------
-
-
-def _orbit_basis(ap_deg: float, ml_deg: float) -> tuple[np.ndarray, np.ndarray]:
-    """Return (a, b) such that the world-frame image of probe local +y
-    under ``arc_angles_to_affine(ap, ml, spin)`` is::
-
-        u(spin) = sin(spin) * a + cos(spin) * b
-
-    Derivation: ``R_LPS = R_x(ap) R_y(-ml) R_z(-spin)`` and
-    ``R_z(-spin) [0,1,0] = (sin spin, cos spin, 0)``. So::
-
-        u(spin) = R_x(ap) R_y(-ml) (sin spin, cos spin, 0)
-                = sin spin · R_x(ap) R_y(-ml) [1,0,0]
-                + cos spin · R_x(ap) R_y(-ml) [0,1,0]
-
-    Avoids calling ``arc_angles_to_affine`` twice per heuristic eval.
-    """
-    ap = np.deg2rad(ap_deg)
-    ml = np.deg2rad(ml_deg)
-    cap, sap = np.cos(ap), np.sin(ap)
-    cml, sml = np.cos(ml), np.sin(ml)
-    a = np.array([cml, -sap * sml, cap * sml])
-    b = np.array([0.0, cap, sap])
-    return a, b
-
-
-def spin_to_align_y_with(
-    target_dir_world: np.ndarray,
-    ap_deg: float,
-    ml_deg: float,
-) -> float:
-    """Closed-form spin (deg) that best aligns probe local +y with
-    ``target_dir_world`` under ``arc_angles_to_affine(ap, ml, spin)``.
-
-    ``u(spin) · sm`` is maximised at ``spin = atan2(a · sm, b · sm)``
-    (see :func:`_orbit_basis`). When ``sm`` doesn't lie in the orbit
-    plane (off bore-aligned (ap, ml)), the residual is the projection
-    error — non-zero but typically <30° for our manual plans.
-    """
-    a, b = _orbit_basis(ap_deg, ml_deg)
-    sm = np.asarray(target_dir_world, dtype=float)
-    sm = sm / max(float(np.linalg.norm(sm)), 1e-12)
-    return float(np.degrees(np.arctan2(float(a @ sm), float(b @ sm))))
 
 
 def optimal_spin_for_gap(
@@ -887,32 +835,6 @@ def main() -> int:
                 default_flow_style=False,
             )
     return 0
-
-
-def _apply_x_to_plan_state(plan_state, x, statics, n_arcs):
-    """Same as save_chain_plans._apply_x_to_plan_state."""
-    arc_aps = x[:n_arcs]
-    arc_letters = [chr(ord("a") + i) for i in range(n_arcs)]
-    plan_state.kinematics.arc_angles = {
-        arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
-    }
-    for i, st in enumerate(statics):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        ml = float(x[off + 0])
-        sx = float(x[off + 1])
-        sy = float(x[off + 2])
-        off_R = float(x[off + 3])
-        off_A = float(x[off + 4])
-        depth = float(x[off + 5])
-        spin = float(np.degrees(np.arctan2(sy, sx)))
-        plan = plan_state.probes[st.name]
-        plan.arc_id = arc_letters[st.arc_idx]
-        plan.bind_ap_to_arc = True
-        plan.ap_local = 0.0
-        plan.ml_local = ml
-        plan.spin = spin
-        plan.offsets_RA = (off_R, off_A)
-        plan.past_target_mm = depth
 
 
 if __name__ == "__main__":

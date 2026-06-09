@@ -37,9 +37,9 @@ from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
-    PHASE1_PER_PROBE_VARS,
     Phase1Weights,
     make_phase1_objective,
 )
@@ -56,36 +56,6 @@ from scripts.run_phase1_sample import (
     build_fixture_sdf_data,
     phase1_bounds,
 )
-
-
-def _apply_x_to_plan_state(plan_state, x, statics, n_arcs):
-    """Mutate plan_state to reflect Phase 1/2's 45-dim ``x``.
-
-    Converts (sx, sy) → spin via atan2. Arc letters a/b/c/… in
-    arc-idx order.
-    """
-    arc_aps = x[:n_arcs]
-    arc_letters = [chr(ord("a") + i) for i in range(n_arcs)]
-    plan_state.kinematics.arc_angles = {
-        arc_letters[i]: float(arc_aps[i]) for i in range(n_arcs)
-    }
-    for i, st in enumerate(statics):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        ml = float(x[off + 0])
-        sx = float(x[off + 1])
-        sy = float(x[off + 2])
-        off_R = float(x[off + 3])
-        off_A = float(x[off + 4])
-        depth = float(x[off + 5])
-        spin = float(np.degrees(np.arctan2(sy, sx)))
-        plan = plan_state.probes[st.name]
-        plan.arc_id = arc_letters[st.arc_idx]
-        plan.bind_ap_to_arc = True
-        plan.ap_local = 0.0
-        plan.ml_local = ml
-        plan.spin = spin
-        plan.offsets_RA = (off_R, off_A)
-        plan.past_target_mm = depth
 
 
 def main() -> int:

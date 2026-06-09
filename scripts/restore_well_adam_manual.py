@@ -54,6 +54,11 @@ from aind_low_point.optimization.batched_static import build_batched_probe_stati
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.probe_kinematics import (
+    is_four_shank,
+    spin_to_align_y_with,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
@@ -72,8 +77,6 @@ from scripts.run_phase1_sample import (
     build_fixture_sdf_data,
     phase1_bounds,
 )
-from scripts.spin_heuristic_search import is_four_shank, spin_to_align_y_with
-from scripts.test_h1_chain_cand4195 import build_y
 
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))

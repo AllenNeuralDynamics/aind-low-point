@@ -23,7 +23,6 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import pickle
 from pathlib import Path
 
-import jax.numpy as jnp
 import numpy as np
 
 from aind_low_point.config import ConfigModel
@@ -33,48 +32,15 @@ from aind_low_point.optimization.coverage_jax import (
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
-from aind_low_point.optimization.sdf_jax import pose_from_optimizer_vars
+from aind_low_point.optimization.optimizer_vars import _poses
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.run_optimizer import _probe_static_info, _transform_holes
 from scripts.run_phase1_sample import build_coverage_data, build_fixture_sdf_data
 
-PPV = 6
 TOPK = int(_os.environ.get("TOPK", "300"))
 MANUAL = 4195
-
-
-def _poses(st, x, n_arcs):
-    """Reconstruct (Rs (P,3,3), ts (P,3), tips (P,maxsh,3), mask (P,maxsh))
-    from a Phase 1 x at this candidate's statics."""
-    arc_aps = x[:n_arcs]
-    Rs, ts, tips = [], [], []
-    for i, s in enumerate(st):
-        off = n_arcs + PPV * i
-        ml, sx, sy, oR, oA, dep = x[off : off + 6]
-        spin = float(np.degrees(np.arctan2(sy, sx)))
-        R, tt = pose_from_optimizer_vars(
-            target_LPS=jnp.asarray(s.target_LPS, jnp.float32),
-            ap_deg=jnp.float32(arc_aps[s.arc_idx]),
-            ml_deg=jnp.float32(ml),
-            spin_deg=jnp.float32(spin),
-            offset_R_mm=jnp.float32(oR),
-            offset_A_mm=jnp.float32(oA),
-            past_target_mm=jnp.float32(dep),
-            recording_center_local=jnp.asarray(s.pivot_local, jnp.float32),
-        )
-        Rs.append(R)
-        ts.append(tt)
-        tips.append(np.asarray(s.shank_tips_local, np.float32))
-    P = len(st)
-    maxsh = max(len(t) for t in tips)
-    tips_p = np.zeros((P, maxsh, 3), np.float32)
-    mask_p = np.zeros((P, maxsh), np.float32)
-    for i in range(P):
-        tips_p[i, : len(tips[i])] = tips[i]
-        mask_p[i, : len(tips[i])] = 1.0
-    return jnp.stack(Rs), jnp.stack(ts), jnp.asarray(tips_p), jnp.asarray(mask_p)
 
 
 def _assign_key(cand):

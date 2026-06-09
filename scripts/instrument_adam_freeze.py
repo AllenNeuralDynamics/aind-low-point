@@ -33,6 +33,7 @@ from aind_low_point.optimization.clearance_sweep import (
     cast_packed_grids,
 )
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
     _build_jit,
@@ -49,7 +50,6 @@ from scripts.run_phase1_sample import (
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from scripts.test_h1_chain_cand4195 import build_y
 from scripts.thick_well_sdf import fit_well_cone, make_thick_well_sdf
 
 IDX = int(_os.environ.get("IDX", "4195"))

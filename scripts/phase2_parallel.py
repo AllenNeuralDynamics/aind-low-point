@@ -248,12 +248,12 @@ def _phase2_one(rec):
     from aind_low_point.optimization.coverage_jax import (
         coverage_total_over_probes,
     )
+    from aind_low_point.optimization.optimizer_vars import _poses
     from aind_low_point.optimization.stage3_phase2_jax import (
         Phase2Weights,
         make_phase2,
     )
     from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-    from scripts.ingest_analysis import _poses
     from scripts.run_phase1_sample import phase1_bounds
 
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)

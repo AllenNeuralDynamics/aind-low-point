@@ -35,6 +35,11 @@ from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
+from aind_low_point.optimization.probe_kinematics import (
+    is_four_shank,
+    spin_to_align_y_with,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
@@ -53,10 +58,6 @@ from scripts.run_phase1_sample import (
     build_coverage_data,
     build_fixture_sdf_data,
     phase1_bounds,
-)
-from scripts.spin_heuristic_search import (
-    is_four_shank,
-    spin_to_align_y_with,
 )
 
 
@@ -85,38 +86,6 @@ def h1_closest_to(cands: list[float], target_deg: float, four_shank: bool) -> fl
         errs = [abs(_wrap_deg(target_deg - c)) for c in cands]
     i = int(np.argmin(errs))
     return cands[i]
-
-
-def build_y(
-    arc_aps: np.ndarray,
-    n_arcs: int,
-    mls: np.ndarray,
-    spins_deg: np.ndarray,
-    offsets_R: np.ndarray,
-    offsets_A: np.ndarray,
-    depths: np.ndarray,
-) -> np.ndarray:
-    n_probes = len(mls)
-    y = np.zeros(n_arcs + PHASE1_PER_PROBE_VARS * n_probes, dtype=np.float64)
-    y[:n_arcs] = arc_aps
-    for i in range(n_probes):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        rad = np.deg2rad(spins_deg[i])
-        y[off + 0] = mls[i]
-        y[off + 1] = np.cos(rad)
-        y[off + 2] = np.sin(rad)
-        y[off + 3] = offsets_R[i]
-        y[off + 4] = offsets_A[i]
-        y[off + 5] = depths[i]
-    return y
-
-
-def extract_spins(y: np.ndarray, n_arcs: int, n_probes: int) -> np.ndarray:
-    out = np.zeros(n_probes, dtype=np.float64)
-    for i in range(n_probes):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        out[i] = np.degrees(np.arctan2(y[off + 2], y[off + 1]))
-    return out
 
 
 def run_chain(

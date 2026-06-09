@@ -44,6 +44,7 @@ from aind_low_point.optimization.batched_spin_restore import (
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.coverage_jax import coverage_total_over_probes
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.optimizer_vars import _poses
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from scripts.arc_first_mrv import (
@@ -57,7 +58,6 @@ from scripts.batched_phase1_build import (
     PER_CAND,
     make_batched_phase1_chunked,
 )
-from scripts.ingest_analysis import _poses
 from scripts.restore_well_adam_manual import (
     build_y,
     enum_seed_y0,

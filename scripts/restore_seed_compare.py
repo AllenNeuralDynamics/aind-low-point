@@ -25,6 +25,11 @@ from aind_mri_utils.arc_angles import arc_angles_to_affine
 
 from aind_low_point.config import PlanningModel
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.probe_kinematics import (
+    is_four_shank,
+    spin_to_align_y_with,
+)
 from aind_low_point.optimization.sdf_jax import trilinear_sdf
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
@@ -40,13 +45,10 @@ from scripts.run_phase1_sample import build_coverage_data, maybe_build_brain_sdf
 from scripts.spin_heuristic_search import (
     body_long_axis_local,
     build_coupling_graph,
-    is_four_shank,
     optimal_spin_for_gap,
-    spin_to_align_y_with,
     swept_profile,
     swept_surface_world,
 )
-from scripts.test_h1_chain_cand4195 import build_y
 
 IDX = 4195
 PLAN = "examples/836656-config-T12.plan.yml"

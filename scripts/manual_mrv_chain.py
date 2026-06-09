@@ -51,6 +51,7 @@ from aind_low_point.optimization.batched_spin_restore import (
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
     make_phase1_objective,
@@ -75,7 +76,6 @@ from scripts.run_phase1_sample import (
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from scripts.test_h1_chain_cand4195 import build_y, extract_spins
 
 IDX = int(_os.environ.get("IDX", "4195"))
 # OPT: unconstrained-stage minimizer. "lbfgs" (default) = scipy L-BFGS-B on the

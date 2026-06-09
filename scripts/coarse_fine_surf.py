@@ -35,7 +35,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_low_point.optimization.joint_rerank import _build_probe_static
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
+from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
@@ -52,37 +53,12 @@ from scripts.run_phase1_sample import (
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from scripts.test_h1_chain_cand4195 import build_y
 
 FULL_FINE = int(_os.environ.get("FULL_FINE", "100"))
 FULL_COARSE = 500 - FULL_FINE
 CHUNK = int(_os.environ.get("CHUNK", "64"))
 LIMIT = int(_os.environ.get("LIMIT", "0"))
 OUT = _os.environ.get("OUT", "scratch/coarse_fine_surf.pkl")
-
-
-def build_sdf_by_name(probes, rt, n_surf):
-    """Map probe name → ProbeSDF, deduped per KIND at construction.
-
-    The SDF is a deterministic function of the probe *kind* mesh (the
-    ``build_probe_sdf_from_alpha_wrap`` cache is keyed by mesh hash), so every
-    probe of a kind gets the identical SDF — build it once per kind (3 not 7)
-    and share the object. Behaviour-preserving vs the old per-name build (same
-    cached content); just skips the redundant cache lookups + per-probe
-    ``replace()`` objects, matching the per-kind table dedup the kernels use.
-    """
-    by_kind: dict[str, object] = {}
-    out: dict[str, object] = {}
-    for p in probes:
-        sdf = by_kind.get(p.kind)
-        if sdf is None:
-            sdf = build_probe_sdf_from_alpha_wrap(
-                rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
-                n_surface_points=n_surf,
-            )
-            by_kind[p.kind] = sdf
-        out[p.name] = sdf
-    return out
 
 
 def run_group(n_arcs, idxs, *, common):

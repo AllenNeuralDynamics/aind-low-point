@@ -26,6 +26,7 @@ from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
@@ -42,7 +43,6 @@ from scripts.spin_heuristic_search import (
     build_coupling_graph,
     per_probe_spin_candidates,
 )
-from scripts.test_h1_chain_cand4195 import build_y, extract_spins
 
 MANUAL = {
     "MD": -34.0,
