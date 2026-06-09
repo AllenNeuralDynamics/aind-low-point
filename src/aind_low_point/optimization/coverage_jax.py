@@ -411,46 +411,67 @@ def coverage_total_over_probes(
 
 
 def normalized_coverage_objective(
-    per_probe, ceilings, lambda_floor=0.0, softmin_beta=20.0, weights=None
+    per_probe, ceilings, alpha=0.0, softmin_beta=20.0, weights=None
 ):
-    """Aggregate per-probe coverage into a scalar, normalizing each probe by
-    its achievable ceiling, applying optional per-target weights, and adding a
-    soft-min fairness floor.
+    """Aggregate per-probe coverage into a scalar in ``[0, 1]``, blending
+    average coverage against the worst-covered region.
 
     ``norm_p = coverage_p / ceiling_p`` — a fraction-of-achievable, so regions
     with different shank counts, active areas, σ, or label density weigh
-    equally (every region's term maxes near 1.0). Per-target ``weights`` are
-    applied AFTER normalization (``wnorm_p = weight_p · norm_p``) so a weight
-    expresses relative priority on the achievable fraction, independent of a
-    region's raw coverage scale. The returned scalar is
-    ``sum(wnorm) + lambda_floor · softmin_β(wnorm)``: the sum rewards total
-    weighted coverage, the soft-min protects the worst weighted region.
-    ``lambda_floor = 0`` ⇒ plain weighted-normalized sum. ``weights = None`` ⇒
-    uniform 1.0 (exact parity with the un-weighted objective). Maximise this
-    term (the objective negates it).
+    equally (every region's term maxes near 1.0). The returned scalar is the
+    convex blend ::
+
+        (1 - alpha) * A  +  alpha * L
+
+    where ``A`` is the (priority-weighted) MEAN achieved-fraction and ``L`` is a
+    priority-weighted soft worst-region floor. Both terms live in ``[0, 1]`` and
+    are independent of the probe count, so ``alpha`` is a clean, count-free dial:
+    ``alpha = 0`` ⇒ pure average coverage, ``alpha = 1`` ⇒ pure (weighted)
+    minimax on the laggard, in between interpolates. Maximise this term (the
+    objective negates it); the overall coverage-vs-clearance balance is set
+    separately by the caller's coverage gain (``cov_weight`` / ``lambda_cov``).
+
+    The mean ``A = Σ(w_p · norm_p) / Σ(w_p)`` is a weighted average — priority
+    steers the blend, and ``A`` is invariant to weight rescaling. The floor uses
+    the DEFICIT ``d_p = 1 − norm_p``: ``L = 1 − softmax_β(w̃_p · d_p)`` with
+    weights rescaled to mean 1, so a high-priority region that falls behind
+    (large weight × large shortfall) dominates the soft-max and is lifted first.
+    Equal weights ⇒ ``L = softmin_β(norm)`` (priority-blind worst region).
+    Operating on the deficit (not ``w·norm`` directly) avoids the sign inversion
+    where a down-weighted region's small ``w·norm`` would falsely read as the
+    laggard. ``weights = None`` ⇒ uniform 1.0. ``alpha = 0`` ⇒ plain weighted
+    mean (no floor evaluated).
 
     Parameters
     ----------
     per_probe : (P,) coverage per probe (from coverage_per_probe_over_probes)
     ceilings : (P,) per-probe achievable ceilings (see
         :func:`coverage_ceiling_per_probe`); a static constant.
-    lambda_floor : weight on the soft-min fairness floor (over UNWEIGHTED norm).
-    softmin_beta : sharpness of the soft-min (→ hard min as β → ∞).
-    weights : (P,) optional per-target priority weights applied after
-        normalization, to the SUM term only. ``None`` ⇒ uniform (parity). The
-        floor is independent of weights — it always protects the worst-covered
-        region by achievable-fraction.
+    alpha : blend in ``[0, 1]`` between average (0) and weighted-worst (1)
+        coverage. Count-free — its meaning does not depend on the probe count.
+    softmin_beta : sharpness of the soft worst-region (→ hard min as β → ∞).
+    weights : (P,) optional per-target priority weights. ``None`` ⇒ uniform.
+        Steers the weighted mean and biases the floor toward high-priority
+        laggards; rescaled to mean 1 internally for the floor.
     """
-    norm = per_probe / ceilings
-    # Weights steer the SUM (priority); the floor uses the UNWEIGHTED norm so it
-    # protects the worst-covered region by achievable-fraction regardless of
-    # priority ("no region left behind"), decoupled from the weighting.
-    wnorm = norm * weights if weights is not None else norm
-    term = jnp.sum(wnorm)
-    if lambda_floor:
-        soft_min = -jax.scipy.special.logsumexp(-softmin_beta * norm) / softmin_beta
-        term = term + lambda_floor * soft_min
-    return term
+    norm = per_probe / ceilings  # (P,) fraction-of-achievable, ~[0, 1]
+    n_probes = norm.shape[0]
+    if weights is not None:
+        w = jnp.asarray(weights, dtype=norm.dtype)
+        wsum = jnp.sum(w)
+        a_term = jnp.sum(w * norm) / wsum  # weighted mean (rescale-invariant)
+        w_tilde = w * (n_probes / wsum)  # mean-1 weights for the floor
+    else:
+        a_term = jnp.mean(norm)
+        w_tilde = jnp.ones_like(norm)
+    if not alpha:
+        return a_term
+    # Weighted worst region via the deficit: softmax over w̃·(1 − norm) ≈ the
+    # largest priority-weighted shortfall; 1 − that is the soft worst fraction.
+    deficit = w_tilde * (1.0 - norm)
+    soft_max_deficit = jax.scipy.special.logsumexp(softmin_beta * deficit) / softmin_beta
+    l_term = 1.0 - soft_max_deficit
+    return (1.0 - alpha) * a_term + alpha * l_term
 
 
 def coverage_ceiling_per_probe(

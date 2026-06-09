@@ -32,6 +32,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_low_point.optimization.clearance_sweep import (
+    build_padded_fixture_table,
     cast_fixture_grids,
     cast_packed_grids,
     swept_fixture_clearances,
@@ -109,12 +110,13 @@ class Phase2Weights:
     # surface (hard constraint, only active when a brain SDF is passed).
     brain_margin_mm: float = 0.2
 
-    # Coverage normalization: when ``coverage_ceilings`` are passed to make_phase2,
-    # coverage becomes the weighted normalized objective; ``lambda_cov_floor``
-    # adds the soft-min fairness floor (over the UNWEIGHTED achievable-fraction).
-    # 0 ⇒ plain weighted-normalized sum (parity with the raw sum when ceilings
-    # and weights are uniform/absent).
-    lambda_cov_floor: float = 0.0
+    # Coverage. ``lambda_cov`` is the overall coverage-vs-clearance gain
+    # (multiplies the coverage scalar in the objective). When
+    # ``coverage_ceilings`` are passed to make_phase2, coverage becomes the
+    # normalized [0,1] blend ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)``;
+    # ``cov_alpha`` = 0 ⇒ pure average coverage, 1 ⇒ pure minimax on the laggard.
+    lambda_cov: float = 1.0
+    cov_alpha: float = 0.0
     softmin_beta_cov: float = 20.0
 
 
@@ -124,32 +126,50 @@ class Phase2Weights:
 
 
 def _poses_from_x(x, n_arcs, n_probes, target_LPS, pivot_local, arc_idx):
-    """Compute (Rs, ts) per probe from a Phase 2 x vector."""
+    """Stacked (Rs, ts) ``(P,3,3)``/``(P,3)`` per probe from a Phase 2 x vector,
+    vmapped over probes (one pose subgraph instead of P unrolled copies). x after
+    the arcs is (ml, sx, sy, off_R, off_A, depth) × P."""
     arc_aps = x[:n_arcs]
-    Rs, ts = [], []
-    for i in range(n_probes):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        ml = x[off + 0]
-        sx = x[off + 1]
-        sy = x[off + 2]
-        off_R = x[off + 3]
-        off_A = x[off + 4]
-        depth = x[off + 5]
-        spin_deg = spin_deg_from_sxy(sx, sy)
-        ap = arc_aps[arc_idx[i]]
-        R, t = pose_from_optimizer_vars(
-            target_LPS=target_LPS[i],
+    xp = x[n_arcs : n_arcs + PHASE1_PER_PROBE_VARS * n_probes].reshape(
+        n_probes, PHASE1_PER_PROBE_VARS
+    )
+    aps = arc_aps[arc_idx]
+
+    def _one(xp6, ap, target, pivot):
+        return pose_from_optimizer_vars(
+            target_LPS=target,
             ap_deg=ap,
-            ml_deg=ml,
-            spin_deg=spin_deg,
-            offset_R_mm=off_R,
-            offset_A_mm=off_A,
-            past_target_mm=depth,
-            recording_center_local=pivot_local[i],
+            ml_deg=xp6[0],
+            spin_deg=spin_deg_from_sxy(xp6[1], xp6[2]),
+            offset_R_mm=xp6[3],
+            offset_A_mm=xp6[4],
+            past_target_mm=xp6[5],
+            recording_center_local=pivot,
         )
-        Rs.append(R)
-        ts.append(t)
-    return Rs, ts
+
+    return jax.vmap(_one)(xp, aps, target_LPS, pivot_local)
+
+
+def _threading_g_per_probe(
+    Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
+    section_mask, shank_mask, *, shaft_len,
+):
+    """vmap ``threading_g_matrix`` over probes → ``(g, valid)``, each
+    ``(P, S, SH)`` — one threading subgraph instead of P unrolled copies. Both
+    the objective (reward) and the constraint vector consume this; flatten with
+    ``.reshape(-1)`` for the probe-major order the old per-probe loop produced."""
+
+    def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m):
+        g = threading_g_matrix(
+            R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
+            shaft_length_mm=shaft_len,
+        )
+        return g, sec_m[:, None] * sh_m[None, :]
+
+    return jax.vmap(_one)(
+        Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
+        section_mask, shank_mask,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +199,8 @@ def _weights_key(w: Phase2Weights) -> tuple:
             "softmin_beta",
             "shaft_length_mm",
             "brain_margin_mm",
-            "lambda_cov_floor",
+            "lambda_cov",
+            "cov_alpha",
             "softmin_beta_cov",
         )
     ) + (
@@ -303,8 +324,14 @@ def _build_jit(  # noqa: C901
         if coverage_weights is not None
         else None
     )
-    lcov_floor = float(getattr(weights, "lambda_cov_floor", 0.0))
+    lambda_cov = float(getattr(weights, "lambda_cov", 1.0))
+    cov_alpha = float(getattr(weights, "cov_alpha", 0.0))
     beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
+
+    # Padded fixture table (stacked edge-padded grids + n_real_f), built ONCE
+    # from the closure-captured fixtures so the fixture × probe clearance is a
+    # single fused vmap in both _objective and _all_slacks.
+    fix_table = build_padded_fixture_table(fixtures)
 
     # ---- Objective: scalar minimised by SLSQP ----
     def _objective(
@@ -348,8 +375,8 @@ def _build_jit(  # noqa: C901
         if coverage_data is not None:
             if cov_ceilings is not None:
                 cov_pp = coverage_per_probe_over_probes(
-                    jnp.stack(Rs),
-                    jnp.stack(ts),
+                    Rs,
+                    ts,
                     tips_local,
                     shank_mask,
                     coverage_data,
@@ -358,7 +385,7 @@ def _build_jit(  # noqa: C901
                 coverage_total = normalized_coverage_objective(
                     cov_pp,
                     cov_ceilings,
-                    lambda_floor=lcov_floor,
+                    alpha=cov_alpha,
                     softmin_beta=beta_cov,
                     weights=cov_weights,
                 )
@@ -382,27 +409,12 @@ def _build_jit(  # noqa: C901
 
         # Margin bonuses: saturating per-pair (clear) and per-tuple (thread).
         # Mirror Phase 1's computation but skip the soft penalty terms.
-        thread_slacks_flat: list[jnp.ndarray] = []
-        thread_masks_flat: list[jnp.ndarray] = []
-        for i in range(n_probes):
-            g = threading_g_matrix(
-                Rs[i],
-                ts[i],
-                tips_local[i],
-                s_axes[i],
-                s_centers[i],
-                s_e1[i],
-                s_e2[i],
-                s_cos[i],
-                s_sin[i],
-                s_a[i],
-                s_b[i],
-                shaft_length_mm=shaft_len,
-            )
-            valid = section_mask[i][:, None] * shank_mask[i][None, :]
-            slack = thread_tol - g
-            thread_slacks_flat.append(slack.reshape(-1))
-            thread_masks_flat.append(valid.reshape(-1))
+        _tg, _tvalid = _threading_g_per_probe(
+            Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin,
+            s_a, s_b, section_mask, shank_mask, shaft_len=shaft_len,
+        )
+        thread_slacks_flat = (thread_tol - _tg).reshape(-1)
+        thread_masks_flat = _tvalid.reshape(-1)
 
         # Probe-probe clearance, vmapped over the static pair list (one dual-rep
         # subgraph vs C(P,2) unrolled — see clearance_sweep). Objective only needs
@@ -411,8 +423,8 @@ def _build_jit(  # noqa: C901
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
             _phard, _ = swept_pair_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
                 _pa,
                 _pb,
@@ -432,10 +444,10 @@ def _build_jit(  # noqa: C901
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
             ]
             _fh, _ = swept_fixture_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
-                fixtures,
+                fix_table,
                 _fidx,
                 beta=beta,
                 top_k_body=tk_bb,
@@ -456,13 +468,9 @@ def _build_jit(  # noqa: C901
             if _hard_parts
             else jnp.float32(0.0)
         )
-        slacks = (
-            jnp.concatenate(thread_slacks_flat) if thread_slacks_flat else jnp.zeros(1)
+        reward_thread = _saturating_reward_mean(
+            thread_slacks_flat, tau_t, valid=thread_masks_flat
         )
-        masks = (
-            jnp.concatenate(thread_masks_flat) if thread_masks_flat else jnp.zeros(1)
-        )
-        reward_thread = _saturating_reward_mean(slacks, tau_t, valid=masks)
 
         # Unit-circle pull on (sx, sy). x stride = PHASE1_PER_PROBE_VARS = 6.
         sx_arr = x[n_arcs + 1 :: PHASE1_PER_PROBE_VARS][:n_probes]
@@ -470,7 +478,7 @@ def _build_jit(  # noqa: C901
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (
-            -coverage_total
+            -lambda_cov * coverage_total
             + lb * j_bounds
             + luc * j_unit_circle
             - lmc * reward_clear
@@ -513,28 +521,13 @@ def _build_jit(  # noqa: C901
             arc_idx,
         )
 
-        # Threading slacks: tol - g, masked. Padded entries → +LARGE.
-        thread_slacks: list[jnp.ndarray] = []
-        for i in range(n_probes):
-            g = threading_g_matrix(
-                Rs[i],
-                ts[i],
-                tips_local[i],
-                s_axes[i],
-                s_centers[i],
-                s_e1[i],
-                s_e2[i],
-                s_cos[i],
-                s_sin[i],
-                s_a[i],
-                s_b[i],
-                shaft_length_mm=shaft_len,
-            )
-            valid = section_mask[i][:, None] * shank_mask[i][None, :]
-            slack = thread_tol - g
-            slack_masked = jnp.where(valid > 0, slack, _LARGE_SLACK)
-            thread_slacks.append(slack_masked.reshape(-1))
-        thread_vec = jnp.concatenate(thread_slacks) if thread_slacks else jnp.zeros(0)
+        # Threading slacks: tol - g, masked. Padded entries → +LARGE. vmapped
+        # over probes; reshape(-1) is probe-major (== old per-probe concatenate).
+        _tg, _tvalid = _threading_g_per_probe(
+            Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin,
+            s_a, s_b, section_mask, shank_mask, shaft_len=shaft_len,
+        )
+        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK).reshape(-1)
 
         # Clearance probe-probe: d_soft − min_clear per (pair, category), vmapped
         # over the static pair list (one dual-rep subgraph vs C(P,2) unrolled).
@@ -545,8 +538,8 @@ def _build_jit(  # noqa: C901
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
             _, _soft = swept_pair_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
                 _pa,
                 _pb,
@@ -572,10 +565,10 @@ def _build_jit(  # noqa: C901
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
             ]
             _, _fsoft = swept_fixture_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
-                fixtures,
+                fix_table,
                 _fidx,
                 beta=beta,
                 top_k_body=tk_bb,
@@ -589,14 +582,16 @@ def _build_jit(  # noqa: C901
         # Brain containment: each shank tip must be inside the brain by at
         # least ``brain_margin``. SDF is negative inside, so the slack is
         # ``-(d + margin) ≥ 0``. Padded shanks → +LARGE (don't constrain).
-        brain_slacks: list[jnp.ndarray] = []
+        brain_vec = jnp.zeros(0)
         if brain_sdf is not None:
-            for i in range(n_probes):
-                world_tips = tips_local[i] @ Rs[i].T + ts[i]
-                d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
-                s = -(d + brain_margin)
-                brain_slacks.append(jnp.where(shank_mask[i] > 0, s, _LARGE_SLACK))
-        brain_vec = jnp.concatenate(brain_slacks) if brain_slacks else jnp.zeros(0)
+            # Batched over probes: (P, max_shanks, 3) world tips → one gather.
+            # reshape(-1) is probe-major (== the old per-probe concatenate).
+            world_tips = (
+                jnp.matmul(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+            )
+            d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
+            s = -(d + brain_margin)
+            brain_vec = jnp.where(shank_mask > 0, s, _LARGE_SLACK).reshape(-1)
 
         # Arc-AP separation: smooth_abs(diff) − min_arc_ap_sep.
         if arc_pairs.shape[0] > 0:

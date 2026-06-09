@@ -580,6 +580,7 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     top_k: int = 16,
     interp: str = "trilinear",
     n_real_p: Array | None = None,
+    n_real_f: Array | None = None,
 ) -> tuple[Array, Array]:
     """Same as :func:`pairwise_signed_clearance_probe_fixture_body` but
     takes pre-transformed world-frame probe surface samples. Callers
@@ -589,17 +590,21 @@ def pairwise_signed_clearance_probe_fixture_body_world(
 
     ``n_real_p`` is the probe grid's real (unpadded) extent, for the fixture-
     surface-vs-probe-grid query when ``sdf_p_grid`` is a padded slot of a
-    per-kind table (see clearance_sweep). The fixture grid is its own constant
-    (never padded), so its query needs no real extent. ``None`` ⇒ unchanged.
+    per-kind table (see clearance_sweep). ``n_real_f`` is the same for the
+    fixture grid, for the probe-surface-vs-fixture-grid query when the fixtures
+    are stacked into a padded table to share a vmap axis. Both ``None`` ⇒
+    unchanged (un-padded constant grid).
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     kw_p = {} if n_real_p is None else {"n_real": n_real_p}
+    kw_f = {} if n_real_f is None else {"n_real": n_real_f}
 
     d_p_in_f = sdf_lookup(
         sdf_f_grid,
         sdf_f_origin,
         sdf_f_spacing,
         world_surface_p,
+        **kw_f,
     )
 
     local_f_in_p = (surface_f - t_p) @ R_p
@@ -1254,6 +1259,7 @@ def dual_rep_fixture_clearance(
     top_k_obb: int = 8,
     interp: str = "trilinear",
     n_real_p: Array | None = None,
+    n_real_f: Array | None = None,
     shank_mask: Array | None = None,
 ) -> FixtureClearance:
     """Both probe-fixture clearance categories in one call.
@@ -1265,8 +1271,10 @@ def dual_rep_fixture_clearance(
     misses at the α-wrap closing cap.
 
     ``n_real_p`` / ``shank_mask`` carry the probe grid's real extent and the OBB
-    validity mask when the probe grid/OBB come from a padded per-kind table (the
-    fixture vmap; see clearance_sweep). Both ``None`` ⇒ unchanged behaviour.
+    validity mask when the probe grid/OBB come from a padded per-kind table.
+    ``n_real_f`` carries the fixture grid's real extent when the fixtures are
+    stacked into a padded table to share a vmap axis (see clearance_sweep). All
+    ``None`` ⇒ unchanged behaviour.
     """
     body = pairwise_signed_clearance_probe_fixture_body_world(
         R_p,
@@ -1283,6 +1291,7 @@ def dual_rep_fixture_clearance(
         top_k=top_k_body,
         interp=interp,
         n_real_p=n_real_p,
+        n_real_f=n_real_f,
     )
     obb = pairwise_signed_clearance_probe_obb_fixture_world(
         R_p,

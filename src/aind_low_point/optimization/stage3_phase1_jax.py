@@ -46,6 +46,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_low_point.optimization.clearance_sweep import (
+    build_padded_fixture_table,
     build_padded_probe_tables,
     swept_fixture_clearances,
     swept_pair_clearances,
@@ -257,13 +258,16 @@ class Phase1Weights:
     lambda_brain: float = 500.0
     brain_margin_mm: float = 0.2
 
-    # Coverage fairness floor. Only active when per-probe ceilings are passed
-    # to the objective (which switches coverage to the normalised form
+    # Coverage average/worst blend. Only active when per-probe ceilings are
+    # passed to the objective (which switches coverage to the normalised form
     # cov_p / ceiling_p so regions weigh equally regardless of shank count /
-    # active area / σ / label density). ``lambda_cov_floor`` adds a soft-min
-    # over the normalised per-region fractions, so the optimiser cannot starve
-    # one region for the total. 0 ⇒ plain normalised sum (no floor).
-    lambda_cov_floor: float = 0.0
+    # active area / σ / label density). The coverage scalar becomes
+    # ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)`` — a count-free
+    # [0,1] blend. ``cov_alpha`` = 0 ⇒ pure average coverage; 1 ⇒ pure minimax
+    # on the laggard, so the optimiser cannot starve one region for the total.
+    # The overall coverage-vs-clearance gain is the separate runtime
+    # ``cov_weight`` arg, not this.
+    cov_alpha: float = 0.0
     softmin_beta_cov: float = 20.0
 
 
@@ -300,7 +304,7 @@ def _weights_key(w: Phase1Weights) -> tuple:
             "shaft_length_mm",
             "lambda_brain",
             "brain_margin_mm",
-            "lambda_cov_floor",
+            "cov_alpha",
             "softmin_beta_cov",
         )
     ) + (int(w.top_k_body_body), int(w.top_k_body_shank), int(w.top_k_shank_shank))
@@ -364,9 +368,9 @@ def _build_jit(  # noqa: C901
     reward across the P × n_fixtures pair list.
 
     ``coverage_ceilings`` (one per probe) switches coverage to the
-    normalised form ``cov_p / ceiling_p`` plus a soft-min fairness floor
-    (``weights.lambda_cov_floor``); when ``None`` coverage is the legacy
-    plain sum over probes.
+    normalised [0,1] blend ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)``
+    (``weights.cov_alpha``); when ``None`` coverage is the legacy plain
+    sum over probes.
     """
     (
         n_probes,
@@ -412,8 +416,8 @@ def _build_jit(  # noqa: C901
     shaft_len = float(weights.shaft_length_mm)
     lbrain = float(getattr(weights, "lambda_brain", 0.0))
     brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
-    # Coverage normalisation: per-probe ceilings (constant) + fairness floor.
-    lcov_floor = float(getattr(weights, "lambda_cov_floor", 0.0))
+    # Coverage normalisation: per-probe ceilings (constant) + average/worst blend.
+    cov_alpha = float(getattr(weights, "cov_alpha", 0.0))
     beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
     cov_ceilings = (
         jnp.asarray(coverage_ceilings, dtype=jnp.float32)
@@ -434,6 +438,11 @@ def _build_jit(  # noqa: C901
         [(a, b) for a in range(n_arcs) for b in range(a + 1, n_arcs)],
         dtype=jnp.int32,
     ).reshape(-1, 2)
+
+    # Padded fixture table (stacked edge-padded grids + n_real_f), built ONCE
+    # from the closure-captured fixtures so the fixture × probe loop is a single
+    # fused vmap rather than n_fixtures unrolled probe-vmaps.
+    fix_table = build_padded_fixture_table(fixtures)
 
     def _objective(
         x,
@@ -467,55 +476,47 @@ def _build_jit(  # noqa: C901
         # pre-cov_weight kernel; pass a traced value to share ONE compiled
         # kernel across the reduced (0) and full (1) ADAM stages.
         arc_aps = x[:n_arcs]
-        Rs = []
-        ts = []
-        thread_g_list = []
-        thread_mask_list = []
-        j_thread = jnp.float32(0.0)
-        for i in range(n_probes):
-            off = n_arcs + PHASE1_PER_PROBE_VARS * i
-            ml = x[off + 0]
-            sx = x[off + 1]
-            sy = x[off + 2]
-            off_R = x[off + 3]
-            off_A = x[off + 4]
-            depth = x[off + 5]
-            spin_deg = spin_deg_from_sxy(sx, sy)
-            ap = arc_aps[arc_idx[i]]
+
+        # Pose + threading per probe, vmapped over probes — one
+        # pose_from_optimizer_vars + threading_g_matrix subgraph instead of
+        # n_probes unrolled copies. x after the arcs is laid out
+        # (ml, sx, sy, off_R, off_A, depth) × P (stride PHASE1_PER_PROBE_VARS).
+        xp = x[n_arcs : n_arcs + PHASE1_PER_PROBE_VARS * n_probes].reshape(
+            n_probes, PHASE1_PER_PROBE_VARS
+        )
+        aps = arc_aps[arc_idx]  # (P,) per-probe arc AP
+
+        def _pose_thread(
+            xp6, ap, target, pivot, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
+            sec_m, sh_m,
+        ):
             R, t = pose_from_optimizer_vars(
-                target_LPS=target_LPS[i],
+                target_LPS=target,
                 ap_deg=ap,
-                ml_deg=ml,
-                spin_deg=spin_deg,
-                offset_R_mm=off_R,
-                offset_A_mm=off_A,
-                past_target_mm=depth,
-                recording_center_local=pivot_local[i],
+                ml_deg=xp6[0],
+                spin_deg=spin_deg_from_sxy(xp6[1], xp6[2]),
+                offset_R_mm=xp6[3],
+                offset_A_mm=xp6[4],
+                past_target_mm=xp6[5],
+                recording_center_local=pivot,
             )
-            Rs.append(R)
-            ts.append(t)
             g = threading_g_matrix(
-                R,
-                t,
-                tips_local[i],
-                s_axes[i],
-                s_centers[i],
-                s_e1[i],
-                s_e2[i],
-                s_cos[i],
-                s_sin[i],
-                s_a[i],
-                s_b[i],
+                R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
                 shaft_length_mm=shaft_len,
             )  # (S, SH)
-            valid_g = section_mask[i][:, None] * shank_mask[i][None, :]
+            valid_g = sec_m[:, None] * sh_m[None, :]
             # Penalty (Patch A: clamped, finite — no inf): max(0, g - tol)²
             excess = jnp.maximum(0.0, g - thread_tol)
-            j_thread = j_thread + jnp.sum(valid_g * excess * excess)
+            jt = jnp.sum(valid_g * excess * excess)
             # Slack for the margin reward: tol - g.
-            slack = thread_tol - g
-            thread_g_list.append(slack.reshape(-1))
-            thread_mask_list.append(valid_g.reshape(-1))
+            return R, t, jt, (thread_tol - g).reshape(-1), valid_g.reshape(-1)
+
+        Rs, ts, _jts, _thread_slacks, _thread_masks = jax.vmap(_pose_thread)(
+            xp, aps, target_LPS, pivot_local, tips_local,
+            s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
+            section_mask, shank_mask,
+        )
+        j_thread = jnp.sum(_jts)
 
         # AP separation (smooth_abs over arc-pair differences)
         if arc_pairs.shape[0] > 0:
@@ -546,8 +547,8 @@ def _build_jit(  # noqa: C901
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
             _hard, _soft = swept_pair_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
                 _pa,
                 _pb,
@@ -564,10 +565,10 @@ def _build_jit(  # noqa: C901
             j_clear = jnp.float32(0.0)
             pair_hard_clearances = None
 
-        # Probe-vs-fixture clearance, vmapped over probes per fixture — one
-        # dual-rep subgraph per fixture instead of n_fixtures × P unrolled copies
-        # (see clearance_sweep.swept_fixture_clearances). Fixtures keep a Python
-        # loop (heterogeneous grid shapes); only the ×P probe axis collapses.
+        # Probe-vs-fixture clearance, double-vmapped over (fixture × probe) — one
+        # dual-rep subgraph in one fused kernel instead of n_fixtures × P unrolled
+        # copies (see clearance_sweep.swept_fixture_clearances). Fixtures gather
+        # from the padded fix_table; probes from the per-kind sdf_table.
         if fixtures and sdf_table is not None:
             _fidx = [
                 i
@@ -575,10 +576,10 @@ def _build_jit(  # noqa: C901
                 if (not has_sdf) or per_probe_sdf_shapes[i] is not None
             ]
             _fh, _fs = swept_fixture_clearances(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 sdf_table,
-                fixtures,
+                fix_table,
                 _fidx,
                 beta=beta,
                 top_k_body=tk_bb,
@@ -600,13 +601,16 @@ def _build_jit(  # noqa: C901
         # the depth-greedy coverage cheat (the term is a function of depth).
         j_brain = jnp.float32(0.0)
         if brain_sdf is not None:
-            for i in range(n_probes):
-                world_tips = tips_local[i] @ Rs[i].T + ts[i]  # (max_shanks, 3)
-                d = trilinear_sdf(
-                    brain_grid, brain_origin, brain_spacing, world_tips
-                )  # signed distance, negative inside
-                viol = jnp.maximum(0.0, d + brain_margin)
-                j_brain = j_brain + jnp.sum(shank_mask[i] * viol * viol)
+            # Batched over probes: (P, max_shanks, 3) world tips in one matmul →
+            # one trilinear gather (P × max_shanks points) instead of P calls.
+            world_tips = (
+                jnp.matmul(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+            )
+            d = trilinear_sdf(
+                brain_grid, brain_origin, brain_spacing, world_tips
+            )  # (P, max_shanks) signed distance, negative inside
+            viol = jnp.maximum(0.0, d + brain_margin)
+            j_brain = jnp.sum(shank_mask * viol * viol)
 
         # Saturating per-pair clearance margin reward (mean form). Combines
         # probe-probe and probe-fixture clearances under one mean so the
@@ -625,12 +629,11 @@ def _build_jit(  # noqa: C901
             reward_clear = jnp.float32(0.0)
 
         # Saturating per-(probe, shank, section) threading margin reward.
-        if thread_g_list:
-            slacks = jnp.concatenate(thread_g_list)
-            masks = jnp.concatenate(thread_mask_list)
-            reward_thread = _saturating_reward_mean(slacks, tau_t, valid=masks)
-        else:
-            reward_thread = jnp.float32(0.0)
+        # Flatten the vmapped (P, S*SH) slacks/masks probe-major — same order as
+        # the old per-probe concatenate.
+        reward_thread = _saturating_reward_mean(
+            _thread_slacks.reshape(-1), tau_t, valid=_thread_masks.reshape(-1)
+        )
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the
         # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.
@@ -639,8 +642,8 @@ def _build_jit(  # noqa: C901
         # it's the legacy plain sum across probes.
         if coverage_data is not None and cov_ceilings is not None:
             cov_pp = coverage_per_probe_over_probes(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 tips_local,
                 shank_mask,
                 coverage_data,
@@ -649,7 +652,7 @@ def _build_jit(  # noqa: C901
             coverage_total = normalized_coverage_objective(
                 cov_pp,
                 cov_ceilings,
-                lambda_floor=lcov_floor,
+                alpha=cov_alpha,
                 softmin_beta=beta_cov,
                 weights=cov_weights,
             )
@@ -657,8 +660,8 @@ def _build_jit(  # noqa: C901
             # vmapped when all probes share a coverage mode (all-Gaussian /
             # all-KDE uniform grid); unrolled loop otherwise. Same result.
             coverage_total = coverage_total_over_probes(
-                jnp.stack(Rs),
-                jnp.stack(ts),
+                Rs,
+                ts,
                 tips_local,
                 shank_mask,
                 coverage_data,

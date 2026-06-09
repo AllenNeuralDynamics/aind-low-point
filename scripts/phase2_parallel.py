@@ -109,11 +109,13 @@ OUT_PKL = _os.environ.get("OUT", "scratch/phase2_handoff.pkl")
 WELL = _os.environ.get("WELL", "thick").lower()  # thin | thick (thick = tuned)
 WARMUP = _os.environ.get("WARMUP", "1") == "1"
 # Coverage normalization (mirror of the Phase-1 driver): divide each probe's
-# coverage by its achievable ceiling, optionally add a soft-min fairness floor
-# (COV_FLOOR), and apply the target spec's per-target priority weights. Must
-# match the Phase-1 setting for the objective to be consistent across stages.
+# coverage by its achievable ceiling, blend average vs worst region by COV_ALPHA
+# in [0,1], and apply the target spec's per-target priority weights. COV_WEIGHT
+# is the overall coverage-vs-clearance gain (coverage is a [0,1] scalar). Must
+# match the Phase-1 settings for the objective to be consistent across stages.
 COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
-COV_FLOOR = float(_os.environ.get("COV_FLOOR", "1.0"))
+COV_ALPHA = float(_os.environ.get("COV_ALPHA", "0.2"))
+COV_WEIGHT = float(_os.environ.get("COV_WEIGHT", "1.0"))
 # POOL is read at the top (before the platform block) so the GPU memory fraction
 # can depend on it.
 
@@ -253,7 +255,8 @@ def _phase2_one(rec):
             min_clearance_mm=MINCLEAR,
             lambda_margin_clear=LAM_CLEAR,
             tau_clear_mm=TAU_CLEAR,
-            lambda_cov_floor=COV_FLOOR if COV_NORM else 0.0,
+            lambda_cov=COV_WEIGHT,
+            cov_alpha=COV_ALPHA if COV_NORM else 0.0,
         ),
         brain_sdf=_G.get("brain_sdf"),
         hessian=HESS,
@@ -390,7 +393,8 @@ def _warmup(recs):
                 min_clearance_mm=MINCLEAR,
                 lambda_margin_clear=LAM_CLEAR,
                 tau_clear_mm=TAU_CLEAR,
-                lambda_cov_floor=COV_FLOOR if COV_NORM else 0.0,
+                lambda_cov=COV_WEIGHT,
+                cov_alpha=COV_ALPHA if COV_NORM else 0.0,
             ),
             brain_sdf=_G.get("brain_sdf"),
             **_cov_norm_kwargs(st),

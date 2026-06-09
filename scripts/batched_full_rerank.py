@@ -83,10 +83,10 @@ BF16_STORE = _os.environ.get("BF16_STORE", "1") == "1"
 # by build_coverage_data (discrete target -> Gaussian, point cloud -> KDE).
 COVERAGE = _os.environ.get("COVERAGE", "1") == "1"
 # COV_NORM: normalize per-probe coverage by its achievable ceiling (so regions
-# weigh equally regardless of shank count / active area / σ / density) and add
-# a soft-min fairness floor of weight COV_FLOOR. Off = legacy plain-sum coverage.
+# weigh equally regardless of shank count / active area / σ / density) and blend
+# average vs worst region by COV_ALPHA in [0,1]. Off = legacy plain-sum coverage.
 COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
-COV_FLOOR = float(_os.environ.get("COV_FLOOR", "1.0"))
+COV_ALPHA = float(_os.environ.get("COV_ALPHA", "0.2"))
 FCL_TOPK = int(_os.environ.get("FCL_TOPK", "100"))
 # LIMIT caps candidates per n_arcs group (0 = all) — for a fast smoke test.
 LIMIT = int(_os.environ.get("LIMIT", "0"))
@@ -176,10 +176,10 @@ def run_group(  # noqa: C901
         )
 
         ceilings = tuple(coverage_ceiling_per_probe(statics_flat[0], coverage_data))
-        weights = Phase1Weights(lambda_cov_floor=COV_FLOOR)
+        weights = Phase1Weights(cov_alpha=COV_ALPHA)
         print(
             f"  coverage NORMALIZED; ceilings={[round(c, 3) for c in ceilings]}, "
-            f"floor λ={COV_FLOOR}"
+            f"α={COV_ALPHA}"
         )
     grid_dtype = jnp.bfloat16 if BF16_STORE else jnp.float32
     vobj, _vgrad, build_arglist, make_adam, make_staged_adam = (

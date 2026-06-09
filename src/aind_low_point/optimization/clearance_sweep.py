@@ -25,9 +25,13 @@ the padding is **bit-exact** for the clearance:
   - Body-surface point clouds are uniform across real probes (no padding needed);
     placeholder/no-SDF probes (never referenced by a pair) pad to the max.
 
-Only the **pair** loop is vmapped here. The fixture loop stays unrolled in the
-caller: it is ~10% of the compile and ``dual_rep_fixture_clearance`` has no mask
-parameter, so a padded-OBB fixture path would not be bit-exact.
+Both the **pair** loop (:func:`swept_pair_clearances`) and the **fixture** loop
+(:func:`swept_fixture_clearances`, a double vmap over fixture × probe) are
+collapsed here. Fixtures are stacked into a padded table
+(:func:`build_padded_fixture_table`) the same way: edge-padded grids + per-fixture
+``real_shapes`` → ``n_real_f``, with uniform surface counts (the cone-crop keeps
+the surface in full). The cone is cropped to the well neighbourhood upstream so
+the padded fixture stack stays small.
 """
 
 from __future__ import annotations
@@ -300,31 +304,72 @@ def swept_pair_clearances(
 N_FIXTURE_CATEGORIES = 2
 
 
+def build_padded_fixture_table(fixtures) -> dict:
+    """Stack heterogeneous-shape fixture SDFs into one padded table so the
+    fixture loop collapses to a vmap axis (fixture × probe in one fused kernel).
+
+    Grids are edge-padded to a common shape with each fixture's real extent in
+    ``real_shapes`` → ``trilinear_sdf(n_real=...)`` (the ``d_p_in_f`` direction:
+    probe surface points vs the fixture grid), bit-exact with the unpadded grid
+    for in- and out-of-extent queries. Surface counts are uniform across fixtures
+    (the cone crop keeps the surface in full), so surfaces stack directly with no
+    mask. Origins / spacings stack per fixture. Built ONCE at objective-build
+    time and closure-captured. Empty ⇒ ``{}`` (no fixtures).
+    """
+    if not fixtures:
+        return {}
+    grids = [jnp.asarray(f.grid) for f in fixtures]
+    gx = max(int(g.shape[0]) for g in grids)
+    gy = max(int(g.shape[1]) for g in grids)
+    gz = max(int(g.shape[2]) for g in grids)
+    padded = jnp.stack(
+        [
+            jnp.pad(
+                g,
+                ((0, gx - g.shape[0]), (0, gy - g.shape[1]), (0, gz - g.shape[2])),
+                mode="edge",
+            )
+            for g in grids
+        ]
+    )
+    return dict(
+        grids=padded,
+        origins=jnp.stack([jnp.asarray(f.origin, jnp.float32) for f in fixtures]),
+        spacings=jnp.stack([jnp.asarray(f.spacing, jnp.float32) for f in fixtures]),
+        surfaces=jnp.stack([jnp.asarray(f.surface, jnp.float32) for f in fixtures]),
+        real_shapes=jnp.asarray(
+            [[int(g.shape[0]), int(g.shape[1]), int(g.shape[2])] for g in grids],
+            dtype=jnp.int32,
+        ),
+    )
+
+
 def swept_fixture_clearances(
     Rs,
     ts,
     tables: dict,
-    fixtures,
+    fix_table: dict,
     probe_idx,
     *,
     beta: float,
     top_k_body: int,
     top_k_obb: int,
 ):
-    """Probe-fixture clearance, vmapped over probes per fixture.
+    """Probe-fixture clearance, double-``vmap``'d over (fixture × probe).
 
-    The fixtures have heterogeneous grid shapes (well / cone / headframe), so
-    they stay a Python loop (one constant grid each); the ×P probe replication is
-    collapsed to a single ``jax.vmap`` that gathers each probe's grid / OBB / real
-    extent from the per-kind table by ``kind_id`` (the padded probe grid needs
-    ``n_real_p``; the padded OBB rows are masked). The fixture grids are their own
-    constants — never padded.
+    Both loops collapse to vmap axes: the fixtures are gathered from a padded
+    ``fix_table`` (edge-padded grids + per-fixture ``real_shapes`` → ``n_real_f``;
+    uniform surfaces), the probes gather grid / OBB / real extent from the
+    per-kind ``tables`` by ``kind_id`` (``n_real_p`` + masked OBB rows). One fused
+    kernel over n_fixtures × n_probes — better GPU occupancy than n_fixtures
+    sequential probe-vmaps, and one dual-rep subgraph traced instead of
+    n_fixtures copies.
 
     Parameters
     ----------
     Rs, ts : (P,3,3), (P,3) world poses.
     tables : output of :func:`build_padded_probe_tables`.
-    fixtures : sequence of FixtureSDFData (``.grid/.origin/.spacing/.surface``).
+    fix_table : output of :func:`build_padded_fixture_table`.
     probe_idx : (n_sdf_probes,) int32 — probe indices with an SDF (static).
 
     Returns
@@ -347,7 +392,7 @@ def swept_fixture_clearances(
     )
     idx = jnp.asarray(probe_idx, jnp.int32)
 
-    def _per_fixture(fg, fo, fs, fsurf):
+    def _per_fixture(fg, fo, fs, fsurf, fnr):
         def _probe(i):
             k = kind_id[i]
             fc = dual_rep_fixture_clearance(
@@ -367,6 +412,7 @@ def swept_fixture_clearances(
                 top_k_body=top_k_body,
                 top_k_obb=top_k_obb,
                 n_real_p=real_shapes[k],
+                n_real_f=fnr,
                 shank_mask=obb_m[k],
             )
             return jnp.stack([fc.body[0], fc.obb[0]]), jnp.stack(
@@ -375,14 +421,10 @@ def swept_fixture_clearances(
 
         return jax.vmap(_probe)(idx)  # (n_sdf_probes, 2) each
 
-    hards, softs = [], []
-    for fx in fixtures:
-        h, s = _per_fixture(
-            jnp.asarray(fx.grid),
-            jnp.asarray(fx.origin, jnp.float32),
-            jnp.asarray(fx.spacing, jnp.float32),
-            jnp.asarray(fx.surface, jnp.float32),
-        )
-        hards.append(h)
-        softs.append(s)
-    return jnp.stack(hards), jnp.stack(softs)
+    return jax.vmap(_per_fixture)(
+        fix_table["grids"],
+        fix_table["origins"],
+        fix_table["spacings"],
+        fix_table["surfaces"],
+        fix_table["real_shapes"],
+    )

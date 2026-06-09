@@ -101,11 +101,14 @@ MINIMIZER = _os.environ.get(
 ).lower()  # rprop|moment_restart|adam_const
 WELL_MODE = _os.environ.get("WELL", "thick").lower()  # thick|thin
 # Coverage normalization: divide each probe's coverage by its achievable ceiling
-# (so shank-count / area / σ / density weigh equally), optionally add a soft-min
-# fairness floor of weight COV_FLOOR, and apply per-target priority weights (from
-# the target spec's ``coverage_weight``, overridable via COVERAGE_WEIGHTS env).
+# (so shank-count / area / σ / density weigh equally), blend average vs worst
+# region by COV_ALPHA in [0,1] (0 = pure average, 1 = pure minimax laggard), and
+# apply per-target priority weights (from the target spec's ``coverage_weight``,
+# overridable via COVERAGE_WEIGHTS env). COV_WEIGHT is the overall coverage gain
+# vs clearance in the full stage (coverage is now a [0,1] scalar, count-free).
 COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
-COV_FLOOR = float(_os.environ.get("COV_FLOOR", "1.0"))
+COV_ALPHA = float(_os.environ.get("COV_ALPHA", "0.2"))
+COV_WEIGHT = float(_os.environ.get("COV_WEIGHT", "1.0"))
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]
 COARSE_N = int(
@@ -234,7 +237,7 @@ def _kernel(
     st0, n_arcs, cov, well_soft, brain_sdf, grid_dtype, ceilings=None, cov_weights=None
 ):
     """Build (vobj, build_arglist, run) for one fidelity's template statics."""
-    weights = Phase1Weights(lambda_cov_floor=COV_FLOOR) if COV_NORM else Phase1Weights()
+    weights = Phase1Weights(cov_alpha=COV_ALPHA) if COV_NORM else Phase1Weights()
     vobj, _vg, barg, _ma, mkad = make_batched_phase1_chunked(
         st0,
         n_arcs,
@@ -316,7 +319,8 @@ def run_group(  # noqa: C901
         if _group_log_once[0]:
             print(
                 f"  coverage NORMALIZED; ceilings={[round(c, 3) for c in ceilings]}, "
-                f"weights={[round(w, 3) for w in cov_weights]}, floor λ={COV_FLOOR}",
+                f"weights={[round(w, 3) for w in cov_weights]}, α={COV_ALPHA}, "
+                f"gain λ_cov={COV_WEIGHT}",
                 flush=True,
             )
             _group_log_once[0] = False
@@ -369,9 +373,9 @@ def run_group(  # noqa: C901
             x = run_f(x, cargs_f, lo_r, hi_r, 0.0, rf)  # reduced fine finish
         x_red[s : s + CHUNK] = np.asarray(x)
         if fc > 0:
-            x = run_c(x, cargs_c, lo, hi, 1.0, fc)  # full coarse
+            x = run_c(x, cargs_c, lo, hi, COV_WEIGHT, fc)  # full coarse
         if ff > 0:
-            x = run_f(x, cargs_f, lo, hi, 1.0, ff)  # full fine finish
+            x = run_f(x, cargs_f, lo, hi, COV_WEIGHT, ff)  # full fine finish
         x_out[s : s + CHUNK] = np.asarray(x)
         if (ci + 1) % PROGRESS_EVERY == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
