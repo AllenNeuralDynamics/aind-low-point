@@ -1,7 +1,7 @@
 """Durable full-pool batched-ADAM basin-select rerank (all 8908 candidates).
 
-Production counterpart to ``scripts.batched_basin_select_run`` (which is a
-500-sample, single-group diagnostic). Differences:
+The production rerank over the full pool (vs an earlier 500-sample,
+single-group diagnostic prototype). Key properties:
 
   * ALL candidates, not a linspace sample.
   * GROUPED by n_arcs (3-arc and 2-arc have different x-layouts) — one kernel

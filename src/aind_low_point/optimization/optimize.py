@@ -713,8 +713,8 @@ def best_fit_hole_id_at_pose(
 
     Returns ``(hole_id, max_g)``. ``max_g <= 0`` means the probe physically
     threads through that bore; ``> 0`` means the shank row would graze the
-    slot wall. Used by ``polish_seed`` and ``scripts/score_manual_plan.py``
-    to infer the bore implied by a manually-authored plan.
+    slot wall. Used by ``polish_seed`` to infer the bore implied by a
+    manually-authored plan.
     """
     if recording_geom is None:
         recording_geom = (
