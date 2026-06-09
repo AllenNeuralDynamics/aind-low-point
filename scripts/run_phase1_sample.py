@@ -26,6 +26,7 @@ import os as _os
 import pickle
 import sys as _sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
@@ -165,6 +166,110 @@ def fixture_keys_from_runtime(runtime) -> list[str]:
     return keys
 
 
+# Cone crop: the cone (headstage funnel) SDF is ~30M cells — ~25x the well /
+# headframe — but probes only pass through the funnel *near the well*; the rest
+# is never within collision distance. We crop it to the well bbox expanded by
+# this fraction on each side. Out-of-box queries return the SDF out-of-bounds
+# sentinel (far/clear), so the box must contain every probe point that could
+# touch the cone — the well neighbourhood + margin covers the entry fan.
+_CONE_CROP_MARGIN_FRAC = 0.30
+
+
+def _crop_fixture_to_box(
+    fx: FixtureSDFData, box_min: np.ndarray, box_max: np.ndarray
+) -> FixtureSDFData:
+    """Crop a fixture's SDF **grid** to the world-LPS AABB ``[box_min, box_max]``.
+
+    Only the voxel grid is cropped (the HBM hog); the **surface points are kept
+    in full**. The grid is queried by probe points (probe-vs-fixture-SDF
+    direction) — out-of-box probe points return the SDF out-of-bounds sentinel
+    (far / clear), so the box must contain every probe point that could be near
+    this fixture. The surface points feed the *other* direction
+    (fixture-points-vs-probe-SDF); keeping them all is bit-exact with the
+    un-cropped fixture (far points read far against the probe SDF) and keeps the
+    per-fixture surface count uniform so the fixtures can share a vmap axis.
+    Spacing is preserved; the origin shifts to the cropped corner.
+    """
+    origin = np.asarray(fx.origin, float)
+    spacing = np.asarray(fx.spacing, float)
+    grid = np.asarray(fx.grid)
+    shape = np.asarray(grid.shape)
+    i0 = np.clip(np.floor((box_min - origin) / spacing).astype(int), 0, shape)
+    i1 = np.clip(np.ceil((box_max - origin) / spacing).astype(int) + 1, 0, shape)
+    if np.any(i1 <= i0):
+        return fx  # box misses the grid entirely — leave the fixture untouched
+    sub = grid[i0[0] : i1[0], i0[1] : i1[1], i0[2] : i1[2]]
+    new_origin = origin + i0 * spacing
+    return replace(
+        fx,
+        grid=jnp.asarray(sub, fx.grid.dtype),
+        origin=jnp.asarray(new_origin, jnp.float32),
+    )
+
+
+def _resample_envelope_surface_in_box(
+    raw_mesh, *, offset_mm: float, box_min: np.ndarray, box_max: np.ndarray, n: int
+) -> np.ndarray:
+    """Area-uniform sample ``n`` points on the α-wrap envelope of ``raw_mesh``
+    that lie within the world-LPS box. Same envelope and area-uniform sampling
+    as :func:`build_probe_sdf`, just restricted to the box so the *full* point
+    budget covers the collision-relevant region (the funnel near the well)
+    instead of spreading over the whole cone, ~83% of which is far from any
+    probe."""
+    import trimesh
+
+    from aind_low_point.optimization.envelope import build_alpha_wrap_envelope
+
+    env = build_alpha_wrap_envelope(
+        raw_mesh, alpha_mm=0.2, offset_mm=offset_mm, strip_shanks_first=False
+    )
+    kept: list[np.ndarray] = []
+    have = 0
+    for _ in range(60):
+        pts, _ = trimesh.sample.sample_surface(env, max((n - have) * 6, 2000))
+        pts = np.asarray(pts, np.float32)
+        inb = pts[np.all((pts >= box_min) & (pts <= box_max), axis=1)]
+        if len(inb):
+            kept.append(inb)
+            have += len(inb)
+        if have >= n:
+            break
+    allp = np.concatenate(kept, axis=0) if kept else np.zeros((0, 3), np.float32)
+    if len(allp) < n:  # box barely grazes the surface — tile to fill the count
+        reps = int(np.ceil(n / max(len(allp), 1)))
+        allp = np.tile(allp, (reps, 1)) if len(allp) else np.zeros((n, 3), np.float32)
+    return allp[:n].astype(np.float32)
+
+
+def _crop_cone_to_well(
+    fixtures: tuple[FixtureSDFData, ...], raw_meshes: dict
+) -> tuple[FixtureSDFData, ...]:
+    """Crop the cone fixture to the well neighbourhood (see
+    ``_CONE_CROP_MARGIN_FRAC``): crop its SDF **grid** to the box and **resample**
+    its surface points to the same count *within* the box. Other fixtures pass
+    through unchanged. No-op if there is no well or no cone."""
+    well = next((f for f in fixtures if "well" in f.name.lower()), None)
+    if well is None:
+        return fixtures
+    w_min = np.asarray(well.origin, float)
+    w_max = w_min + (np.asarray(well.grid.shape) - 1) * np.asarray(well.spacing, float)
+    margin = _CONE_CROP_MARGIN_FRAC * (w_max - w_min)
+    box_min, box_max = w_min - margin, w_max + margin
+    out = []
+    for f in fixtures:
+        if "cone" in f.name.lower():
+            n_surf = int(np.asarray(f.surface).shape[0])
+            f = _crop_fixture_to_box(f, box_min, box_max)  # grid only
+            mesh = raw_meshes.get(f.name)
+            if mesh is not None:
+                surf = _resample_envelope_surface_in_box(
+                    mesh, offset_mm=0.15, box_min=box_min, box_max=box_max, n=n_surf
+                )
+                f = replace(f, surface=jnp.asarray(surf, jnp.float32))
+        out.append(f)
+    return tuple(out)
+
+
 def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
     """Build α-wrap SDFs for static fixtures.
 
@@ -177,6 +282,7 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
     already in world LPS (fixtures are static — identity transform).
     """
     out: list[FixtureSDFData] = []
+    raw_meshes: dict = {}
     for key in fixture_keys_from_runtime(runtime):
         try:
             geom_wrap = runtime.asset_catalog.get_geometry(key)
@@ -185,6 +291,7 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
         mesh = getattr(geom_wrap, "raw", None)
         if mesh is None:
             continue
+        raw_meshes[key] = mesh
         # Fixtures get 0.2 mm SDF spacing (same as probes) — coarser
         # 0.5 mm gave trilinear-interp errors up to ~0.5 mm at voxel
         # boundaries, which silently reported probe-vs-well contacts
@@ -212,7 +319,7 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
                 surface=jnp.asarray(sdf.surface_points, dtype=jnp.float32),
             )
         )
-    return tuple(out)
+    return _crop_cone_to_well(tuple(out), raw_meshes)
 
 
 def build_brain_sdf(
