@@ -20,20 +20,16 @@ _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import pickle
-from pathlib import Path
 from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.clearance_sweep import (
     cast_fixture_grids,
     cast_packed_grids,
 )
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.pipeline.contracts import (
     BatchedGradientFn,
@@ -41,12 +37,9 @@ from aind_low_point.optimization.pipeline.contracts import (
     Phase1ChunkedFns,
     Phase1ObjectiveFns,
 )
-from aind_low_point.optimization.pipeline.phase1_geometry import build_fixture_sdf_data
-from aind_low_point.optimization.pipeline.probe_setup import (
-    _probe_static_info,
-    _transform_holes,
+from aind_low_point.optimization.pipeline.runtime_adapter import (
+    OptimizationRuntime,
 )
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     PACKED_ARG_ORDER,
     PACKED_PER_CAND_KEYS,
@@ -56,8 +49,6 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     _signature,
     make_phase1_objective,
 )
-from aind_low_point.runtime import build_runtime_from_config
-from aind_low_point.runtime.transforms import compile_all_transforms
 
 ARG_ORDER = list(PACKED_ARG_ORDER)
 PER_CAND = set(PACKED_PER_CAND_KEYS)
@@ -349,29 +340,12 @@ def make_staged_rprop(
 
 
 def main() -> int:
-    cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
-    runtime = build_runtime_from_config(cfg)
-    probes = [
-        _probe_static_info(runtime.plan_state, runtime, n)
-        for n in runtime.plan_state.probes
-    ]
-    holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
-    compiled = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in compiled:
-        R, t = compiled["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
-    sdf_by_name = {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        )
-        for p in probes
-    }
-    bvh_cache = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
-    fixtures = build_fixture_sdf_data(runtime)
-    well = next(f for f in fixtures if "well" in f.name.lower())
+    opt = OptimizationRuntime.from_config_path(
+        "examples/836656-config-T12.yml", "scratch/0283-300-04.holes.yml"
+    )
+    _cfg, _rt, probes, holes, sdf_by_name, bvh_cache, fixtures, well, _fixture_bvhs = (
+        opt.as_legacy_setup()
+    )
 
     data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     cand_idxs = [4195, 1035, 230, 2291]

@@ -35,9 +35,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.config import ConfigModel
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
 from aind_low_point.optimization.pipeline.phase1_build import (
@@ -47,23 +44,17 @@ from aind_low_point.optimization.pipeline.phase1_build import (
 )
 from aind_low_point.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
-    build_fixture_sdf_data,
-    maybe_build_brain_sdf,
     phase1_bounds,
 )
-from aind_low_point.optimization.pipeline.probe_setup import (
-    _probe_static_info,
-    _transform_holes,
+from aind_low_point.optimization.pipeline.runtime_adapter import (
+    OptimizationRuntime,
 )
 from aind_low_point.optimization.probe_kinematics import (
     is_four_shank,
     spin_to_align_y_with,
 )
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-from aind_low_point.runtime import build_runtime_from_config
-from aind_low_point.runtime.transforms import compile_all_transforms
 
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))
@@ -293,43 +284,21 @@ def run_group(  # noqa: C901
 
 def main() -> int:
     print(f"JAX devices: {jax.devices()}")
-    cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
-    runtime = build_runtime_from_config(cfg)
-    probes = [
-        _probe_static_info(runtime.plan_state, runtime, n)
-        for n in runtime.plan_state.probes
-    ]
-    holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
-    compiled = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in compiled:
-        R, t = compiled["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
+    opt = OptimizationRuntime.from_config_path(
+        "examples/836656-config-T12.yml", "scratch/0283-300-04.holes.yml"
+    )
     print(f"n_surface_points = {N_SURF}; bf16_store = {BF16_STORE}")
-    sdf_by_name = {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            runtime.asset_catalog.get_geometry(f"probe:{p.kind}").raw,
-            n_surface_points=N_SURF,
-        )
-        for p in probes
-    }
-    bvh_cache = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
-    fixtures = build_fixture_sdf_data(runtime)
-    well = next(f for f in fixtures if "well" in f.name.lower())
+    _cfg, _rt, probes, holes, sdf_by_name, bvh_cache, fixtures, well, fixture_bvhs = (
+        opt.as_legacy_setup(n_surface_points=N_SURF)
+    )
     # FCL validation uses ALL fixtures (headframe+cone+well) for an honest
     # feasibility verdict; the soft sort uses well only (well dominates).
-    fixture_bvhs = {
-        f.name: make_fcl_bvh(runtime.asset_catalog.get_geometry(f.name).raw)
-        for f in fixtures
-    }
     well_obj = (
         replace(well, grid=jnp.asarray(well.grid, jnp.bfloat16)) if BF16_STORE else well
     )
     # Brain containment: ON whenever the config has a brain asset (don't let a
     # depth-greedy ADAM puncture the brain bottom for coverage).
-    brain_sdf = maybe_build_brain_sdf(runtime, compiled)
+    brain_sdf = opt.brain_sdf()
     print(
         "brain-containment: "
         f"{'ON' if brain_sdf is not None else 'OFF (no brain asset)'}"

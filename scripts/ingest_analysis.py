@@ -25,25 +25,16 @@ from pathlib import Path
 
 import numpy as np
 
-from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.coverage_jax import (
     coverage_per_probe_over_probes,
 )
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import _poses
-from aind_low_point.optimization.pipeline.phase1_geometry import (
-    build_coverage_data,
-    build_fixture_sdf_data,
-)
-from aind_low_point.optimization.pipeline.probe_setup import (
-    _probe_static_info,
-    _transform_holes,
+from aind_low_point.optimization.pipeline.phase1_geometry import build_coverage_data
+from aind_low_point.optimization.pipeline.runtime_adapter import (
+    OptimizationRuntime,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-from aind_low_point.runtime import build_runtime_from_config
-from aind_low_point.runtime.transforms import compile_all_transforms
 
 TOPK = int(_os.environ.get("TOPK", "300"))
 MANUAL = 4195
@@ -56,23 +47,14 @@ def _assign_key(cand):
 
 
 def main() -> int:
-    cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
-    rt = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(rt.plan_state, rt, n) for n in rt.plan_state.probes]
-    holes = load_holes(Path("scratch/0283-300-04.holes.yml"))
-    comp = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in comp:
-        R, t = comp["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
-    bvh = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
-    fixtures = build_fixture_sdf_data(rt)
-    fbvh = {
-        f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw)
-        for f in fixtures
-    }
+    opt = OptimizationRuntime.from_config_path(
+        "examples/836656-config-T12.yml", "scratch/0283-300-04.holes.yml"
+    )
+    probes = list(opt.probes)
+    holes = list(opt.holes)
+    bvh = opt.probe_bvhs()
+    fixtures = opt.fixture_sdfs()
+    fbvh = opt.fixture_bvhs(fixtures)
 
     rer = pickle.load(open("scratch/full_rerank_0283.pkl", "rb"))
     pool = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))

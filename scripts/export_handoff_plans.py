@@ -22,20 +22,14 @@ import numpy as np
 import yaml
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
-from aind_low_point.config import ConfigModel, InlineTargetRefModel, PlanningModel
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.holes import load_holes
+from aind_low_point.config import InlineTargetRefModel, PlanningModel
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
-from aind_low_point.optimization.pipeline.probe_setup import (
-    _probe_static_info,
-    _transform_holes,
+from aind_low_point.optimization.pipeline.runtime_adapter import (
+    OptimizationRuntime,
 )
-from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.planning import ProbePose
-from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.export import apply_plan_model_to_state
-from aind_low_point.runtime.transforms import compile_all_transforms
 from aind_low_point.state_change import PlanStore
 
 CONFIG = "examples/836656-config-T12.yml"
@@ -47,24 +41,10 @@ ARC_LETTERS = "abcdefgh"
 
 
 def _setup():
-    cfg = ConfigModel.from_yaml(CONFIG)
-    rt = build_runtime_from_config(cfg)
-    probes = [_probe_static_info(rt.plan_state, rt, n) for n in rt.plan_state.probes]
-    holes = load_holes(Path(HOLES))
-    comp = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in comp:
-        R, t = comp["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
-    sdf = {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        )
-        for p in probes
-    }
-    bvh = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
+    opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
+    cfg, rt, probes, holes, sdf, bvh, _fixtures, _well, _fixture_bvhs = (
+        opt.as_legacy_setup()
+    )
     pool = pickle.load(open(POOL_PKL, "rb"))
     template = PlanningModel.model_validate(yaml.safe_load(open(PLAN_TEMPLATE)))
     return cfg, rt, probes, holes, sdf, bvh, pool, template
