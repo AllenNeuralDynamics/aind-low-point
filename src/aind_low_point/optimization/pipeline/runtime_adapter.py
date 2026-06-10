@@ -270,29 +270,3 @@ class OptimizationRuntime:
             fixture_bvhs=self.fixture_bvhs(fixtures),
             brain_sdf=self.brain_sdf() if include_brain else None,
         )
-
-    def as_legacy_setup(
-        self, *, n_surface_points: int = 5000
-    ) -> tuple[
-        ConfigModel,
-        RuntimeBundle,
-        list[ProbeStaticInfo],
-        list[Hole],
-        dict[str, ProbeSDF],
-        dict[str, Any | None],
-        tuple[FixtureSDFData, ...],
-        FixtureSDFData,
-        dict[str, Any],
-    ]:
-        assets = self.build_problem_assets(n_surface_points=n_surface_points)
-        return (
-            self.cfg,
-            self.runtime,
-            list(self.probes),
-            list(self.holes),
-            assets.probe_sdfs,
-            assets.probe_bvhs,
-            assets.fixtures,
-            assets.well_fixture,
-            assets.fixture_bvhs,
-        )

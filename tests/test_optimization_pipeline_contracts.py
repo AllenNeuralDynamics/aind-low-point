@@ -67,16 +67,12 @@ def test_phase1_pool_records_are_built_through_helper() -> None:
 
 
 def test_active_pipeline_entrypoints_use_runtime_adapter_for_setup() -> None:
+    # Active entrypoints that must build setup via the runtime adapter, not the
+    # banned legacy helpers. (The earlier diagnostic scripts that used to be in
+    # this list were retired with the as_legacy_setup shim cleanup.)
     paths = [
         ROOT / "src/aind_low_point/optimization/pipeline/phase1_build.py",
-        ROOT / "scripts/batched_adam_test.py",
-        ROOT / "scripts/batched_full_rerank.py",
-        ROOT / "scripts/export_handoff_plans.py",
         ROOT / "scripts/ingest_analysis.py",
-        ROOT / "scripts/rank_corr_gate.py",
-        ROOT / "scripts/save_chain_plans.py",
-        ROOT / "scripts/spin_heuristic_search.py",
-        ROOT / "scripts/test_h1_chain_cand4195.py",
     ]
     banned_names = {
         "_probe_static_info",

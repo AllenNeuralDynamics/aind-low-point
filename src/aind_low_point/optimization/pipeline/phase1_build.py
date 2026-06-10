@@ -343,9 +343,10 @@ def main() -> int:
     opt = OptimizationRuntime.from_config_path(
         "examples/836656-config-T12.yml", "scratch/0283-300-04.holes.yml"
     )
-    _cfg, _rt, probes, holes, sdf_by_name, bvh_cache, fixtures, well, _fixture_bvhs = (
-        opt.as_legacy_setup()
-    )
+    assets = opt.build_problem_assets()
+    probes, holes = list(opt.probes), list(opt.holes)
+    sdf_by_name, bvh_cache = assets.probe_sdfs, assets.probe_bvhs
+    well = assets.well_fixture
 
     data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
     cand_idxs = [4195, 1035, 230, 2291]

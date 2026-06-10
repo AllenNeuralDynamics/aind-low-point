@@ -90,8 +90,23 @@ def setup_runtime() -> OptimizationRuntime:
 
 
 def setup(runtime: OptimizationRuntime | None = None):
+    """Legacy 9-tuple setup (cfg, runtime, probes, holes, probe_sdfs, probe_bvhs,
+    fixtures, well_fixture, fixture_bvhs) for the diagnostic/legacy callers that
+    still unpack it. New code should use ``OptimizationRuntime`` + its
+    ``build_problem_assets`` directly (as ``phase2_ipopt`` does)."""
     opt = setup_runtime() if runtime is None else runtime
-    return opt.as_legacy_setup(n_surface_points=N_SURF)
+    assets = opt.build_problem_assets(n_surface_points=N_SURF)
+    return (
+        opt.cfg,
+        opt.runtime,
+        list(opt.probes),
+        list(opt.holes),
+        assets.probe_sdfs,
+        assets.probe_bvhs,
+        assets.fixtures,
+        assets.well_fixture,
+        assets.fixture_bvhs,
+    )
 
 
 def enum_seed_y0(cand, probes, n_arcs, seed_spins_deg=None):
