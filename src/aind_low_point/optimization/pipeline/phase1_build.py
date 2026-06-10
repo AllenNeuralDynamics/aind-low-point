@@ -34,6 +34,11 @@ from aind_low_point.optimization.clearance_sweep import (
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.pipeline.phase1_geometry import build_fixture_sdf_data
+from aind_low_point.optimization.pipeline.probe_setup import (
+    _probe_static_info,
+    _transform_holes,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
@@ -44,8 +49,6 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 )
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.run_optimizer import _probe_static_info, _transform_holes
-from scripts.run_phase1_sample import build_fixture_sdf_data
 
 # _objective's positional arg order (after x), from stage3_phase1_jax:357.
 ARG_ORDER = [
@@ -461,3 +464,44 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def build_cw_fns(
+    st,
+    n_arcs,
+    cov,
+    thick,
+    brain,
+    weights=None,
+    coverage_ceilings=None,
+    coverage_weights=None,
+):
+    """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids)."""
+    w = weights if weights is not None else Phase1Weights()
+    sig = _signature(st, n_arcs, w)
+    # bf16 all collision grids (fixture + probe + table), like the chunked
+    # builder. See clearance_sweep for the policy.
+    (thick,) = cast_fixture_grids((thick,), jnp.bfloat16)
+    jit_obj, _ = _build_jit(
+        sig,
+        w,
+        coverage_data=cov,
+        fixtures=(thick,),
+        brain_sdf=brain,
+        coverage_ceilings=coverage_ceilings,
+        coverage_weights=coverage_weights,
+    )
+
+    def obj_cw(x, cov_weight, *args):
+        return jit_obj(x, cov_weight=cov_weight, **dict(zip(ARG_ORDER, args)))
+
+    in_axes = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
+    vobj = jax.jit(jax.vmap(obj_cw, in_axes=in_axes))
+    vgrad = jax.jit(jax.vmap(jax.grad(obj_cw, argnums=0), in_axes=in_axes))
+    pack = _pack_statics(st, n_arcs)
+    shared = cast_packed_grids(
+        {k: pack[k] for k in ARG_ORDER if k not in PER_CAND}, jnp.bfloat16
+    )
+    stacked = {k: jnp.stack([jnp.asarray(pack[k])]) for k in PER_CAND}
+    arglist = [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
+    return vobj, vgrad, arglist

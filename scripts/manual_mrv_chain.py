@@ -52,6 +52,23 @@ from aind_low_point.optimization.batched_spin_restore import (
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
+from aind_low_point.optimization.pipeline.enumeration import (
+    MIN_ARC_AP_SEP_DEG,
+    MIN_ML_SEP_DEG,
+    Enumerator,
+    build_or_load_atlas,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.restore import (
+    PPV,
+    build_adam_kernel,
+    setup,
+    spins_deg_from_reduced,
+)
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
     make_phase1_objective,
@@ -59,23 +76,6 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 from aind_low_point.optimization.stage3_phase2_jax import Phase2Weights, make_phase2
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.arc_first_mrv import (
-    MIN_ARC_AP_SEP_DEG,
-    MIN_ML_SEP_DEG,
-    Enumerator,
-    build_or_load_atlas,
-)
-from scripts.restore_well_adam_manual import (
-    PPV,
-    build_adam_kernel,
-    setup,
-    spins_deg_from_reduced,
-)
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    maybe_build_brain_sdf,
-    phase1_bounds,
-)
 
 IDX = int(_os.environ.get("IDX", "4195"))
 # OPT: unconstrained-stage minimizer. "lbfgs" (default) = scipy L-BFGS-B on the

@@ -14,13 +14,10 @@ production scripts still need:
 from __future__ import annotations
 
 import os as _os
-import sys as _sys
 from dataclasses import replace
-from pathlib import Path
 
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cpu")
-_sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fcl
 import jax.numpy as jnp

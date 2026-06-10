@@ -73,7 +73,7 @@ Driver: `scripts/batched_full_rerank.py` (GPU).
 also imported as a library by the Phase-2 scripts).
 
 ### Stage 3 — Phase 2 polish + handoff ranking → `scratch/phase2_handoff.pkl`
-Driver: `scripts/phase2_parallel.py`. Runs `optimization/stage3_phase2_jax.py`
+Driver: `alp-phase2` (`optimization/pipeline/phase2_ipopt.py`). Runs `optimization/stage3_phase2_jax.py`
 (trust-constr, hard constraints + coverage) on the selected top-N, FCL-gates
 (`stage3_phase3_fcl.py`), MMR-diversity-ranks. `scripts/phase2_throughput.py`
 is the **diagnostic** timing variant (not the durable producer).
@@ -157,24 +157,25 @@ so wiring B/C is a small hook. Until this runs, do not remove L-BFGS.
 
 ---
 
-## Legacy code (superseded but present)
+## Retired code (deleted)
 
-Mark the **functions**, not whole modules — each module also exports live
-symbols (noted). No live script imports these except via `run_optimizer.main()`,
-which is itself legacy.
+The old SLSQP Stage-3 "inner-solve" chain was **removed** (commit `a0d4ef3`),
+having been superseded by the Phase-1/2/3 pipeline above. Deleted:
 
-- `optimization/optimize.py::_inner_solve_one` (the old SLSQP Stage-3 chain) —
-  legacy. *Live in this module:* `ProbeStaticInfo`.
-- `optimization/atlas.py::build_atlas`, `atlas_stage1`, `solve_top_k_assignments`
-  (LSAP) — superseded by `visibility_atlas` + arc-first. *Live:* `Atlas`
-  dataclass (imported by `arc_first_principled`).
-- `optimization/joint_rerank.py::optimize_joint` (the LSAP/atlas_stage1 reduced-
-  reranker driver) — legacy. *Live:* `score_joint`, `_slsqp_reduced`,
+- `optimization/optimize.py::_inner_solve_one`, `optimize`, `polish_seed`, … —
+  the whole module is now just the `ProbeStaticInfo` dataclass.
+- `optimization/atlas.py::build_atlas`, `atlas_stage1` — superseded by
+  `visibility_atlas` + arc-first. *Kept:* `Atlas`/`AtlasEntry`/`PoseAnchor`
+  dataclasses (imported by `arc_first_principled`).
+- `optimization/joint_rerank.py::optimize_joint`, `_inner_solve_worker*` — the
+  LSAP/atlas_stage1 reranker driver. *Kept:* `score_joint`, `_slsqp_reduced`,
   `_build_probe_static`, `JointWeights`, `JointCandidate`.
-- `optimization/stage3_jax.py` — only reached from `_inner_solve_one`. Legacy.
-- `optimization/hole_assignment.py` LSAP path — legacy.
-- `scripts/run_optimizer.py::main` / `_inner_solve_one` — legacy driver. *Live:*
-  its helpers `_probe_static_info`, `_transform_holes` (imported everywhere).
+- `optimization/sdf_clearance.py`, `optimization/stage3_jax.py` — only reached
+  from `_inner_solve_one`. Whole modules deleted.
+
+The shared probe-setup helpers that the legacy `run_optimizer.py` used to host
+(`_probe_static_info`, `_transform_holes`, `retro_opts_from_env`) now live in
+`optimization/pipeline/probe_setup.py` and are imported by the live pipeline.
 
 ---
 

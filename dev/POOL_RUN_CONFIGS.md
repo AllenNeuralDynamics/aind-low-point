@@ -1,6 +1,7 @@
 # MRV pool run — tuned configurations
 
-`scripts/mrv_pool_run.py` runs the full MRV candidate pool (≈19k configs: 3 arcs,
+`alp-phase1` (`src/aind_low_point/optimization/pipeline/phase1_pool.py`) runs the
+full MRV candidate pool (≈19k configs: 3 arcs,
 ≤4 probes/arc) through **restore → reduced → full** optimization and a
 per-candidate FCL gate, saving one record per candidate for the downstream
 cull → diversity-select → trust-constr (Phase 2) → FCL (Phase 3) handoff.
@@ -27,7 +28,7 @@ baseline = 91/17).
 Beats all-fine on *everything* at <½ the surf wall-time.
 
 ```bash
-JAX_PLATFORMS=cuda uv run --python 3.13 -m scripts.mrv_pool_run
+JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase1
 # (defaults: MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50)
 ```
 
@@ -38,14 +39,14 @@ Maximizes the feasible handoff set.
 
 ```bash
 JAX_PLATFORMS=cuda COARSE_N=3000 REDUCED_FINE=100 FULL_FINE=100 \
-  uv run --python 3.13 -m scripts.mrv_pool_run
+  uv run --python 3.13 alp-phase1
 ```
 
 ### BASELINE — reproduce the old 165-feasible run
 
 ```bash
 JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
-  REDUCED_FINE=0 FULL_FINE=0 uv run --python 3.13 -m scripts.mrv_pool_run
+  REDUCED_FINE=0 FULL_FINE=0 uv run --python 3.13 alp-phase1
 ```
 
 ## Knobs
@@ -90,6 +91,6 @@ trust-constr + Phase-3 FCL on them.
   (~3–4 min); amortized over the ~300 chunks of the big 3-arc group.
 - **VRAM**: ~9.5 MB/candidate marginal + ~2.2 GB baseline; `CHUNK=64` peaks
   ~2.8 GB. The thick-well + coarse SDFs are shared (broadcast), not per-cand.
-- Don't chain a background waiter with `until ! pgrep -f "[m]rv_pool_run"` whose
+- Don't chain a background waiter with `until ! pgrep -f "[a]lp-phase1"` whose
   own argv contains the pattern — it matches itself and loops forever. Launch
   directly or match a unique token.

@@ -57,7 +57,7 @@ for NA in $(seq "$MAX_ARCS" -1 1); do
     COARSE_N="$COARSE_N" REDUCED_FINE="$REDUCED_FINE" FULL_FINE="$FULL_FINE" \
     RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
     OUT="$POOL" JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
-    uv run --python 3.13 -m scripts.mrv_pool_run
+    uv run --python 3.13 alp-phase1
 done
 
 echo "[$(date +%H:%M)] Phase 2: IPOPT + thick well on top-${TOPK} by min_clear (FCL at end) → ${HANDOFF}"
@@ -66,10 +66,10 @@ SOLVER=ipopt CONFIG="$CONFIG" HOLES="$HOLES" \
   WELL=thick POOL=thread PLATFORM=gpu GPU_MEM_FRACTION=0.9 WORKERS="$WORKERS" \
   RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
   TOPK="$TOPK" P2_ITER="$P2_ITER" \
-  JAX_PLATFORMS=cuda uv run --python 3.13 -m scripts.phase2_parallel
+  JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase2
 
 echo "[$(date +%H:%M)] Emit top-${EMIT_N} trame configs → ${PLANDIR}/"
 CONFIG="$CONFIG" HOLES="$HOLES" HANDOFF="$HANDOFF" N="$EMIT_N" OUTDIR="$PLANDIR" \
-  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.emit_plan_configs
+  JAX_PLATFORMS=cpu uv run --python 3.13 alp-emit
 
 echo "[$(date +%H:%M)] === DONE: pool=${POOL} handoff=${HANDOFF} plans=${PLANDIR}/ ==="

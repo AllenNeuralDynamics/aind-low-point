@@ -27,13 +27,16 @@ from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
+from aind_low_point.optimization.pipeline.probe_setup import (
+    _probe_static_info,
+    _transform_holes,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.planning import ProbePose
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.export import apply_plan_model_to_state
 from aind_low_point.runtime.transforms import compile_all_transforms
 from aind_low_point.state_change import PlanStore
-from scripts.run_optimizer import _probe_static_info, _transform_holes
 
 CONFIG = "examples/836656-config-T12.yml"
 PLAN_TEMPLATE = "examples/836656-config-T12.plan.yml"

@@ -27,6 +27,17 @@ from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
+from aind_low_point.optimization.pipeline.phase1_build import (
+    make_batched_phase1_objective,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_fixture_sdf_data,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.probe_setup import (
+    _probe_static_info,
+    _transform_holes,
+)
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
     Phase1Weights,
@@ -35,9 +46,6 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.batched_phase1_build import make_batched_phase1_objective
-from scripts.run_optimizer import _probe_static_info, _transform_holes
-from scripts.run_phase1_sample import build_fixture_sdf_data, phase1_bounds
 from scripts.spin_heuristic_search import (
     beam_search_assignments,
     build_coupling_graph,

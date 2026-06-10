@@ -193,8 +193,10 @@ def make_thick_well_sdf(
 
 def main() -> int:
     from aind_low_point.config import ConfigModel
+    from aind_low_point.optimization.pipeline.phase1_geometry import (
+        build_fixture_sdf_data,
+    )
     from aind_low_point.runtime import build_runtime_from_config
-    from scripts.run_phase1_sample import build_fixture_sdf_data
 
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     rt = build_runtime_from_config(cfg)

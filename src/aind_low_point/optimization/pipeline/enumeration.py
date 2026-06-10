@@ -77,14 +77,14 @@ def build_or_load_atlas():
         # legacy 2-tuple cache without head pitch → rebuild below
     from aind_low_point.config import ConfigModel
     from aind_low_point.optimization.holes import load_holes
-    from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
-    from aind_low_point.runtime import build_runtime_from_config
-    from aind_low_point.runtime.transforms import compile_all_transforms
-    from scripts.run_optimizer import (
+    from aind_low_point.optimization.pipeline.probe_setup import (
         _probe_static_info,
         _transform_holes,
         retro_opts_from_env,
     )
+    from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
+    from aind_low_point.runtime import build_runtime_from_config
+    from aind_low_point.runtime.transforms import compile_all_transforms
 
     cfg = ConfigModel.from_yaml(CONFIG)
     rt = build_runtime_from_config(cfg)

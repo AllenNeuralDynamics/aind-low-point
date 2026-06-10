@@ -36,22 +36,27 @@ import numpy as np
 
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.pipeline.enumeration import (
+    Enumerator,
+    build_or_load_atlas,
+)
+from aind_low_point.optimization.pipeline.phase1_build import (
+    make_batched_phase1_chunked,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.restore import setup
 from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.arc_first_mrv import Enumerator, build_or_load_atlas
-from scripts.batched_phase1_build import make_batched_phase1_chunked
 from scripts.log_candidate_trajectories import (
     reduced_lohi,
     restore_spins_mrv,
     select_sample,
-)
-from scripts.restore_well_adam_manual import setup
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    maybe_build_brain_sdf,
-    phase1_bounds,
 )
 
 FULL_FINE = int(_os.environ.get("FULL_FINE", "100"))

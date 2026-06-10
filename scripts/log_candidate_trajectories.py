@@ -42,25 +42,28 @@ from aind_low_point.optimization.batched_static import build_batched_probe_stati
 from aind_low_point.optimization.clearance_metrics import make_min_clear_one
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
+from aind_low_point.optimization.pipeline.enumeration import (
+    Enumerator,
+    build_or_load_atlas,
+)
+from aind_low_point.optimization.pipeline.phase1_build import (
+    ARG_ORDER,
+    PER_CAND,
+    make_batched_phase1_chunked,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.restore import setup, spins_deg_from_reduced
 from aind_low_point.optimization.stage3_phase1_jax import (
     PHASE1_PER_PROBE_VARS,
     Phase1Weights,
 )
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.arc_first_mrv import Enumerator, build_or_load_atlas
-from scripts.batched_phase1_build import (
-    ARG_ORDER,
-    PER_CAND,
-    make_batched_phase1_chunked,
-)
 from scripts.manual_mrv_chain import mrv_seed
-from scripts.restore_well_adam_manual import setup, spins_deg_from_reduced
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    maybe_build_brain_sdf,
-    phase1_bounds,
-)
 from scripts.staged_adam import restore_spins_group
 
 PPV = PHASE1_PER_PROBE_VARS

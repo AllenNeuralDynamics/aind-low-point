@@ -43,11 +43,6 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    maybe_build_brain_sdf,
-    phase1_bounds,
-)
 
 from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
@@ -59,20 +54,35 @@ from aind_low_point.optimization.batched_static import build_batched_probe_stati
 from aind_low_point.optimization.clearance_metrics import make_min_clear_one
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.pipeline.enumeration import (
+    Enumerator,
+    build_or_load_atlas,
+)
+from aind_low_point.optimization.pipeline.phase1_build import (
+    ARG_ORDER,
+    PER_CAND,
+    build_cw_fns,
+    make_batched_phase1_chunked,
+    make_staged_rprop,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.restore import (
+    PPV,
+    setup,
+    spins_deg_from_reduced,
+)
+from aind_low_point.optimization.pipeline.thick_well import (
+    fit_well_cone,
+    make_thick_well_sdf,
+)
 from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.arc_first_mrv import Enumerator, build_or_load_atlas
-from scripts.batched_phase1_build import (
-    ARG_ORDER,
-    PER_CAND,
-    make_batched_phase1_chunked,
-    make_staged_rprop,
-)
-from scripts.instrument_adam_freeze import build_cw_fns
-from scripts.restore_well_adam_manual import PPV, setup, spins_deg_from_reduced
-from scripts.thick_well_sdf import fit_well_cone, make_thick_well_sdf
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
 STAGE2 = int(_os.environ.get("STAGE2", "500"))

@@ -24,80 +24,36 @@ _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 
 import pickle
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.clearance_sweep import (
-    cast_fixture_grids,
-    cast_packed_grids,
-)
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y
-from aind_low_point.optimization.stage3_phase1_jax import (
-    Phase1Weights,
-    _build_jit,
-    _pack_statics,
-    _signature,
+from aind_low_point.optimization.pipeline.enumeration import (
+    Enumerator,
+    build_or_load_atlas,
 )
-from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.arc_first_mrv import Enumerator, build_or_load_atlas
-from scripts.batched_phase1_build import ARG_ORDER, PER_CAND
-from scripts.log_candidate_trajectories import reduced_lohi, restore_spins_mrv
-from scripts.restore_well_adam_manual import setup
-from scripts.run_phase1_sample import (
+from aind_low_point.optimization.pipeline.phase1_build import (
+    build_cw_fns,
+)
+from aind_low_point.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from scripts.thick_well_sdf import fit_well_cone, make_thick_well_sdf
+from aind_low_point.optimization.pipeline.restore import setup
+from aind_low_point.optimization.pipeline.thick_well import (
+    fit_well_cone,
+    make_thick_well_sdf,
+)
+from aind_low_point.runtime.transforms import compile_all_transforms
+from scripts.log_candidate_trajectories import reduced_lohi, restore_spins_mrv
 
 IDX = int(_os.environ.get("IDX", "4195"))
 PERIOD = int(_os.environ.get("PERIOD", "50"))
 LR = float(_os.environ.get("LR", "0.02"))
 B1, B2, EPS = 0.9, 0.999, 1e-8
 OUT_PNG = _os.environ.get("OUT_PNG", "scratch/adam_freeze.png")
-
-
-def build_cw_fns(
-    st,
-    n_arcs,
-    cov,
-    thick,
-    brain,
-    weights=None,
-    coverage_ceilings=None,
-    coverage_weights=None,
-):
-    """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids)."""
-    w = weights if weights is not None else Phase1Weights()
-    sig = _signature(st, n_arcs, w)
-    # bf16 all collision grids (fixture + probe + table), like the chunked
-    # builder. See clearance_sweep for the policy.
-    (thick,) = cast_fixture_grids((thick,), jnp.bfloat16)
-    jit_obj, _ = _build_jit(
-        sig,
-        w,
-        coverage_data=cov,
-        fixtures=(thick,),
-        brain_sdf=brain,
-        coverage_ceilings=coverage_ceilings,
-        coverage_weights=coverage_weights,
-    )
-
-    def obj_cw(x, cov_weight, *args):
-        return jit_obj(x, cov_weight=cov_weight, **dict(zip(ARG_ORDER, args)))
-
-    in_axes = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
-    vobj = jax.jit(jax.vmap(obj_cw, in_axes=in_axes))
-    vgrad = jax.jit(jax.vmap(jax.grad(obj_cw, argnums=0), in_axes=in_axes))
-    pack = _pack_statics(st, n_arcs)
-    shared = cast_packed_grids(
-        {k: pack[k] for k in ARG_ORDER if k not in PER_CAND}, jnp.bfloat16
-    )
-    stacked = {k: jnp.stack([jnp.asarray(pack[k])]) for k in PER_CAND}
-    arglist = [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
-    return vobj, vgrad, arglist
 
 
 def run_logged(x0, vobj, vgrad, arglist, lo_r, hi_r, lo, hi, *, reset_period):

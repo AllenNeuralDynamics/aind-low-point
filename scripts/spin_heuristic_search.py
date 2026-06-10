@@ -48,6 +48,15 @@ from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    build_fixture_sdf_data,
+    phase1_bounds,
+)
+from aind_low_point.optimization.pipeline.probe_setup import (
+    _probe_static_info,
+    _transform_holes,
+)
 from aind_low_point.optimization.probe_kinematics import (
     _orbit_basis,
     is_four_shank,
@@ -66,12 +75,6 @@ from aind_low_point.optimization.stage3_phase2_jax import (
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.runtime import build_runtime_from_config, save_plan_to_config
 from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.run_optimizer import _probe_static_info, _transform_holes
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    build_fixture_sdf_data,
-    phase1_bounds,
-)
 
 # ---------------------------------------------------------------------------
 # Per-probe-kind body asymmetry direction (LOCAL frame)

@@ -71,6 +71,9 @@ optimization = [
 
 [project.scripts]
 alp-plan = "aind_low_point.cli:main"
+alp-phase1 = "aind_low_point.optimization.pipeline.phase1_pool:main"
+alp-phase2 = "aind_low_point.optimization.pipeline.phase2_ipopt:main"
+alp-emit = "aind_low_point.optimization.pipeline.emit:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-low-point/"

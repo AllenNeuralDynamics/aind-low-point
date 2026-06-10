@@ -26,14 +26,11 @@ from aind_mri_utils.arc_angles import arc_angles_to_affine
 from aind_low_point.config import PlanningModel
 from aind_low_point.optimization.joint_rerank import _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y
-from aind_low_point.optimization.probe_kinematics import (
-    is_four_shank,
-    spin_to_align_y_with,
+from aind_low_point.optimization.pipeline.phase1_geometry import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
 )
-from aind_low_point.optimization.sdf_jax import trilinear_sdf
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-from aind_low_point.runtime.transforms import compile_all_transforms
-from scripts.restore_well_adam_manual import (
+from aind_low_point.optimization.pipeline.restore import (
     build_adam_kernel,
     make_basin_sets,
     run_restore,
@@ -41,7 +38,13 @@ from scripts.restore_well_adam_manual import (
     spins_deg_from_phase1,
     spins_deg_from_reduced,
 )
-from scripts.run_phase1_sample import build_coverage_data, maybe_build_brain_sdf
+from aind_low_point.optimization.probe_kinematics import (
+    is_four_shank,
+    spin_to_align_y_with,
+)
+from aind_low_point.optimization.sdf_jax import trilinear_sdf
+from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.spin_heuristic_search import (
     body_long_axis_local,
     build_coupling_graph,

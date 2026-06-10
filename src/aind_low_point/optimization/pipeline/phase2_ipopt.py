@@ -145,19 +145,19 @@ def _init():
     from aind_low_point.optimization.headstages import make_fcl_bvh
     from aind_low_point.optimization.holes import load_holes
     from aind_low_point.optimization.joint_rerank import _build_probe_static
-    from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
-    from aind_low_point.runtime import build_runtime_from_config
-    from aind_low_point.runtime.transforms import compile_all_transforms
-    from scripts.run_optimizer import (
-        _probe_static_info,
-        _transform_holes,
-        retro_opts_from_env,
-    )
-    from scripts.run_phase1_sample import (
+    from aind_low_point.optimization.pipeline.phase1_geometry import (
         build_coverage_data,
         build_fixture_sdf_data,
         maybe_build_brain_sdf,
     )
+    from aind_low_point.optimization.pipeline.probe_setup import (
+        _probe_static_info,
+        _transform_holes,
+        retro_opts_from_env,
+    )
+    from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
+    from aind_low_point.runtime import build_runtime_from_config
+    from aind_low_point.runtime.transforms import compile_all_transforms
 
     cfg = ConfigModel.from_yaml(CONFIG)
     rt = build_runtime_from_config(cfg)
@@ -182,7 +182,10 @@ def _init():
     }
     fx = build_fixture_sdf_data(rt)
     if WELL == "thick":
-        from scripts.thick_well_sdf import fit_well_cone, make_thick_well_sdf
+        from aind_low_point.optimization.pipeline.thick_well import (
+            fit_well_cone,
+            make_thick_well_sdf,
+        )
 
         mesh = rt.asset_catalog.get_geometry("well").raw
         well_thin = next(f for f in fx if f.name == "well")
@@ -249,12 +252,12 @@ def _phase2_one(rec):
         coverage_total_over_probes,
     )
     from aind_low_point.optimization.optimizer_vars import _poses
+    from aind_low_point.optimization.pipeline.phase1_geometry import phase1_bounds
     from aind_low_point.optimization.stage3_phase2_jax import (
         Phase2Weights,
         make_phase2,
     )
     from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
-    from scripts.run_phase1_sample import phase1_bounds
 
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
     rank = rec.get("rank", -1)
