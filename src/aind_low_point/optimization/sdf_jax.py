@@ -840,9 +840,9 @@ def obb_obb_signed_distance(
     # ``where`` masks the forward value out. Use soft-norm
     # ``sqrt(||axis||² + ε²)`` so the gradient stays finite when the
     # cross product collapses (parallel face normals).
-    cross_axes = jnp.cross(
-        axes_a.T[:, None, :], axes_b.T[None, :, :]
-    ).reshape(9, 3)  # cross(a_i, b_j), i-major/j-minor (== the old i,j loop order)
+    cross_axes = jnp.cross(axes_a.T[:, None, :], axes_b.T[None, :, :]).reshape(
+        9, 3
+    )  # cross(a_i, b_j), i-major/j-minor (== the old i,j loop order)
 
     def _cross_axis_sep(axis: Array) -> Array:
         sq = jnp.sum(axis * axis)

@@ -56,7 +56,6 @@ from aind_low_point.optimization.joint_rerank import (
     JointRerankMetrics,
     JointWeights,
     expand_reduced_solution_to_full_x,
-    optimize_joint,
     score_joint,
 )
 from aind_low_point.optimization.kinematics import (
@@ -80,15 +79,7 @@ from aind_low_point.optimization.objective import (
     pairwise_headstage_clearances,
     scalar_objective,
 )
-from aind_low_point.optimization.optimize import (
-    OptimizationResult,
-    PlanCandidate,
-    ProbeStaticInfo,
-    best_fit_hole_id_at_pose,
-    format_plan_table,
-    optimize,
-    polish_seed,
-)
+from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.pose_features import (
     PoseFeatures,
     precompute_pose_features,
@@ -114,9 +105,7 @@ __all__ = [
     "JointWeights",
     "ObjectiveBreakdown",
     "ObjectiveWeights",
-    "OptimizationResult",
     "OptimizerContext",
-    "PlanCandidate",
     "PoseFeatures",
     "ProbeContext",
     "ProbeEvaluation",
@@ -125,7 +114,6 @@ __all__ = [
     "RecordingGeometry",
     "VariableLayout",
     "angle_to_target_rad",
-    "best_fit_hole_id_at_pose",
     "build_cost_matrix",
     "build_headstage_hull",
     "cap_basis",
@@ -137,7 +125,6 @@ __all__ = [
     "evaluate_probe",
     "expand_reduced_solution_to_full_x",
     "find_hole_by_id",
-    "format_plan_table",
     "gaussian_density",
     "gaussian_mixture_density",
     "get_recording_geometry",
@@ -148,12 +135,9 @@ __all__ = [
     "make_fcl_bvh",
     "make_fcl_convex",
     "make_objective",
-    "optimize",
-    "optimize_joint",
     "pairwise_headstage_clearances",
     "pairwise_interference_penalty",
     "point_to_segment_dist",
-    "polish_seed",
     "pose_at_hole_best_fit",
     "pose_from_optimizer_vars",
     "precompute_pose_features",

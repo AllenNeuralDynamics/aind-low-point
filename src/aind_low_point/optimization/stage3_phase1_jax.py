@@ -507,8 +507,21 @@ def _build_jit(  # noqa: C901
         aps = arc_aps[arc_idx]  # (P,) per-probe arc AP
 
         def _pose_thread(
-            xp6, ap, target, pivot, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
-            sec_m, sh_m,
+            xp6,
+            ap,
+            target,
+            pivot,
+            tips,
+            sax,
+            scen,
+            se1,
+            se2,
+            scos,
+            ssin,
+            sa,
+            sb,
+            sec_m,
+            sh_m,
         ):
             R, t = pose_from_optimizer_vars(
                 target_LPS=target,
@@ -521,7 +534,17 @@ def _build_jit(  # noqa: C901
                 recording_center_local=pivot,
             )
             g = threading_g_matrix(
-                R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
+                R,
+                t,
+                tips,
+                sax,
+                scen,
+                se1,
+                se2,
+                scos,
+                ssin,
+                sa,
+                sb,
                 shaft_length_mm=shaft_len,
             )  # (S, SH)
             valid_g = sec_m[:, None] * sh_m[None, :]
@@ -532,9 +555,21 @@ def _build_jit(  # noqa: C901
             return R, t, jt, (thread_tol - g).reshape(-1), valid_g.reshape(-1)
 
         Rs, ts, _jts, _thread_slacks, _thread_masks = jax.vmap(_pose_thread)(
-            xp, aps, target_LPS, pivot_local, tips_local,
-            s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
-            section_mask, shank_mask,
+            xp,
+            aps,
+            target_LPS,
+            pivot_local,
+            tips_local,
+            s_axes,
+            s_centers,
+            s_e1,
+            s_e2,
+            s_cos,
+            s_sin,
+            s_a,
+            s_b,
+            section_mask,
+            shank_mask,
         )
         j_thread = jnp.sum(_jts)
 
@@ -652,9 +687,7 @@ def _build_jit(  # noqa: C901
         # _thread_slacks/_thread_masks are (P, S*SH) from the vmap — pass
         # directly so _saturating_reward_worst sees each probe's tightest
         # shank rather than averaging across all shanks.
-        reward_thread = _saturating_reward_worst(
-            _thread_slacks, tau_t, _thread_masks
-        )
+        reward_thread = _saturating_reward_worst(_thread_slacks, tau_t, _thread_masks)
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the
         # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.

@@ -152,8 +152,21 @@ def _poses_from_x(x, n_arcs, n_probes, target_LPS, pivot_local, arc_idx):
 
 
 def _threading_g_per_probe(
-    Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
-    section_mask, shank_mask, *, shaft_len,
+    Rs,
+    ts,
+    tips_local,
+    s_axes,
+    s_centers,
+    s_e1,
+    s_e2,
+    s_cos,
+    s_sin,
+    s_a,
+    s_b,
+    section_mask,
+    shank_mask,
+    *,
+    shaft_len,
 ):
     """vmap ``threading_g_matrix`` over probes → ``(g, valid)``, each
     ``(P, S, SH)`` — one threading subgraph instead of P unrolled copies. Both
@@ -162,14 +175,35 @@ def _threading_g_per_probe(
 
     def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m):
         g = threading_g_matrix(
-            R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb,
+            R,
+            t,
+            tips,
+            sax,
+            scen,
+            se1,
+            se2,
+            scos,
+            ssin,
+            sa,
+            sb,
             shaft_length_mm=shaft_len,
         )
         return g, sec_m[:, None] * sh_m[None, :]
 
     return jax.vmap(_one)(
-        Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin, s_a, s_b,
-        section_mask, shank_mask,
+        Rs,
+        ts,
+        tips_local,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        section_mask,
+        shank_mask,
     )
 
 
@@ -411,8 +445,20 @@ def _build_jit(  # noqa: C901
         # Margin bonuses: saturating per-pair (clear) and per-tuple (thread).
         # Mirror Phase 1's computation but skip the soft penalty terms.
         _tg, _tvalid = _threading_g_per_probe(
-            Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin,
-            s_a, s_b, section_mask, shank_mask, shaft_len=shaft_len,
+            Rs,
+            ts,
+            tips_local,
+            s_axes,
+            s_centers,
+            s_e1,
+            s_e2,
+            s_cos,
+            s_sin,
+            s_a,
+            s_b,
+            section_mask,
+            shank_mask,
+            shaft_len=shaft_len,
         )
         # (P, -1): per-probe view for worst-shank reward. Hard constraint
         # computes its own flat view from _tg/_tvalid below.
@@ -528,8 +574,20 @@ def _build_jit(  # noqa: C901
         # Threading slacks: tol - g, masked. Padded entries → +LARGE. vmapped
         # over probes; reshape(-1) is probe-major (== old per-probe concatenate).
         _tg, _tvalid = _threading_g_per_probe(
-            Rs, ts, tips_local, s_axes, s_centers, s_e1, s_e2, s_cos, s_sin,
-            s_a, s_b, section_mask, shank_mask, shaft_len=shaft_len,
+            Rs,
+            ts,
+            tips_local,
+            s_axes,
+            s_centers,
+            s_e1,
+            s_e2,
+            s_cos,
+            s_sin,
+            s_a,
+            s_b,
+            section_mask,
+            shank_mask,
+            shaft_len=shaft_len,
         )
         thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK).reshape(-1)
 

@@ -43,6 +43,11 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
+from scripts.run_phase1_sample import (
+    build_coverage_data,
+    maybe_build_brain_sdf,
+    phase1_bounds,
+)
 
 from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
@@ -67,11 +72,6 @@ from scripts.batched_phase1_build import (
 )
 from scripts.instrument_adam_freeze import build_cw_fns
 from scripts.restore_well_adam_manual import PPV, setup, spins_deg_from_reduced
-from scripts.run_phase1_sample import (
-    build_coverage_data,
-    maybe_build_brain_sdf,
-    phase1_bounds,
-)
 from scripts.thick_well_sdf import fit_well_cone, make_thick_well_sdf
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
