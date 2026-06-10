@@ -381,7 +381,18 @@ def build_target_spec(
                 raise KeyError(
                     f"Target '{t.key}' points_key '{pkey}' not found or has no points"
                 )
+            # ``points`` are in the SCENE frame (chem-shift applied at load) — what
+            # the reducer averages. But an annotation/voxel membership lookup must
+            # run in the annotation's NATIVE frame, so reload the source points raw
+            # (no canonicalization, no chem-shift) and hand them over as
+            # ``lookup_points``. See the frame invariant in
+            # ``points_in_region_center_mass``. (Identity canon for the retro cloud
+            # is guarded by ``DerivedTargetSpecModel.expand``.)
             rkwargs["points"] = passet.points.raw
+            if passet.source_path is not None and passet.loader is not None:
+                rkwargs["lookup_points"] = load_geometry(
+                    Path(passet.source_path), loader=passet.loader
+                )
         geo = reducer_fn(geo, **rkwargs)  # should return (3,) or (1,3)
         geo = np.asarray(geo, dtype=np.float64).reshape(1, 3)
 

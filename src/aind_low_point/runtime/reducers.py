@@ -96,31 +96,45 @@ def points_in_region_center_mass(
     hemisphere: str = "both",
     include_descendants: bool = True,
     brain_mask_paths: tuple[str, ...] = (),
+    lookup_points: NDArray[np.float64] | None = None,
     **_,
 ) -> ReduceOut:
     """Mean of ``points`` whose nearest annotation voxel lies in a CCF region.
 
-    The "average of retro-label points within a target structure" target:
-    ``points`` is the retro point cloud (injected by the build step from a
-    ``points_key`` in ``reducer_kwargs``), and region membership is decided by
-    **voxel label** against the lateralized annotation at ``annotation_path`` —
-    the same shared core (:func:`ccf_region_point_mask`) the optimizer uses, so
-    the config target and the optimizer's KDE selection agree exactly.
+    **Frame invariant (see dev memory ``retro_target_native_lookup``):** an
+    annotation/voxel lookup must be done in the annotation volume's NATIVE frame
+    — with NO transform and NO chemical-shift applied to the query points. The
+    chem-shift + scene transform belong on the *result* (moving it into the
+    scene), not on the membership query. So this reducer takes two clouds:
 
-    ``points`` must be in the same physical frame as the annotation volume. For
-    the subject configs both are raw subject LPS mm (the retro points asset has
-    identity canonicalization); ``DerivedTargetSpecModel.expand`` enforces that
-    precondition. ``_source`` (the structure mesh) is accepted for the build
-    plumbing but ignored — selection is purely label-based.
+    - ``lookup_points`` — the retro cloud in the annotation's native frame (raw,
+      pre-canonicalization / pre-chem-shift), used ONLY to decide membership.
+    - ``points`` — the SAME cloud in the scene frame (chem-shift applied at load),
+      which is what gets averaged. Because chem-shift + the scene transform are
+      affine, ``mean(points[sel]) == transform(mean(native[sel]))`` — so selecting
+      natively and averaging in-scene yields the correctly-placed centroid, and
+      the result matches the optimizer's retro anchor exactly.
+
+    If ``lookup_points`` is omitted, membership falls back to ``points`` (correct
+    only when the cloud has identity canonicalization and chem-shift off).
+    ``_source`` (the structure mesh) is accepted for the build plumbing but
+    ignored — selection is purely label-based.
     """
     pts = np.asarray(points, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError(f"points must be (N, 3), got {pts.shape}")
+    lookup = (
+        pts if lookup_points is None else np.asarray(lookup_points, dtype=np.float64)
+    )
+    if lookup.shape != pts.shape:
+        raise ValueError(
+            f"lookup_points {lookup.shape} must match points {pts.shape}"
+        )
     from aind_low_point.runtime.loaders import ccf_region_point_mask
 
     sel = ccf_region_point_mask(
         annotation_path,
-        pts,
+        lookup,
         acronym=acronym,
         label_id=label_id,
         include_descendants=include_descendants,
