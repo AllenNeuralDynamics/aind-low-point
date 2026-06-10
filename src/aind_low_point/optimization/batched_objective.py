@@ -1,4 +1,4 @@
-"""Batched reduced objective for Stage 2 polish.
+"""Batched reduced objective for spin restore and Phase 1 warm starts.
 
 Vmaps the existing per-candidate ``_reduced_objective`` over a batch of
 ``B`` candidates. Per-probe static fields (target, pivot, shank tips,
@@ -18,8 +18,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_low_point.optimization.batched_static import BatchedProbeStatic
-from aind_low_point.optimization.joint_rerank import JointWeights
-from aind_low_point.optimization.joint_rerank_jax import smooth_abs, threading_g_matrix
+from aind_low_point.optimization.probe_static import JointWeights
+from aind_low_point.optimization.reduced_objective_jax import (
+    smooth_abs,
+    threading_g_matrix,
+)
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
@@ -255,7 +258,7 @@ def make_batched_reduced_objective(  # noqa: C901
         j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
         # Dual-rep clearance via 3-helper split (matches per-cand
-        # joint_rerank_jax for shared XLA cache + per-call perf).
+        # reduced_objective_jax for shared XLA cache + per-call perf).
         # Pre-compute world-frame surface samples per probe (hoists
         # ``surface @ R.T + t`` out of the per-pair Python loop).
         world_surfaces = [

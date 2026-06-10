@@ -237,16 +237,32 @@ Target Source Modes
 Target-Specific Fields
 ~~~~~~~~~~~~~~~~~~~~~~
 
-==================== ============ ================================================
-Field                Required     Description
-==================== ============ ================================================
-``source_key``       Conditional  Asset key to derive target from
-``reducer``          No           Reduction method (``centroid``, ``mesh_centroid``, ``mesh_center_mass``, ``hemisphere_center_mass``, …)
-``reducer_kwargs``   No           Extra args for the reducer (e.g. ``{hemisphere: left}``)
-``approach_vector``  No           [x, y, z] preferred insertion direction (advisory)
-``uncertainty_mm``   No           Position uncertainty radius (advisory)
-``chem_shift_policy`` No          MR chem-shift correction: ``auto`` (default, applies if `imaging` is configured), ``on``, ``off``
-==================== ============ ================================================
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Required
+     - Description
+   * - ``source_key``
+     - Conditional
+     - Asset key to derive target from.
+   * - ``reducer``
+     - No
+     - Reduction method such as ``centroid``, ``mesh_centroid``,
+       ``mesh_center_mass``, or ``hemisphere_center_mass``.
+   * - ``reducer_kwargs``
+     - No
+     - Extra args for the reducer, for example ``{hemisphere: left}``.
+   * - ``approach_vector``
+     - No
+     - ``[x, y, z]`` preferred insertion direction (advisory).
+   * - ``uncertainty_mm``
+     - No
+     - Position uncertainty radius (advisory).
+   * - ``chem_shift_policy``
+     - No
+     - MR chem-shift correction: ``auto`` (default, applies if ``imaging`` is
+       configured), ``on``, or ``off``.
 
 Range Target Declarations
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -730,23 +746,64 @@ Probes
 Probe Fields
 ~~~~~~~~~~~~
 
-========================= ============ ================================================
-Field                     Required     Description
-========================= ============ ================================================
-``kind``                  Yes          Probe type (matches ``probe:{kind}`` asset)
-``arc``                   No           Arc key reference; ``null`` for off-arc probes
-``target``                Yes          Target reference (key string, ``{kind: catalog, key: ...}``, ``{kind: node, key: ...}``, ``{kind: inline, point_RAS: [x, y, z]}``, or a bare ``[x, y, z]`` list which is coerced to ``inline``)
-``ap_local``              No           Per-probe AP angle override (deg). When ``bind_ap_to_arc`` is true this is ignored at runtime; kept as a fallback when you unbind.
-``bind_ap_to_arc``        No           If ``true`` (default), AP comes from ``arcs[arc]``; if ``false``, AP comes from ``ap_local``. Requires ``arc`` to be set when true.
-``slider_ml``             No           ML slider angle (deg, default 0)
-``spin``                  No           Spin angle around the probe shaft (deg, default 0)
-``past_target_mm``        No           Distance past target along the shaft (mm, default 0). Positive = deeper into the brain. For multi-shank probes this is measured from the named shank's tip — see ``position_bearing_shank``.
-``offsets_RA``            No           [R, A] entry-offset in mm relative to the bore (default [0, 0])
-``position_bearing_shank`` No          1-indexed shank index whose tip is the "named" reference: it's the one tip-RAS / brain-depth readouts report and the one ``past_target_mm`` measures from. Default 1. Single-shank probes ignore the value.
-``calibrated``            No           Lock the AP/ML angles to a pre-recorded calibration (default ``false``). Calibration data lives under ``plan.calibrations``.
-``auto_scene``            No           Auto-create the ``probe:{name}`` scene node (default ``true``)
-``scene_tags``            No           Tags for the auto-created scene node. **Default ``["probe", "dynamic"]``** — don't drop these unless you know what you're doing; ``probe`` drives the Display-tab Probes group + opacity slider, and ``dynamic`` is what tells the renderer + collision adapter to refresh on probe state changes.
-========================= ============ ================================================
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Required
+     - Description
+   * - ``kind``
+     - Yes
+     - Probe type, matching a ``probe:{kind}`` asset.
+   * - ``arc``
+     - No
+     - Arc key reference; ``null`` for off-arc probes.
+   * - ``target``
+     - Yes
+     - Target reference. Accepted forms include a key string,
+       ``{kind: catalog, key: ...}``, ``{kind: node, key: ...}``,
+       ``{kind: inline, point_RAS: [x, y, z]}``, or a bare ``[x, y, z]``
+       list coerced to ``inline``.
+   * - ``ap_local``
+     - No
+     - Per-probe AP angle override in degrees. When ``bind_ap_to_arc`` is true
+       this is ignored at runtime and kept only as an unbound fallback.
+   * - ``bind_ap_to_arc``
+     - No
+     - If ``true`` (default), AP comes from ``arcs[arc]``. If ``false``, AP
+       comes from ``ap_local``. Requires ``arc`` to be set when true.
+   * - ``slider_ml``
+     - No
+     - ML slider angle in degrees, default ``0``.
+   * - ``spin``
+     - No
+     - Spin angle around the probe shaft in degrees, default ``0``.
+   * - ``past_target_mm``
+     - No
+     - Distance past target along the shaft in mm, default ``0``. Positive is
+       deeper into the brain. For multi-shank probes this is measured from the
+       named shank's tip; see ``position_bearing_shank``.
+   * - ``offsets_RA``
+     - No
+     - ``[R, A]`` entry-offset in mm relative to the bore, default ``[0, 0]``.
+   * - ``position_bearing_shank``
+     - No
+     - 1-indexed shank index whose tip is the named reference. This is the tip
+       RAS/depth readout shank and the reference for ``past_target_mm``.
+       Default ``1``; single-shank probes ignore it.
+   * - ``calibrated``
+     - No
+     - Lock the AP/ML angles to a pre-recorded calibration, default ``false``.
+       Calibration data lives under ``plan.calibrations``.
+   * - ``auto_scene``
+     - No
+     - Auto-create the ``probe:{name}`` scene node, default ``true``.
+   * - ``scene_tags``
+     - No
+     - Tags for the auto-created scene node. Default ``["probe", "dynamic"]``;
+       ``probe`` drives the Display-tab Probes group and opacity slider, and
+       ``dynamic`` tells rendering/collision adapters to refresh on probe state
+       changes.
 
 Target References
 ~~~~~~~~~~~~~~~~~

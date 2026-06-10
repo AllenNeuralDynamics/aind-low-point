@@ -50,8 +50,13 @@ from aind_low_point.optimization.batched_spin_restore import (
     make_batched_spin_restore_partial,
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
-from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.fcl_validator import make_fcl_validator
 from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
+from aind_low_point.optimization.phase1_objective_jax import (
+    Phase1Weights,
+    make_phase1_objective,
+)
+from aind_low_point.optimization.phase2_objective_jax import Phase2Weights, make_phase2
 from aind_low_point.optimization.pipeline.enumeration import (
     MIN_ARC_AP_SEP_DEG,
     MIN_ML_SEP_DEG,
@@ -69,12 +74,7 @@ from aind_low_point.optimization.pipeline.restore import (
     setup,
     spins_deg_from_reduced,
 )
-from aind_low_point.optimization.stage3_phase1_jax import (
-    Phase1Weights,
-    make_phase1_objective,
-)
-from aind_low_point.optimization.stage3_phase2_jax import Phase2Weights, make_phase2
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 from aind_low_point.runtime.transforms import compile_all_transforms
 
 IDX = int(_os.environ.get("IDX", "4195"))

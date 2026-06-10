@@ -3,7 +3,7 @@ signed clearance via SDF.
 
 Companion to :mod:`aind_low_point.optimization.sdf` (which builds the
 voxel grids). This module does the inner-loop work that needs to be
-differentiable for SLSQP's Jacobian.
+differentiable for constrained optimizer Jacobians.
 
 The core function is :func:`pairwise_signed_clearance`: for two probes
 ``(a, b)`` at world poses ``(R_a, t_a)`` and ``(R_b, t_b)``, transform
@@ -72,7 +72,7 @@ def unit_circle_penalty(sx: Array, sy: Array) -> Array:
     conditioned).
 
     This penalty keeps the magnitude consistent across stages so
-    poses are interchangeable between Stage 2 / Phase 1 / Phase 2 and
+    poses are interchangeable between reduced / Phase 1 / Phase 2 and
     so any downstream consumer reading ``(sx, sy)`` as a unit vector
     gets a well-conditioned value.
     """
@@ -315,14 +315,14 @@ def spin_deg_from_sxy(sx: Array, sy: Array) -> Array:
 
     The optimizer's reduced/full y vector parameterizes spin as a 2D
     vector ``(sx, sy) ∝ (cos θ, sin θ)`` on the unit circle, avoiding
-    the ±180° wraparound discontinuity that bound-clipped SLSQP on the
+    the ±180° wraparound discontinuity that bound-clipped scalar-angle
     scalar-angle layout. Internally, the existing
     :func:`pose_from_optimizer_vars` API still takes ``spin_deg`` so we
     convert at the unpacking site via ``atan2(sy, sx)``.
 
     The norm of ``(sx, sy)`` is irrelevant — only the direction
     matters. JAX's ``arctan2`` is well-defined and differentiable
-    everywhere except at the origin; SLSQP bounds keep us away from
+    everywhere except at the origin; optimizer bounds keep us away from
     it.
     """
     return jnp.degrees(jnp.arctan2(sy, sx))
@@ -1082,7 +1082,7 @@ def body_body_pair_clearance(
     Hoisting this out of ``pairwise_signed_clearance_dual_world`` lets
     the caller batch all P probe-pairs into ONE XLA kernel launch
     instead of P separate launches per ``jit_obj`` call — the unrolled
-    Python pair loop was responsible for ~50% of the SLSQP wall (per
+    Python pair loop was responsible for ~50% of the objective wall (per
     2026-05-23 jax.profiler trace).
     """
     sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
@@ -1097,7 +1097,7 @@ def body_body_pair_clearance(
 
 
 # ---------------------------------------------------------------------------
-# Dual-rep aggregator helpers (Stage 2 / Phase 1 / Phase 2 / Phase 3)
+# Dual-rep aggregator helpers (reduced / Phase 1 / Phase 2 / validation)
 # ---------------------------------------------------------------------------
 
 
@@ -1128,7 +1128,7 @@ class FixtureClearance(NamedTuple):
 
 
 # Per-category gains, ordered to match the NamedTuple fields. Sites
-# that scale slacks by per-category importance (Stage 2 penalty,
+# that scale slacks by per-category importance (reduced penalty,
 # Phase 1 penalty, Phase 2 constraint, etc.) can ``zip`` over
 # ``pc.softs`` and the appropriate gain tuple without re-inlining the
 # constant list.
@@ -1175,7 +1175,7 @@ def dual_rep_pair_clearance(
     :func:`body_shank_corners_pair_clearance`, and
     :func:`shank_only_pair_clearance` separately and packing the
     results. JAX-traceable, no behavioural change vs the inline
-    pattern previously duplicated across Stage 2 / Phase 1 / Phase 2 /
+    pattern shared across reduced / Phase 1 / Phase 2 /
     Phase 3 — purely a packaging convenience that gives every site one
     source of truth for "what counts as dual-rep probe-pair clearance".
     """
@@ -1346,13 +1346,13 @@ def pairwise_signed_clearance_dual(
     body samples in a pooled softmin.
 
     Hard mins are exposed for diagnostics and feasibility checks (use
-    these in lex_key / SLSQP constraints).
+    these in lex keys and hard constraints).
 
     ``interp ∈ {"trilinear", "tricubic"}`` selects the body-SDF
     interpolator. **Default is trilinear**: empirically the soft-min
     top-k aggregation across 16 samples absorbs trilinear's C⁰ voxel-
     edge gradient discontinuities, so tricubic's smoothness gain
-    doesn't translate to better SLSQP convergence — but tricubic is
+    doesn't translate to better convergence here — but tricubic is
     ~5× slower per pair-clearance call. OBB SDFs are closed-form
     regardless.
 

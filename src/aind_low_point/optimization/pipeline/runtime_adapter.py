@@ -33,11 +33,11 @@ from aind_low_point.runtime import (
 from aind_low_point.runtime.transforms import CompiledTransforms, compile_all_transforms
 
 if TYPE_CHECKING:
-    from aind_low_point.optimization.sdf import ProbeSDF
-    from aind_low_point.optimization.stage3_phase1_jax import (
+    from aind_low_point.optimization.phase1_objective_jax import (
         BrainSDFData,
         FixtureSDFData,
     )
+    from aind_low_point.optimization.sdf import ProbeSDF
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,6 @@
 """Phase-1 pipeline utilities shared across scripts.
 
-The old SLSQP sampling main() that used to live here has been retired.
-This module now only exports the infrastructure helpers that
-production scripts still need:
+This module exports the infrastructure helpers that production scripts need:
 
   - :func:`phase1_bounds`
   - :func:`build_fixture_sdf_data` / :func:`fixture_keys_from_runtime`
@@ -28,6 +26,10 @@ from aind_low_point.optimization.coverage_jax import (
     build_coverage_data_from_probe_context,
 )
 from aind_low_point.optimization.headstages import make_fcl_bvh
+from aind_low_point.optimization.phase1_objective_jax import (
+    BrainSDFData,
+    FixtureSDFData,
+)
 from aind_low_point.optimization.recording import (
     RECORDING_GEOMETRY,
     RecordingGeometry,
@@ -35,10 +37,6 @@ from aind_low_point.optimization.recording import (
 from aind_low_point.optimization.sdf import (
     build_probe_sdf,
     build_probe_sdf_from_alpha_wrap,
-)
-from aind_low_point.optimization.stage3_phase1_jax import (
-    BrainSDFData,
-    FixtureSDFData,
 )
 from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 from aind_low_point.runtime.scene_geometry import (

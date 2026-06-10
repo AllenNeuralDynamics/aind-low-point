@@ -113,15 +113,14 @@ class ProbeContext:
 class ObjectiveWeights:
     """Penalty / margin weights used to combine the objective.
 
-    ``λ_feas`` ramps up in CMA-ES via a homotopy schedule; SLSQP either
-    uses its native inequality constraints (preferred) or these
-    penalties at a fixed final-stage value.
+    ``λ_feas`` ramps up through the warm-up homotopy; constrained solvers use
+    native inequality constraints while soft stages use these penalties.
 
     ``lambda_margin`` defaults to 0 in v1: the softmin margin reward
     can diverge to ``-∞`` when clearances are very negative, which
     perversely rewards huge headstage overlaps. Re-enable by setting
     it positive *only* once the inner loop also clips clearances or
-    SLSQP gets proper inequality constraints. Coverage + the three
+    hard constraints are active. Coverage + the three
     feasibility penalties suffice for the v1 driver.
     """
 
@@ -385,7 +384,7 @@ def pairwise_headstage_clearances(
     out = np.empty(m * (m - 1) // 2, dtype=np.float64)
     dist_req = fcl.DistanceRequest(enable_signed_distance=True)
     # When BVH-BVH ``fcl.distance`` reports 0 the meshes overlap; in
-    # that case we need the actual penetration depth so SLSQP has a
+    # that case we need the actual penetration depth so the constrained solver has a
     # gradient out of the overlap region. ``fcl.collide`` with
     # ``enable_contact=True`` gives us contact points + depths.
     coll_req = fcl.CollisionRequest(num_max_contacts=4, enable_contact=True)
@@ -563,8 +562,8 @@ class ConstraintVectors:
     """Raw constraint slack vectors at ``x``.
 
     All entries are ``slack_i = limit - violation_i`` so that ``slack_i
-    >= 0`` indicates feasibility. Pass straight to scipy's SLSQP
-    ``constraints=[{"type": "ineq", "fun": ...}]`` form.
+    >= 0`` indicates feasibility. This shape can be passed directly to
+    scipy-style inequality constraints.
     """
 
     threading: NDArray[np.floating]  # one entry per (probe, shank, section)
@@ -578,9 +577,8 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
     """Compute the raw, ReLU-free constraint slack vectors at ``x`` and
     the (negated-for-minimisation-friendliness) coverage total.
 
-    Used by :func:`_slsqp_polish` when running with native inequality
-    constraints instead of soft penalties — scipy expects ``g(x) >= 0``
-    for feasibility, which is what each slack array provides.
+    Used by constrained polishers that express feasibility as native
+    inequalities instead of soft penalties.
     """
     x = np.asarray(x, dtype=np.float64)
     arc_aps = ctx.layout.arc_aps(x)
@@ -621,7 +619,7 @@ def evaluate_constraints(x: NDArray, ctx: OptimizerContext) -> ConstraintVectors
 
 
 def coverage_objective(x: NDArray, ctx: OptimizerContext) -> float:
-    """``-coverage_total`` for use as the SLSQP objective when the
+    """``-coverage_total`` for constrained polishing when the
     feasibility terms are expressed as inequality constraints."""
     return -evaluate_constraints(x, ctx).coverage_total
 

@@ -30,7 +30,15 @@ from aind_low_point.optimization.clearance_sweep import (
     cast_fixture_grids,
     cast_packed_grids,
 )
-from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.phase1_objective_jax import (
+    PACKED_ARG_ORDER,
+    PACKED_PER_CAND_KEYS,
+    Phase1Weights,
+    _build_jit,
+    _pack_statics,
+    _signature,
+    make_phase1_objective,
+)
 from aind_low_point.optimization.pipeline.contracts import (
     BatchedGradientFn,
     BatchedObjectiveFn,
@@ -40,15 +48,7 @@ from aind_low_point.optimization.pipeline.contracts import (
 from aind_low_point.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
-from aind_low_point.optimization.stage3_phase1_jax import (
-    PACKED_ARG_ORDER,
-    PACKED_PER_CAND_KEYS,
-    Phase1Weights,
-    _build_jit,
-    _pack_statics,
-    _signature,
-    make_phase1_objective,
-)
+from aind_low_point.optimization.probe_static import _build_probe_static
 
 ARG_ORDER = list(PACKED_ARG_ORDER)
 PER_CAND = set(PACKED_PER_CAND_KEYS)

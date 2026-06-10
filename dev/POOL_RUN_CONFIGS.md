@@ -1,10 +1,11 @@
 # MRV pool run — tuned configurations
 
 `alp-phase1` (`src/aind_low_point/optimization/pipeline/phase1_pool.py`) runs the
-full MRV candidate pool (≈19k configs: 3 arcs,
+full MRV candidate pool (about 19k configs: 3 arcs,
 ≤4 probes/arc) through **restore → reduced → full** optimization and a
-per-candidate FCL gate, saving one record per candidate for the downstream
-cull → diversity-select → trust-constr (Phase 2) → FCL (Phase 3) handoff.
+per-candidate optional FCL gate, saving one record per candidate for the
+downstream Phase-2 IPOPT/trust-constr polish, FCL/threading gate, and MMR
+handoff ranking.
 
 The optimizer is **tuned** (each lever measured on the 545-config calibration set;
 see `dev/` memory `well_sdf_thin_skin_thickening`, `adam_moment_restart_schedule`,
@@ -61,7 +62,7 @@ JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
 | `STAGE1`/`STAGE2` | `500` | total steps in the reduced / full stage |
 | `COARSE_N=5000` or `RED/FULL_FINE=STAGE` | — | degenerate cases collapse to all-fine |
 | `OUT` | `scratch/mrv_pool_results.pkl` | output; **resumable** — re-running skips already-saved n_arcs groups |
-| `SEED_CACHE` | `scratch/mrv_seeds.pkl` | enumerate+seed is cached (~14 min); reused on restart |
+| `SEED_CACHE` | `scratch/mrv_seeds_<config-stem>.pkl` | enumerate+seed is cached (~14 min); subject-specific and reused on restart |
 | `FCL_TOPK` | `300` | FCL is run on the top-K by soft clearance per n_arcs group |
 | `LIMIT` | `0` | cap candidates (smoke testing; disables seed cache + resume) |
 
@@ -78,9 +79,10 @@ full_fine, stage1, stage2, n_spins, ...}`. Each record:
 - `fcl` — true-mesh FCL min slack for the top-`FCL_TOPK` by clearance (else `nan`);
   `>= -1e-4` ⇒ FCL-feasible. `-1.0` is a boolean "≥1 pair collides" sentinel.
 
-**Next step from here:** cull on `min_clear` (≈ −0.35 mm gate, see
-`early_cull_trajectory_calibration`), diversity-select the survivors, run Phase-2
-trust-constr + Phase-3 FCL on them.
+**Next step from here:** run `alp-phase2`, which ranks by `SELECT_BY`
+(`min_clear` by default), polishes the top `TOPK` with IPOPT by default
+(`SOLVER=trust-constr` remains available), applies the final FCL/threading gate,
+and MMR-ranks the feasible handoff set.
 
 ## Notes / gotchas
 

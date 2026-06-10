@@ -22,7 +22,7 @@ Two documented presets (copy-paste commands in dev/POOL_RUN_CONFIGS.md):
 Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
-Run:  JAX_PLATFORMS=cuda uv run --python 3.13 -m scripts.mrv_pool_run
+Run:  JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase1
 Env:  MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
       STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128 FCL_TOPK=300
 """
@@ -53,8 +53,9 @@ from aind_low_point.optimization.batched_spin_restore import (
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.clearance_metrics import make_min_clear_one
-from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.fcl_validator import make_fcl_validator
 from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
 from aind_low_point.optimization.pipeline.contracts import (
     ArglistBuilder,
     EnumeratorCandidate,
@@ -87,8 +88,7 @@ from aind_low_point.optimization.pipeline.restore import (
     setup_runtime,
     spins_deg_from_reduced,
 )
-from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 from aind_low_point.planning import AP_LIMIT_DEG
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
@@ -489,7 +489,7 @@ def make_phase1_pool_record(
         # Arc assignment saved EXPLICITLY (not reconstructed from the
         # frozenset partition, whose iteration order is hash-random
         # across processes) so Phase 2 rebuilds the identical `aa`
-        # the pose `x` was optimized against. See phase2_parallel.
+        # the pose `x` was optimized against. See phase2_ipopt.
         probe_to_arc_idx=dict(c.aa.probe_to_arc_idx),
         arc_centroids_deg=list(c.aa.arc_centroids_deg),
         min_ml_gap=c.min_ml_gap,

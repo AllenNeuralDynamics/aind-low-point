@@ -1,5 +1,6 @@
-"""Emit trame-app config YAMLs from a Phase-2 handoff (the overnight pipeline
-output, ``phase2_parallel``). For each of the top-N MMR-ranked *feasible* plans,
+"""Emit trame-app plan YAMLs from a Phase-2 handoff.
+
+For each of the top-N MMR-ranked *feasible* plans,
 rebuild the plan_state from the saved pose + arc assignment and round-trip it
 through ``save_plan_to_config`` — one ready-to-open config per candidate.
 
@@ -11,7 +12,7 @@ re-optimization happens here — pure reconstruction.
 Run:
   CONFIG=examples/837229-config.yml HOLES=scratch/0283-300-04.holes.yml \\
   HANDOFF=scratch/837229_phase2_handoff.pkl N=15 OUTDIR=examples/837229_plans \\
-  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.emit_plan_configs
+  JAX_PLATFORMS=cpu uv run --python 3.13 alp-emit
 """
 
 from __future__ import annotations

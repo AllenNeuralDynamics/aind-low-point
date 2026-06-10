@@ -1,8 +1,8 @@
-"""Padded, batched per-candidate static data for Stage 2 batched polish.
+"""Padded, batched per-candidate static data for reduced batched polish.
 
-The existing ``_ProbeStatic`` in ``joint_rerank.py`` is per-(probe, HA, AA)
+The scalar ``_ProbeStatic`` in ``probe_static.py`` is per-(probe, HA, AA)
 with shapes that depend on the assigned hole's section count and the
-probe's shank count. To run Stage 2 across many candidates in a single
+probe's shank count. To run the reduced objective across many candidates in a single
 JAX vmap, we need uniform shapes across the batch.
 
 This module builds a ``BatchedProbeStatic`` with all relevant per-probe
@@ -23,9 +23,11 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.arc_assignment import ArcAssignment
+from aind_low_point.optimization.assignment_contracts import (
+    ArcAssignment,
+    HoleAssignment,
+)
 from aind_low_point.optimization.geometry import cap_basis
-from aind_low_point.optimization.hole_assignment import HoleAssignment
 from aind_low_point.optimization.holes import Hole, threading_margin_mm
 from aind_low_point.optimization.optimize import ProbeStaticInfo
 from aind_low_point.optimization.recording import (
@@ -188,7 +190,7 @@ def build_batched_probe_static(
     Parameters
     ----------
     candidates : list of (HoleAssignment, ArcAssignment)
-        Each entry is one Stage 2 candidate.
+        Each entry is one reduced-objective candidate.
     probes : list[ProbeStaticInfo]
         Probe list (same for all candidates).
     holes : list[Hole]

@@ -28,13 +28,13 @@ import numpy as np
 from aind_low_point.optimization.coverage_jax import (
     coverage_per_probe_over_probes,
 )
-from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.fcl_validator import make_fcl_validator
 from aind_low_point.optimization.optimizer_vars import _poses
 from aind_low_point.optimization.pipeline.phase1_geometry import build_coverage_data
 from aind_low_point.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.optimization.probe_static import _build_probe_static
 
 TOPK = int(_os.environ.get("TOPK", "300"))
 MANUAL = 4195

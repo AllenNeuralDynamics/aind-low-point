@@ -147,8 +147,8 @@ def threading_g_matrix(
     """Raw (n_sections, n_shanks) oval g values for one probe pose.
 
     ``g <= tol`` is feasible. No masking, no thresholding — the caller
-    applies whichever (mask-aware sum-of-squares for Stage 2, or
-    tol-minus-g slack for Stage 3 SLSQP)."""
+    applies whichever mask-aware sum-of-squares or hard-constraint slack the
+    caller needs."""
     tip_world = tips_local @ R.T + pose_tip
     shaft_dir = R @ jnp.array([0.0, 0.0, 1.0])
     line_d = shaft_length_mm * shaft_dir
@@ -170,7 +170,7 @@ def threading_g_matrix(
     u = s_cos[:, None] * u_w + s_sin[:, None] * v_w
     v = -s_sin[:, None] * u_w + s_cos[:, None] * v_w
     # No more ``where(parallel, inf, g)`` override (removed Patch B):
-    # the ``+inf`` branch's gradient was NaN, corrupting SLSQP.
+    # the ``+inf`` branch's gradient was NaN, corrupting optimizer gradients.
     # Guard the ellipse-axis divisions too: padded sections arrive with
     # ``s_a = s_b = 0`` from BatchedProbeStatic's zero-fill (the phase1
     # packer fills 1.0), so ``u / s_a`` is ``0/0 = NaN`` there — and the
@@ -295,7 +295,7 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         # Per-probe pose + threading penalty. y layout is
         # ``(arc_aps, (ml, sx, sy) × P)`` — spin parameterized as a 2D
         # unit-circle vector to avoid the ±180° wraparound discontinuity
-        # that bound-clipped SLSQP on the scalar-angle layout (Patch B).
+        # from the scalar-angle layout.
         j_thread = jnp.float32(0.0)
         Rs = []
         ts = []

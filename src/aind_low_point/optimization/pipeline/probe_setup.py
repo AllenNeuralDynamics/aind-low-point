@@ -1,8 +1,6 @@
 """Probe-setup utilities shared across pipeline scripts.
 
-The old three-level SLSQP optimizer that used to live here has been
-retired.  This module now only exports the infrastructure helpers that
-production scripts still need:
+This module exports the infrastructure helpers that production scripts need:
 
   - :class:`RetroDensityOpts` / :func:`retro_opts_from_env`
   - :func:`_transform_holes`
@@ -31,7 +29,7 @@ class RetroDensityOpts:
     The per-probe density switches from a single-point Gaussian on the
     centroid to an equally-weighted Gaussian mixture on the masked
     points with bandwidth ``sigma_mm``. ``target_LPS`` is set to the
-    centroid of the masked cloud for LSAP pose-bank anchoring.
+    centroid of the masked cloud for pose-bank anchoring.
     """
 
     retro_asset_key: str = "retro-targets"

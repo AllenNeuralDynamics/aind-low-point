@@ -23,7 +23,7 @@ Validation (main): the enumerated discrete decisions {probe->hole, partition}
 MUST be a superset of the 45 FCL-feasible candidates from phase2_handoff.pkl,
 and must contain the manual T12 hole-assignment. Any dropped feasible is a
 regression (likely the stricter ML pack rejecting an atlas-range-tight tuple
-whose true SLSQP ml lies outside the atlas anchors — reported if it happens).
+whose true optimized ML lies outside the atlas anchors — reported if it happens).
 
 Run:  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.arc_first_mrv
 Env:  MAX_ARCS  MAX_PROBES_PER_ARC  AP_RANGE=lo,hi  ML_RANGE=lo,hi
@@ -159,7 +159,7 @@ class Enumerator:
 
         self.names = tuple(probe_names)
         self.K = len(probe_names)
-        # SLSQP can push ml beyond the atlas-sampled anchors (threading is
+        # The optimizer can push ml beyond the atlas-sampled anchors (threading is
         # soft), so the greedy ML-pack uses ml-windows widened by this margin
         # to avoid false-rejecting tuples that polish to feasible.
         self.ml_margin = ml_margin_deg

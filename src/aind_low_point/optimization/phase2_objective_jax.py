@@ -1,8 +1,8 @@
-"""Stage 3 Phase 2: hard-constrained polish with coverage maximisation.
+"""Phase 2 hard-constrained JAX polish with coverage maximisation.
 
 Phase 2 follows Phase 1's soft-penalty warm-up. It uses the *same* x
 layout (``(arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)``) but moves
-all feasibility terms from the objective into SLSQP inequality
+all feasibility terms from the objective into solver inequality
 constraints:
 
   - Threading: ``g_thread ≤ tol`` per (probe, shank, section)
@@ -14,8 +14,8 @@ constraints:
 
 The objective shrinks to coverage + soft bounds + saturating margin
 bonuses (clearance + threading) — exactly the bonuses from Phase 1.
-SLSQP enforces strict feasibility via the constraints; the margin
-bonuses keep the gradient meaningful inside the feasible region (where
+The constrained solver enforces strict feasibility via the constraints; the
+margin bonuses keep the gradient meaningful inside the feasible region (where
 coverage may be locally flat).
 
 Shares all geometry/density kernels with Phase 1 — no duplicate code.
@@ -44,13 +44,21 @@ from aind_low_point.optimization.coverage_jax import (
     normalized_coverage_objective,
     probe_coverage,
 )
-from aind_low_point.optimization.joint_rerank_jax import (
+from aind_low_point.optimization.phase1_objective_jax import (
+    PHASE1_PER_PROBE_VARS,
+    BrainSDFData,
+    FixtureSDFData,
+    _pack_statics,
+    _saturating_reward_mean,
+    _saturating_reward_worst,
+)
+from aind_low_point.optimization.pipeline.contracts import Phase2Problem
+from aind_low_point.optimization.reduced_objective_jax import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
     threading_g_matrix,
 )
-from aind_low_point.optimization.pipeline.contracts import Phase2Problem
 from aind_low_point.optimization.sdf_jax import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
@@ -60,14 +68,6 @@ from aind_low_point.optimization.sdf_jax import (
     trilinear_sdf,
     unit_circle_penalty,
 )
-from aind_low_point.optimization.stage3_phase1_jax import (
-    PHASE1_PER_PROBE_VARS,
-    BrainSDFData,
-    FixtureSDFData,
-    _pack_statics,
-    _saturating_reward_mean,
-    _saturating_reward_worst,
-)
 
 # ---------------------------------------------------------------------------
 # Weights
@@ -76,7 +76,7 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 
 @dataclass(frozen=True)
 class Phase2Weights:
-    """Weights for Stage 3 Phase 2 (hard-constrained form).
+    """Weights for the Phase 2 hard-constrained objective.
 
     Phase 2 drops the feasibility-penalty λ's (threading, clearance,
     kinematic) — those terms are now constraints. Keeps coverage, soft
@@ -369,7 +369,7 @@ def _build_jit(  # noqa: C901
     # single fused vmap in both _objective and _all_slacks.
     fix_table = build_padded_fixture_table(fixtures)
 
-    # ---- Objective: scalar minimised by SLSQP ----
+    # ---- Objective: scalar minimised by the constrained solver ----
     def _objective(
         x,
         target_LPS,
@@ -666,7 +666,7 @@ def _build_jit(  # noqa: C901
             ap_sep_vec = jnp.zeros(0)
 
         # Intra-arc ML separation: smooth_abs(ml_diff) − min_ml_sep,
-        # but only over same-arc pairs (others get +LARGE so SLSQP ignores).
+        # but only over same-arc pairs (others get +LARGE so the solver ignores).
         ml_vals = jnp.stack(
             [x[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
         )

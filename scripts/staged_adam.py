@@ -43,8 +43,9 @@ from aind_low_point.optimization.batched_spin_restore import (
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
 from aind_low_point.optimization.coverage_jax import coverage_total_over_probes
-from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.fcl_validator import make_fcl_validator
 from aind_low_point.optimization.optimizer_vars import _poses
+from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
 from aind_low_point.optimization.pipeline.enumeration import (
     MIN_ARC_AP_SEP_DEG,
     MIN_ML_SEP_DEG,
@@ -66,8 +67,7 @@ from aind_low_point.optimization.pipeline.restore import (
     setup,
     spins_deg_from_reduced,
 )
-from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 
 PPV = 6
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
@@ -128,7 +128,7 @@ def restore_spins_group(
     n_arcs, idxs, *, probes, holes, pool, sdf_by_name, well, with_well
 ):
     """Batched round-robin spin restore over a whole n_arcs group, CHUNKED over
-    candidates (mirrors parallel_stage2's spin-restore loop). The restore JIT is
+    candidates. The restore JIT is
     built once from the first chunk's probe-set constants; per-chunk bs flows as
     runtime args so one compile serves every same-shape chunk. Chunking caps the
     ``(n_arcs, n_spins, n_cand, n_surf)`` intermediate that OOMs on big groups.

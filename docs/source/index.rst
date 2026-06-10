@@ -25,5 +25,5 @@ probe placement planning and 3D visualization.
    :caption: Developer Guide:
 
    architecture
-
+   optimization
 

@@ -49,8 +49,9 @@ from aind_low_point.optimization.batched_spin_restore import (
     make_batched_spin_restore_partial,
 )
 from aind_low_point.optimization.batched_static import build_batched_probe_static
-from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
+from aind_low_point.optimization.fcl_validator import make_fcl_validator
 from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
 from aind_low_point.optimization.pipeline.phase1_build import (
     make_batched_phase1_chunked,
 )
@@ -65,8 +66,7 @@ from aind_low_point.optimization.probe_kinematics import (
     is_four_shank,
     spin_to_align_y_with,
 )
-from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
-from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))

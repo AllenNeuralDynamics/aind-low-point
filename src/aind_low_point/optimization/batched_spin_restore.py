@@ -1,4 +1,4 @@
-"""Batched spin restoration for Stage 2 warm-start.
+"""Batched spin restoration for reduced warm-starts.
 
 Adam needs a good initial spin per probe — the loss landscape is
 multi-modal in spin (often with a 180° gap between basins, since
@@ -34,11 +34,11 @@ from aind_low_point.optimization.batched_objective import (
     make_batched_reduced_objective,
 )
 from aind_low_point.optimization.batched_static import BatchedProbeStatic
-from aind_low_point.optimization.joint_rerank import JointWeights
 from aind_low_point.optimization.pipeline.contracts import (
     SpinRestoreFn,
     SpinRestoreWithLosses,
 )
+from aind_low_point.optimization.probe_static import JointWeights
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,

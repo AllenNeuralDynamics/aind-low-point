@@ -1,9 +1,7 @@
-"""Per-(probe, hole) static pose features for the joint reranker.
+"""Per-(probe, hole) static pose features for optimizer seeding.
 
-Stage 0 of the joint reranking layer (between the LSAP and arc
-partitioner, and the full inner solve). For every (probe, hole) pair
-this module precomputes a small set of static features that the
-reduced-SLSQP scoring stage in :mod:`joint_rerank` consumes:
+For every (probe, hole) pair this module precomputes a small set of static
+features used by the current seed and objective builders:
 
 - The closed-form rig ``(ap, ml)`` that aligns the probe shaft with
   the bore-to-target unit vector (a useful warm start for the per-arc
@@ -19,9 +17,8 @@ reduced-SLSQP scoring stage in :mod:`joint_rerank` consumes:
   :func:`multi_pose_evaluate`).
 - A static coverage reading at the target-aligned pose.
 
-Pose features are static — they depend only on the probe-hole pairing,
-not on the joint assignment. Computing them once up front amortises
-the per-(H, A) reduced-SLSQP cost in :mod:`joint_rerank`.
+Pose features are static; they depend only on the probe-hole pairing, not on
+the joint assignment.
 """
 
 from __future__ import annotations
@@ -32,16 +29,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_low_point.optimization.geometry import shaft_section_oval_value
-from aind_low_point.optimization.hole_assignment import (
-    AssignmentProbe,
-    multi_pose_evaluate,
-)
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.kinematics import (
     pose_from_optimizer_vars,
     shank_capsules_from_pose,
 )
 from aind_low_point.optimization.optimize import ProbeStaticInfo
+from aind_low_point.optimization.pose_bank import (
+    PoseBankProbe,
+    multi_pose_evaluate,
+)
 from aind_low_point.optimization.recording import (
     RecordingGeometry,
     get_recording_geometry,
@@ -75,7 +72,7 @@ class PoseFeatures:
         when no sampled AP is feasible.
     static_max_g
         Best-of-bank threading ``max_g`` from
-        :func:`hole_assignment.multi_pose_evaluate`.
+        :func:`pose_bank.multi_pose_evaluate`.
     static_coverage
         Best-of-bank coverage (target-aligned pose) from the same.
     """
@@ -147,7 +144,7 @@ def _ml_for_ap(ap_deg: float, b: NDArray) -> float:
 
 
 def _pivot_local(
-    probe: ProbeStaticInfo | AssignmentProbe,
+    probe: ProbeStaticInfo | PoseBankProbe,
     recording_geom: RecordingGeometry,
 ) -> NDArray:
     """Per-probe local-frame pivot point used by the inner solve.
@@ -173,7 +170,7 @@ def _pivot_local(
 
 
 def _max_g_at_pose(
-    probe: ProbeStaticInfo | AssignmentProbe,
+    probe: ProbeStaticInfo | PoseBankProbe,
     hole: Hole,
     *,
     ap_deg: float,
@@ -303,9 +300,7 @@ def precompute_pose_features(
     for probe in probes:
         geom = _geom(probe.kind)
         pivot_local = _pivot_local(probe, geom)
-        # AssignmentProbe is the shape multi_pose_evaluate consumes; the
-        # extra fields (density_sigma_mm) are inherited from probe.
-        ap_probe = AssignmentProbe(
+        ap_probe = PoseBankProbe(
             name=probe.name,
             target_LPS=np.asarray(probe.target_LPS, dtype=np.float64),
             shank_tips_local=np.asarray(probe.shank_tips_local, dtype=np.float64),

@@ -8,8 +8,8 @@ For each `(partition, hole-tuple)`:
   - Per arc: the per-probe atlas AP envelope intersection gives the
     feasible arc-AP interval. Empty intersection → reject the
     candidate.
-  - Principled arc AP = midpoint of intersection. SLSQP polishes
-    from there.
+  - Principled arc AP = midpoint of intersection. The downstream optimizer
+    polishes from there.
   - Per probe: pick the atlas anchor closest to the principled AP
     as the ml/spin warm-start.
   - Check pairwise AP separation ≥ 16°.
@@ -21,7 +21,7 @@ polish queue. The signals are NOT used to filter — they only influence
 order.
 
 Designed in conversation 2026-05-20 in response to the realization that
-AP-triple grid enumeration was redundant (SLSQP optimizes arc APs;
+AP-triple grid enumeration was redundant (the optimizer refines arc APs;
 multiple AP seeds within a (partition, hole-tuple) family converge to
 roughly the same local minimum). Discrete decision unit is
 `(partition, hole-tuple)`; AP triple is a single principled seed.
@@ -35,12 +35,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from aind_low_point.optimization.arc_assignment import (
+from aind_low_point.optimization.arc_placement import bounded_isotonic_arc_aps
+from aind_low_point.optimization.assignment_contracts import (
     ArcAssignment,
-    bounded_isotonic_arc_aps,
+    HoleAssignment,
 )
 from aind_low_point.optimization.atlas import Atlas
-from aind_low_point.optimization.hole_assignment import HoleAssignment
 from aind_low_point.planning import PoseLimits
 
 # Arc / per-arc caps are KINEMATIC (16 deg angular exclusion over the AP/ML
@@ -161,7 +161,7 @@ def _nearest_ap_index(ap_sorted_arr: np.ndarray, target_ap: float) -> int:
 class ArcFirstCandidate:
     """One discrete decision from principled arc-first search.
 
-    Polishable directly by Stage 2 (``score_joint`` or batched path):
+    Polishable directly by the batched optimization path:
     ``ha`` and ``aa`` are the discrete decisions; ``ml_seed`` /
     ``spin_seed`` are atlas-anchor warm starts (the polish will refine
     them).
@@ -263,7 +263,7 @@ def _enumerate_arc_hole_tuples(  # noqa: C901
         ]
 
         # ml-sep feasibility check. The atlas envelope is conservative —
-        # SLSQP can move ml beyond atlas anchors (threading is soft).
+        # The optimizer can move ml beyond atlas anchors (threading is soft).
         # So the right check is "max-possible pairwise diff ≥ min_ml_sep",
         # not "found atlas-anchor combo satisfying ml-sep". The latter
         # rejects manual-quality hole-tuples that sit at the boundary

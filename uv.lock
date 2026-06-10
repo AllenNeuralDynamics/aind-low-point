@@ -45,7 +45,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aind-anatomical-utils" },
     { name = "aind-mri-utils" },
-    { name = "cyipopt" },
     { name = "ipyevents" },
     { name = "k3d" },
     { name = "mapbox-earcut" },
@@ -73,6 +72,7 @@ dependencies = [
 optimization = [
     { name = "cma" },
     { name = "coacd" },
+    { name = "cyipopt" },
     { name = "jax", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "jax", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, extra = ["cuda12"], marker = "python_full_version < '3.11' and sys_platform == 'linux'" },
     { name = "jax", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -129,7 +129,7 @@ requires-dist = [
     { name = "aind-mri-utils", specifier = ">=0.12.1,<2" },
     { name = "cma", marker = "extra == 'optimization'", specifier = ">=4.4.4" },
     { name = "coacd", marker = "extra == 'optimization'", specifier = ">=1.0.11" },
-    { name = "cyipopt", specifier = ">=1.7.0" },
+    { name = "cyipopt", marker = "extra == 'optimization'", specifier = ">=1.7.0" },
     { name = "ipyevents", specifier = ">=2,<3" },
     { name = "jax", marker = "sys_platform != 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },

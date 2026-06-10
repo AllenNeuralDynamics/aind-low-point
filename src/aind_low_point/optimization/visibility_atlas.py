@@ -6,7 +6,7 @@ construct the probe pose and test whether **all shanks** thread
 **all hole sections**. The set of passing (sample, spin) configurations
 defines the achievable AP/ML/spin cone for that (probe, hole).
 
-This replaces the SLSQP-based atlas in :mod:`atlas.py`. Differences:
+Key properties:
 - **Visibility, not optimisation.** We don't optimise pose; we test
   closed-form geometry. Faster (sub-second build), no local minima.
 - **Per-shank threading.** Each of the K shanks must pass through

@@ -1,4 +1,4 @@
-"""JAX-traceable coverage computation for Stage 3 Phase 1.
+"""JAX-traceable coverage computation for Phase 1 and Phase 2.
 
 Two density backends, both differentiable:
 
@@ -132,7 +132,7 @@ def build_coverage_data_from_probe_context(
     probe_ctx: Any,
     recording_active_range_mm: tuple[float, float],
 ) -> CoverageData:
-    """Inspect a Stage 3 ``ProbeContext`` and return the matching JAX
+    """Inspect a probe context and return the matching JAX
     coverage data.
 
     Uses the same selection logic as the legacy ``_build_inner_context``

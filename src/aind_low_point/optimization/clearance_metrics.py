@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+from aind_low_point.optimization.phase1_objective_jax import PHASE1_PER_PROBE_VARS
 from aind_low_point.optimization.sdf_jax import (
     dual_rep_fixture_clearance,
     dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
-from aind_low_point.optimization.stage3_phase1_jax import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS
 

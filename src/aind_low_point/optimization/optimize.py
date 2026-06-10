@@ -29,7 +29,7 @@ class ProbeStaticInfo:
     world LPS mm) that, when set, switches the coverage density from a
     single-point Gaussian on ``target_LPS`` to an equally-weighted
     Gaussian mixture over the cloud. ``target_LPS`` is still used for
-    LSAP target-anchored pose-bank construction and should be the
+    target-anchored pose-bank construction and should be the
     cloud's centroid in that case.
     """
 

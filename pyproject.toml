@@ -23,7 +23,6 @@ version = "0.1.0"
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
-  "cyipopt>=1.7.0",
   "ipyevents>=2,<3",
   "k3d>=2,<3",
   "mapbox-earcut>=2.0.0",
@@ -59,6 +58,9 @@ dependencies = [
 optimization = [
   "cma>=4.4.4",
   "coacd>=1.0.11",
+  # Python bindings for IPOPT. Requires the native IPOPT library to be
+  # available on the system when the wheel cannot satisfy the platform.
+  "cyipopt>=1.7.0",
   "jax[cuda12]>=0.4.30 ; sys_platform == 'linux'",
   "jax>=0.4.30 ; sys_platform != 'linux'",
   "jaxlib>=0.4.30",

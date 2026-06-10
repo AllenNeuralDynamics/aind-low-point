@@ -1,12 +1,11 @@
-"""Stage 3 Phase 1: soft-penalty JAX objective with coverage, offsets, depth.
+"""Phase 1 soft-penalty JAX objective with coverage, offsets, and depth.
 
-This is the *soft* phase of the new Stage 3 design (2026-05-22). Phase 2
-(the existing :mod:`stage3_jax` constraints + ``coverage_objective``)
-runs after Phase 1 to do the hard-constrained final polish.
+Phase 1 is the soft warm-up used by the production pool builder. Phase 2 runs
+afterward to do the hard-constrained final polish.
 
-What Phase 1 adds beyond Stage 2's reduced objective:
+What Phase 1 adds beyond the reduced spin-restore objective:
 
-  - Coverage maximisation (the actual Stage 3 reason for being).
+  - Coverage maximisation.
   - Three new per-probe DOFs: ``off_R, off_A, past_target_mm``
     (offsets along the rig-R and rig-A axes, and insertion depth past
     the target).
@@ -15,7 +14,7 @@ What Phase 1 adds beyond Stage 2's reduced objective:
   - Saturating per-(probe, shank, section) threading margin reward
     (rewards every shank-section being deep inside its oval).
 
-What Phase 1 inherits from Stage 2 (Patches A + B):
+What Phase 1 inherits from the reduced objective:
 
   - α-wrap envelope SDF body + analytic shank OBBs (dual-rep clearance,
     three categories: body-body, body-shank, shank-shank).
@@ -24,8 +23,8 @@ What Phase 1 inherits from Stage 2 (Patches A + B):
   - ``(sx, sy)`` unit-circle spin reparameterization (no ±180° wrap).
 
 x layout: ``(arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)`` — 6 DOFs
-per probe. Convert to/from Stage 2's reduced y (n_arcs + 3P) and from
-Stage 3's old full x (n_arcs + 5P scalar spin) at the boundaries.
+per probe. Convert to/from the reduced y layout (n_arcs + 3P) and scalar-spin
+full x layout (n_arcs + 5P) at boundaries.
 
 Coverage is supplied as a Python callable that returns a scalar given
 the world poses ``(Rs, ts)``. The JAX kernel computes everything else;
@@ -57,7 +56,7 @@ from aind_low_point.optimization.coverage_jax import (
     coverage_total_over_probes,
     normalized_coverage_objective,
 )
-from aind_low_point.optimization.joint_rerank_jax import (
+from aind_low_point.optimization.reduced_objective_jax import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
@@ -143,7 +142,7 @@ def reduced_to_phase1(reduced_y: NDArray, n_arcs: int, n_probes: int) -> NDArray
 
 def phase1_to_full_x(phase1_x: NDArray, n_arcs: int, n_probes: int) -> NDArray:
     """Convert Phase 1 x ``(ml, sx, sy, off_R, off_A, depth) × P`` to the
-    legacy Stage 3 full x ``(ml, spin_deg, off_R, off_A, depth) × P``.
+    scalar-spin full x ``(ml, spin_deg, off_R, off_A, depth) × P``.
 
     Spin in degrees recovered via ``atan2(sy, sx)``. Used at the
     handoff into the hard-constrained Phase 2 (which still uses scalar
@@ -218,27 +217,28 @@ def _saturating_reward_worst(
 
 @dataclass(frozen=True)
 class Phase1Weights:
-    """Weights for Stage 3 Phase 1 (soft-penalty form).
+    """Weights for the Phase 1 soft-penalty objective.
 
     Defaults sized so that:
       - Penalty terms (λ_thread, λ_clearance, λ_kinematic) dominate when
         infeasible — order ~100s vs coverage ~17.
       - Saturating margin rewards stay ≤ 12% of coverage in the
         saturated limit (mean form ⇒ max contribution = λ each).
-      - ``smooth_abs`` ε = 1e-3 deg matches Stage 2.
+      - ``smooth_abs`` epsilon is 1e-3 deg.
     """
 
     lambda_thread: float = 100.0
     # Per-category weight (body-body, body-shank, shank-shank). The
     # categories surface different geometric failures (deep body
     # overlap vs grazing shank contact) and weighting each at 100 —
-    # same as Stage 2's single-min — keeps each signal effective.
+    # same scale as the reduced objective's single-min term — keeps each
+    # signal effective.
     lambda_clearance: float = 100.0
     lambda_kinematic: float = 100.0
     lambda_bounds: float = 1.0
     # See sdf_jax.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
     # so poses are consistent across stages. Reduced 100 → 10 to
-    # avoid over-dominating iter budget — see joint_rerank.py comment.
+    # avoid over-dominating iter budget; keep aligned with probe_static weights.
     lambda_unit_circle: float = 10.0
 
     # Saturating margin rewards (mean form ⇒ max contribution = λ each).
@@ -262,7 +262,7 @@ class Phase1Weights:
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
 
-    # Soft-min knobs for dual-rep clearance (matches Stage 2 defaults).
+    # Soft-min knobs for dual-rep clearance.
     softmin_beta: float = 20.0
     top_k_body_body: int = 16
     top_k_body_shank: int = 8
@@ -376,7 +376,7 @@ def _weights_key(w: Phase1Weights) -> tuple:
 
 
 def _signature(statics, n_arcs: int, weights: Phase1Weights) -> tuple:
-    """Cache key — same per-probe SDF/shank-OBB shape info as Stage 2."""
+    """Cache key over per-probe SDF/shank-OBB shape info."""
     has_sdf = any(s.sdf_data is not None for s in statics)
     per_probe_sdf_shapes: tuple = ()
     per_probe_shank_counts: tuple = ()
@@ -803,7 +803,8 @@ def _pack_statics(
     statics, n_arcs: int, build_sdf: bool = True, build_table: bool = True
 ) -> dict:
     """Pack per-candidate static data into padded jnp tensors. Mirrors
-    Stage 2's ``_pack_statics`` exactly so per-probe data lines up.
+    The reduced-objective packer convention is preserved so per-probe data
+    lines up.
 
     ``build_sdf`` / ``build_table`` control whether the per-probe SDF/OBB tuples
     and the padded swept-pair ``sdf_table`` are built. They are per-probe-fixed
@@ -994,20 +995,20 @@ def make_phase1_objective(
     Parameters
     ----------
     statics
-        List of ``_ProbeStatic`` (from joint_rerank). Must have
+        List of ``_ProbeStatic`` (from probe_static). Must have
         ``sdf_data`` populated (α-wrap envelope + shank OBBs).
     n_arcs
         Number of arcs.
     coverage_data
         Tuple of length ``len(statics)`` — one CoverageData per probe.
         Use :func:`coverage_jax.build_coverage_data_from_probe_context`
-        to construct each entry from a Stage 3 ProbeContext.
+        to construct each entry from a probe context.
     weights
         :class:`Phase1Weights` — see defaults; tuned for coverage ~17
         to dominate the soft-penalty plus margin-reward signals.
     coverage_n_samples
         Simpson's-rule sample count per shank (default 41, matching
-        the legacy Stage 3 coverage).
+        the numpy coverage path).
     """
     # Extend the cache signature with fixture grid shapes so distinct
     # fixture sets don't collide.

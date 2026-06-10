@@ -11,7 +11,7 @@ Wraps the rig kinematics in a few thin functions:
   per-probe-asset shank-tip positions in the local frame (from
   :func:`runtime.shanks.detect_shank_tips_local`), build one
   :class:`Capsule` per shank in world LPS-mm.
-- :func:`pose_at_hole_best_fit` — for the LSAP cost matrix: a static
+- :func:`pose_at_hole_best_fit` — static
   pose that perfectly aligns the probe's shaft with a given hole's
   axis and the shank-row with the slot's major axis. No optimizer
   variables; closed-form from the hole spec.
@@ -110,7 +110,7 @@ def shank_capsules_from_pose(
 def pose_at_hole_best_fit(
     hole: Hole,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Static "perfect-alignment" pose for the LSAP cost matrix.
+    """Static "perfect-alignment" pose for a hole.
 
     Builds ``(R, pose_tip_world)`` such that:
 

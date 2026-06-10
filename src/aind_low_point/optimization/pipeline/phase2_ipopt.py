@@ -9,7 +9,7 @@ Then: keep FCL >= -TOL (human-fixable), and rank by MMR — greedily pick highes
 post-Phase-2 coverage, penalizing similarity (shared probe->hole fraction) to
 already-picked plans, so the ranked handoff is high-coverage AND diverse.
 
-Run:  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.phase2_parallel
+Run:  JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase2
 Env:  TOPK (default 80), WORKERS (default 16), P2_ITER (200), MINCLEAR (0.2),
       LAM_CLEAR (5.0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5)
 """
@@ -113,7 +113,7 @@ IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "25"))  # 0 disables early stop
 # YAML, HOLES the implant-bore file (placed by the config's implant_to_lps).
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
-# Phase-1 pool (mrv_pool_run output): records carry probe_to_hole, partition,
+# Phase-1 pool (alp-phase1 output): records carry probe_to_hole, partition,
 # probe_to_arc_idx, arc_centroids_deg, x (Phase-1 pose), min_clear. Phase 2
 # rebuilds `st` from the saved arc assignment — NO full_polish_0283 dependency.
 POSES_PKL = _os.environ.get("POSES", "scratch/mrv_pool_results.pkl")
@@ -157,13 +157,13 @@ def _setup_compile_cache():
 def _init():
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap)."""
     _setup_compile_cache()
-    from aind_low_point.optimization.joint_rerank import _build_probe_static
     from aind_low_point.optimization.pipeline.phase1_geometry import (
         build_coverage_data,
     )
     from aind_low_point.optimization.pipeline.runtime_adapter import (
         OptimizationRuntime,
     )
+    from aind_low_point.optimization.probe_static import _build_probe_static
 
     opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
     assets = opt.build_problem_assets(well_mode=WELL, include_brain=True)
@@ -232,13 +232,13 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from aind_low_point.optimization.coverage_jax import (
         coverage_total_over_probes,
     )
+    from aind_low_point.optimization.fcl_validator import make_fcl_validator
     from aind_low_point.optimization.optimizer_vars import _poses, worst_threading_g
-    from aind_low_point.optimization.pipeline.phase1_geometry import phase1_bounds
-    from aind_low_point.optimization.stage3_phase2_jax import (
+    from aind_low_point.optimization.phase2_objective_jax import (
         Phase2Weights,
         make_phase2,
     )
-    from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+    from aind_low_point.optimization.pipeline.phase1_geometry import phase1_bounds
 
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
     rank = rec.get("rank", -1)
@@ -379,7 +379,7 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
     compile cache is warm; spawned workers then LOAD instead of all compiling
     simultaneously (the OOM cause). Evals the jit callables (triggers compile)
     without running the full minimize."""
-    from aind_low_point.optimization.stage3_phase2_jax import (
+    from aind_low_point.optimization.phase2_objective_jax import (
         Phase2Weights,
         make_phase2,
     )

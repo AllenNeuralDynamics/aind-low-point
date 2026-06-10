@@ -1,24 +1,6 @@
-"""Stage 3 FCL validator (formerly "Phase 3 polish").
+"""Ground-truth FCL validator.
 
-**Phase 3 was retired as an optimizer on 2026-05-24.** Two reasons:
-
-1. ``fcl.distance`` is 0 inside collision — no usable gradient.
-2. To handle "in collision" we returned a constant sentinel (``-1.0``
-   mm) because BVH-vs-BVH ``penetration_depth`` is garbage on thin
-   meshes. The sentinel makes the constraint piecewise-constant near
-   the boundary; FD-Jacobian SQP either gets stuck inside the
-   sentinel pit or trips a clear point into collision and can't
-   escape.
-
-The function this module exposed (``make_phase3``) used to set up an
-``scipy.optimize.minimize`` problem mixing analytic JAX constraints
-with FD-on-FCL constraints, and we observed in practice that
-**trust-constr and SLSQP both fail on cands that enter Phase 3 already
-FCL-clear** (they wander into collision) and **fail on cands that enter
-Phase 3 in collision** (sentinel-pit). Validator-mode — just *check*
-FCL at x2 — captured the only chain successes we've seen.
-
-The new role of this module is pure validation:
+This module performs pure validation:
 
   - Build per-probe-pair and per-probe-fixture FCL BVH queries
   - Expose ``slacks(x) -> np.ndarray`` returning signed clearance per
@@ -43,7 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
-from aind_low_point.optimization.stage3_phase1_jax import (
+from aind_low_point.optimization.phase1_objective_jax import (
     PHASE1_PER_PROBE_VARS,
     FixtureSDFData,
 )
@@ -267,7 +249,7 @@ def make_fcl_validator(
     Parameters
     ----------
     statics
-        Per-probe static info (same objects Stage 2 / Phase 1 / Phase 2
+        Per-probe static info (same objects reduced / Phase 1 / Phase 2
         use). Each must have ``bvh_obj`` populated for the probe-probe
         and probe-fixture checks to query.
     n_arcs
