@@ -218,10 +218,12 @@ def export_plan_geometry(
         # ap=0, ml=0, spin=0 means the probe is vertical in subject LPS.
         #
         # Rig-mechanical angles: what an experimenter dials into the rig.
-        # Differs from subject by the head pitch (head mounted nose-down):
-        # ``rig_ap = subject_ap − head_pitch_about_L``. ML/spin are
-        # unaffected by a pure-R-axis head pitch.
-        ap_rig = float(pose.ap) - head_pitch_about_L
+        # The mouse head is mounted nose-DOWN by the head pitch, so a
+        # subject-vertical probe (subject_ap = 0, lambda-bregma) requires a
+        # rig angle of +head_pitch: ``rig_ap = subject_ap + head_pitch_about_L``
+        # (aind-mri-utils convention; see dev memory rig_ap_sign_convention).
+        # ML/spin are unaffected by a pure-L-axis head pitch.
+        ap_rig = float(pose.ap) + head_pitch_about_L
         probes_out[name] = {
             "kind": plan.kind,
             "target": {
