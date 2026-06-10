@@ -88,7 +88,7 @@ class Phase1PoolPayload(TypedDict):
     full_fine: int
 
 
-class Phase2InputRecord(TypedDict):
+class Phase2InputRecordRequired(TypedDict):
     """Normalized phase-1 record handed to Phase 2."""
 
     idx: int
@@ -102,7 +102,13 @@ class Phase2InputRecord(TypedDict):
     rank: int
 
 
-class Phase2ResultRecord(TypedDict):
+class Phase2InputRecord(Phase2InputRecordRequired, total=False):
+    """Phase-2 input with optional provenance from the phase-1 pool."""
+
+    objective: float | None
+
+
+class Phase2ResultRecordRequired(TypedDict):
     """Record emitted by the Phase 2 solver and consumed by plan emission."""
 
     idx: int
@@ -119,6 +125,19 @@ class Phase2ResultRecord(TypedDict):
     probe_to_arc_idx: ProbeToArcIdx
     arc_centroids_deg: list[float]
     min_clear: float | None
+
+
+class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
+    """Phase-2 result with optional diagnostics/provenance fields."""
+
+    pose_in: Array
+    objective_p1: float | None
+    fcl_strict: bool
+    thread_strict: bool
+    strict_feasible: bool
+    fcl_keep: bool
+    thread_keep: bool
+    kept: bool
 
 
 class Phase2HandoffPayload(TypedDict):
