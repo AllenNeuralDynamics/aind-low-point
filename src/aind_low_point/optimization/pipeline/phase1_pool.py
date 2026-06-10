@@ -82,6 +82,7 @@ from aind_low_point.optimization.pipeline.thick_well import (
 from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
+from aind_low_point.planning import AP_LIMIT_DEG
 from aind_low_point.runtime.transforms import compile_all_transforms
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
@@ -508,15 +509,25 @@ def main() -> int:
         flush=True,
     )
 
-    by_arcs = load_or_seed_groups(
-        lambda: Enumerator(
-            *build_or_load_atlas(),
+    def _make_enum():
+        # build_or_load_atlas returns a 3-tuple (atlas, probe_names,
+        # head_pitch_deg); the Enumerator takes atlas + probe_names positionally.
+        # Subject-frame AP window = rig ±AP_LIMIT shifted by head pitch (mirrors
+        # enumeration.main + phase1_bounds); ML is frame-invariant so the
+        # Enumerator defaults to ±ML_LIMIT_DEG.
+        atlas, probe_names, head_pitch_deg = build_or_load_atlas()
+        ap_range = (-AP_LIMIT_DEG + head_pitch_deg, AP_LIMIT_DEG + head_pitch_deg)
+        return Enumerator(
+            atlas,
+            probe_names,
             ml_margin_deg=0.0,
             ml_mode="greedy",
             max_arcs=MAX_ARCS,
             max_probes_per_arc=MAX_PPA,
+            ap_range=ap_range,
         )
-    )
+
+    by_arcs = load_or_seed_groups(_make_enum)
 
     if ONLY_NARCS:
         by_arcs = {k: v for k, v in by_arcs.items() if k == ONLY_NARCS}
