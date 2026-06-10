@@ -99,45 +99,21 @@ def build_or_load_atlas() -> AtlasCachePayload:
         if normalized is not None:
             return normalized
         # legacy 2-tuple cache without head pitch → rebuild below
-    from aind_low_point.config import ConfigModel
-    from aind_low_point.optimization.holes import load_holes
-    from aind_low_point.optimization.pipeline.probe_setup import (
-        _probe_static_info,
-        _transform_holes,
-        retro_opts_from_env,
+    from aind_low_point.optimization.pipeline.runtime_adapter import (
+        OptimizationRuntime,
     )
     from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
-    from aind_low_point.runtime import build_runtime_from_config
-    from aind_low_point.runtime.transforms import compile_all_transforms
 
-    cfg = ConfigModel.from_yaml(CONFIG)
-    rt = build_runtime_from_config(cfg)
-    _ro = retro_opts_from_env(rt)
-    probes = [
-        _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
-    ]
-    # Head pitch (subject↔rig, about L). The visibility-atlas AP is
-    # subject-anatomical, so the rig ±AP_LIMIT window in subject frame is
-    # shifted by the pitch (matches phase1_bounds / _ap_bounds_deg).
-    import numpy as np
-
-    _R_sfr = np.asarray(
-        rt.plan_state.kinematics.subject_from_rig.rotate_translate[0], dtype=float
-    )
-    head_pitch_deg = float(np.rad2deg(np.arctan2(_R_sfr[2, 1], _R_sfr[1, 1])))
-    holes = load_holes(Path(HOLES))
-    comp = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in comp:
-        R, t = comp["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
+    opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
     t0 = time.time()
-    atlas = build_visibility_atlas(probes, holes, n_top=128, n_spin=72, verbose=False)
+    atlas = build_visibility_atlas(
+        opt.probes, opt.holes, n_top=128, n_spin=72, verbose=False
+    )
     print(
         f"built visibility atlas in {time.time() - t0:.0f}s "
-        f"({len(probes)} probes, {len(holes)} holes)"
+        f"({len(opt.probes)} probes, {len(opt.holes)} holes)"
     )
-    probe_names = tuple(p.name for p in probes)
-    payload = AtlasCachePayload(atlas, probe_names, head_pitch_deg)
+    payload = AtlasCachePayload(atlas, opt.probe_names, opt.head_pitch_deg)
     with open(ATLAS_CACHE, "wb") as f:
         pickle.dump(payload, f)
     return payload

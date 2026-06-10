@@ -157,93 +157,34 @@ def _setup_compile_cache():
 def _init():
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap)."""
     _setup_compile_cache()
-    from aind_low_point.config import ConfigModel
-    from aind_low_point.optimization.headstages import make_fcl_bvh
-    from aind_low_point.optimization.holes import load_holes
     from aind_low_point.optimization.joint_rerank import _build_probe_static
     from aind_low_point.optimization.pipeline.phase1_geometry import (
         build_coverage_data,
-        build_fixture_sdf_data,
-        maybe_build_brain_sdf,
     )
-    from aind_low_point.optimization.pipeline.probe_setup import (
-        _probe_static_info,
-        _transform_holes,
-        retro_opts_from_env,
+    from aind_low_point.optimization.pipeline.runtime_adapter import (
+        OptimizationRuntime,
     )
-    from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
-    from aind_low_point.runtime import build_runtime_from_config
-    from aind_low_point.runtime.transforms import compile_all_transforms
 
-    cfg = ConfigModel.from_yaml(CONFIG)
-    rt = build_runtime_from_config(cfg)
-    _ro = retro_opts_from_env(rt)
-    probes = [
-        _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
-    ]
-    holes = load_holes(Path(HOLES))
-    comp = compile_all_transforms(cfg.transforms)
-    if "implant_to_lps" in comp:
-        R, t = comp["implant_to_lps"].rotate_translate
-        holes = _transform_holes(holes, R, t)
-    sdf = {
-        p.name: build_probe_sdf_from_alpha_wrap(
-            rt.asset_catalog.get_geometry(f"probe:{p.kind}").raw
-        )
-        for p in probes
-    }
-    bvh = {
-        p.name: make_fcl_bvh(p.collision_mesh) if p.collision_mesh else None
-        for p in probes
-    }
-    fx = build_fixture_sdf_data(rt)
-    if WELL == "thick":
-        from aind_low_point.optimization.pipeline.thick_well import (
-            fit_well_cone,
-            make_thick_well_sdf,
-        )
-
-        mesh = rt.asset_catalog.get_geometry("well").raw
-        well_thin = next(f for f in fx if f.name == "well")
-        well_thick = make_thick_well_sdf(mesh, well_thin, cone=fit_well_cone(mesh))
-        fx = tuple(well_thick if f.name == "well" else f for f in fx)
-    fbvh = {f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw) for f in fx}
-    brain_sdf = maybe_build_brain_sdf(rt, comp)
-    # FCL gate fixtures: the soft-SDF fixtures PLUS the implant. The implant is
-    # excluded from the soft constraints (its bores are handled by the threading
-    # term — a solid implant SDF would block every probe), but it MUST be in the
-    # ground-truth FCL gate: a shank that mis-threads pierces the implant solid
-    # while clearing every other body, so without this the broken plans pass.
-    # The implant mesh has the bores cut out, so a correctly-threaded probe
-    # passes through cleanly. ``fcl_fixtures`` only needs ``.name`` for the
-    # validator's BVH lookup.
-    from types import SimpleNamespace
-
-    from aind_low_point.scene import resolve_base_geometry
-
-    fcl_fixtures = fx
-    fcl_fbvh = dict(fbvh)
-    # Implant must be placed in WORLD LPS (its scene transform is implant_to_lps,
-    # NOT identity) — using the catalog ``.raw`` (local frame) mis-places it by
-    # ~0.6 mm and corrupts the gate. resolve_base_geometry applies the scene
-    # transform, matching the frame the probes and the implant_to_lps-transformed
-    # bores live in.
-    impl_t = resolve_base_geometry(rt.asset_catalog, rt.scene, "implant")
-    if impl_t is not None:
-        fcl_fbvh["implant"] = make_fcl_bvh(impl_t.raw)
-        fcl_fixtures = tuple(fx) + (SimpleNamespace(name="implant"),)
+    opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
+    assets = opt.build_problem_assets(well_mode=WELL, include_brain=True)
+    # The FCL gate uses the same fixture names plus the world-frame implant BVH.
+    # The implant remains excluded from soft SDF constraints because probes pass
+    # through its bored holes; FCL is the ground-truth threading/body gate.
+    fcl = opt.fcl_fixture_set(
+        assets.fixtures, fixture_bvhs=assets.fixture_bvhs, include_implant=True
+    )
     _G.update(
-        probes=probes,
-        holes=holes,
-        sdf=sdf,
-        bvh=bvh,
-        fx=fx,
-        fbvh=fbvh,
-        fcl_fixtures=fcl_fixtures,
-        fcl_fbvh=fcl_fbvh,
-        brain_sdf=brain_sdf,
+        probes=list(opt.probes),
+        holes=list(opt.holes),
+        sdf=assets.probe_sdfs,
+        bvh=assets.probe_bvhs,
+        fx=assets.fixtures,
+        fbvh=assets.fixture_bvhs,
+        fcl_fixtures=fcl.fixtures,
+        fcl_fbvh=fcl.bvhs,
+        brain_sdf=assets.brain_sdf,
         cov_data=None,
-        n_probes=len(probes),
+        n_probes=len(opt.probes),
         build_static=_build_probe_static,
         build_cov=build_coverage_data,
     )

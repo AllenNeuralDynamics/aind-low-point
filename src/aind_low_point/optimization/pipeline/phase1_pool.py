@@ -79,23 +79,17 @@ from aind_low_point.optimization.pipeline.phase1_build import (
 )
 from aind_low_point.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
-    maybe_build_brain_sdf,
     phase1_bounds,
 )
 from aind_low_point.optimization.pipeline.restore import (
     PPV,
     setup,
+    setup_runtime,
     spins_deg_from_reduced,
 )
-from aind_low_point.optimization.pipeline.thick_well import (
-    fit_well_cone,
-    make_thick_well_sdf,
-)
-from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.optimization.stage3_phase1_jax import Phase1Weights
 from aind_low_point.optimization.stage3_phase3_fcl import make_fcl_validator
 from aind_low_point.planning import AP_LIMIT_DEG
-from aind_low_point.runtime.transforms import compile_all_transforms
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
 STAGE2 = int(_os.environ.get("STAGE2", "500"))
@@ -560,14 +554,15 @@ def load_or_seed_groups(
 
 
 def main() -> int:
-    cfg, rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, fixture_bvhs = setup()
-    brain = maybe_build_brain_sdf(rt, compile_all_transforms(cfg.transforms))
+    opt = setup_runtime()
+    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, fixture_bvhs = setup(
+        opt
+    )
+    brain = opt.brain_sdf()
 
     # Tuned optimizer: thick well (soft side only; FCL uses true mesh) + coarse SDF.
-    mesh = rt.asset_catalog.get_geometry("well").raw
-    well_thick = make_thick_well_sdf(mesh, well_thin, cone=fit_well_cone(mesh))
-    well_soft = well_thick if WELL_MODE == "thick" else well_thin
-    sdf_coarse = build_sdf_by_name(probes, rt, COARSE_N) if TWO_FIDELITY else sdf_fine
+    well_soft = opt.thick_well_fixture(well_thin) if WELL_MODE == "thick" else well_thin
+    sdf_coarse = opt.probe_sdfs(COARSE_N) if TWO_FIDELITY else sdf_fine
     print(
         f"config: minimizer={MINIMIZER} well={WELL_MODE} "
         f"{'coarse' + str(COARSE_N) + '→fine' if TWO_FIDELITY else 'fine-only'} "
