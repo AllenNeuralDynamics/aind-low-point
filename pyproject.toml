@@ -125,6 +125,8 @@ pydocstyle = { convention = "numpy" }
 [tool.mypy]
 python_version = "3.10"
 files = [
+  "src/aind_low_point/runtime/probe_context.py",
+  "src/aind_low_point/runtime/scene_geometry.py",
   "src/aind_low_point/optimization/pipeline/contracts.py",
   "src/aind_low_point/optimization/pipeline/runtime_adapter.py",
   "src/aind_low_point/optimization/pipeline/enumeration.py",

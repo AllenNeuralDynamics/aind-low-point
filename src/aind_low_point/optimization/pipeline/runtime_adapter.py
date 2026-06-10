@@ -14,8 +14,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
-
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.holes import Hole, load_holes
 from aind_low_point.optimization.optimize import ProbeStaticInfo
@@ -25,9 +23,14 @@ from aind_low_point.optimization.pipeline.probe_setup import (
     _transform_holes,
     retro_opts_from_env,
 )
-from aind_low_point.runtime import RuntimeBundle, build_runtime_from_config
+from aind_low_point.runtime import (
+    RuntimeBundle,
+    build_runtime_from_config,
+    head_pitch_deg_from_runtime,
+    implant_world_geometry,
+    world_geometry_for_node,
+)
 from aind_low_point.runtime.transforms import CompiledTransforms, compile_all_transforms
-from aind_low_point.scene import resolve_base_geometry
 
 if TYPE_CHECKING:
     from aind_low_point.optimization.sdf import ProbeSDF
@@ -55,15 +58,6 @@ class FCLFixtureSet:
 
     fixtures: tuple[Any, ...]
     bvhs: dict[str, Any]
-
-
-def head_pitch_deg_from_runtime(runtime: RuntimeBundle) -> float:
-    """Return rig AP pitch in degrees, expressed in the subject frame."""
-    rotation = np.asarray(
-        runtime.plan_state.kinematics.subject_from_rig.rotate_translate[0],
-        dtype=float,
-    )
-    return float(np.rad2deg(np.arctan2(rotation[2, 1], rotation[1, 1])))
 
 
 def find_well_fixture(fixtures: Sequence[FixtureSDFData]) -> FixtureSDFData:
@@ -208,7 +202,12 @@ class OptimizationRuntime:
             make_thick_well_sdf,
         )
 
-        mesh = self.runtime.asset_catalog.get_geometry("well").raw
+        geometry = world_geometry_for_node(self.runtime, well_thin.name)
+        mesh = (
+            geometry.raw
+            if geometry is not None
+            else self.runtime.asset_catalog.get_geometry("well").raw
+        )
         return make_thick_well_sdf(mesh, well_thin, cone=fit_well_cone(mesh))
 
     def fixture_bvhs(
@@ -217,12 +216,12 @@ class OptimizationRuntime:
         from aind_low_point.optimization.headstages import make_fcl_bvh
 
         selected = self.fixture_sdfs() if fixtures is None else fixtures
-        return {
-            fixture.name: make_fcl_bvh(
-                self.runtime.asset_catalog.get_geometry(fixture.name).raw
-            )
-            for fixture in selected
-        }
+        out: dict[str, Any] = {}
+        for fixture in selected:
+            geometry = world_geometry_for_node(self.runtime, fixture.name)
+            if geometry is not None:
+                out[fixture.name] = make_fcl_bvh(geometry.raw)
+        return out
 
     def brain_sdf(self) -> BrainSDFData | None:
         from aind_low_point.optimization.pipeline.phase1_geometry import (
@@ -249,9 +248,7 @@ class OptimizationRuntime:
         if not include_implant:
             return FCLFixtureSet(fcl_fixtures, bvhs)
 
-        implant = resolve_base_geometry(
-            self.runtime.asset_catalog, self.runtime.scene, "implant"
-        )
+        implant = implant_world_geometry(self.runtime)
         if implant is not None:
             bvhs["implant"] = make_fcl_bvh(implant.raw)
             fcl_fixtures = fcl_fixtures + (SimpleNamespace(name="implant"),)

@@ -41,6 +41,10 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     FixtureSDFData,
 )
 from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
+from aind_low_point.runtime.scene_geometry import (
+    fixture_node_keys,
+    world_geometry_for_node,
+)
 
 
 def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
@@ -73,17 +77,7 @@ def fixture_keys_from_runtime(runtime) -> list[str]:
     obstacle. The 836656 config tags the implant with both ``fixture``
     AND ``implant`` so the explicit exclusion is required.
     """
-    wanted = {"fixture", "cone", "well", "headframe"}
-    excluded = {"implant"}
-    keys = []
-    for node in runtime.scene.nodes.values():
-        tags = set(getattr(node, "tags", ()) or ())
-        if not (tags & wanted):
-            continue
-        if tags & excluded:
-            continue
-        keys.append(node.key)
-    return keys
+    return list(fixture_node_keys(runtime))
 
 
 _CONE_CROP_MARGIN_FRAC = 0.30
@@ -170,11 +164,10 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
     out: list[FixtureSDFData] = []
     raw_meshes: dict = {}
     for key in fixture_keys_from_runtime(runtime):
-        try:
-            geom_wrap = runtime.asset_catalog.get_geometry(key)
-        except Exception:
+        geometry = world_geometry_for_node(runtime, key)
+        if geometry is None:
             continue
-        mesh = getattr(geom_wrap, "raw", None)
+        mesh = geometry.raw
         if mesh is None:
             continue
         raw_meshes[key] = mesh
@@ -246,11 +239,10 @@ def build_fixture_collision_objs(runtime) -> dict[str, fcl.CollisionObject]:
     """Return ``{fixture_key: fcl.CollisionObject (in world LPS)}``."""
     fixtures: dict[str, fcl.CollisionObject] = {}
     for key in fixture_keys_from_runtime(runtime):
-        try:
-            geom_wrap = runtime.asset_catalog.get_geometry(key)
-        except Exception:
+        geometry = world_geometry_for_node(runtime, key)
+        if geometry is None:
             continue
-        mesh = getattr(geom_wrap, "raw", None)
+        mesh = geometry.raw
         if mesh is None:
             continue
         fixtures[key] = make_fcl_bvh(mesh)

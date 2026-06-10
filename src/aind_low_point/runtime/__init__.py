@@ -12,6 +12,8 @@ Split into focused submodules:
   bring a loaded asset into canonical LPS mm.
 - chem_shift : MRI chemical-shift correction context.
 - calibration: probe calibration bank loading.
+- scene_geometry: semantic scene-node geometry helpers in world LPS.
+- probe_context: runtime-level planned-probe target/asset context.
 - build      : the main ``build_runtime_from_config`` orchestrator and
   the ``RuntimeBundle`` container.
 - export     : ``planning_state_to_plan_model`` + ``save_plan_to_config``
@@ -77,6 +79,13 @@ from aind_low_point.runtime.loaders import (
     trimesh_from_sitk_mask,
     voxel_values_at,
 )
+from aind_low_point.runtime.probe_context import (
+    ProbeContext,
+    coverage_weight_for_probe,
+    probe_context_from_runtime,
+    probe_contexts_from_runtime,
+    resolve_plan_target_lps,
+)
 from aind_low_point.runtime.reducers import (
     _REDUCER_REGISTRY,
     ReduceOut,
@@ -88,6 +97,19 @@ from aind_low_point.runtime.reducers import (
     reduce_target,
     register_reducer,
     register_reducer_fn,
+)
+from aind_low_point.runtime.scene_geometry import (
+    FIXTURE_EXCLUDED_TAGS,
+    FIXTURE_TAGS,
+    WorldGeometry,
+    fixture_node_keys,
+    fixture_world_geometries,
+    head_pitch_deg_from_runtime,
+    implant_world_geometry,
+    scene_nodes_by_tags,
+    world_geometries_for_asset,
+    world_geometries_for_nodes,
+    world_geometry_for_node,
 )
 from aind_low_point.runtime.shanks import detect_shank_tips_local
 from aind_low_point.runtime.transforms import (
@@ -138,6 +160,24 @@ __all__ = [
     "sitk_volume",
     "trimesh_from_sitk_mask",
     "voxel_values_at",
+    # probe context
+    "ProbeContext",
+    "coverage_weight_for_probe",
+    "probe_context_from_runtime",
+    "probe_contexts_from_runtime",
+    "resolve_plan_target_lps",
+    # scene geometry
+    "FIXTURE_EXCLUDED_TAGS",
+    "FIXTURE_TAGS",
+    "WorldGeometry",
+    "fixture_node_keys",
+    "fixture_world_geometries",
+    "head_pitch_deg_from_runtime",
+    "implant_world_geometry",
+    "scene_nodes_by_tags",
+    "world_geometries_for_asset",
+    "world_geometries_for_nodes",
+    "world_geometry_for_node",
     # shanks
     "detect_shank_tips_local",
     # reducers

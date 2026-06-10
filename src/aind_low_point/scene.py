@@ -65,8 +65,11 @@ def resolve_base_geometry(
     pose = resolve_base_pose(scene, id)
     if not pose:
         return None
+    node = scene.nodes.get(id)
+    if not node:
+        return None
     # Look up the geometry in the catalog
-    geometry = catalog.get_geometry(id)
+    geometry = catalog.get_geometry(node.asset_key)
     if not geometry:
         return None
     return Transformed(geometry, pose)

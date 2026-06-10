@@ -18,7 +18,7 @@ import numpy as np
 from aind_low_point.optimization.geometry import HoleSection
 from aind_low_point.optimization.holes import Hole
 from aind_low_point.optimization.optimize import ProbeStaticInfo
-from aind_low_point.runtime import detect_shank_tips_local
+from aind_low_point.runtime.probe_context import probe_context_from_runtime
 from aind_low_point.scene import resolve_base_geometry
 
 
@@ -57,27 +57,6 @@ def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
         except Exception:
             return None
     return opts
-
-
-def _resolve_coverage_weight(runtime, name: str, plan) -> float:
-    """Per-probe coverage weight: env ``COVERAGE_WEIGHTS="PROBE:w,..."`` wins,
-    else the probe's target-spec ``metadata.coverage_weight``, else 1.0."""
-    import os as _os
-
-    env = _os.environ.get("COVERAGE_WEIGHTS", "")
-    for tok in env.split(","):
-        if ":" in tok and tok.split(":", 1)[0].strip() == name:
-            return float(tok.split(":", 1)[1])
-    tk = getattr(plan, "target_key", None)
-    if tk is not None:
-        try:
-            spec = runtime.asset_catalog.get_spec(tk)
-            w = spec.metadata.get("coverage_weight") if spec is not None else None
-            if w is not None:
-                return float(w)
-        except Exception:
-            pass
-    return 1.0
 
 
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
@@ -191,48 +170,18 @@ def _probe_static_info(
     retro_opts: RetroDensityOpts | None = None,
 ) -> ProbeStaticInfo:
     """Build a ProbeStaticInfo for one probe from the runtime."""
-    plan = plan_state.probes[name]
-    target_lps = None
     target_points = None
     if retro_opts is not None:
         target_points = _resolve_masked_retro_points(runtime, name, retro_opts)
-        target_lps = target_points.mean(0)
-    else:
-        if plan.target_key is not None:
-            target_pts = plan_state.target_index.get(plan.target_key)
-            if target_pts is not None:
-                target_lps = (
-                    np.asarray(target_pts, dtype=np.float64).reshape(-1, 3).mean(0)
-                )
-        if target_lps is None and plan.target_point_RAS is not None:
-            from aind_anatomical_utils.coordinate_systems import (
-                convert_coordinate_system,
-            )
-
-            ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
-            target_lps = convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
-        if target_lps is None:
-            raise RuntimeError(
-                f"Probe {name}: no target_key or target_point_RAS — optimizer "
-                f"needs an LPS target."
-            )
-
-    asset_key = f"probe:{plan.kind}"
-    geom = runtime.asset_catalog.get_geometry(asset_key)
-    if hasattr(geom, "raw"):
-        tips_local = detect_shank_tips_local(geom.raw)
-        collision_mesh = geom.raw
-    else:
-        tips_local = np.zeros((1, 3), dtype=np.float64)
-        collision_mesh = None
+    context = probe_context_from_runtime(runtime, name, target_points_LPS=target_points)
     sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
     return ProbeStaticInfo(
         name=name,
-        target_LPS=target_lps,
-        kind=plan.kind,
-        shank_tips_local=tips_local,
+        target_LPS=context.target_LPS,
+        kind=context.kind,
+        shank_tips_local=context.shank_tips_local,
         density_sigma_mm=sigma,
-        collision_mesh=collision_mesh,
+        collision_mesh=context.collision_mesh,
         target_points=target_points,
-        coverage_weight=_resolve_coverage_weight(runtime, name, plan),
+        coverage_weight=context.coverage_weight,
     )
