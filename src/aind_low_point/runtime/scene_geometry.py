@@ -30,13 +30,21 @@ class WorldGeometry:
         return self.transformed.raw
 
 
+def head_pitch_deg_from_subject_from_rig(subject_from_rig) -> float:
+    """Rig AP pitch (deg, subject frame) from a ``subject_from_rig`` transform.
+
+    Single source of the head-pitch extraction so the optimizer, the rig export,
+    and the runtime adapter can't drift. See dev memory rig_ap_sign_convention.
+    """
+    rotation = np.asarray(subject_from_rig.rotate_translate[0], dtype=float)
+    return float(np.rad2deg(np.arctan2(rotation[2, 1], rotation[1, 1])))
+
+
 def head_pitch_deg_from_runtime(runtime: RuntimeBundle) -> float:
     """Return rig AP pitch in degrees, expressed in the subject frame."""
-    rotation = np.asarray(
-        runtime.plan_state.kinematics.subject_from_rig.rotate_translate[0],
-        dtype=float,
+    return head_pitch_deg_from_subject_from_rig(
+        runtime.plan_state.kinematics.subject_from_rig
     )
-    return float(np.rad2deg(np.arctan2(rotation[2, 1], rotation[1, 1])))
 
 
 def _tag_set(values: Iterable[str] | None) -> frozenset[str]:

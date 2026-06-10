@@ -25,6 +25,7 @@ from aind_low_point.config import (
     ProbeDeclModel,
 )
 from aind_low_point.planning import PlanningState, ProbePlan, ProbePose
+from aind_low_point.runtime.scene_geometry import head_pitch_deg_from_subject_from_rig
 
 
 def _reconstruct_target_ref(
@@ -201,13 +202,13 @@ def export_plan_geometry(
 
     from aind_low_point.runtime.shanks import detect_shank_tips_local
 
-    # Head-tilt offset between subject-anatomical AP and rig-mechanical AP.
-    # See ``_head_pitch_about_L_deg`` in optimization/optimize.py for the
-    # same derivation. Pulled from kinematics so per-mouse head pitch
-    # propagates into the rig-frame angle readout below.
-    R_sfr, _ = plan_state.kinematics.subject_from_rig.rotate_translate
-    R_sfr_arr = np.asarray(R_sfr, dtype=np.float64)
-    head_pitch_about_L = float(np.rad2deg(np.arctan2(R_sfr_arr[2, 1], R_sfr_arr[1, 1])))
+    # Head-tilt offset between subject-anatomical AP and rig-mechanical AP, from
+    # the single shared extractor (the optimizer/adapter use the same one) so the
+    # rig-frame readout below can't drift from the bounds. See dev memory
+    # rig_ap_sign_convention.
+    head_pitch_about_L = head_pitch_deg_from_subject_from_rig(
+        plan_state.kinematics.subject_from_rig
+    )
 
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():
