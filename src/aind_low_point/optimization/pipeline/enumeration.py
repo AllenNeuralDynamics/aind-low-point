@@ -39,9 +39,18 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import pickle
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from aind_low_point.optimization.arc_first_principled import emit_seed
+from aind_low_point.optimization.atlas import Atlas
+from aind_low_point.optimization.pipeline.contracts import (
+    AtlasCachePayload,
+    EnumeratorCandidate,
+    Partition,
+    ProbeToArcIdx,
+    SeedResult,
+)
 from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 
 # Subject is config-driven (generalizes across subjects). The visibility atlas
@@ -68,12 +77,27 @@ GLOBAL_CAP = 1_000_000
 # --------------------------------------------------------------------------
 # Atlas (build once, cache).
 # --------------------------------------------------------------------------
-def build_or_load_atlas():
+def _normalize_atlas_payload(payload: object) -> AtlasCachePayload | None:
+    """Normalize current and legacy atlas-cache pickle payloads."""
+    if isinstance(payload, AtlasCachePayload):
+        return payload
+    if isinstance(payload, tuple) and len(payload) == 3:
+        atlas, probe_names, head_pitch_deg = payload
+        return AtlasCachePayload(
+            atlas=atlas,
+            probe_names=tuple(probe_names),
+            head_pitch_deg=float(head_pitch_deg),
+        )
+    return None
+
+
+def build_or_load_atlas() -> AtlasCachePayload:
     if Path(ATLAS_CACHE).exists():
         with open(ATLAS_CACHE, "rb") as f:
             payload = pickle.load(f)
-        if len(payload) == 3:  # (atlas, probe_names, head_pitch_deg)
-            return payload
+        normalized = _normalize_atlas_payload(payload)
+        if normalized is not None:
+            return normalized
         # legacy 2-tuple cache without head pitch → rebuild below
     from aind_low_point.config import ConfigModel
     from aind_low_point.optimization.holes import load_holes
@@ -112,8 +136,8 @@ def build_or_load_atlas():
         f"built visibility atlas in {time.time() - t0:.0f}s "
         f"({len(probes)} probes, {len(holes)} holes)"
     )
-    probe_names = [p.name for p in probes]
-    payload = (atlas, probe_names, head_pitch_deg)
+    probe_names = tuple(p.name for p in probes)
+    payload = AtlasCachePayload(atlas, probe_names, head_pitch_deg)
     with open(ATLAS_CACHE, "wb") as f:
         pickle.dump(payload, f)
     return payload
@@ -125,7 +149,9 @@ def build_or_load_atlas():
 # Correct for "pairwise |x_i - x_j| >= sep with x_i in interval_i" (sorted ->
 # only consecutive gaps bind; earliest-placement is optimal).
 # --------------------------------------------------------------------------
-def greedy_place(intervals, sep):
+def greedy_place(
+    intervals: Sequence[tuple[float, float]], sep: float
+) -> list[float] | None:
     order = sorted(range(len(intervals)), key=lambda i: intervals[i][0])
     pts = [0.0] * len(intervals)
     prev = None
@@ -142,8 +168,8 @@ def greedy_place(intervals, sep):
 class Enumerator:
     def __init__(
         self,
-        atlas,
-        probe_names,
+        atlas: Atlas,
+        probe_names: Sequence[str],
         ml_margin_deg: float = 0.0,
         ml_mode: str = "greedy",
         max_arcs: int = MAX_ARCS,
@@ -155,7 +181,7 @@ class Enumerator:
             _build_atlas_arrays,
         )
 
-        self.names = probe_names
+        self.names = tuple(probe_names)
         self.K = len(probe_names)
         # SLSQP can push ml beyond the atlas-sampled anchors (threading is
         # soft), so the greedy ML-pack uses ml-windows widened by this margin
@@ -170,7 +196,7 @@ class Enumerator:
         # (e.g. reproduce the old 3-arc / 4-per-arc enumeration).
         self.max_arcs = max_arcs
         self.max_probes_per_arc = max_probes_per_arc
-        self.arr = _build_atlas_arrays(atlas, probe_names)
+        self.arr = _build_atlas_arrays(atlas, list(probe_names))
         # Always clip to the kinematic rig limits so enumeration only generates
         # within-limit plans (ML is frame-invariant; AP is subject-frame and is
         # shifted by head pitch by the caller). Explicit ap_range/ml_range
@@ -182,7 +208,7 @@ class Enumerator:
         self._restrict_atlas(ap_range, ml_range)
 
         # Nodes = feasible (probe_idx, hole_id). Index them; record intervals.
-        self.nodes = []  # list of (p, h, ap_lo, ap_hi)
+        self.nodes: list[tuple[int, int, float, float]] = []
         self.node_id = {}  # (p, h) -> node index
         self.domain0 = [0] * self.K  # per-probe hole bitmask
         for (p, h), (lo, hi) in self.arr.ap_min_max.items():
@@ -206,7 +232,7 @@ class Enumerator:
                 if la <= hb and lb <= ha_:  # intervals intersect
                     self.overlap[a] |= 1 << b
 
-        self.candidates = []
+        self.candidates: list[EnumeratorCandidate] = []
         self.capped = False
 
     def _restrict_atlas(self, ap_range, ml_range):
@@ -274,7 +300,7 @@ class Enumerator:
             return mp >= MIN_ML_SEP_DEG
         return greedy_place(ivals, MIN_ML_SEP_DEG) is not None
 
-    def enumerate(self):
+    def enumerate(self) -> list[EnumeratorCandidate]:
         # arcs: list of dicts {members:[p...], holes:{p:h}, mask:int, lo,hi}
         domain = list(self.domain0)
         used = 0
@@ -371,7 +397,7 @@ class Enumerator:
             }
         )
 
-    def seed(self, cand):
+    def seed(self, cand: EnumeratorCandidate) -> SeedResult | None:
         """Lazily compute the joint AP/ML/spin seed for one enumerated candidate.
 
         Rebuilds the per-arc ``emit_seed`` input from the candidate's discrete
@@ -398,25 +424,26 @@ class Enumerator:
                     "ap_desired": 0.5 * (lo + hi),
                 }
             )
-        return emit_seed(
+        seed = emit_seed(
             seed_arcs,
             self.arr,
             min_arc_ap_sep_deg=MIN_ARC_AP_SEP_DEG,
             min_ml_sep_deg=MIN_ML_SEP_DEG,
         )
+        return None if seed is None else SeedResult(*seed)
 
 
 # --------------------------------------------------------------------------
 # Validation.
 # --------------------------------------------------------------------------
-def _partition_of(p2arc):
-    groups = {}
+def _partition_of(p2arc: ProbeToArcIdx) -> Partition:
+    groups: dict[int, set[str]] = {}
     for name, ai in p2arc.items():
         groups.setdefault(ai, set()).add(name)
     return frozenset(frozenset(g) for g in groups.values())
 
 
-def validate(cands, feas, pool):
+def validate(cands, feas, pool) -> tuple[bool, list[int], list[int]]:
     hole_keys = {tuple(sorted(c["probe_to_hole"].items())) for c in cands}
     full_keys = {
         (tuple(sorted(c["probe_to_hole"].items())), c["partition"]) for c in cands
@@ -435,7 +462,10 @@ def validate(cands, feas, pool):
 
 
 def main() -> int:
-    atlas, probe_names, head_pitch_deg = build_or_load_atlas()
+    atlas_payload = build_or_load_atlas()
+    atlas = atlas_payload.atlas
+    probe_names = atlas_payload.probe_names
+    head_pitch_deg = atlas_payload.head_pitch_deg
     print(f"probes: {probe_names}")
     pool = pickle.load(open(POOL_PKL, "rb"))["candidates"]
     feas = [r for r in pickle.load(open(HANDOFF_PKL, "rb"))["all"] if r["fcl"] >= -0.2]

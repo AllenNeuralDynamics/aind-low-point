@@ -25,8 +25,6 @@ Phase 4 of the batched-Stage-2 refactor.
 
 from __future__ import annotations
 
-from typing import Callable
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -37,6 +35,10 @@ from aind_low_point.optimization.batched_objective import (
 )
 from aind_low_point.optimization.batched_static import BatchedProbeStatic
 from aind_low_point.optimization.joint_rerank import JointWeights
+from aind_low_point.optimization.pipeline.contracts import (
+    SpinRestoreFn,
+    SpinRestoreWithLosses,
+)
 from aind_low_point.optimization.sdf_jax import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
@@ -54,7 +56,7 @@ def make_batched_spin_restore_chunked(
     n_spins: int = 8,
     n_rounds: int = 2,
     fixtures: tuple = (),
-) -> Callable:
+) -> SpinRestoreFn:
     """Build a chunkable spin-restore function.
 
     Returns ``restore(y, *varying_arrays) -> y`` where ``varying_arrays``
@@ -118,7 +120,7 @@ def make_batched_spin_restore_partial(
     n_spins: int = 8,
     n_rounds: int = 4,
     fixtures: tuple = (),
-) -> Callable:
+) -> SpinRestoreWithLosses:
     """Partial/incremental spin restore: same round-robin coordinate descent,
     but each probe-``i`` spin sweep evaluates ONLY the terms that depend on
     probe ``i``'s spin (its threading + the K-1 clearance pairs incident to it

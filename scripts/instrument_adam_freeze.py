@@ -101,7 +101,13 @@ def main() -> int:
     cand = data["candidates"][IDX]
     n_arcs = int(data["results"][IDX].n_arcs)
     K = len(probes)
-    enum = Enumerator(*build_or_load_atlas(), ml_margin_deg=0.0, ml_mode="greedy")
+    atlas_payload = build_or_load_atlas()
+    enum = Enumerator(
+        atlas_payload.atlas,
+        atlas_payload.probe_names,
+        ml_margin_deg=0.0,
+        ml_mode="greedy",
+    )
 
     arc_l, ml_l, sp_l = restore_spins_mrv(
         n_arcs,

@@ -50,6 +50,7 @@ from aind_low_point.optimization.joint_rerank_jax import (
     _softplus_squared,
     threading_g_matrix,
 )
+from aind_low_point.optimization.pipeline.contracts import Phase2Problem
 from aind_low_point.optimization.sdf_jax import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
@@ -744,7 +745,7 @@ def make_phase2(
     coverage_weights: "tuple[float, ...] | None" = None,
     grid_dtype=jnp.bfloat16,
     hessian: str = "none",
-) -> dict:
+) -> Phase2Problem:
     """Build Phase 2 scipy callables.
 
     Returns a dict with:

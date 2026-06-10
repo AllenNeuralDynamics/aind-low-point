@@ -260,7 +260,13 @@ def main() -> int:
     manual_spins = {n: float(p["spin"]) for n, p in _plan["probes"].items()}
 
     # ---- 0. MRV seed ----------------------------------------------------
-    enum = Enumerator(*build_or_load_atlas(), ml_margin_deg=0.0, ml_mode="greedy")
+    atlas_payload = build_or_load_atlas()
+    enum = Enumerator(
+        atlas_payload.atlas,
+        atlas_payload.probe_names,
+        ml_margin_deg=0.0,
+        ml_mode="greedy",
+    )
     arc_aps, ml_seed, spin_seed, min_gap = mrv_seed(cand, enum, n_arcs)
     flag = " (best-effort, <16°)" if min_gap < MIN_ML_SEP_DEG else ""
     print(f"\nMRV seed (#{IDX}, n_arcs={n_arcs}): min_ml_gap={min_gap:.2f}°{flag}")

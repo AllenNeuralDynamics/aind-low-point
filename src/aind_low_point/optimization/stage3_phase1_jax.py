@@ -299,6 +299,51 @@ class Phase1Weights:
 _JIT_CACHE: dict[Hashable, tuple[Callable, Callable]] = {}
 _CACHE_STATS = {"hits": 0, "misses": 0}
 
+# _objective's positional arg order after x. The batched phase-1 wrapper uses
+# this to convert _pack_statics' keyword dict into a stable positional arglist.
+PACKED_ARG_ORDER: tuple[str, ...] = (
+    "target_LPS",
+    "pivot_local",
+    "arc_idx",
+    "tips_local",
+    "shank_mask",
+    "s_axes",
+    "s_centers",
+    "s_e1",
+    "s_e2",
+    "s_cos",
+    "s_sin",
+    "s_a",
+    "s_b",
+    "section_mask",
+    "same_arc_mask",
+    "sdf_grids",
+    "sdf_origins",
+    "sdf_spacings",
+    "sdf_surfaces",
+    "shank_obb_centers",
+    "shank_obb_halves",
+    "sdf_table",
+)
+
+# Keys that vary per candidate. Everything else in PACKED_ARG_ORDER is fixed for
+# a probe set and can be shared across a batched chunk.
+PACKED_PER_CAND_KEYS: frozenset[str] = frozenset(
+    {
+        "arc_idx",
+        "s_axes",
+        "s_centers",
+        "s_e1",
+        "s_e2",
+        "s_cos",
+        "s_sin",
+        "s_a",
+        "s_b",
+        "section_mask",
+        "same_arc_mask",
+    }
+)
+
 
 def _weights_key(w: Phase1Weights) -> tuple:
     return tuple(

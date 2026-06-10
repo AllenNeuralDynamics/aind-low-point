@@ -37,8 +37,9 @@ _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 import gc
 import pickle
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from types import SimpleNamespace
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -54,6 +55,17 @@ from aind_low_point.optimization.batched_static import build_batched_probe_stati
 from aind_low_point.optimization.clearance_metrics import make_min_clear_one
 from aind_low_point.optimization.joint_rerank import JointWeights, _build_probe_static
 from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.pipeline.contracts import (
+    ArglistBuilder,
+    EnumeratorCandidate,
+    MRVArcAssignment,
+    MRVHoleAssignment,
+    Partition,
+    Phase1PoolPayload,
+    Phase1PoolRecord,
+    ProbeToHole,
+    SeedMap,
+)
 from aind_low_point.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
@@ -141,17 +153,17 @@ TWO_FIDELITY = COARSE_N < 5000
 
 @dataclass
 class MRVCand:
-    ha: object
-    aa: object
-    ml_seed: dict
-    spin_seed: dict
+    ha: MRVHoleAssignment
+    aa: MRVArcAssignment
+    ml_seed: SeedMap
+    spin_seed: SeedMap
     min_ml_gap: float
     n_arcs: int
-    probe_to_hole: dict
-    partition: frozenset
+    probe_to_hole: ProbeToHole
+    partition: Partition
 
 
-def wrap(cand_dict, enum):
+def wrap(cand_dict: EnumeratorCandidate, enum: Enumerator) -> MRVCand | None:
     """MRV dict → candidate with .ha/.aa stand-ins (interface-compatible with
     _build_probe_static + the optimizer). Returns None if emit_seed fails."""
     res = enum.seed(cand_dict)
@@ -160,8 +172,8 @@ def wrap(cand_dict, enum):
     arc_aps, ml_seed, spin_seed, gap = res
     groups = list(cand_dict["partition"])  # same iteration order seed() used
     p2a = {name: ai for ai, grp in enumerate(groups) for name in grp}
-    ha = SimpleNamespace(probe_to_hole=cand_dict["probe_to_hole"])
-    aa = SimpleNamespace(probe_to_arc_idx=p2a, arc_centroids_deg=list(arc_aps))
+    ha = MRVHoleAssignment(probe_to_hole=cand_dict["probe_to_hole"])
+    aa = MRVArcAssignment(probe_to_arc_idx=p2a, arc_centroids_deg=list(arc_aps))
     return MRVCand(
         ha,
         aa,
@@ -174,7 +186,9 @@ def wrap(cand_dict, enum):
     )
 
 
-def reduced_lohi(lo, hi, n_arcs, K):
+def reduced_lohi(
+    lo: np.ndarray, hi: np.ndarray, n_arcs: int, K: int
+) -> tuple[np.ndarray, np.ndarray]:
     lo_r, hi_r = lo.copy(), hi.copy()
     for k in range(K):
         for off in (3, 4, 5):
@@ -183,14 +197,14 @@ def reduced_lohi(lo, hi, n_arcs, K):
     return lo_r, hi_r
 
 
-def restore_group(n_arcs, cands, *, probes, holes, sdf_by_name, well):
+def restore_group(n_arcs, cands: list[MRVCand], *, probes, holes, sdf_by_name, well):
     """Batched spin restore seeded from each cand's MRV ml/spin. Returns per-cand
     restored spin-degrees (parallel to cands)."""
     K = len(probes)
     names = [p.name for p in probes]
     weights = JointWeights()
     fixtures = (well,)
-    seeds = []
+    seed_rows: list[np.ndarray] = []
     for c in cands:
         y0 = np.zeros(n_arcs + 3 * K, np.float32)
         for a in range(min(n_arcs, len(c.aa.arc_centroids_deg))):
@@ -200,11 +214,12 @@ def restore_group(n_arcs, cands, *, probes, holes, sdf_by_name, well):
             y0[n_arcs + 3 * k] = float(c.ml_seed.get(p.name, 0.0))
             y0[n_arcs + 3 * k + 1] = float(np.cos(sp))
             y0[n_arcs + 3 * k + 2] = float(np.sin(sp))
-        seeds.append(y0)
-    seeds = np.stack(seeds)
+        seed_rows.append(y0)
+    seeds = np.stack(seed_rows)
     B = len(cands)
+    initial_pairs = cast(Any, [(c.ha, c.aa) for c in cands[: min(RESTORE_CHUNK, B)]])
     bs0 = build_batched_probe_static(
-        [(c.ha, c.aa) for c in cands[: min(RESTORE_CHUNK, B)]],
+        initial_pairs,
         probes,
         holes,
         n_arcs=n_arcs,
@@ -215,14 +230,15 @@ def restore_group(n_arcs, cands, *, probes, holes, sdf_by_name, well):
         bs0, weights, n_spins=N_SPINS, n_rounds=RESTORE_ROUNDS, fixtures=fixtures
     )
     obj_b, _ = make_batched_reduced_objective(bs0, weights, fixtures)
-    out = []
+    obj_b = cast(Any, obj_b)
+    out: list[np.ndarray] = []
     for lo in range(0, B, RESTORE_CHUNK):
         hi = min(lo + RESTORE_CHUNK, B)
         bs = (
             bs0
             if lo == 0
             else build_batched_probe_static(
-                [(c.ha, c.aa) for c in cands[lo:hi]],
+                cast(Any, [(c.ha, c.aa) for c in cands[lo:hi]]),
                 probes,
                 holes,
                 n_arcs=n_arcs,
@@ -240,7 +256,7 @@ def restore_group(n_arcs, cands, *, probes, holes, sdf_by_name, well):
     return out
 
 
-def make_runner(mkad, vgrad_cw):
+def make_runner(mkad: Callable[..., Callable], vgrad_cw) -> Callable:
     """run(x0, arglist, lo, hi, cov_weight, n_steps) for the chosen MINIMIZER."""
     if MINIMIZER == "rprop":
         return make_staged_rprop(vgrad_cw, eta0_frac=0.02, etamax_frac=0.5)
@@ -251,7 +267,7 @@ def make_runner(mkad, vgrad_cw):
 
 def _kernel(
     st0, n_arcs, cov, well_soft, brain_sdf, grid_dtype, ceilings=None, cov_weights=None
-):
+) -> tuple[Callable, ArglistBuilder, Callable]:
     """Build (vobj, build_arglist, run) for one fidelity's template statics."""
     weights = Phase1Weights(cov_alpha=COV_ALPHA) if COV_NORM else Phase1Weights()
     vobj, _vg, barg, _ma, mkad = make_batched_phase1_chunked(
@@ -283,7 +299,16 @@ def _kernel(
 
 
 def run_group(  # noqa: C901
-    n_arcs, cands, *, probes, holes, sdf_fine, sdf_coarse, bvh, well_soft, brain_sdf
+    n_arcs: int,
+    cands: list[MRVCand],
+    *,
+    probes,
+    holes,
+    sdf_fine,
+    sdf_coarse,
+    bvh,
+    well_soft,
+    brain_sdf,
 ):
     K = len(probes)
     names = [p.name for p in probes]
@@ -302,13 +327,23 @@ def run_group(  # noqa: C901
     for c, sp in zip(cands, spins):
         st_f.append(
             _build_probe_static(
-                probes, holes, c.ha, c.aa, bvh_cache=bvh, sdf_by_name=sdf_fine
+                probes,
+                holes,
+                cast(Any, c.ha),
+                cast(Any, c.aa),
+                bvh_cache=bvh,
+                sdf_by_name=sdf_fine,
             )
         )
         if TWO_FIDELITY:
             st_c.append(
                 _build_probe_static(
-                    probes, holes, c.ha, c.aa, bvh_cache=bvh, sdf_by_name=sdf_coarse
+                    probes,
+                    holes,
+                    cast(Any, c.ha),
+                    cast(Any, c.aa),
+                    bvh_cache=bvh,
+                    sdf_by_name=sdf_coarse,
                 )
             )
         arc_aps = np.zeros(n_arcs)
@@ -427,37 +462,69 @@ def run_group(  # noqa: C901
     )
 
 
-def save_results(records) -> None:
+def make_phase1_pool_record(
+    c: MRVCand,
+    n_arcs: int,
+    x: np.ndarray,
+    x_reduced: np.ndarray,
+    objective: float,
+    min_clear: float,
+    min_clear_reduced: float,
+    fcl: float,
+) -> Phase1PoolRecord:
+    return dict(
+        n_arcs=n_arcs,
+        probe_to_hole=c.probe_to_hole,
+        partition=c.partition,
+        # Arc assignment saved EXPLICITLY (not reconstructed from the
+        # frozenset partition, whose iteration order is hash-random
+        # across processes) so Phase 2 rebuilds the identical `aa`
+        # the pose `x` was optimized against. See phase2_parallel.
+        probe_to_arc_idx=dict(c.aa.probe_to_arc_idx),
+        arc_centroids_deg=list(c.aa.arc_centroids_deg),
+        min_ml_gap=c.min_ml_gap,
+        x=x.astype(np.float32),
+        x_reduced=x_reduced.astype(np.float32),
+        objective=float(objective),
+        min_clear=float(min_clear),
+        min_clear_reduced=float(min_clear_reduced),
+        fcl=float(fcl),
+    )
+
+
+def save_results(records: list[Phase1PoolRecord]) -> None:
+    payload: Phase1PoolPayload = dict(
+        records=records,
+        stage1=STAGE1,
+        stage2=STAGE2,
+        n_spins=N_SPINS,
+        max_arcs=MAX_ARCS,
+        max_ppa=MAX_PPA,
+        minimizer=MINIMIZER,
+        well=WELL_MODE,
+        coarse_n=COARSE_N,
+        reduced_fine=REDUCED_FINE,
+        full_fine=FULL_FINE,
+    )
     with open(OUT, "wb") as f:
-        pickle.dump(
-            dict(
-                records=records,
-                stage1=STAGE1,
-                stage2=STAGE2,
-                n_spins=N_SPINS,
-                max_arcs=MAX_ARCS,
-                max_ppa=MAX_PPA,
-                minimizer=MINIMIZER,
-                well=WELL_MODE,
-                coarse_n=COARSE_N,
-                reduced_fine=REDUCED_FINE,
-                full_fine=FULL_FINE,
-            ),
-            f,
-        )
+        pickle.dump(payload, f)
 
 
-def load_or_seed_groups(enum_factory) -> dict[int, list]:
+def load_or_seed_groups(
+    enum_factory: Callable[[], Enumerator],
+) -> dict[int, list[MRVCand]]:
     """Enumerate+seed the MRV pool once, cache grouped-by-n_arcs to SEED_CACHE.
     On restart (cache present, no LIMIT) just reload — the seed CSP is ~14 min."""
     if SEED_CACHE and not LIMIT and _os.path.exists(SEED_CACHE):
-        by_arcs = pickle.load(open(SEED_CACHE, "rb"))
+        cached_by_arcs = cast(
+            dict[int, list[MRVCand]], pickle.load(open(SEED_CACHE, "rb"))
+        )
         print(
             f"loaded seeds from {SEED_CACHE}: groups "
-            + ", ".join(f"{k}:{len(v)}" for k, v in sorted(by_arcs.items())),
+            + ", ".join(f"{k}:{len(v)}" for k, v in sorted(cached_by_arcs.items())),
             flush=True,
         )
-        return by_arcs
+        return cached_by_arcs
 
     print(
         f"enumerating MRV pool (arcs<={MAX_ARCS}, probes/arc<={MAX_PPA})...", flush=True
@@ -481,7 +548,7 @@ def load_or_seed_groups(enum_factory) -> dict[int, list]:
         f"in {time.time() - t0:.1f}s",
         flush=True,
     )
-    by_arcs: dict[int, list] = {}
+    by_arcs: dict[int, list[MRVCand]] = {}
     for c in cands:
         by_arcs.setdefault(c.n_arcs, []).append(c)
     print("  groups " + ", ".join(f"{k}:{len(v)}" for k, v in sorted(by_arcs.items())))
@@ -509,17 +576,17 @@ def main() -> int:
         flush=True,
     )
 
-    def _make_enum():
-        # build_or_load_atlas returns a 3-tuple (atlas, probe_names,
-        # head_pitch_deg); the Enumerator takes atlas + probe_names positionally.
-        # Subject-frame AP window = rig ±AP_LIMIT shifted by head pitch (mirrors
-        # enumeration.main + phase1_bounds); ML is frame-invariant so the
-        # Enumerator defaults to ±ML_LIMIT_DEG.
-        atlas, probe_names, head_pitch_deg = build_or_load_atlas()
-        ap_range = (-AP_LIMIT_DEG + head_pitch_deg, AP_LIMIT_DEG + head_pitch_deg)
+    def _enum_factory() -> Enumerator:
+        atlas_payload = build_or_load_atlas()
+        # Subject-frame AP window = rig +/- AP_LIMIT shifted by head pitch
+        # (mirrors enumeration.main + phase1_bounds); ML is frame-invariant.
+        ap_range = (
+            -AP_LIMIT_DEG + atlas_payload.head_pitch_deg,
+            AP_LIMIT_DEG + atlas_payload.head_pitch_deg,
+        )
         return Enumerator(
-            atlas,
-            probe_names,
+            atlas_payload.atlas,
+            atlas_payload.probe_names,
             ml_margin_deg=0.0,
             ml_mode="greedy",
             max_arcs=MAX_ARCS,
@@ -527,7 +594,7 @@ def main() -> int:
             ap_range=ap_range,
         )
 
-    by_arcs = load_or_seed_groups(_make_enum)
+    by_arcs = load_or_seed_groups(_enum_factory)
 
     if ONLY_NARCS:
         by_arcs = {k: v for k, v in by_arcs.items() if k == ONLY_NARCS}
@@ -537,11 +604,11 @@ def main() -> int:
         )
 
     # Resume: reload any previously-saved records and skip those n_arcs groups.
-    records: list = []
+    records: list[Phase1PoolRecord] = []
     done_narcs: set = set()
     if _os.path.exists(OUT):
         try:
-            prev = pickle.load(open(OUT, "rb"))
+            prev = cast(Phase1PoolPayload, pickle.load(open(OUT, "rb")))
             records = list(prev.get("records", []))
             done_narcs = {r["n_arcs"] for r in records}
             if done_narcs:
@@ -586,23 +653,15 @@ def main() -> int:
             fcl[i] = float(s.min()) if s.size else 0.0
         for i, c in enumerate(g):
             records.append(
-                dict(
-                    n_arcs=n_arcs,
-                    probe_to_hole=c.probe_to_hole,
-                    partition=c.partition,
-                    # Arc assignment saved EXPLICITLY (not reconstructed from the
-                    # frozenset partition, whose iteration order is hash-random
-                    # across processes) so Phase 2 rebuilds the identical `aa`
-                    # the pose `x` was optimized against. See phase2_parallel.
-                    probe_to_arc_idx=dict(c.aa.probe_to_arc_idx),
-                    arc_centroids_deg=list(c.aa.arc_centroids_deg),
-                    min_ml_gap=c.min_ml_gap,
-                    x=x_out[i].astype(np.float32),
-                    x_reduced=x_red[i].astype(np.float32),
-                    objective=float(obj[i]),
-                    min_clear=float(clr[i]),
-                    min_clear_reduced=float(clr_red[i]),
-                    fcl=float(fcl[i]),
+                make_phase1_pool_record(
+                    c,
+                    n_arcs,
+                    x_out[i],
+                    x_red[i],
+                    float(obj[i]),
+                    float(clr[i]),
+                    float(clr_red[i]),
+                    float(fcl[i]),
                 )
             )
         nf = int(np.nansum(fcl >= -1e-4))

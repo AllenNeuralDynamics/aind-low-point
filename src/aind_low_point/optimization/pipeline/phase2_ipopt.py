@@ -55,8 +55,19 @@ import pickle  # noqa: E402
 import time  # noqa: E402
 from multiprocessing import get_context  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Any, cast  # noqa: E402
 
 import numpy as np  # noqa: E402
+
+from aind_low_point.optimization.pipeline.contracts import (  # noqa: E402
+    MRVArcAssignment,
+    MRVHoleAssignment,
+    Phase1PoolPayload,
+    Phase2HandoffPayload,
+    Phase2InputRecord,
+    Phase2ResultRecord,
+    ProbeToHole,
+)
 
 TOPK = int(_os.environ.get("TOPK", "80"))
 # Default 8: the GPU-thread-shared sweet spot from the bandwidth bake-off (W=8 ≈
@@ -238,15 +249,13 @@ def _init():
     )
 
 
-def _st_for_rec(rec):
+def _st_for_rec(rec: Phase2InputRecord):
     """Rebuild the per-probe static `st` for a Phase-1 pool record. Uses the
     arc assignment SAVED by Phase 1 (probe_to_hole / probe_to_arc_idx /
     arc_centroids_deg) so the geometry matches exactly what the pose `x` was
     optimized against — no re-seed, no frozenset-order ambiguity."""
-    from types import SimpleNamespace
-
-    ha = SimpleNamespace(probe_to_hole=rec["probe_to_hole"])
-    aa = SimpleNamespace(
+    ha = MRVHoleAssignment(probe_to_hole=rec["probe_to_hole"])
+    aa = MRVArcAssignment(
         probe_to_arc_idx=rec["probe_to_arc_idx"],
         arc_centroids_deg=list(rec["arc_centroids_deg"]),
     )
@@ -255,7 +264,7 @@ def _st_for_rec(rec):
     )
 
 
-def _cov_norm_kwargs(st):
+def _cov_norm_kwargs(st) -> dict[str, object]:
     """make_phase2 kwargs for coverage normalization (ceilings + per-target
     weights), or empty when COV_NORM is off. Ceilings/weights are per-probe-fixed
     so compute once per worker and cache in ``_G``."""
@@ -275,7 +284,7 @@ def _cov_norm_kwargs(st):
     return {"coverage_ceilings": ceilings, "coverage_weights": weights}
 
 
-def _phase2_one(rec):
+def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from scipy.optimize import minimize
 
     from aind_low_point.optimization.coverage_jax import (
@@ -310,7 +319,7 @@ def _phase2_one(rec):
         ),
         brain_sdf=_G.get("brain_sdf"),
         hessian=HESS,
-        **_cov_norm_kwargs(st),
+        **cast(Any, _cov_norm_kwargs(st)),
     )
     t0 = time.perf_counter()
     if SOLVER == "ipopt":
@@ -318,10 +327,10 @@ def _phase2_one(rec):
 
         # phase1_bounds may be a scipy Bounds or a list of (lo, hi) tuples;
         # minimize_ipopt wants the latter.
-        bnds = (
+        bnds: list[tuple[float, float]] = (
             list(zip(np.asarray(bounds.lb, float), np.asarray(bounds.ub, float)))
             if hasattr(bounds, "lb")
-            else [tuple(map(float, t)) for t in bounds]
+            else [(float(lo), float(hi)) for lo, hi in bounds]
         )
         res = minimize_ipopt(
             p2["fun"],
@@ -344,7 +353,7 @@ def _phase2_one(rec):
         )
     else:
         # exactly one of hess / hessp is non-None per HESS mode (None ⇒ BFGS).
-        mkw = {}
+        mkw: dict[str, object] = {}
         if p2["hess"] is not None:
             mkw["hess"] = p2["hess"]
         if p2["hessp"] is not None:
@@ -392,13 +401,13 @@ def _phase2_one(rec):
     )
 
 
-def _similarity(a, b):
+def _similarity(a: ProbeToHole, b: ProbeToHole) -> float:
     keys = set(a) | set(b)
     same = sum(1 for k in keys if a.get(k) == b.get(k))
     return same / max(len(keys), 1)
 
 
-def _mmr_rank(rows, lam):
+def _mmr_rank(rows: list[Phase2ResultRecord], lam: float) -> list[Phase2ResultRecord]:
     """Greedy MMR: coverage primary, penalize similarity to picked."""
     pool = list(rows)
     if not pool:
@@ -406,7 +415,7 @@ def _mmr_rank(rows, lam):
     cmax = max(r["coverage"] for r in pool)
     cmin = min(r["coverage"] for r in pool)
     span = max(cmax - cmin, 1e-9)
-    picked = []
+    picked: list[Phase2ResultRecord] = []
     while pool:
         if not picked:
             best = max(pool, key=lambda r: r["coverage"])
@@ -423,7 +432,7 @@ def _mmr_rank(rows, lam):
     return picked
 
 
-def _warmup(recs):
+def _warmup(recs: list[Phase2InputRecord]) -> None:
     """Compile Phase 2 once per distinct n_arcs in the PARENT so the disk
     compile cache is warm; spawned workers then LOAD instead of all compiling
     simultaneously (the OOM cause). Evals the jit callables (triggers compile)
@@ -456,7 +465,7 @@ def _warmup(recs):
                 cov_alpha=COV_ALPHA if COV_NORM else 0.0,
             ),
             brain_sdf=_G.get("brain_sdf"),
-            **_cov_norm_kwargs(st),
+            **cast(Any, _cov_norm_kwargs(st)),
         )
         x = np.asarray(r["pose"], float)
         t0 = time.time()
@@ -469,7 +478,7 @@ def _warmup(recs):
 
 
 def main() -> int:
-    rer = pickle.load(open(POSES_PKL, "rb"))
+    rer = cast(Phase1PoolPayload, pickle.load(open(POSES_PKL, "rb")))
     all_recs = rer["records"]
     # NO FCL cull between Phase 1 and 2 — rank the Phase-1 pool by soft min_clear
     # (SELECT_BY), best first, and hand the top-TOPK to Phase 2. FCL runs once at
@@ -481,7 +490,9 @@ def main() -> int:
     _asc = SELECT_BY == "objective"
     order = sorted(
         range(len(all_recs)),
-        key=lambda i: float(all_recs[i].get(SELECT_BY, 1e18 if _asc else -1e9)),
+        key=lambda i: float(
+            cast(Any, all_recs[i]).get(SELECT_BY, 1e18 if _asc else -1e9)
+        ),
         reverse=not _asc,
     )
     # RANKS overrides top-TOPK: an explicit rank list into the sorted order, to
@@ -493,12 +504,13 @@ def main() -> int:
     else:
         sel_ranks = list(range(min(TOPK, len(order))))
 
-    def _norm(src, rank):
+    def _norm(src: int, rank: int) -> Phase2InputRecord:
         r = all_recs[src]
+        pose = cast(Any, r).get("pose", r["x"])
         return dict(
             idx=r.get("idx", src),
             n_arcs=r["n_arcs"],
-            pose=r.get("pose", r.get("x")),
+            pose=pose,
             probe_to_hole=r["probe_to_hole"],
             partition=r["partition"],
             probe_to_arc_idx=r["probe_to_arc_idx"],
@@ -508,7 +520,7 @@ def main() -> int:
             rank=rank,
         )
 
-    recs = [_norm(order[rk], rk) for rk in sel_ranks]
+    recs: list[Phase2InputRecord] = [_norm(order[rk], rk) for rk in sel_ranks]
     print(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {WORKERS} workers"
         f" x {_THREADS} thr, maxiter={P2_ITER}, lam={LAM_CLEAR} tau={TAU_CLEAR}"
@@ -530,7 +542,7 @@ def main() -> int:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(WORKERS) as ex:
-            results = list(ex.map(_phase2_one, recs))
+            results: list[Phase2ResultRecord] = list(ex.map(_phase2_one, recs))
         wall = time.time() - t0  # processing only (excludes warmup)
     else:
         ctx = get_context("spawn")
@@ -619,28 +631,26 @@ def main() -> int:
 
     out = Path(OUT_PKL)
     out.parent.mkdir(parents=True, exist_ok=True)
+    payload: Phase2HandoffPayload = dict(
+        ranked=ranked,
+        all=results,
+        config=dict(
+            subject_config=CONFIG,
+            topk=TOPK,
+            select_by=SELECT_BY,
+            minclear=MINCLEAR,
+            lam_clear=LAM_CLEAR,
+            tau_clear=TAU_CLEAR,
+            p2_iter=P2_ITER,
+            fcl_tol=FCL_TOL,
+            g_tol=G_TOL,
+            mmr_lambda=MMR_LAMBDA,
+            well=WELL,
+            solver=SOLVER,
+        ),
+    )
     with open(out, "wb") as f:
-        pickle.dump(
-            dict(
-                ranked=ranked,
-                all=results,
-                config=dict(
-                    subject_config=CONFIG,
-                    topk=TOPK,
-                    select_by=SELECT_BY,
-                    minclear=MINCLEAR,
-                    lam_clear=LAM_CLEAR,
-                    tau_clear=TAU_CLEAR,
-                    p2_iter=P2_ITER,
-                    fcl_tol=FCL_TOL,
-                    g_tol=G_TOL,
-                    mmr_lambda=MMR_LAMBDA,
-                    well=WELL,
-                    solver=SOLVER,
-                ),
-            ),
-            f,
-        )
+        pickle.dump(payload, f)
     # Each ranked/all record carries pose + probe_to_hole + probe_to_arc_idx +
     # arc_centroids_deg + n_arcs — everything needed to rebuild the plan and emit
     # a trame config per feasible candidate.

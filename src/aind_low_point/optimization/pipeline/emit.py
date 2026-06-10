@@ -21,12 +21,14 @@ import os
 import pickle
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import yaml
 
 from aind_low_point.config import ConfigModel
 from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
+from aind_low_point.optimization.pipeline.contracts import Phase2HandoffPayload
 from aind_low_point.runtime import (
     build_plan_state_from_config,
     planning_state_to_plan_model,
@@ -141,7 +143,7 @@ def main() -> int:
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
 
-    H = pickle.load(open(HANDOFF, "rb"))
+    H = cast(Phase2HandoffPayload, pickle.load(open(HANDOFF, "rb")))
     ranked = H.get("ranked", [])  # MMR-ranked feasible plans
     fcl_tol = H.get("config", {}).get("fcl_tol", 0.2)
     fcl_desc = f"-{fcl_tol:g}"

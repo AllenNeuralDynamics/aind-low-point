@@ -203,7 +203,13 @@ def main() -> int:
         f"full{FULL_COARSE}@1k + full{FULL_FINE}@5k  vs  all-5000 red500+full500"
     )
 
-    enum = Enumerator(*build_or_load_atlas(), ml_margin_deg=0.0, ml_mode="greedy")
+    atlas_payload = build_or_load_atlas()
+    enum = Enumerator(
+        atlas_payload.atlas,
+        atlas_payload.probe_names,
+        ml_margin_deg=0.0,
+        ml_mode="greedy",
+    )
     common = dict(
         probes=probes,
         holes=holes,

@@ -241,8 +241,13 @@ def main() -> int:
     else:
         idxs = [r["idx"] for r in h2["all"] if r["fcl"] >= -0.2]
 
-    atlas, atlas_names = build_or_load_atlas()
-    enum = Enumerator(atlas, atlas_names, ml_margin_deg=0.0, ml_mode="greedy")
+    atlas_payload = build_or_load_atlas()
+    enum = Enumerator(
+        atlas_payload.atlas,
+        atlas_payload.probe_names,
+        ml_margin_deg=0.0,
+        ml_mode="greedy",
+    )
 
     by_arcs: dict[int, list[int]] = {}
     for idx in idxs:

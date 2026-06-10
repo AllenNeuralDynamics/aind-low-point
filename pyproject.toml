@@ -122,6 +122,23 @@ extend-ignore = []
 mccabe = { max-complexity = 14 }
 pydocstyle = { convention = "numpy" }
 
+[tool.mypy]
+python_version = "3.10"
+files = [
+  "src/aind_low_point/optimization/pipeline/contracts.py",
+  "src/aind_low_point/optimization/pipeline/enumeration.py",
+  "src/aind_low_point/optimization/pipeline/phase1_pool.py",
+  "src/aind_low_point/optimization/pipeline/phase2_ipopt.py",
+  "src/aind_low_point/optimization/pipeline/emit.py",
+]
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_configs = true
+warn_unused_ignores = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+disable_error_code = ["import-untyped"]
+
 [tool.codespell]
 skip = ".git,*.pdf,*.svg,./bonsai,*.bonsai,./docs/_build,uv.lock"
 ignore-words-list = "nd"

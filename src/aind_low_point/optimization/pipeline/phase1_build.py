@@ -21,6 +21,7 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import pickle
 from pathlib import Path
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -34,6 +35,12 @@ from aind_low_point.optimization.clearance_sweep import (
 from aind_low_point.optimization.headstages import make_fcl_bvh
 from aind_low_point.optimization.holes import load_holes
 from aind_low_point.optimization.joint_rerank import _build_probe_static
+from aind_low_point.optimization.pipeline.contracts import (
+    BatchedGradientFn,
+    BatchedObjectiveFn,
+    Phase1ChunkedFns,
+    Phase1ObjectiveFns,
+)
 from aind_low_point.optimization.pipeline.phase1_geometry import build_fixture_sdf_data
 from aind_low_point.optimization.pipeline.probe_setup import (
     _probe_static_info,
@@ -41,6 +48,8 @@ from aind_low_point.optimization.pipeline.probe_setup import (
 )
 from aind_low_point.optimization.sdf import build_probe_sdf_from_alpha_wrap
 from aind_low_point.optimization.stage3_phase1_jax import (
+    PACKED_ARG_ORDER,
+    PACKED_PER_CAND_KEYS,
     Phase1Weights,
     _build_jit,
     _pack_statics,
@@ -50,46 +59,8 @@ from aind_low_point.optimization.stage3_phase1_jax import (
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 
-# _objective's positional arg order (after x), from stage3_phase1_jax:357.
-ARG_ORDER = [
-    "target_LPS",
-    "pivot_local",
-    "arc_idx",
-    "tips_local",
-    "shank_mask",
-    "s_axes",
-    "s_centers",
-    "s_e1",
-    "s_e2",
-    "s_cos",
-    "s_sin",
-    "s_a",
-    "s_b",
-    "section_mask",
-    "same_arc_mask",
-    "sdf_grids",
-    "sdf_origins",
-    "sdf_spacings",
-    "sdf_surfaces",
-    "shank_obb_centers",
-    "shank_obb_halves",
-    "sdf_table",
-]
-# Keys that VARY per candidate (hole/arc assignment). Everything else is a
-# per-probe constant shared across the batch.
-PER_CAND = {
-    "arc_idx",
-    "s_axes",
-    "s_centers",
-    "s_e1",
-    "s_e2",
-    "s_cos",
-    "s_sin",
-    "s_a",
-    "s_b",
-    "section_mask",
-    "same_arc_mask",
-}
+ARG_ORDER = list(PACKED_ARG_ORDER)
+PER_CAND = set(PACKED_PER_CAND_KEYS)
 
 
 def make_batched_phase1_objective(
@@ -101,7 +72,7 @@ def make_batched_phase1_objective(
     brain_sdf=None,
     coverage_ceilings=None,
     coverage_weights=None,
-):
+) -> Phase1ObjectiveFns:
     """vmap the per-candidate _objective over `statics_list`. Returns
     (batched_obj(x_B)->(B,), batched_grad(x_B)->(B,nvars))."""
     base_sig = _signature(statics_list[0], n_arcs, weights)
@@ -151,7 +122,7 @@ def make_batched_phase1_chunked(  # noqa: C901
     brain_sdf=None,
     coverage_ceilings=None,
     coverage_weights=None,
-):
+) -> Phase1ChunkedFns:
     """Like make_batched_phase1_objective, but returns the reusable pieces
     for VRAM-chunked evaluation: (vobj, vgrad, build_arglist).
 
@@ -334,7 +305,7 @@ def make_staged_rprop(
     eta_min=1e-6,
     grow=1.2,
     shrink=0.5,
-):
+) -> Callable[..., Any]:
     """Projected iRprop− (sign-based resilient backprop) on the same interface as
     ``make_staged_adam``'s ``run(x0, arglist, lo, hi, cov_weight, n_steps)``.
 
@@ -475,7 +446,7 @@ def build_cw_fns(
     weights=None,
     coverage_ceilings=None,
     coverage_weights=None,
-):
+) -> tuple[BatchedObjectiveFn, BatchedGradientFn, list[Any]]:
     """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids)."""
     w = weights if weights is not None else Phase1Weights()
     sig = _signature(st, n_arcs, w)
