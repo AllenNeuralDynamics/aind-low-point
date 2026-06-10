@@ -93,7 +93,7 @@ SHANK_PITCH_MM = 0.25  # AIND probes use 250 µm shank-row pitch.
 
 
 # Default recording-array center along the shaft (mm) per kind. Matches
-# ``aind_low_point.optimization.recording.RECORDING_GEOMETRY``.
+# ``aind_low_point.optimization.geometry.recording.RECORDING_GEOMETRY``.
 # Subtracted from CSV's ``distance_past_target`` to convert the OLD
 # tip-past-target semantic to the NEW recording-center-past-target one.
 ACTIVE_CENTER_MM: dict[str, float] = {

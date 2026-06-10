@@ -23,14 +23,14 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.assignment_contracts import (
+from aind_low_point.optimization.enumeration.contracts import (
     ArcAssignment,
     HoleAssignment,
 )
 from aind_low_point.optimization.geometry import cap_basis
-from aind_low_point.optimization.holes import Hole, threading_margin_mm
-from aind_low_point.optimization.optimize import ProbeStaticInfo
-from aind_low_point.optimization.recording import (
+from aind_low_point.optimization.geometry.holes import Hole, threading_margin_mm
+from aind_low_point.optimization.geometry.probes import ProbeStaticInfo
+from aind_low_point.optimization.geometry.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )

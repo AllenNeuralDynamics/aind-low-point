@@ -32,20 +32,26 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.batched_objective import (
+from aind_low_point.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
 )
-from aind_low_point.optimization.batched_spin_restore import (
-    make_batched_spin_restore_partial,
+from aind_low_point.optimization.objectives.batched_static import (
+    build_batched_probe_static,
 )
-from aind_low_point.optimization.batched_static import build_batched_probe_static
-from aind_low_point.optimization.clearance_metrics import make_min_clear_one
-from aind_low_point.optimization.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.optimizer_vars import build_y, extract_spins
-from aind_low_point.optimization.phase1_objective_jax import (
+from aind_low_point.optimization.objectives.clearance_metrics import make_min_clear_one
+from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_low_point.optimization.objectives.phase1 import (
     PHASE1_PER_PROBE_VARS,
     Phase1Weights,
 )
+from aind_low_point.optimization.objectives.probe_static import (
+    JointWeights,
+    _build_probe_static,
+)
+from aind_low_point.optimization.objectives.spin_restore import (
+    make_batched_spin_restore_partial,
+)
+from aind_low_point.optimization.objectives.variables import build_y, extract_spins
 from aind_low_point.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
@@ -61,7 +67,6 @@ from aind_low_point.optimization.pipeline.phase1_geometry import (
     phase1_bounds,
 )
 from aind_low_point.optimization.pipeline.restore import setup, spins_deg_from_reduced
-from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.manual_mrv_chain import mrv_seed
 from scripts.staged_adam import restore_spins_group

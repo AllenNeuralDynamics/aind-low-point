@@ -1,21 +1,21 @@
-"""Tests for ``aind_low_point.optimization.density`` and
-``aind_low_point.optimization.recording``."""
+"""Tests for ``aind_low_point.optimization.objectives.density`` and
+``aind_low_point.optimization.geometry.recording``."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from aind_low_point.optimization.density import (
-    coverage,
-    gaussian_density,
-    integrate_density_along_shank,
-)
 from aind_low_point.optimization.geometry import Capsule
-from aind_low_point.optimization.recording import (
+from aind_low_point.optimization.geometry.recording import (
     RECORDING_GEOMETRY,
     RecordingGeometry,
     get_recording_geometry,
+)
+from aind_low_point.optimization.objectives.density import (
+    coverage,
+    gaussian_density,
+    integrate_density_along_shank,
 )
 
 # -- recording geometry table ----------------------------------------------

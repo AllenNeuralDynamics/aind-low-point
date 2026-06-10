@@ -223,13 +223,10 @@ Hole uniqueness is global across all arcs. Assigning a hole removes it from
 every remaining probe domain. That makes the hole assignment part of the
 search, not a post-hoc filter.
 
-``arc_first_principled.enumerate_arc_first_candidates`` implements the same
-broad idea from the opposite direction: enumerate unordered arc partitions,
-enumerate feasible hole tuples per arc, then take a Cartesian product across
-arcs and reject global hole conflicts. It attaches cheap ranking signals such
-as AP intersection width, ML slack, number of atlas anchors, and AP
-centeredness. The ``alp-phase1`` console entry point uses
-``optimization.pipeline.enumeration.Enumerator`` for the production pool.
+``optimization.pipeline.enumeration.Enumerator`` implements this as the
+production search for ``alp-phase1``. It carries only cheap discrete decisions
+in the candidate pool, then asks the shared seed emitter for AP, ML, and spin
+starts only for candidates that are actually optimized.
 
 
 Bounded Isotonic AP Placement
@@ -250,8 +247,9 @@ The seed AP problem is therefore:
    subject to  ap_sorted[k+1] - ap_sorted[k] >= sep
                low_k <= ap_k <= high_k
 
-This is solved by ``arc_placement.bounded_isotonic_arc_aps``. The key trick is
-to sort arcs by preferred AP and substitute:
+This is solved by
+``optimization.enumeration.arc_placement.bounded_isotonic_arc_aps``. The key
+trick is to sort arcs by preferred AP and substitute:
 
 .. code-block:: text
 
@@ -284,8 +282,9 @@ The enumerator emits only the cheap discrete decision:
    }
 
 The expensive joint seed is lazy. ``Enumerator.seed(candidate)`` calls
-``arc_first_principled.emit_seed`` to compute arc APs, ML seeds, spin seeds,
-and the minimum ML gap for only the candidates that will be optimized.
+``optimization.enumeration.seed_emission.emit_seed`` to compute arc APs, ML
+seeds, spin seeds, and the minimum ML gap for only the candidates that will be
+optimized.
 
 Seed emission has its own two-level algorithm:
 
@@ -318,8 +317,8 @@ round-robin spin restore over the reduced objective:
 
 * ``phase1_pool.restore_group`` builds seed rows from arc APs, ML seeds, and
   spin seeds.
-* ``batched_spin_restore.make_batched_spin_restore_partial`` sweeps a full
-  circle of spin proposals for each probe.
+* ``optimization.objectives.spin_restore.make_batched_spin_restore_partial``
+  sweeps a full circle of spin proposals for each probe.
 * The default production knobs are ``N_SPINS=16`` and ``RESTORE_ROUNDS=4`` in
   ``alp-phase1``.
 * The restore uses the well-aware reduced clearance objective and returns one
@@ -609,17 +608,21 @@ Key Modules
   manifest/tree emission.
 * ``optimization.pipeline.runtime_adapter``: subject/runtime setup facade used
   by the pipeline.
-* ``optimization.assignment_contracts``: lightweight discrete assignment
+* ``optimization.enumeration.contracts``: lightweight discrete assignment
   carriers shared by the enumerator, static builders, and batched objectives.
-* ``optimization.arc_placement``: bounded isotonic AP placement for separated
-  arc seeds.
-* ``optimization.pose_bank``: target-oriented per-pair pose-bank scoring used
-  by pose feature precomputation.
-* ``optimization.probe_static``: per-candidate static geometry builder and
-  optimization weight contract.
-* ``optimization.phase1_objective_jax`` and ``optimization.phase2_objective_jax``:
+* ``optimization.enumeration.arc_placement``: bounded isotonic AP placement for
+  separated arc seeds.
+* ``optimization.enumeration.pose_bank``: target-oriented per-pair pose-bank
+  scoring used by pose feature precomputation.
+* ``optimization.objectives.probe_static``: per-candidate static geometry
+  builder and optimization weight contract.
+* ``optimization.objectives.phase1`` and ``optimization.objectives.phase2``:
   differentiable objectives and constraints used by Phase 1 and Phase 2.
-* ``optimization.fcl_validator``: ground-truth FCL validation.
+* ``optimization.objectives.fcl_validator``: ground-truth FCL validation.
+* ``optimization.geometry``: hole geometry, rig kinematics, recording geometry,
+  and the ``ProbeStaticInfo`` input carrier.
+* ``optimization.sdf``: SDF builders, alpha-wrap envelopes, and JAX clearance
+  kernels.
 * ``scripts/run_subject_overnight.sh``: recommended unattended production
   wrapper.
 * ``scripts/staged_adam.py``, ``scripts/manual_mrv_chain.py``,

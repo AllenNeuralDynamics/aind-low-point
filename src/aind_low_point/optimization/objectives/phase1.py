@@ -44,25 +44,25 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.clearance_sweep import (
-    build_padded_fixture_table,
-    build_padded_probe_tables,
-    swept_fixture_clearances,
-    swept_pair_clearances,
-)
-from aind_low_point.optimization.coverage_jax import (
+from aind_low_point.optimization.objectives.coverage import (
     CoverageData,
     coverage_per_probe_over_probes,
     coverage_total_over_probes,
     normalized_coverage_objective,
 )
-from aind_low_point.optimization.reduced_objective_jax import (
+from aind_low_point.optimization.objectives.reduced_jax import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
     threading_g_matrix,
 )
-from aind_low_point.optimization.sdf_jax import (
+from aind_low_point.optimization.sdf.clearance_sweep import (
+    build_padded_fixture_table,
+    build_padded_probe_tables,
+    swept_fixture_clearances,
+    swept_pair_clearances,
+)
+from aind_low_point.optimization.sdf.kernels import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
     pose_from_optimizer_vars,
@@ -236,7 +236,7 @@ class Phase1Weights:
     lambda_clearance: float = 100.0
     lambda_kinematic: float = 100.0
     lambda_bounds: float = 1.0
-    # See sdf_jax.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
+    # See sdf.kernels.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
     # so poses are consistent across stages. Reduced 100 → 10 to
     # avoid over-dominating iter budget; keep aligned with probe_static weights.
     lambda_unit_circle: float = 10.0

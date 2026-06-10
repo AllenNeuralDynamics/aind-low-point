@@ -44,7 +44,7 @@ def _build_kde_grid(
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Deposit each target point's Gaussian kernel onto a voxel grid.
 
-    Mirrors :func:`aind_low_point.optimization.density.voxel_kde_density`
+    Mirrors :func:`aind_low_point.optimization.objectives.density.voxel_kde_density`
     but returns ``(grid, origin, spacing_mm)`` directly instead of a
     closure. Same result; just no opaque function wrapper.
     """
@@ -94,7 +94,7 @@ class KdeCoverageData:
     """Static per-probe data for the voxel-KDE coverage backend.
 
     The grid is pre-baked on the host by
-    :func:`aind_low_point.optimization.density.voxel_kde_density`; we
+    :func:`aind_low_point.optimization.objectives.density.voxel_kde_density`; we
     rebuild it here in JAX-friendly arrays and copy the grid contents
     out of the closure.
     """
@@ -136,7 +136,7 @@ def build_coverage_data_from_probe_context(
     coverage data.
 
     Uses the same selection logic as the legacy ``_build_inner_context``
-    in optimize.py: if the probe has a ``target_points`` cloud, use
+    in the runtime adapter: if the probe has a ``target_points`` cloud, use
     voxel KDE; else Gaussian on ``target_LPS``.
 
     Parameters
@@ -512,7 +512,7 @@ def coverage_ceiling_per_probe(
     """
     from scipy.optimize import minimize
 
-    from aind_low_point.optimization.sdf_jax import pose_from_optimizer_vars
+    from aind_low_point.optimization.sdf.kernels import pose_from_optimizer_vars
 
     bounds = [
         (-ap_bound_deg, ap_bound_deg),

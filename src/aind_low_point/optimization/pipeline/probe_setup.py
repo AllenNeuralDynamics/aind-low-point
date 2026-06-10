@@ -14,8 +14,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from aind_low_point.optimization.geometry import HoleSection
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.optimize import ProbeStaticInfo
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.probes import ProbeStaticInfo
 from aind_low_point.runtime.probe_context import probe_context_from_runtime
 from aind_low_point.scene import resolve_base_geometry
 

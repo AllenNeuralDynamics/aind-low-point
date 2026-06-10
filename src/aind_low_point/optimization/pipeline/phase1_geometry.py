@@ -21,18 +21,18 @@ import fcl
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.coverage_jax import (
+from aind_low_point.optimization.geometry.headstages import make_fcl_bvh
+from aind_low_point.optimization.geometry.recording import (
+    RECORDING_GEOMETRY,
+    RecordingGeometry,
+)
+from aind_low_point.optimization.objectives.coverage import (
     GaussianCoverageData,
     build_coverage_data_from_probe_context,
 )
-from aind_low_point.optimization.headstages import make_fcl_bvh
-from aind_low_point.optimization.phase1_objective_jax import (
+from aind_low_point.optimization.objectives.phase1 import (
     BrainSDFData,
     FixtureSDFData,
-)
-from aind_low_point.optimization.recording import (
-    RECORDING_GEOMETRY,
-    RecordingGeometry,
 )
 from aind_low_point.optimization.sdf import (
     build_probe_sdf,
@@ -111,7 +111,7 @@ def _resample_envelope_surface_in_box(
     """Area-uniform sample ``n`` points on the α-wrap envelope within the box."""
     import trimesh
 
-    from aind_low_point.optimization.envelope import build_alpha_wrap_envelope
+    from aind_low_point.optimization.sdf.envelope import build_alpha_wrap_envelope
 
     env = build_alpha_wrap_envelope(
         raw_mesh, alpha_mm=0.2, offset_mm=offset_mm, strip_shanks_first=False

@@ -42,16 +42,26 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.batched_objective import (
+from aind_low_point.optimization.geometry.probe_kinematics import (
+    is_four_shank,
+    spin_to_align_y_with,
+)
+from aind_low_point.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
 )
-from aind_low_point.optimization.batched_spin_restore import (
+from aind_low_point.optimization.objectives.batched_static import (
+    build_batched_probe_static,
+)
+from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_low_point.optimization.objectives.phase1 import Phase1Weights
+from aind_low_point.optimization.objectives.probe_static import (
+    JointWeights,
+    _build_probe_static,
+)
+from aind_low_point.optimization.objectives.spin_restore import (
     make_batched_spin_restore_partial,
 )
-from aind_low_point.optimization.batched_static import build_batched_probe_static
-from aind_low_point.optimization.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.optimizer_vars import build_y
-from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
+from aind_low_point.optimization.objectives.variables import build_y
 from aind_low_point.optimization.pipeline.phase1_build import (
     make_batched_phase1_chunked,
 )
@@ -62,11 +72,6 @@ from aind_low_point.optimization.pipeline.phase1_geometry import (
 from aind_low_point.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
-from aind_low_point.optimization.probe_kinematics import (
-    is_four_shank,
-    spin_to_align_y_with,
-)
-from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))

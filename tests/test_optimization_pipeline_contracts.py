@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from aind_low_point.optimization.atlas import Atlas
+from aind_low_point.optimization.enumeration.atlas import Atlas
 from aind_low_point.optimization.pipeline.contracts import AtlasCachePayload
 from aind_low_point.optimization.pipeline.enumeration import _normalize_atlas_payload
 

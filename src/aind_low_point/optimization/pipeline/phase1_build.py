@@ -26,11 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.clearance_sweep import (
-    cast_fixture_grids,
-    cast_packed_grids,
-)
-from aind_low_point.optimization.phase1_objective_jax import (
+from aind_low_point.optimization.objectives.phase1 import (
     PACKED_ARG_ORDER,
     PACKED_PER_CAND_KEYS,
     Phase1Weights,
@@ -39,6 +35,7 @@ from aind_low_point.optimization.phase1_objective_jax import (
     _signature,
     make_phase1_objective,
 )
+from aind_low_point.optimization.objectives.probe_static import _build_probe_static
 from aind_low_point.optimization.pipeline.contracts import (
     BatchedGradientFn,
     BatchedObjectiveFn,
@@ -48,7 +45,10 @@ from aind_low_point.optimization.pipeline.contracts import (
 from aind_low_point.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
-from aind_low_point.optimization.probe_static import _build_probe_static
+from aind_low_point.optimization.sdf.clearance_sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+)
 
 ARG_ORDER = list(PACKED_ARG_ORDER)
 PER_CAND = set(PACKED_PER_CAND_KEYS)

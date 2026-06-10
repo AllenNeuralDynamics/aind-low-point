@@ -31,20 +31,13 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.clearance_sweep import (
-    build_padded_fixture_table,
-    cast_fixture_grids,
-    cast_packed_grids,
-    swept_fixture_clearances,
-    swept_pair_clearances,
-)
-from aind_low_point.optimization.coverage_jax import (
+from aind_low_point.optimization.objectives.coverage import (
     CoverageData,
     coverage_per_probe_over_probes,
     normalized_coverage_objective,
     probe_coverage,
 )
-from aind_low_point.optimization.phase1_objective_jax import (
+from aind_low_point.optimization.objectives.phase1 import (
     PHASE1_PER_PROBE_VARS,
     BrainSDFData,
     FixtureSDFData,
@@ -52,14 +45,21 @@ from aind_low_point.optimization.phase1_objective_jax import (
     _saturating_reward_mean,
     _saturating_reward_worst,
 )
-from aind_low_point.optimization.pipeline.contracts import Phase2Problem
-from aind_low_point.optimization.reduced_objective_jax import (
+from aind_low_point.optimization.objectives.reduced_jax import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
     threading_g_matrix,
 )
-from aind_low_point.optimization.sdf_jax import (
+from aind_low_point.optimization.pipeline.contracts import Phase2Problem
+from aind_low_point.optimization.sdf.clearance_sweep import (
+    build_padded_fixture_table,
+    cast_fixture_grids,
+    cast_packed_grids,
+    swept_fixture_clearances,
+    swept_pair_clearances,
+)
+from aind_low_point.optimization.sdf.kernels import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
     pose_from_optimizer_vars,
@@ -84,7 +84,7 @@ class Phase2Weights:
     """
 
     lambda_bounds: float = 1.0
-    # See sdf_jax.unit_circle_penalty. Reduced 100 → 10 (2026-05-26).
+    # See sdf.kernels.unit_circle_penalty. Reduced 100 -> 10 (2026-05-26).
     lambda_unit_circle: float = 10.0
 
     lambda_margin_clear: float = 1.0
@@ -618,7 +618,7 @@ def _build_jit(  # noqa: C901
 
         # Probe-fixture clearance: dual-rep (body voxel-SDF + probe-OBB
         # vs fixture surface samples). See PairClearance / FixtureClearance
-        # in sdf_jax.py for category definitions.
+        # in sdf.kernels for category definitions.
         # Probe-fixture clearance, vmapped over probes per fixture. ``soft`` is
         # (n_fix, n_sdf, 2) in FIXTURE_PAIR_SLACK_GAINS category order, so
         # ``.reshape(-1)`` reproduces the fixture-major/probe-minor/category-minor

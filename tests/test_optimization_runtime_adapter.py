@@ -8,7 +8,7 @@ import pytest
 
 from aind_low_point.core import AffineTransform
 from aind_low_point.optimization.geometry import HoleSection
-from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.geometry.holes import Hole
 from aind_low_point.optimization.pipeline.runtime_adapter import (
     find_well_fixture,
     head_pitch_deg_from_runtime,

@@ -47,7 +47,7 @@ import jax.numpy as jnp
 import numpy as np
 from scipy.spatial import cKDTree
 
-from aind_low_point.optimization.phase1_objective_jax import FixtureSDFData
+from aind_low_point.optimization.objectives.phase1 import FixtureSDFData
 
 MARGIN = float(_os.environ.get("MARGIN", "0.5"))
 

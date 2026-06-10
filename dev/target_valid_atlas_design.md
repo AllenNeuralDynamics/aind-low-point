@@ -305,11 +305,11 @@ failure is precisely diagnosed and explained.
 
 ## Things explicitly ruled out
 
-Per prior diagnostics (see `dev/minlp_assignment_brief.md`):
+Per prior diagnostics:
 
 - AP × ML × spin brute-force atlas sampling
-- H-only pre-cost ranking (LSAP, weighted variants)
-- LSAP-first candidate generation
+- H-only pre-cost ranking
+- per-probe-first candidate generation
 - Best-fit pairwise clearance ranking
 - Best-fit AP clustering
 - Bore-only feasibility with no target validity
@@ -339,16 +339,16 @@ bank must also sit in a useful relationship to the target.
 9. Wire atlas anchors into per-arc local-config generation.
 10. Arc-first search picks partition + AP bins + holes + anchors using
     atlas support.
-11. Selected candidates feed reduced SLSQP → full Stage 3 polish.
+11. Selected candidates feed Phase 1 pool optimization and Phase 2 hard-constraint
+    polish.
 
 ## Related
 
-- `dev/minlp_assignment_brief.md` — joint reranker / arc-first context,
-  ruled-out approaches, manual-plan diagnostics history.
+- `docs/source/optimization.rst` — maintained optimizer pipeline guide.
 - [[manual_plan_files]] — manual plan loaded as
   `config + plan-overlay` pair; clearance check uses FCL BVH on full
   collision mesh.
-- `src/aind_low_point/optimization/visibility_atlas.py` — incumbent
+- `src/aind_low_point/optimization/enumeration/visibility_atlas.py` — incumbent
   atlas, kept for comparison; do not edit.
-- `src/aind_low_point/optimization/atlas.py` — earlier SLSQP-anchored
-  atlas; not the target architecture.
+- `src/aind_low_point/optimization/enumeration/atlas.py` — atlas carrier
+  dataclasses shared by atlas builders and the pipeline.

@@ -21,9 +21,8 @@ Additional optimizer notes:
 
 - `dev/spin_basin_experiments.md` - why the round-robin spin restore remains
   the production spin-basin finder.
-- `dev/optimizer_plan.md` - MINLP/SLSQP/JAX design background.
-- `dev/minlp_assignment_brief.md` - discrete-search diagnosis.
-- `dev/optimizer_review_response.md` - optimizer review response.
+- `dev/target_valid_atlas_design.md` - target-valid atlas design notes.
+- `dev/PIPELINE_PLAN.md` - current pipeline hardening notes.
 
 Vocabulary for the current code:
 

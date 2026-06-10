@@ -28,7 +28,7 @@ import numpy as np
 import yaml
 
 from aind_low_point.config import ConfigModel
-from aind_low_point.optimization.optimizer_vars import _apply_x_to_plan_state
+from aind_low_point.optimization.objectives.variables import _apply_x_to_plan_state
 from aind_low_point.optimization.pipeline.contracts import Phase2HandoffPayload
 from aind_low_point.runtime import (
     build_plan_state_from_config,

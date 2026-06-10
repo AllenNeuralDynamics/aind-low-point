@@ -1,4 +1,4 @@
-"""Tests for ``aind_low_point.optimization.headstages``."""
+"""Tests for ``aind_low_point.optimization.geometry.headstages``."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_low_point.optimization.headstages import (
+from aind_low_point.optimization.geometry.headstages import (
     build_headstage_hull,
     detect_body_region,
     make_fcl_convex,
 )
-from aind_low_point.optimization.objective import (
+from aind_low_point.optimization.objectives.scalar import (
     OptimizerContext,
     ProbeEvaluation,
     VariableLayout,

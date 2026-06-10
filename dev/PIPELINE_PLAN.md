@@ -26,9 +26,9 @@ file describes where we're going and what's unvalidated.
 - **Drop the L-BFGS reduced polish** (current Stage 0 step 4). ADAM polishes
   directly from the round-robin restore output (`y0_restored`). **This is the
   central unvalidated bet — see Open Questions.**
-- **MRV enumerator** (`scripts/arc_first_mrv.py`) replaces
-  `enumerate_arc_first_candidates`. Needs to additionally emit `spin_seed` +
-  `composite_order_score` (today it emits `ml_seed`/partition/arc_aps only).
+- **MRV enumerator** (`optimization.pipeline.enumeration.Enumerator`) owns the
+  production candidate pool and uses `enumeration.seed_emission.emit_seed` for
+  lazy AP/ML/spin seeds.
   *NB: this does NOT shrink the search space — the MRV set ≈ the same ~8908.
   Its value is legibility, sound joint-ML feasibility, and the decision-tree.*
 - **Multi-fidelity ADAM (early-cull)** — the real throughput lever (see below).
@@ -145,9 +145,8 @@ feasible/infeasible split become decidable). **One rig, both answers.**
 6. **Loosen `export_handoff`:** FCL becomes an annotated column (clean/marginal/
    violating), not a `>= -0.2` filter; soft-SDF cut is the floor; MMR-by-coverage
    selects ~10-15 diverse plans; report drop counts.
-7. **(Optional) MRV → production:** emit `spin_seed` + `composite_order_score`,
-   swap for `enumerate_arc_first_candidates` — only if the decision-tree value
-   justifies it.
+7. **MRV production hardening:** keep seed emission lazy and preserve the
+   enumerator's decision-tree diagnostics when changing pool ranking.
 
 ---
 

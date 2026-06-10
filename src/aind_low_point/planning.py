@@ -405,7 +405,7 @@ class ProbePose:
             if spec is not None and spec.pivot_LPS is not None:
                 pivot_local = np.asarray(spec.pivot_LPS, dtype=np.float64)
         if pivot_local is None:
-            from aind_low_point.optimization.recording import (
+            from aind_low_point.optimization.geometry.recording import (
                 recording_center_local_for_kind,
             )
 

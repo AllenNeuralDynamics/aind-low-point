@@ -788,7 +788,7 @@ def main():
     )
 
     if args.alpha_wrap:
-        from aind_low_point.optimization.envelope import build_alpha_wrap_envelope
+        from aind_low_point.optimization.sdf.envelope import build_alpha_wrap_envelope
 
         if not (0.0 < args.wrap_offset < args.wrap_alpha):
             raise SystemExit(

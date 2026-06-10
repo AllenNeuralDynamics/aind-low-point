@@ -1,11 +1,18 @@
-"""Tests for ``arc_first_principled.ml_anchors_mrv`` — the MRV/CSP ML+spin
-anchor selector for the seed emitter."""
+"""Tests for ``enumeration.seed_emission.ml_anchors_mrv``.
+
+The helper is the MRV/CSP ML+spin anchor selector for the seed emitter.
+"""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
-from aind_low_point.optimization.arc_first_principled import ml_anchors_mrv
+from aind_low_point.optimization.enumeration.seed_emission import (
+    emit_seed,
+    ml_anchors_mrv,
+)
 
 _SEP = 16.0
 
@@ -91,10 +98,6 @@ def test_ml_mrv_finds_all_feasible_random():
 # ---------------------------------------------------------------------------
 # emit_seed — joint AP + ML/spin seed wrapper
 # ---------------------------------------------------------------------------
-
-from types import SimpleNamespace  # noqa: E402
-
-from aind_low_point.optimization.arc_first_principled import emit_seed  # noqa: E402
 
 
 def _atlas(ap, ml, spin):

@@ -168,16 +168,16 @@ def optimal_spin_perpendicular(local_asym_vec, ap_ml, gap_dir_world):
     ...
 ```
 
-### Stage 3: full-DOF polish per kept assignment
+### Phase 1 / Phase 2 polish per kept assignment
 
-Take the top-K spin assignments per Stage 2 cand. For each, build a
+Take the top-K spin assignments per Phase 1 candidate. For each, build a
 phase1_x with the chosen spins (other DOF inherited from the existing
 augmented warm-start), run L-BFGS-B Phase 1 + trust-constr Phase 2
 + FCL validator. Keep the best per cand by lex_key.
 
 ## Scoping: when to apply
 
-**Apply to top-K output of Stage 2, not the whole 8908-cand pool.**
+**Apply to top-K Phase 1 candidates, not the whole 8908-cand pool.**
 
 The user's intuition: spin search is wasted on cands that are
 infeasible for OTHER reasons (e.g. probe-probe distance too small to

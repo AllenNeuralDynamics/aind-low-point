@@ -29,17 +29,17 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.batched_objective import (
+from aind_low_point.optimization.objectives.batched_reduced import (
     _threading_g_for_probe,
     make_batched_reduced_objective,
 )
-from aind_low_point.optimization.batched_static import BatchedProbeStatic
+from aind_low_point.optimization.objectives.batched_static import BatchedProbeStatic
+from aind_low_point.optimization.objectives.probe_static import JointWeights
 from aind_low_point.optimization.pipeline.contracts import (
     SpinRestoreFn,
     SpinRestoreWithLosses,
 )
-from aind_low_point.optimization.probe_static import JointWeights
-from aind_low_point.optimization.sdf_jax import (
+from aind_low_point.optimization.sdf.kernels import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     dual_rep_fixture_clearance,

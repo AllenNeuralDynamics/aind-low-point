@@ -2,11 +2,9 @@
 clique AP-feasibility + shared greedy-stab (intra-arc ML packing AND inter-arc
 AP separation).
 
-Consumes the SAME visibility atlas as production's
-``enumerate_arc_first_candidates`` (via ``_build_atlas_arrays``), so the
-per-(probe,hole) AP intervals and ml-ranges are identical — the only changes
-are (a) search order/structure (hole-first MRV + forward-checked uniqueness)
-and (b) ML feasibility (greedy joint packing instead of pairwise max-diff).
+Consumes the visibility atlas through the shared ``_build_atlas_arrays``
+packing helper, so the per-(probe,hole) AP intervals and ML ranges used by
+seed emission and enumeration are identical.
 
 ``_emit`` records only the CHEAP discrete decision (probe->hole, partition +
 midpoint arc-AP placeholder). The joint AP/ML/spin seed is expensive (per-arc
@@ -42,8 +40,8 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from aind_low_point.optimization.arc_first_principled import emit_seed
-from aind_low_point.optimization.atlas import Atlas
+from aind_low_point.optimization.enumeration.atlas import Atlas
+from aind_low_point.optimization.enumeration.seed_emission import emit_seed
 from aind_low_point.optimization.pipeline.contracts import (
     AtlasCachePayload,
     EnumeratorCandidate,
@@ -99,10 +97,12 @@ def build_or_load_atlas() -> AtlasCachePayload:
         if normalized is not None:
             return normalized
         # legacy 2-tuple cache without head pitch → rebuild below
+    from aind_low_point.optimization.enumeration.visibility_atlas import (
+        build_visibility_atlas,
+    )
     from aind_low_point.optimization.pipeline.runtime_adapter import (
         OptimizationRuntime,
     )
-    from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
 
     opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
     t0 = time.time()
@@ -153,7 +153,7 @@ class Enumerator:
         ap_range: "tuple[float, float] | None" = None,
         ml_range: "tuple[float, float] | None" = None,
     ):
-        from aind_low_point.optimization.arc_first_principled import (
+        from aind_low_point.optimization.enumeration.seed_emission import (
             _build_atlas_arrays,
         )
 

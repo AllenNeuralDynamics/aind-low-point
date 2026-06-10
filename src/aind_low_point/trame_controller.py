@@ -911,7 +911,7 @@ class TrameController:
         )
 
         from aind_low_point.calibration_conversion import newscale_to_lps
-        from aind_low_point.optimization.recording import (
+        from aind_low_point.optimization.geometry.recording import (
             recording_center_local_for_kind,
         )
 

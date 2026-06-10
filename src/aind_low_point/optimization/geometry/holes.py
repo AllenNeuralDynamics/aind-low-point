@@ -36,7 +36,7 @@ import numpy as np
 import yaml
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.geometry import HoleSection, cap_basis
+from aind_low_point.optimization.geometry.primitives import HoleSection, cap_basis
 
 # Threading margin: the threading check models each shank as a thin CENTERLINE,
 # so ``g <= 0`` only means the centerline is inside the bore oval — a centerline

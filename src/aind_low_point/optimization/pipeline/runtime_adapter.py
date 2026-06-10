@@ -15,8 +15,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 from aind_low_point.config import ConfigModel
-from aind_low_point.optimization.holes import Hole, load_holes
-from aind_low_point.optimization.optimize import ProbeStaticInfo
+from aind_low_point.optimization.geometry.holes import Hole, load_holes
+from aind_low_point.optimization.geometry.probes import ProbeStaticInfo
 from aind_low_point.optimization.pipeline.probe_setup import (
     RetroDensityOpts,
     _probe_static_info,
@@ -33,7 +33,7 @@ from aind_low_point.runtime import (
 from aind_low_point.runtime.transforms import CompiledTransforms, compile_all_transforms
 
 if TYPE_CHECKING:
-    from aind_low_point.optimization.phase1_objective_jax import (
+    from aind_low_point.optimization.objectives.phase1 import (
         BrainSDFData,
         FixtureSDFData,
     )
@@ -172,7 +172,7 @@ class OptimizationRuntime:
         )
 
     def probe_bvhs(self) -> dict[str, Any | None]:
-        from aind_low_point.optimization.headstages import make_fcl_bvh
+        from aind_low_point.optimization.geometry.headstages import make_fcl_bvh
 
         return {
             probe.name: make_fcl_bvh(probe.collision_mesh)
@@ -213,7 +213,7 @@ class OptimizationRuntime:
     def fixture_bvhs(
         self, fixtures: Sequence[FixtureSDFData] | None = None
     ) -> dict[str, Any]:
-        from aind_low_point.optimization.headstages import make_fcl_bvh
+        from aind_low_point.optimization.geometry.headstages import make_fcl_bvh
 
         selected = self.fixture_sdfs() if fixtures is None else fixtures
         out: dict[str, Any] = {}
@@ -237,7 +237,7 @@ class OptimizationRuntime:
         fixture_bvhs: Mapping[str, Any] | None = None,
         include_implant: bool = True,
     ) -> FCLFixtureSet:
-        from aind_low_point.optimization.headstages import make_fcl_bvh
+        from aind_low_point.optimization.geometry.headstages import make_fcl_bvh
 
         bvhs = dict(
             self.fixture_bvhs(cast(Any, fixtures))

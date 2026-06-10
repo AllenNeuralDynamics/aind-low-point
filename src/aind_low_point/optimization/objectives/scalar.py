@@ -39,23 +39,23 @@ import fcl
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.density import (
-    DensityFn,
-    coverage,
-)
 from aind_low_point.optimization.geometry import (
     Capsule,
     capsule_capsule_dist,
     shaft_section_oval_value,
 )
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.kinematics import (
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.kinematics import (
     pose_from_optimizer_vars,
     shank_capsules_from_pose,
 )
-from aind_low_point.optimization.recording import (
+from aind_low_point.optimization.geometry.recording import (
     RecordingGeometry,
     recording_center_local_for_kind,
+)
+from aind_low_point.optimization.objectives.density import (
+    DensityFn,
+    coverage,
 )
 
 # ---------------------------------------------------------------------------

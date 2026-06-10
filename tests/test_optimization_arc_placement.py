@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_low_point.optimization.arc_placement import bounded_isotonic_arc_aps
+from aind_low_point.optimization.enumeration.arc_placement import (
+    bounded_isotonic_arc_aps,
+)
 
 _SEP = 16.0
 _LO, _HI = -60.0, 60.0

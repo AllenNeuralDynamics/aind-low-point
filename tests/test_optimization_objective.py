@@ -1,14 +1,15 @@
-"""Tests for ``aind_low_point.optimization.objective``."""
+"""Tests for ``aind_low_point.optimization.objectives.scalar``."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from aind_low_point.optimization.density import gaussian_density
 from aind_low_point.optimization.geometry import Capsule, HoleSection
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.objective import (
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.recording import RecordingGeometry
+from aind_low_point.optimization.objectives.density import gaussian_density
+from aind_low_point.optimization.objectives.scalar import (
     ObjectiveWeights,
     OptimizerContext,
     ProbeContext,
@@ -20,7 +21,6 @@ from aind_low_point.optimization.objective import (
     make_objective,
     pairwise_headstage_clearances,
 )
-from aind_low_point.optimization.recording import RecordingGeometry
 
 # -- VariableLayout --------------------------------------------------------
 
@@ -144,7 +144,7 @@ def test_headstage_capsule_above_pose_tip():
 def test_pairwise_headstage_clearance_two_capsules():
     """Two parallel headstage capsules at xy-offset 4 mm, radii 2 each
     → clearance = 4 - 4 = 0 (touching)."""
-    from aind_low_point.optimization.objective import ProbeEvaluation
+    from aind_low_point.optimization.objectives.scalar import ProbeEvaluation
 
     cap_a = Capsule(np.array([0, 0, 10]), np.array([0, 0, 15]), 2.0)
     cap_b = Capsule(np.array([4, 0, 10]), np.array([4, 0, 15]), 2.0)
@@ -172,7 +172,7 @@ def test_pairwise_headstage_clearance_two_capsules():
 
 
 def test_pairwise_headstage_clearance_single_probe_empty():
-    from aind_low_point.optimization.objective import ProbeEvaluation
+    from aind_low_point.optimization.objectives.scalar import ProbeEvaluation
 
     evals = [
         ProbeEvaluation(
@@ -335,7 +335,7 @@ def test_make_objective_returns_callable():
     x = np.array([0.0, 0.0, 0.0, 0.375, 0.0, 0.5525])
     assert isinstance(J(x), float)
     # Same value as scalar_objective
-    from aind_low_point.optimization.objective import scalar_objective
+    from aind_low_point.optimization.objectives.scalar import scalar_objective
 
     assert J(x) == scalar_objective(x, ctx)
 

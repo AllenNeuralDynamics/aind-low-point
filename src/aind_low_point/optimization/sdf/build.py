@@ -9,7 +9,7 @@ interpolate, getting a continuous signed distance and (via finite-diff
 on the grid or analytic on the interp formula) a smooth gradient.
 
 This module just builds and caches the grids. Lookup happens in
-:mod:`aind_low_point.optimization.sdf_jax` (separate to keep JAX
+:mod:`aind_low_point.optimization.sdf.kernels` (separate to keep JAX
 imports out of the path that just needs a grid).
 
 Generation uses ``libigl``'s pseudonormal SDF — typically 0.2–0.3 μs
@@ -43,7 +43,7 @@ class ProbeSDF:
     ``world_local_pt = origin + i * spacing`` for each integer index
     ``i`` along the three axes. Look up at a continuous local-frame
     point ``p`` by trilinear or tricubic interpolation in
-    :mod:`aind_low_point.optimization.sdf_jax`.
+    :mod:`aind_low_point.optimization.sdf.kernels`.
 
     Outside the grid bbox the SDF should be treated as ``+spacing * 10``
     or similar large positive — the probe is "definitely far" — since
@@ -251,7 +251,7 @@ def build_probe_sdf_from_alpha_wrap(
     headframe) — they have no shanks; stripping anything in the
     shank-zone classifier (z ≤ 10.5 mm) would erase the whole mesh.
     """
-    from aind_low_point.optimization.envelope import (
+    from aind_low_point.optimization.sdf.envelope import (
         build_alpha_wrap_envelope,
         extract_shank_obbs,
         floor_shank_half_extents,

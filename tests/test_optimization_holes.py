@@ -1,4 +1,4 @@
-"""Tests for ``aind_low_point.optimization.holes``."""
+"""Tests for ``aind_low_point.optimization.geometry.holes``."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import yaml
 
-from aind_low_point.optimization.holes import (
+from aind_low_point.optimization.geometry.holes import (
     Hole,
     find_hole_by_id,
     load_holes,

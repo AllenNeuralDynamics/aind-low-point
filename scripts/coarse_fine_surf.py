@@ -34,9 +34,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.optimizer_vars import build_y
-from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
+from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_low_point.optimization.objectives.phase1 import Phase1Weights
+from aind_low_point.optimization.objectives.probe_static import _build_probe_static
+from aind_low_point.optimization.objectives.variables import build_y
 from aind_low_point.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
@@ -50,7 +51,6 @@ from aind_low_point.optimization.pipeline.phase1_geometry import (
     phase1_bounds,
 )
 from aind_low_point.optimization.pipeline.restore import setup
-from aind_low_point.optimization.probe_static import _build_probe_static
 from aind_low_point.optimization.sdf import build_sdf_by_name
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.log_candidate_trajectories import (

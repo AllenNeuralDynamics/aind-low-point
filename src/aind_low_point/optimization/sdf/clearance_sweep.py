@@ -41,7 +41,7 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 
-from aind_low_point.optimization.sdf_jax import (
+from aind_low_point.optimization.sdf.kernels import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     dual_rep_fixture_clearance,

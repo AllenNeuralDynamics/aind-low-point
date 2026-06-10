@@ -36,7 +36,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from aind_low_point.optimization.geometry import Capsule
-from aind_low_point.optimization.recording import RecordingGeometry
+from aind_low_point.optimization.geometry.recording import RecordingGeometry
 
 DensityFn = Callable[[NDArray[np.floating]], NDArray[np.floating]]
 

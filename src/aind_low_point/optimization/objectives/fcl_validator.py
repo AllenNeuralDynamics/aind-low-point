@@ -24,8 +24,8 @@ import fcl
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.kinematics import pose_from_optimizer_vars
-from aind_low_point.optimization.phase1_objective_jax import (
+from aind_low_point.optimization.geometry.kinematics import pose_from_optimizer_vars
+from aind_low_point.optimization.objectives.phase1 import (
     PHASE1_PER_PROBE_VARS,
     FixtureSDFData,
 )

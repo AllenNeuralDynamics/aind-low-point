@@ -157,13 +157,13 @@ def _setup_compile_cache():
 def _init():
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap)."""
     _setup_compile_cache()
+    from aind_low_point.optimization.objectives.probe_static import _build_probe_static
     from aind_low_point.optimization.pipeline.phase1_geometry import (
         build_coverage_data,
     )
     from aind_low_point.optimization.pipeline.runtime_adapter import (
         OptimizationRuntime,
     )
-    from aind_low_point.optimization.probe_static import _build_probe_static
 
     opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
     assets = opt.build_problem_assets(well_mode=WELL, include_brain=True)
@@ -213,7 +213,7 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
     if not COV_NORM:
         return {}
     if _G.get("cov_norm") is None:
-        from aind_low_point.optimization.coverage_jax import (
+        from aind_low_point.optimization.objectives.coverage import (
             coverage_ceiling_per_probe,
         )
 
@@ -229,14 +229,17 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
 def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from scipy.optimize import minimize
 
-    from aind_low_point.optimization.coverage_jax import (
+    from aind_low_point.optimization.objectives.coverage import (
         coverage_total_over_probes,
     )
-    from aind_low_point.optimization.fcl_validator import make_fcl_validator
-    from aind_low_point.optimization.optimizer_vars import _poses, worst_threading_g
-    from aind_low_point.optimization.phase2_objective_jax import (
+    from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
+    from aind_low_point.optimization.objectives.phase2 import (
         Phase2Weights,
         make_phase2,
+    )
+    from aind_low_point.optimization.objectives.variables import (
+        _poses,
+        worst_threading_g,
     )
     from aind_low_point.optimization.pipeline.phase1_geometry import phase1_bounds
 
@@ -379,7 +382,7 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
     compile cache is warm; spawned workers then LOAD instead of all compiling
     simultaneously (the OOM cause). Evals the jit callables (triggers compile)
     without running the full minimize."""
-    from aind_low_point.optimization.phase2_objective_jax import (
+    from aind_low_point.optimization.objectives.phase2 import (
         Phase2Weights,
         make_phase2,
     )

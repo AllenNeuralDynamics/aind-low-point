@@ -13,7 +13,7 @@ from typing import Any, Callable, NamedTuple, Protocol, TypedDict
 
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.atlas import Atlas
+from aind_low_point.optimization.enumeration.atlas import Atlas
 
 Array = NDArray[Any]
 ProbeName = str

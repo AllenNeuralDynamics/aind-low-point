@@ -32,11 +32,11 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.atlas import Atlas, AtlasEntry, PoseAnchor
+from aind_low_point.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_low_point.optimization.geometry import cap_basis
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.recording import get_recording_geometry
-from aind_low_point.optimization.sdf_jax import arc_angles_to_rotation
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.recording import get_recording_geometry
+from aind_low_point.optimization.sdf.kernels import arc_angles_to_rotation
 
 # ---------------------------------------------------------------------------
 # NumPy helpers (pre-compute / pack)

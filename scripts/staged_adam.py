@@ -34,18 +34,24 @@ import pickle
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.arc_first_principled import emit_seed
-from aind_low_point.optimization.batched_objective import (
+from aind_low_point.optimization.enumeration.seed_emission import emit_seed
+from aind_low_point.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
 )
-from aind_low_point.optimization.batched_spin_restore import (
+from aind_low_point.optimization.objectives.batched_static import (
+    build_batched_probe_static,
+)
+from aind_low_point.optimization.objectives.coverage import coverage_total_over_probes
+from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_low_point.optimization.objectives.phase1 import Phase1Weights
+from aind_low_point.optimization.objectives.probe_static import (
+    JointWeights,
+    _build_probe_static,
+)
+from aind_low_point.optimization.objectives.spin_restore import (
     make_batched_spin_restore_partial,
 )
-from aind_low_point.optimization.batched_static import build_batched_probe_static
-from aind_low_point.optimization.coverage_jax import coverage_total_over_probes
-from aind_low_point.optimization.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.optimizer_vars import _poses
-from aind_low_point.optimization.phase1_objective_jax import Phase1Weights
+from aind_low_point.optimization.objectives.variables import _poses
 from aind_low_point.optimization.pipeline.enumeration import (
     MIN_ARC_AP_SEP_DEG,
     MIN_ML_SEP_DEG,
@@ -67,7 +73,6 @@ from aind_low_point.optimization.pipeline.restore import (
     setup,
     spins_deg_from_reduced,
 )
-from aind_low_point.optimization.probe_static import JointWeights, _build_probe_static
 
 PPV = 6
 STAGE1 = int(_os.environ.get("STAGE1", "500"))

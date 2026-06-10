@@ -28,18 +28,18 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.geometry import shaft_section_oval_value
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.kinematics import (
-    pose_from_optimizer_vars,
-    shank_capsules_from_pose,
-)
-from aind_low_point.optimization.optimize import ProbeStaticInfo
-from aind_low_point.optimization.pose_bank import (
+from aind_low_point.optimization.enumeration.pose_bank import (
     PoseBankProbe,
     multi_pose_evaluate,
 )
-from aind_low_point.optimization.recording import (
+from aind_low_point.optimization.geometry import shaft_section_oval_value
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.kinematics import (
+    pose_from_optimizer_vars,
+    shank_capsules_from_pose,
+)
+from aind_low_point.optimization.geometry.probes import ProbeStaticInfo
+from aind_low_point.optimization.geometry.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )

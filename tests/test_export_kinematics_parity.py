@@ -1,7 +1,8 @@
-"""Guard the two-codebase kinematics drift behind the rig export.
+"""Guard optimizer/export kinematics parity behind the rig export.
 
-The optimizer builds probe rotations with ``sdf_jax.arc_angles_to_rotation``; the
-app / rig export (``ProbePose``, ``export_plan_geometry``) builds them with
+The optimizer builds probe rotations with
+``sdf.kernels.arc_angles_to_rotation``; the app / rig export (``ProbePose``,
+``export_plan_geometry``) builds them with
 ``aind_mri_utils.arc_angles.arc_angles_to_affine``. The emitted rig poses are only
 faithful to the optimized poses if those two agree. This caught a real class of bug
 (the retro-target frame + rig-AP sign issues); keep it in CI so the two builders
@@ -15,7 +16,7 @@ import numpy as np
 import pytest
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 
-from aind_low_point.optimization.sdf_jax import arc_angles_to_rotation
+from aind_low_point.optimization.sdf.kernels import arc_angles_to_rotation
 
 
 @pytest.mark.parametrize(

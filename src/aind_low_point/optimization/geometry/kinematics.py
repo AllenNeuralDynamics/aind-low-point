@@ -19,8 +19,8 @@ Wraps the rig kinematics in a few thin functions:
   arc clustering. Pure function of the hole axis.
 
 Numpy-only for v1; the operations are all standard linear algebra and
-trig, which JAX can trace as-is once we wire ``jax.numpy`` into
-``objective.py``.
+trig, which JAX can trace as-is once callers use the JAX kernels in
+``optimization.sdf.kernels`` and ``optimization.objectives``.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 from numpy.typing import ArrayLike, NDArray
 
-from aind_low_point.optimization.geometry import Capsule
-from aind_low_point.optimization.holes import Hole
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.primitives import Capsule
 
 
 def pose_from_optimizer_vars(

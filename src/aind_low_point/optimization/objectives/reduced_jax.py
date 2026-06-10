@@ -46,7 +46,7 @@ except Exception:
     # back to per-process in-memory caching.
     pass
 
-from aind_low_point.optimization.sdf_jax import (  # noqa: E402
+from aind_low_point.optimization.sdf.kernels import (  # noqa: E402
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
     pose_from_optimizer_vars,

@@ -27,7 +27,8 @@ import pickle
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.optimizer_vars import build_y
+from aind_low_point.optimization.objectives.probe_static import _build_probe_static
+from aind_low_point.optimization.objectives.variables import build_y
 from aind_low_point.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
@@ -45,7 +46,6 @@ from aind_low_point.optimization.pipeline.thick_well import (
     fit_well_cone,
     make_thick_well_sdf,
 )
-from aind_low_point.optimization.probe_static import _build_probe_static
 from aind_low_point.runtime.transforms import compile_all_transforms
 from scripts.log_candidate_trajectories import reduced_lohi, restore_spins_mrv
 

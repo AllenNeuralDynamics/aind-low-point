@@ -251,7 +251,7 @@ def _default_probe_pivot_local(
     Returns ``None`` if the asset is not a probe, the kind isn't registered,
     or the mesh has no detectable shank tips.
     """
-    from aind_low_point.optimization.recording import RECORDING_GEOMETRY
+    from aind_low_point.optimization.geometry.recording import RECORDING_GEOMETRY
     from aind_low_point.runtime.shanks import detect_shank_tips_local
 
     if not isinstance(a.key, str) or not a.key.startswith("probe:"):
@@ -281,7 +281,7 @@ def build_asset_spec(
     chem: ChemShiftContext,
     canon: Optional[CanonicalizationRuntime],
 ) -> AssetSpec:
-    from aind_low_point.optimization.headstages import build_headstage_hull
+    from aind_low_point.optimization.geometry.headstages import build_headstage_hull
 
     mesh_tf: MeshTransformable | None = None
     pts_tf: PointsTransformable | None = None

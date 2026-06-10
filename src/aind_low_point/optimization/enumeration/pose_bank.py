@@ -7,17 +7,17 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_low_point.optimization.density import coverage, gaussian_density
 from aind_low_point.optimization.geometry import shaft_section_oval_value
-from aind_low_point.optimization.holes import Hole
-from aind_low_point.optimization.kinematics import (
+from aind_low_point.optimization.geometry.holes import Hole
+from aind_low_point.optimization.geometry.kinematics import (
     pose_at_hole_best_fit,
     shank_capsules_from_pose,
 )
-from aind_low_point.optimization.recording import (
+from aind_low_point.optimization.geometry.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )
+from aind_low_point.optimization.objectives.density import coverage, gaussian_density
 
 
 @dataclass(frozen=True)
