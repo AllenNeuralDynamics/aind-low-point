@@ -68,6 +68,11 @@ MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
 LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "5.0"))
 TAU_CLEAR = float(_os.environ.get("TAU_CLEAR", "0.8"))
 FCL_TOL = float(_os.environ.get("FCL_TOL", "0.2"))
+# Threading keep band (g-units): a candidate stays in the handoff if its worst
+# threading g <= G_TOL (mildly-infeasible-but-human-fixable), independent of FCL.
+# A separate STRICT flag (g <= 0) marks truly threaded plans. Threading never
+# hard-gates before this final report.
+G_TOL = float(_os.environ.get("G_TOL", "0.2"))
 MMR_LAMBDA = float(_os.environ.get("MMR_LAMBDA", "0.5"))
 # Second-order mode for trust-constr: "none" (BFGS approx, default/fast),
 # "dense" (exact n×n Hessian — ~44x slower), or "hessp" (exact Hessian-VECTOR
@@ -375,6 +380,8 @@ def _phase2_one(rec):
         max_g_thread=max_g_thread,
         coverage=cov,
         pose=res.x,
+        pose_in=pose,  # Phase-1 input pose (full@end), persisted for inspection
+        objective_p1=rec.get("objective"),  # the Phase-1 objective it was culled by
         nit=int(res.nit),
         secs=dt,
         hole=dict(rec["probe_to_hole"]),
@@ -467,8 +474,15 @@ def main() -> int:
     # NO FCL cull between Phase 1 and 2 — rank the Phase-1 pool by soft min_clear
     # (SELECT_BY), best first, and hand the top-TOPK to Phase 2. FCL runs once at
     # the end as the ground-truth gate.
+    # SELECT_BY=objective ranks by the TOTAL Phase-1 objective (lower is better —
+    # it already blends clearance + normalized coverage + threading penalty), so
+    # sort ASCENDING. The clearance-style metrics (min_clear) are higher-is-better
+    # → descending.
+    _asc = SELECT_BY == "objective"
     order = sorted(
-        range(len(all_recs)), key=lambda i: -float(all_recs[i].get(SELECT_BY, -1e9))
+        range(len(all_recs)),
+        key=lambda i: float(all_recs[i].get(SELECT_BY, 1e18 if _asc else -1e9)),
+        reverse=not _asc,
     )
     # RANKS overrides top-TOPK: an explicit rank list into the sorted order, to
     # probe where good feasibles stop appearing rather than guessing a cutoff.
@@ -490,6 +504,7 @@ def main() -> int:
             probe_to_arc_idx=r["probe_to_arc_idx"],
             arc_centroids_deg=r["arc_centroids_deg"],
             min_clear=r.get("min_clear"),
+            objective=r.get("objective"),
             rank=rank,
         )
 
@@ -548,10 +563,24 @@ def main() -> int:
     # implant solid (mis-threaded, g >> 0) gets fcl < 0 and is dropped here —
     # no separate threading gate needed. ``max_g_thread`` is logged for insight
     # into how close the kept plans sit to their bore walls.
-    feas = [r for r in results if r["fcl"] >= -FCL_TOL]
+    # Two independent feasibility axes, both REPORTED not hard-gated upstream:
+    #   FCL (probe/fixture/implant collisions, mm) and threading g (bore fit).
+    # STRICT = truly feasible on both; the KEEP band admits mildly-infeasible
+    # plans a human can still salvage (FCL>=-FCL_TOL AND g<=G_TOL). Dropped plans
+    # remain in ``all`` (with pose_in + pose) for morning inspection.
+    for r in results:
+        g = r.get("max_g_thread", float("nan"))
+        r["fcl_strict"] = bool(r["fcl"] >= -1e-4)
+        r["thread_strict"] = bool(np.isfinite(g) and g <= 0.0)
+        r["strict_feasible"] = bool(r["fcl_strict"] and r["thread_strict"])
+        r["fcl_keep"] = bool(r["fcl"] >= -FCL_TOL)
+        r["thread_keep"] = bool(np.isfinite(g) and g <= G_TOL)
+        r["kept"] = bool(r["fcl_keep"] and r["thread_keep"])
+    feas = [r for r in results if r["kept"]]
     print(
-        f"  FCL (incl. implant) >= -{FCL_TOL}: {len(feas)}/{len(results)} "
-        f"(strictly feasible: {sum(1 for r in results if r['fcl'] >= -1e-4)})"
+        f"  KEEP band FCL>=-{FCL_TOL} AND g<=+{G_TOL}: {len(feas)}/{len(results)}  "
+        f"(STRICT FCL>=-1e-4 AND g<=0: "
+        f"{sum(1 for r in results if r['strict_feasible'])})"
     )
     g_kept = [r.get("max_g_thread", float("nan")) for r in feas]
     if g_kept:
@@ -566,11 +595,16 @@ def main() -> int:
     # so we can see where in the distribution good feasibles stop appearing.
     by_rank = sorted(results, key=lambda r: r["rank"])
     print("\n=== per-candidate (rank-ordered) ===")
-    print(f"{'rank':>5} {'cand':>6} {'fcl':>8} {'≥-.2':>4} {'coverage':>9}")
+    print(
+        f"{'rank':>5} {'cand':>6} {'fcl':>8} {'max_g':>7} "
+        f"{'keep':>4} {'strict':>6} {'coverage':>9}"
+    )
     for r in by_rank:
         print(
             f"{r['rank']:>5} {r['idx']:>6} {r['fcl']:>+8.4f} "
-            f"{'Y' if r['fcl'] >= -FCL_TOL else 'n':>4} {r['coverage']:>9.3f}"
+            f"{r.get('max_g_thread', float('nan')):>+7.3f} "
+            f"{'Y' if r['kept'] else 'n':>4} "
+            f"{'Y' if r['strict_feasible'] else 'n':>6} {r['coverage']:>9.3f}"
         )
     ranked = _mmr_rank(feas, MMR_LAMBDA)
 
@@ -599,6 +633,7 @@ def main() -> int:
                     tau_clear=TAU_CLEAR,
                     p2_iter=P2_ITER,
                     fcl_tol=FCL_TOL,
+                    g_tol=G_TOL,
                     mmr_lambda=MMR_LAMBDA,
                     well=WELL,
                     solver=SOLVER,
