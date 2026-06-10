@@ -101,6 +101,37 @@ def planning_state_to_plan_model(
     )
 
 
+def reorder_plan_for_rig(state: PlanningState) -> None:
+    """In-place rig-readability ordering of a PlanningState (cosmetic; pose
+    semantics unchanged).
+
+    - **Arcs relabelled by AP**: ``a`` is the most-positive-AP arc, ``b`` next,
+      etc. (both ``kinematics.arc_angles`` keys and each probe's ``arc_id``).
+    - **Probes ordered** by arc ascending (``a`` first) then ML descending
+      (positive ML first) — the order an experimenter reads them off at the rig.
+
+    Mutates the underlying dicts in place (clear+update) so it works regardless
+    of dataclass field mutability.
+    """
+    arc_angles = dict(state.kinematics.arc_angles)
+    order = sorted(arc_angles, key=lambda k: -arc_angles[k])  # most +AP first
+    remap = {old: chr(ord("a") + i) for i, old in enumerate(order)}
+    state.kinematics.arc_angles.clear()
+    for old in order:
+        state.kinematics.arc_angles[remap[old]] = arc_angles[old]
+    for plan in state.probes.values():
+        if plan.arc_id in remap:
+            plan.arc_id = remap[plan.arc_id]
+    ordered = dict(
+        sorted(
+            state.probes.items(),
+            key=lambda kv: (kv[1].arc_id or "z", -float(kv[1].ml_local or 0.0)),
+        )
+    )
+    state.probes.clear()
+    state.probes.update(ordered)
+
+
 def _depth_along_probe_axis(
     tip_lps: np.ndarray,
     probe_axis_world: np.ndarray,
@@ -149,6 +180,9 @@ def export_plan_geometry(
 
     The dict is yaml-serialisable. Intended for ``yaml.safe_dump``.
     """
+    # Rig-readability ordering: arcs relabelled by AP (a = most +AP), probes
+    # sorted by arc then ML-descending. Cosmetic; does not change poses.
+    reorder_plan_for_rig(plan_state)
     brain_mesh = None
     if scene is not None:
         from aind_low_point.scene import resolve_base_geometry
@@ -231,13 +265,14 @@ def export_plan_geometry(
                 "position_RAS_mm": target_ras,
             },
             "arc": {"id": plan.arc_id} if plan.arc_id else None,
-            "angles_subject_deg": {
-                "ap": float(pose.ap),
+            # Rig-mechanical angles first — these are what's dialed at the rig.
+            "angles_rig_deg": {
+                "ap": ap_rig,
                 "ml": float(pose.ml),
                 "spin": float(pose.spin),
             },
-            "angles_rig_deg": {
-                "ap": ap_rig,
+            "angles_subject_deg": {
+                "ap": float(pose.ap),
                 "ml": float(pose.ml),
                 "spin": float(pose.spin),
             },

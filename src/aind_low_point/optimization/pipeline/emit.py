@@ -33,6 +33,7 @@ from aind_low_point.runtime import (
     build_plan_state_from_config,
     planning_state_to_plan_model,
 )
+from aind_low_point.runtime.export import reorder_plan_for_rig
 
 CONFIG = os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
@@ -170,6 +171,9 @@ def main() -> int:
         _apply_x_to_plan_state(
             plan_state, np.asarray(r["pose"], float), statics, n_arcs
         )
+        # Rig-readability ordering: arcs relabelled a=most-+AP, probes sorted by
+        # arc then ML-descending. Cosmetic; pose semantics unchanged.
+        reorder_plan_for_rig(plan_state)
         # PLAN-ONLY file (just the plan section) so it pairs with the base config
         # via ``--plan``. Filename encodes the hole assignment (matches the tree).
         plan_model = planning_state_to_plan_model(plan_state, cfg.plan)
