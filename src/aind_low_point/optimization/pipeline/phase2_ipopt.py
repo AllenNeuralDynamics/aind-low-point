@@ -193,6 +193,29 @@ def _init():
         fx = tuple(well_thick if f.name == "well" else f for f in fx)
     fbvh = {f.name: make_fcl_bvh(rt.asset_catalog.get_geometry(f.name).raw) for f in fx}
     brain_sdf = maybe_build_brain_sdf(rt, comp)
+    # FCL gate fixtures: the soft-SDF fixtures PLUS the implant. The implant is
+    # excluded from the soft constraints (its bores are handled by the threading
+    # term — a solid implant SDF would block every probe), but it MUST be in the
+    # ground-truth FCL gate: a shank that mis-threads pierces the implant solid
+    # while clearing every other body, so without this the broken plans pass.
+    # The implant mesh has the bores cut out, so a correctly-threaded probe
+    # passes through cleanly. ``fcl_fixtures`` only needs ``.name`` for the
+    # validator's BVH lookup.
+    from types import SimpleNamespace
+
+    from aind_low_point.scene import resolve_base_geometry
+
+    fcl_fixtures = fx
+    fcl_fbvh = dict(fbvh)
+    # Implant must be placed in WORLD LPS (its scene transform is implant_to_lps,
+    # NOT identity) — using the catalog ``.raw`` (local frame) mis-places it by
+    # ~0.6 mm and corrupts the gate. resolve_base_geometry applies the scene
+    # transform, matching the frame the probes and the implant_to_lps-transformed
+    # bores live in.
+    impl_t = resolve_base_geometry(rt.asset_catalog, rt.scene, "implant")
+    if impl_t is not None:
+        fcl_fbvh["implant"] = make_fcl_bvh(impl_t.raw)
+        fcl_fixtures = tuple(fx) + (SimpleNamespace(name="implant"),)
     _G.update(
         probes=probes,
         holes=holes,
@@ -200,6 +223,8 @@ def _init():
         bvh=bvh,
         fx=fx,
         fbvh=fbvh,
+        fcl_fixtures=fcl_fixtures,
+        fcl_fbvh=fcl_fbvh,
         brain_sdf=brain_sdf,
         cov_data=None,
         n_probes=len(probes),
@@ -251,7 +276,7 @@ def _phase2_one(rec):
     from aind_low_point.optimization.coverage_jax import (
         coverage_total_over_probes,
     )
-    from aind_low_point.optimization.optimizer_vars import _poses
+    from aind_low_point.optimization.optimizer_vars import _poses, worst_threading_g
     from aind_low_point.optimization.pipeline.phase1_geometry import phase1_bounds
     from aind_low_point.optimization.stage3_phase2_jax import (
         Phase2Weights,
@@ -333,9 +358,13 @@ def _phase2_one(rec):
         )
     dt = time.perf_counter() - t0
     v = make_fcl_validator(
-        st, n_arcs, fixtures=tuple(_G["fx"]), fixture_bvhs=_G["fbvh"]
+        st, n_arcs, fixtures=tuple(_G["fcl_fixtures"]), fixture_bvhs=_G["fcl_fbvh"]
     )
     fcl = float(np.asarray(v.slacks(res.x)).min())
+    # Threading-feasibility of the SOLVED pose. IPOPT can return a pose that
+    # satisfies probe↔probe FCL but failed its threading constraint (g >> 0,
+    # shank nowhere near the bore). Record the worst g so main() can gate it.
+    max_g_thread = worst_threading_g(st, np.asarray(res.x, float), n_arcs)
     Rs, ts, tp, mk = _poses(st, np.asarray(res.x, float), n_arcs)
     cov = float(coverage_total_over_probes(Rs, ts, tp, mk, cov_data, 41))
     return dict(
@@ -343,6 +372,7 @@ def _phase2_one(rec):
         rank=rank,
         n_arcs=n_arcs,
         fcl=fcl,
+        max_g_thread=max_g_thread,
         coverage=cov,
         pose=res.x,
         nit=int(res.nit),
@@ -364,6 +394,8 @@ def _similarity(a, b):
 def _mmr_rank(rows, lam):
     """Greedy MMR: coverage primary, penalize similarity to picked."""
     pool = list(rows)
+    if not pool:
+        return []
     cmax = max(r["coverage"] for r in pool)
     cmin = min(r["coverage"] for r in pool)
     span = max(cmax - cmin, 1e-9)
@@ -512,11 +544,23 @@ def main() -> int:
         f"{[round(r['secs']) for r in results]}"
     )
 
+    # The FCL gate now includes the implant, so a plan whose shank pierces the
+    # implant solid (mis-threaded, g >> 0) gets fcl < 0 and is dropped here —
+    # no separate threading gate needed. ``max_g_thread`` is logged for insight
+    # into how close the kept plans sit to their bore walls.
     feas = [r for r in results if r["fcl"] >= -FCL_TOL]
     print(
-        f"  FCL >= -{FCL_TOL}: {len(feas)}/{len(results)} "
+        f"  FCL (incl. implant) >= -{FCL_TOL}: {len(feas)}/{len(results)} "
         f"(strictly feasible: {sum(1 for r in results if r['fcl'] >= -1e-4)})"
     )
+    g_kept = [r.get("max_g_thread", float("nan")) for r in feas]
+    if g_kept:
+        import numpy as _np
+
+        print(
+            f"  kept-plan threading g: max={_np.nanmax(g_kept):+.3f} "
+            f"median={_np.nanmedian(g_kept):+.3f} (g<=0 ⇒ shank inside inset bore)"
+        )
 
     # Stratification view: feasibility + post-Phase-2 coverage vs rerank rank,
     # so we can see where in the distribution good feasibles stop appearing.

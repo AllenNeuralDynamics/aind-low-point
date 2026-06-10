@@ -81,6 +81,46 @@ def _poses(st, x, n_arcs):
     return jnp.stack(Rs), jnp.stack(ts), jnp.asarray(tips_p), jnp.asarray(mask_p)
 
 
+def worst_threading_g(statics, x, n_arcs) -> float:
+    """Worst-case threading ``g`` across all probes/shanks/sections at pose ``x``.
+
+    ``g <= 0`` means the (margin-inset) shank centerline clears its bore oval;
+    ``g > 0`` means it pierces the wall. Returns the single worst (max) ``g``
+    over every probe — a scalar threading-feasibility summary for a final pose.
+
+    Evaluated at the **full** world pose from :func:`_poses` (offsets and depth
+    included), so it is valid for Phase-2 outputs where IPOPT optimizes the
+    offsets — unlike :func:`joint_rerank._max_g_threading`, which assumes the
+    reduced/atlas convention (offsets pinned to 0). A recorded diagnostic; the
+    hard accept/reject gate is the FCL validator (which includes the implant).
+    """
+    from aind_low_point.optimization.joint_rerank_jax import threading_g_matrix
+
+    Rs, ts, _tips, _mk = _poses(statics, np.asarray(x, dtype=np.float64), n_arcs)
+    Rs = np.asarray(Rs, dtype=np.float64)
+    ts = np.asarray(ts, dtype=np.float64)
+    worst = -np.inf
+    for i, s in enumerate(statics):
+        g = np.asarray(
+            threading_g_matrix(
+                jnp.asarray(Rs[i], jnp.float32),
+                jnp.asarray(ts[i], jnp.float32),
+                jnp.asarray(s.shank_tips_local, jnp.float32),
+                s.section_axes,
+                s.section_centers,
+                s.section_e1,
+                s.section_e2,
+                s.section_cos_theta,
+                s.section_sin_theta,
+                s.section_a,
+                s.section_b,
+            )
+        )
+        if g.size:
+            worst = max(worst, float(np.nanmax(g)))
+    return worst if np.isfinite(worst) else 0.0
+
+
 def _apply_x_to_plan_state(plan_state, x, statics, n_arcs):
     """Mutate plan_state to reflect Phase 1/2's 45-dim ``x``.
 

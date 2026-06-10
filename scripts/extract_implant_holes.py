@@ -45,7 +45,7 @@ YAML with a ``holes`` list:
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -284,6 +284,73 @@ def _bore_axis_extent(
     return s_min, s_max
 
 
+def _narrow_bore_span(
+    mesh: trimesh.Trimesh,
+    center: np.ndarray,
+    axis: np.ndarray,
+    *,
+    narrow_mm: float = 0.40,
+    flat_delta_mm: float = 0.03,
+    step_mm: float = 0.02,
+    reach_mm: float = 1.6,
+) -> tuple[float, float] | None:
+    """Find the constant-diameter channel span ``(s_bottom, s_flare)`` of a bore
+    that flares into a chamfered mouth.
+
+    Scans cross-sections perpendicular to ``axis`` at ``center + s*axis`` and
+    records the nearest wall distance ``r(s)`` (the inscribed minor of the bore
+    ring nearest the axis). ``r`` is large below the implant (exit), flat through
+    the constant channel, and rises through the chamfer. Returns:
+
+    - ``s_bottom`` = inferior end of the longest contiguous ``r <= narrow_mm``
+      run (the implant bottom — ``r`` jumps to the exit zone just below it).
+    - ``s_flare`` = superior end where ``r`` first departs the flat channel value
+      by ``flat_delta_mm`` (the chamfer onset / top of the narrow inner bore).
+
+    ``None`` if no narrow run is found (caller falls back to the wall extent).
+    """
+    ss = np.arange(-reach_mm, reach_mm, step_mm)
+    r: list[float | None] = []
+    for s in ss:
+        o = center + s * axis
+        sec = mesh.section(plane_origin=o, plane_normal=axis)
+        rmin = None
+        if sec is not None:
+            cand = [
+                float(np.linalg.norm(p - o, axis=1).min())
+                for p in sec.discrete
+                if np.linalg.norm(p.mean(0) - o) < 1.0
+            ]
+            if cand:
+                rmin = min(cand)
+        r.append(rmin)
+    nar = [rv is not None and rv <= narrow_mm for rv in r]
+    best_len, best = 0, None
+    i = 0
+    while i < len(ss):
+        if nar[i]:
+            j = i
+            while j + 1 < len(ss) and nar[j + 1]:
+                j += 1
+            if j - i > best_len:
+                best_len, best = j - i, (i, j)
+            i = j + 1
+        else:
+            i += 1
+    if best is None:
+        return None
+    i0, i1 = best
+    run_r = [v for k in range(i0, i1 + 1) if (v := r[k]) is not None]
+    rflat = min(run_r)
+    s_bottom = float(ss[i0])
+    s_flare = max(
+        float(ss[k])
+        for k in range(i0, i1 + 1)
+        if (rk := r[k]) is not None and rk <= rflat + flat_delta_mm
+    )
+    return s_bottom, s_flare
+
+
 def _section_at(
     mesh: trimesh.Trimesh,
     center: np.ndarray,
@@ -328,19 +395,22 @@ def _section_at(
 # ---------------------------------------------------------------------------
 
 
-def extract_holes(
+def extract_holes(  # noqa: C901
     mesh: trimesh.Trimesh,
     *,
     axis_global: np.ndarray = np.array([0.0, 0.0, 1.0]),
     max_outer_ray_mm: float = 1.3,
     ray_offset_mm: float = 5e-4,
     min_face_count: int = 6,
-    n_sections: int = 3,
+    n_sections: int = 2,
     max_ring_radius: float = 1.0,
     section_inset_mm: float = 0.05,
     max_section_a: float = 1.0,
     min_section_a: float = 0.10,
     max_tilt_deg: float = 80.0,
+    channel_a: float | None = None,
+    channel_b: float | None = None,
+    narrow_bore_span: bool = False,
 ) -> list[Hole]:
     if not mesh.is_watertight:
         print("warning: mesh is not watertight — outer-ray SDF may misclassify faces")
@@ -374,9 +444,25 @@ def extract_holes(
             )
             continue
 
-        s_min, s_max = _bore_axis_extent(
-            mesh, fmask, axis, ctr, margin=section_inset_mm
-        )
+        # Section sampling range. Default = the full bore-wall vertex extent.
+        # With narrow_bore_span, restrict to the constant-diameter channel
+        # (implant bottom -> chamfer onset) so sections sample only the narrow
+        # inner bore, not the flared mouth (whose wide cross-section inflates
+        # the fit and over-constrains the entrance).
+        if narrow_bore_span:
+            span = _narrow_bore_span(mesh, ctr, axis)
+            if span is None:
+                skipped.append(f"  bore #{bid}: skip (no narrow-bore span)")
+                continue
+            s_min, s_max = span  # (s_bottom inferior, s_flare superior)
+            # Inset inferior end by the same margin used in _bore_axis_extent so
+            # _section_at samples safely away from the mesh edge (where the bore
+            # ring may be incomplete and the wrong ring can be selected).
+            s_min += section_inset_mm
+        else:
+            s_min, s_max = _bore_axis_extent(
+                mesh, fmask, axis, ctr, margin=section_inset_mm
+            )
         if (s_max - s_min) <= 0:
             skipped.append(f"  bore #{bid}: skip (zero axial extent)")
             continue
@@ -406,6 +492,25 @@ def extract_holes(
             )
             continue
         sections.sort(key=lambda s: -s.s_mm)
+        # Spec override: the deep channel is a known constant 1.2 x 0.6 mm oval
+        # (a=0.60, b=0.30). The per-section a/b fitted from this non-watertight,
+        # chamfer-flared mesh are unreliable (minor inflated up to +0.09 mm), so
+        # keep the fitted center/axis/theta but replace a/b with the spec. The
+        # fitted a/b are still used above to reject garbage rings.
+        if channel_a is not None and channel_b is not None:
+            sections = [replace(s, a_mm=channel_a, b_mm=channel_b) for s in sections]
+        # Fit theta once from all bore-wall face-centroids in the span (the same
+        # dataset used for the axis estimate). More stable than per-section ring
+        # fitting: uses many more points and avoids slice-level mesh noise.
+        s_bore = (fc[fmask] - ctr) @ axis
+        if narrow_bore_span:
+            in_span = (s_bore >= s_min) & (s_bore <= s_max)
+        else:
+            in_span = np.ones(int(fmask.sum()), dtype=bool)
+        span_fc = fc[fmask][in_span]
+        if span_fc.shape[0] >= 4:
+            _, _, _, theta_bore, _, _ = _fit_oval_in_plane(span_fc, axis)
+            sections = [replace(s, theta_rad=theta_bore) for s in sections]
         holes.append(Hole(axis=axis, ref_point=ctr, sections=sections))
         s0 = sections[0]
         print(
@@ -552,8 +657,9 @@ def main():
     p.add_argument(
         "--n-sections",
         type=int,
-        default=3,
-        help="Sections per hole (top, middle, bottom)",
+        default=2,
+        help="Sections per hole. A straight constant-oval channel is fully "
+        "defined by two end sections (default 2); use 3 for tapered/curved bores.",
     )
     p.add_argument(
         "--max-outer-ray-mm",
@@ -610,6 +716,55 @@ def main():
         help="Reject bores whose largest section a_mm exceeds this",
     )
     p.add_argument(
+        "--alpha-wrap",
+        action="store_true",
+        help="Alpha-wrap the (canonicalized) mesh to a watertight surface "
+        "before extraction. The raw 0283-300-04 OBJ is ~45%% open edges, "
+        "which corrupts the bore-face classification and section rings; "
+        "wrapping repairs it. Run AFTER ASR->LPS canonicalization.",
+    )
+    p.add_argument(
+        "--wrap-alpha",
+        type=float,
+        default=0.1,
+        help="Alpha-wrap characteristic size (mm). Must be well under the "
+        "bore feature (~0.3 mm radius) so the wrap enters the bore "
+        "instead of bridging it. Default 0.1.",
+    )
+    p.add_argument(
+        "--wrap-offset",
+        type=float,
+        default=0.015,
+        help="Alpha-wrap offset (mm). Must be > 0 and < --wrap-alpha per "
+        "CGAL; keep minimal given the small features (it shrinks the "
+        "channel by ~offset). Default 0.015.",
+    )
+    p.add_argument(
+        "--channel-a",
+        type=float,
+        default=None,
+        help="Override fitted oval major half-extent with this known spec "
+        "(mm), keeping the fitted center/axis/theta. The flared chamfer "
+        "makes the mesh fit unreliable; for 0283-300-04 the deep channel "
+        "is 1.2 x 0.6 mm => --channel-a 0.6 --channel-b 0.3.",
+    )
+    p.add_argument(
+        "--channel-b",
+        type=float,
+        default=None,
+        help="Override fitted oval minor half-extent with this known spec (mm).",
+    )
+    p.add_argument(
+        "--narrow-bore-span",
+        action="store_true",
+        help="Place sections within the constant-diameter inner channel only "
+        "(implant bottom -> chamfer onset), found by scanning the nearest-wall "
+        "profile along the bore axis, instead of across the full wall extent. "
+        "For chamfered/flared bores (0283-300-04) this keeps the threading "
+        "sections in the narrow channel. Pair with --n-sections 2 (a straight "
+        "constant-oval channel is fully defined by two end sections).",
+    )
+    p.add_argument(
         "--no-diagram-numbering",
         action="store_true",
         help="Skip the manufacturer's diagram-ID re-assignment step "
@@ -632,6 +787,27 @@ def main():
         f"faces={len(mesh.faces)} bounds_LPS={mesh.bounds.tolist()}"
     )
 
+    if args.alpha_wrap:
+        from aind_low_point.optimization.envelope import build_alpha_wrap_envelope
+
+        if not (0.0 < args.wrap_offset < args.wrap_alpha):
+            raise SystemExit(
+                f"--wrap-offset ({args.wrap_offset}) must be >0 and "
+                f"< --wrap-alpha ({args.wrap_alpha}) per CGAL"
+            )
+        mesh = build_alpha_wrap_envelope(
+            mesh,
+            alpha_mm=args.wrap_alpha,
+            offset_mm=args.wrap_offset,
+            strip_shanks_first=False,
+            use_cache=False,
+        )
+        print(
+            f"Alpha-wrapped (alpha={args.wrap_alpha} offset={args.wrap_offset}): "
+            f"verts={len(mesh.vertices)} faces={len(mesh.faces)} "
+            f"watertight={mesh.is_watertight}"
+        )
+
     axis_global = {"x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}[args.axis]
     holes = extract_holes(
         mesh,
@@ -645,6 +821,9 @@ def main():
         min_section_a=args.min_section_a,
         max_section_a=args.max_section_a,
         max_tilt_deg=args.max_tilt_deg,
+        channel_a=args.channel_a,
+        channel_b=args.channel_b,
+        narrow_bore_span=args.narrow_bore_span,
     )
     if not args.no_diagram_numbering:
         holes = _assign_diagram_ids(holes)
