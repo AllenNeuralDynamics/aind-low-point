@@ -71,11 +71,23 @@ class JointRange:
         return float(min(max(v, self.lo), self.hi))
 
 
+# Rig-mechanical angular limits (deg), as half-ranges about 0. SINGLE SOURCE OF
+# TRUTH: ``PoseLimits`` defaults and every optimizer search bound / enumeration
+# window derive from these — change a limit here and it propagates everywhere
+# (import ``AP_LIMIT_DEG`` / ``ML_LIMIT_DEG`` rather than hardcoding literals).
+AP_LIMIT_DEG: float = 75.0
+ML_LIMIT_DEG: float = 45.0
+
+
 @dataclass(frozen=True, slots=True)
 class PoseLimits:
     # angular limits (deg)
-    ap_deg: JointRange = field(default_factory=lambda: JointRange(-75.0, 75.0))
-    ml_deg: JointRange = field(default_factory=lambda: JointRange(-45.0, 45.0))
+    ap_deg: JointRange = field(
+        default_factory=lambda: JointRange(-AP_LIMIT_DEG, AP_LIMIT_DEG)
+    )
+    ml_deg: JointRange = field(
+        default_factory=lambda: JointRange(-ML_LIMIT_DEG, ML_LIMIT_DEG)
+    )
     spin_deg: JointRange = field(default_factory=lambda: JointRange(-180.0, 180.0))
     # translational work envelope (mm); set to None if unbounded
     x_mm: Optional[JointRange] = None

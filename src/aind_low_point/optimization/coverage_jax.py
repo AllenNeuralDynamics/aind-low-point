@@ -29,6 +29,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
+
 _DEFAULT_KDE_SPACING_MM = 0.1
 _DEFAULT_KDE_PAD_SIGMAS = 4.0
 
@@ -469,7 +471,9 @@ def normalized_coverage_objective(
     # Weighted worst region via the deficit: softmax over w̃·(1 − norm) ≈ the
     # largest priority-weighted shortfall; 1 − that is the soft worst fraction.
     deficit = w_tilde * (1.0 - norm)
-    soft_max_deficit = jax.scipy.special.logsumexp(softmin_beta * deficit) / softmin_beta
+    soft_max_deficit = (
+        jax.scipy.special.logsumexp(softmin_beta * deficit) / softmin_beta
+    )
     l_term = 1.0 - soft_max_deficit
     return (1.0 - alpha) * a_term + alpha * l_term
 
@@ -478,8 +482,8 @@ def coverage_ceiling_per_probe(
     statics,
     coverage_data,
     *,
-    ap_bound_deg=75.0,
-    ml_bound_deg=45.0,
+    ap_bound_deg=AP_LIMIT_DEG,
+    ml_bound_deg=ML_LIMIT_DEG,
     offset_bound_mm=3.0,
     depth_bound_mm=2.0,
     n_samples=41,

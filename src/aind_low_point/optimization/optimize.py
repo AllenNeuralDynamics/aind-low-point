@@ -64,6 +64,7 @@ from aind_low_point.optimization.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 
 # ---------------------------------------------------------------------------
 # Per-probe static info input
@@ -380,14 +381,14 @@ def _default_bounds(ctx: OptimizerContext) -> list[tuple[float, float]]:
     ML and spin ranges are unaffected.
     """
     head_pitch = _head_pitch_about_L_deg(ctx.subject_from_rig_rot)
-    ap_lo = -75.0 + head_pitch
-    ap_hi = +75.0 + head_pitch
+    ap_lo = -AP_LIMIT_DEG + head_pitch
+    ap_hi = +AP_LIMIT_DEG + head_pitch
 
     bounds: list[tuple[float, float]] = []
     for _ in range(ctx.layout.num_arcs):
         bounds.append((ap_lo, ap_hi))  # ap_arc deg — rig limit, shifted by head pitch
     for _ in range(ctx.layout.num_probes):
-        bounds.append((-45.0, +45.0))  # ml_local deg — rig mechanical limit
+        bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml_local — rig limit
         bounds.append((-180.0, +180.0))  # spin deg
         # NB: scipy SLSQP uses bounds for internal step-size scaling; do not
         # widen these (verified 2026-05-19: widening to ±720° caused

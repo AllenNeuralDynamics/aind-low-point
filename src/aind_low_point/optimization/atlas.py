@@ -34,6 +34,7 @@ from aind_low_point.optimization.kinematics import (
     shank_capsules_from_pose,
 )
 from aind_low_point.optimization.recording import get_recording_geometry
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 
 # ---------------------------------------------------------------------------
 # Atlas data structures
@@ -161,7 +162,7 @@ def _find_anchor_at_ap(
     (ml, spin) starts. Returns the best anchor (lowest threading max_g)
     that passes both lex-feasibility checks, or ``None``."""
     bounds = [
-        (-45.0, 45.0),
+        (-ML_LIMIT_DEG, ML_LIMIT_DEG),
         (-180.0, 180.0),
         (-2.0, 2.0),
         (-2.0, 2.0),
@@ -366,7 +367,7 @@ def build_atlas(
     holes: list[Hole],
     *,
     ap_step_deg: float = 2.0,
-    ap_max_excursion_deg: float = 75.0,
+    ap_max_excursion_deg: float = AP_LIMIT_DEG,
     abandon_after_failures: int = 2,
     max_target_miss_mm: float = 2.0,
     threading_tol: float = 0.0,

@@ -85,6 +85,7 @@ from aind_low_point.optimization.recording import (
     RecordingGeometry,
     get_recording_geometry,
 )
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 
 # ---------------------------------------------------------------------------
 # Configuration + outputs
@@ -1062,9 +1063,9 @@ def _reduced_bounds(
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(n_arcs):
-        bounds.append((-75.0 + head_pitch_deg, +75.0 + head_pitch_deg))
+        bounds.append((-AP_LIMIT_DEG + head_pitch_deg, +AP_LIMIT_DEG + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-45.0, +45.0))  # ml
+        bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml
         # (sx, sy) bounds at ±1.1 — the unit_circle_penalty pulls
         # magnitude toward 1; a small allowance keeps the optimizer
         # away from a rectangular constraint boundary while letting

@@ -66,6 +66,7 @@ from aind_low_point.optimization.stage3_phase1_jax import (
     make_phase1_objective,
     reduced_to_phase1,
 )
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 from aind_low_point.runtime import build_runtime_from_config
 from aind_low_point.runtime.transforms import compile_all_transforms
 
@@ -127,9 +128,9 @@ def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
     """Box bounds for Phase 1 x = (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)."""
     bounds = []
     for _ in range(n_arcs):
-        bounds.append((-75.0 + head_pitch_deg, +75.0 + head_pitch_deg))
+        bounds.append((-AP_LIMIT_DEG + head_pitch_deg, +AP_LIMIT_DEG + head_pitch_deg))
     for _ in range(n_probes):
-        bounds.append((-45.0, +45.0))  # ml
+        bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml
         # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
         bounds.append((-1.1, +1.1))  # sx
         bounds.append((-1.1, +1.1))  # sy

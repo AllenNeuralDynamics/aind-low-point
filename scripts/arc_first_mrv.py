@@ -42,7 +42,7 @@ import time
 from pathlib import Path
 
 from aind_low_point.optimization.arc_first_principled import emit_seed
-from aind_low_point.planning import PoseLimits
+from aind_low_point.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 
 # Subject is config-driven (generalizes across subjects). The visibility atlas
 # depends on the subject's targets + implant placement, so its cache is keyed off
@@ -71,7 +71,10 @@ GLOBAL_CAP = 1_000_000
 def build_or_load_atlas():
     if Path(ATLAS_CACHE).exists():
         with open(ATLAS_CACHE, "rb") as f:
-            return pickle.load(f)
+            payload = pickle.load(f)
+        if len(payload) == 3:  # (atlas, probe_names, head_pitch_deg)
+            return payload
+        # legacy 2-tuple cache without head pitch → rebuild below
     from aind_low_point.config import ConfigModel
     from aind_low_point.optimization.holes import load_holes
     from aind_low_point.optimization.visibility_atlas import build_visibility_atlas
@@ -89,6 +92,15 @@ def build_or_load_atlas():
     probes = [
         _probe_static_info(rt.plan_state, rt, n, _ro) for n in rt.plan_state.probes
     ]
+    # Head pitch (subject↔rig, about L). The visibility-atlas AP is
+    # subject-anatomical, so the rig ±AP_LIMIT window in subject frame is
+    # shifted by the pitch (matches phase1_bounds / _ap_bounds_deg).
+    import numpy as np
+
+    _R_sfr = np.asarray(
+        rt.plan_state.kinematics.subject_from_rig.rotate_translate[0], dtype=float
+    )
+    head_pitch_deg = float(np.rad2deg(np.arctan2(_R_sfr[2, 1], _R_sfr[1, 1])))
     holes = load_holes(Path(HOLES))
     comp = compile_all_transforms(cfg.transforms)
     if "implant_to_lps" in comp:
@@ -101,7 +113,7 @@ def build_or_load_atlas():
         f"({len(probes)} probes, {len(holes)} holes)"
     )
     probe_names = [p.name for p in probes]
-    payload = (atlas, probe_names)
+    payload = (atlas, probe_names, head_pitch_deg)
     with open(ATLAS_CACHE, "wb") as f:
         pickle.dump(payload, f)
     return payload
@@ -159,11 +171,15 @@ class Enumerator:
         self.max_arcs = max_arcs
         self.max_probes_per_arc = max_probes_per_arc
         self.arr = _build_atlas_arrays(atlas, probe_names)
-        # Optional AP / ML windows: clip each (probe,hole)'s feasible AP
-        # envelope to ``ap_range`` and keep only anchors whose AP and ML fall
-        # inside both windows; nodes that empty out are dropped entirely.
-        if ap_range is not None or ml_range is not None:
-            self._restrict_atlas(ap_range, ml_range)
+        # Always clip to the kinematic rig limits so enumeration only generates
+        # within-limit plans (ML is frame-invariant; AP is subject-frame and is
+        # shifted by head pitch by the caller). Explicit ap_range/ml_range
+        # (e.g. from env) override these defaults.
+        if ml_range is None:
+            ml_range = (-ML_LIMIT_DEG, ML_LIMIT_DEG)
+        if ap_range is None:
+            ap_range = (-AP_LIMIT_DEG, AP_LIMIT_DEG)
+        self._restrict_atlas(ap_range, ml_range)
 
         # Nodes = feasible (probe_idx, hole_id). Index them; record intervals.
         self.nodes = []  # list of (p, h, ap_lo, ap_hi)
@@ -419,7 +435,7 @@ def validate(cands, feas, pool):
 
 
 def main() -> int:
-    atlas, probe_names = build_or_load_atlas()
+    atlas, probe_names, head_pitch_deg = build_or_load_atlas()
     print(f"probes: {probe_names}")
     pool = pickle.load(open(POOL_PKL, "rb"))["candidates"]
     feas = [r for r in pickle.load(open(HANDOFF_PKL, "rb"))["all"] if r["fcl"] >= -0.2]
@@ -440,7 +456,10 @@ def main() -> int:
         return (lo, hi)
 
     ap_range = _range_env("AP_RANGE")
-    ml_range = _range_env("ML_RANGE")
+    if ap_range is None:
+        # Subject-frame AP window = rig ±AP_LIMIT shifted by head pitch.
+        ap_range = (-AP_LIMIT_DEG + head_pitch_deg, AP_LIMIT_DEG + head_pitch_deg)
+    ml_range = _range_env("ML_RANGE")  # None → Enumerator defaults to ±ML_LIMIT
     win = ""
     if ap_range:
         win += f", AP in [{ap_range[0]:g},{ap_range[1]:g}]"
