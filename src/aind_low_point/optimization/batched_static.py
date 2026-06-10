@@ -165,9 +165,11 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
 
 
 def _ap_bounds_deg(head_pitch_deg: float) -> tuple[float, float]:
-    """Per-arc AP bounds in degrees: the ±75° kinematic AP range expressed
-    around the head pitch (matches ``PoseLimits.ap_deg``)."""
-    return -AP_LIMIT_DEG + head_pitch_deg, AP_LIMIT_DEG + head_pitch_deg
+    """Per-arc AP bounds in degrees (subject frame): the ±75° kinematic rig AP
+    range mapped to subject AP. Rig AP = subject AP + head_pitch (head nose-down),
+    so the rig-reachable subject window is rig[±AP_LIMIT] − head_pitch. See dev
+    memory rig_ap_sign_convention."""
+    return -AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg
 
 
 def build_batched_probe_static(

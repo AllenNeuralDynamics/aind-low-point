@@ -191,7 +191,16 @@ def reduced_lohi(
     return lo_r, hi_r
 
 
-def restore_group(n_arcs, cands: list[MRVCand], *, probes, holes, sdf_by_name, well):
+def restore_group(
+    n_arcs,
+    cands: list[MRVCand],
+    *,
+    probes,
+    holes,
+    sdf_by_name,
+    well,
+    head_pitch_deg=0.0,
+):
     """Batched spin restore seeded from each cand's MRV ml/spin. Returns per-cand
     restored spin-degrees (parallel to cands)."""
     K = len(probes)
@@ -218,7 +227,7 @@ def restore_group(n_arcs, cands: list[MRVCand], *, probes, holes, sdf_by_name, w
         holes,
         n_arcs=n_arcs,
         sdf_by_name=sdf_by_name,
-        head_pitch_deg=0.0,
+        head_pitch_deg=head_pitch_deg,
     )
     restore = make_batched_spin_restore_partial(
         bs0, weights, n_spins=N_SPINS, n_rounds=RESTORE_ROUNDS, fixtures=fixtures
@@ -237,7 +246,7 @@ def restore_group(n_arcs, cands: list[MRVCand], *, probes, holes, sdf_by_name, w
                 holes,
                 n_arcs=n_arcs,
                 sdf_by_name=sdf_by_name,
-                head_pitch_deg=0.0,
+                head_pitch_deg=head_pitch_deg,
             )
         )
         y_r = restore(jnp.asarray(seeds[lo:hi]), *obj_b.extract_arrays(bs))
@@ -303,17 +312,24 @@ def run_group(  # noqa: C901
     bvh,
     well_soft,
     brain_sdf,
+    head_pitch_deg=0.0,
 ):
     K = len(probes)
     names = [p.name for p in probes]
-    bounds = phase1_bounds(n_arcs, K)
+    bounds = phase1_bounds(n_arcs, K, head_pitch_deg)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
     lo_r, hi_r = reduced_lohi(lo, hi, n_arcs, K)
 
     t0 = time.time()
     spins = restore_group(
-        n_arcs, cands, probes=probes, holes=holes, sdf_by_name=sdf_fine, well=well_soft
+        n_arcs,
+        cands,
+        probes=probes,
+        holes=holes,
+        sdf_by_name=sdf_fine,
+        well=well_soft,
+        head_pitch_deg=head_pitch_deg,
     )
     print(f"  restore {time.time() - t0:.1f}s", flush=True)
 
@@ -573,11 +589,12 @@ def main() -> int:
 
     def _enum_factory() -> Enumerator:
         atlas_payload = build_or_load_atlas()
-        # Subject-frame AP window = rig +/- AP_LIMIT shifted by head pitch
-        # (mirrors enumeration.main + phase1_bounds); ML is frame-invariant.
+        # rig AP = subject AP + head_pitch (head nose-down) → rig-reachable subject
+        # window = rig[±AP_LIMIT] − head_pitch (mirrors phase1_bounds /
+        # _ap_bounds_deg). See dev memory rig_ap_sign_convention. ML is invariant.
         ap_range = (
-            -AP_LIMIT_DEG + atlas_payload.head_pitch_deg,
-            AP_LIMIT_DEG + atlas_payload.head_pitch_deg,
+            -AP_LIMIT_DEG - atlas_payload.head_pitch_deg,
+            AP_LIMIT_DEG - atlas_payload.head_pitch_deg,
         )
         return Enumerator(
             atlas_payload.atlas,
@@ -632,6 +649,7 @@ def main() -> int:
             bvh=bvh,
             well_soft=well_soft,
             brain_sdf=brain,
+            head_pitch_deg=opt.head_pitch_deg,
         )
         # FCL on the top-K by clearance (slow per-cand CPU check).
         order = np.argsort(-clr)

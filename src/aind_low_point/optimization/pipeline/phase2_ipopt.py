@@ -185,6 +185,7 @@ def _init():
         brain_sdf=assets.brain_sdf,
         cov_data=None,
         n_probes=len(opt.probes),
+        head_pitch_deg=opt.head_pitch_deg,
         build_static=_build_probe_static,
         build_cov=build_coverage_data,
     )
@@ -245,7 +246,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     if _G["cov_data"] is None:
         _G["cov_data"] = _G["build_cov"](_G["probes"], st)
     cov_data = _G["cov_data"]
-    bounds = phase1_bounds(n_arcs, _G["n_probes"])
+    bounds = phase1_bounds(n_arcs, _G["n_probes"], _G["head_pitch_deg"])
     p2 = make_phase2(
         st,
         n_arcs,

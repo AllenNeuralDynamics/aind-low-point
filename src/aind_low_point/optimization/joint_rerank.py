@@ -1046,7 +1046,9 @@ def _reduced_bounds(
     """
     bounds: list[tuple[float, float]] = []
     for _ in range(n_arcs):
-        bounds.append((-AP_LIMIT_DEG + head_pitch_deg, +AP_LIMIT_DEG + head_pitch_deg))
+        # rig AP = subject AP + head_pitch → reachable subject window is
+        # rig[±AP_LIMIT] − head_pitch (dev memory rig_ap_sign_convention).
+        bounds.append((-AP_LIMIT_DEG - head_pitch_deg, +AP_LIMIT_DEG - head_pitch_deg))
     for _ in range(n_probes):
         bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml
         # (sx, sy) bounds at ±1.1 — the unit_circle_penalty pulls

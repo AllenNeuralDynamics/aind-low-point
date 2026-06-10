@@ -463,8 +463,9 @@ def main() -> int:
 
     ap_range = _range_env("AP_RANGE")
     if ap_range is None:
-        # Subject-frame AP window = rig ±AP_LIMIT shifted by head pitch.
-        ap_range = (-AP_LIMIT_DEG + head_pitch_deg, AP_LIMIT_DEG + head_pitch_deg)
+        # rig AP = subject AP + head_pitch (head nose-down) → reachable subject
+        # window = rig[±AP_LIMIT] − head_pitch. See dev memory rig_ap_sign_convention.
+        ap_range = (-AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg)
     ml_range = _range_env("ML_RANGE")  # None → Enumerator defaults to ±ML_LIMIT
     win = ""
     if ap_range:
