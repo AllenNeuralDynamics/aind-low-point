@@ -76,7 +76,7 @@ class JointRange:
 # window derive from these — change a limit here and it propagates everywhere
 # (import ``AP_LIMIT_DEG`` / ``ML_LIMIT_DEG`` rather than hardcoding literals).
 AP_LIMIT_DEG: float = 75.0
-ML_LIMIT_DEG: float = 45.0
+ML_LIMIT_DEG: float = 42.0
 
 
 @dataclass(frozen=True, slots=True)
