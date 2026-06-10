@@ -11,8 +11,8 @@ paths:
   # Lateralized CCF annotation warped into template-LPS (left = negated label
   # id, IBL convention). Structures are meshed from this volume and per-hemisphere
   # targets are its region voxel centroids — the same voxel-label mechanism as the
-  # subject configs. TODO(confirm exact filename under template_dir).
-  ccf_annotation_path: "${.template_dir}/ccf_annotation_in_template.nii.gz"
+  # subject configs.
+  ccf_annotation_path: "${.template_dir}/template_to_ccf/CCF_annotation_100_lateralized_in_template.nii.gz
   probe_models_dir: "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels"
   hardware_dir: "${.probe_models_dir}"
 
