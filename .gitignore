@@ -142,7 +142,6 @@ dmypy.json
 # VS Code
 .vscode/
 
-CLAUDE.md
 
 # Saved trame config output
 examples/*_out.yml
