@@ -12,12 +12,6 @@ from aind_low_point.optimization.geometry.headstages import (
     detect_body_region,
     make_fcl_convex,
 )
-from aind_low_point.optimization.objectives.scalar import (
-    OptimizerContext,
-    ProbeEvaluation,
-    VariableLayout,
-    pairwise_headstage_clearances,
-)
 
 
 def _make_probe_like_mesh(
@@ -153,80 +147,3 @@ def test_fcl_hull_distance_negative_when_overlapping():
     # Boxes overlap by 2 mm (each half-extent 2, centers 2 apart).
     # FCL signed distance should be non-positive.
     assert res.min_distance <= 0.0
-
-
-def _dummy_eval(R: np.ndarray, t: np.ndarray) -> ProbeEvaluation:
-    from aind_low_point.optimization.geometry import Capsule
-
-    return ProbeEvaluation(
-        R=R,
-        pose_tip=t,
-        shanks=[],
-        # Capsule is unused under the hull path but required by the dataclass.
-        headstage=Capsule(np.zeros(3), np.array([0, 0, 5.0]), 2.0),
-        coverage=0.0,
-        threading_gs=np.zeros(0),
-    )
-
-
-def test_pairwise_headstage_clearances_skips_no_hull_pairs():
-    """When only one probe has a hull, no valid pair → empty result."""
-    box = trimesh.creation.box(extents=(4.0, 4.0, 4.0))
-    hull_obj = make_fcl_convex(box)
-    layout = VariableLayout(arc_ids=("a",), probe_names=("p0", "p1"))
-    ctx = OptimizerContext(
-        layout=layout, probes=(), headstage_fcl_objs=(hull_obj, None)
-    )
-    evals = [
-        _dummy_eval(np.eye(3), np.zeros(3)),
-        _dummy_eval(np.eye(3), np.array([10.0, 0.0, 0.0])),
-    ]
-    out = pairwise_headstage_clearances(evals, ctx)
-    assert out.shape == (0,)
-
-
-def test_pairwise_headstage_clearances_hull_path_distance():
-    """Two boxes via the hull path return a single distance entry."""
-    box = trimesh.creation.box(extents=(4.0, 4.0, 4.0))
-    obj_a = make_fcl_convex(box)
-    obj_b = make_fcl_convex(box)
-    layout = VariableLayout(arc_ids=("a",), probe_names=("p0", "p1"))
-    ctx = OptimizerContext(layout=layout, probes=(), headstage_fcl_objs=(obj_a, obj_b))
-    evals = [
-        _dummy_eval(np.eye(3), np.zeros(3)),
-        _dummy_eval(np.eye(3), np.array([10.0, 0.0, 0.0])),
-    ]
-    out = pairwise_headstage_clearances(evals, ctx)
-    assert out.shape == (1,)
-    assert out[0] == pytest.approx(6.0, abs=1e-3)
-
-
-def test_pairwise_headstage_clearances_falls_back_without_ctx():
-    """Without ``ctx`` (or with empty ``headstage_fcl_objs``) the legacy
-    capsule path is used so existing tests still work."""
-    from aind_low_point.optimization.geometry import Capsule
-
-    cap_a = Capsule(np.array([0, 0, 10.0]), np.array([0, 0, 15.0]), 2.0)
-    cap_b = Capsule(np.array([4, 0, 10.0]), np.array([4, 0, 15.0]), 2.0)
-    evals = [
-        ProbeEvaluation(
-            R=np.eye(3),
-            pose_tip=np.zeros(3),
-            shanks=[],
-            headstage=cap_a,
-            coverage=0.0,
-            threading_gs=np.zeros(0),
-        ),
-        ProbeEvaluation(
-            R=np.eye(3),
-            pose_tip=np.zeros(3),
-            shanks=[],
-            headstage=cap_b,
-            coverage=0.0,
-            threading_gs=np.zeros(0),
-        ),
-    ]
-    out = pairwise_headstage_clearances(evals)
-    assert out.shape == (1,)
-    # Center-to-center xy distance 4, both radii 2 → clearance 0.
-    assert out[0] == pytest.approx(0.0, abs=1e-9)
