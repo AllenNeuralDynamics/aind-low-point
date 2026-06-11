@@ -43,6 +43,22 @@ POOL = _os.environ.get("POOL", "thread")
 _PLATFORM = _os.environ.get("PLATFORM", "gpu")
 if _PLATFORM in ("gpu", "cuda"):
     _PLATFORM = "cuda"  # JAX backend name
+    # Never preallocate on GPU: grow on demand. Measured on a CLEAN card, one
+    # Phase-2 context's true working set is ~1.1 GB (platform allocator) / ~2.4 GB
+    # resident with BFC pooling — so N process workers fit easily (3 × ~2.4 GB +
+    # desktop < 10 GB). Earlier "~7.6 GB greedy" readings were a contaminated
+    # bench: orphan/zombie contexts left by killed workers, NOT real footprint.
+    # A THREAD pool is one context → give it most of the card; a PROCESS pool is
+    # N contexts → a modest fraction each. Spawned workers inherit this env.
+    # IMPORTANT: preallocate=false MUST be in the environment BEFORE this process
+    # starts python — setting it here at import is too late to win against jax's
+    # backend init, so each context falls back to XLA's default preallocate=true
+    # and grabs ~0.75 of the card (~7.6 GB). Then only ONE process context fits
+    # and the rest die ("no supported devices"). With it set in the launcher env,
+    # contexts grow on demand to ~2.4 GB and 3 workers coexist (measured 2.7x).
+    # The setdefault below is a best-effort fallback for the thread pool / direct
+    # runs; PROCESS-pool drivers MUST `export XLA_PYTHON_CLIENT_PREALLOCATE=false`
+    # (the _require_gpu_headroom check below aborts loudly if they didn't).
     _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
     _default_frac = "0.9" if POOL == "thread" else "0.18"
     _os.environ.setdefault(
@@ -422,6 +438,67 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
         print(f"  warmed n_arcs={na} in {time.time() - t0:.0f}s", flush=True)
 
 
+def _require_gpu_headroom(n_workers: int) -> None:
+    """Fail fast if free VRAM can't hold a ``POOL=process`` GPU run.
+
+    One Phase-2 context's measured footprint is ~2.4 GB resident (clean card).
+    A stale CUDA context, a leftover MPS server, or another GPU user silently
+    eats that budget — and the process pool then spins up workers that can't
+    init CUDA and respawns them in a "no supported devices" loop. Check up front
+    and abort with a diagnostic instead. Tunable via env; skipped on CPU/thread.
+    """
+    if _PLATFORM != "cuda" or POOL == "thread":
+        return
+    import shutil
+    import subprocess
+
+    smi = shutil.which("nvidia-smi")
+    if not smi:
+        return  # can't check — proceed rather than block
+    # Read the JAX GPU's (index 0) free memory a few times and take the MAX. A
+    # single spurious/transient low reading (observed under MPS) must NOT
+    # false-abort, while a real orphan/leftover context holds memory steadily
+    # across all reads. (`-i 0` assumes the JAX device is index 0 — true here.)
+    frees: list[int] = []
+    for _ in range(3):
+        try:
+            out = subprocess.run(
+                [smi, "-i", "0", "--query-gpu=memory.free",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+            frees.append(int(out.stdout.split()[0]))
+        except Exception:
+            pass
+        time.sleep(0.3)
+    if not frees:
+        return  # probe failed — don't block on a flaky reading
+    free_mb = max(frees)
+    # ~2.4 GB measured resident per context (clean card, incl. cold compile);
+    # 0.4 GB slack. So 3 workers need ~7.6 GB (fits a ~8 GB-free desktop card),
+    # and the check fires only when something has eaten the budget.
+    per_worker_gb = float(_os.environ.get("P2_PER_WORKER_GB", "2.4"))
+    headroom_gb = float(_os.environ.get("P2_HEADROOM_GB", "0.4"))
+    need_mb = int((n_workers * per_worker_gb + headroom_gb) * 1024)
+    if free_mb < need_mb:
+        raise SystemExit(
+            f"Phase-2 ABORT: {free_mb} MiB free GPU < ~{need_mb} MiB needed for "
+            f"{n_workers} process workers (~{per_worker_gb} GB each + "
+            f"{headroom_gb} GB headroom). MOST COMMON CAUSE: "
+            f"XLA_PYTHON_CLIENT_PREALLOCATE not 'false' in the LAUNCH env — each "
+            f"context then preallocates ~0.75 of the card (~7.6 GB) and only one "
+            f"fits. Fix: `export XLA_PYTHON_CLIENT_PREALLOCATE=false` before "
+            f"launching (must precede python; setting it in code is too late). "
+            f"Else: a stale CUDA context / leftover nvidia-cuda-mps-server / "
+            f"another GPU user — free the card (`nvidia-smi`) or lower WORKERS. "
+            f"Tune the estimate with P2_PER_WORKER_GB / P2_HEADROOM_GB."
+        )
+    print(
+        f"[gpu] {free_mb} MiB free ≥ ~{need_mb} MiB for {n_workers} workers — ok",
+        flush=True,
+    )
+
+
 def main() -> int:
     rer = cast(Phase1PoolPayload, pickle.load(open(POSES_PKL, "rb")))
     all_recs = rer["records"]
@@ -490,6 +567,7 @@ def main() -> int:
             results: list[Phase2ResultRecord] = list(ex.map(_phase2_one, recs))
         wall = time.time() - t0  # processing only (excludes warmup)
     else:
+        _require_gpu_headroom(WORKERS)
         ctx = get_context("spawn")
         with ctx.Pool(WORKERS, initializer=_init) as pool:
             if WARMUP:

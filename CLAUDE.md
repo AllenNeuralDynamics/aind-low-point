@@ -107,10 +107,23 @@ End-user docs are in `docs/source/` (Sphinx). Don't bloat them with internals.
 
 ## graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+This project has a knowledge graph at graphify-out/ with god nodes, community
+structure, and cross-file relationships. Treat it as a **navigation aid, not a
+source of truth.** It can lag the code (its cache has reported deleted modules as
+still present) and its `[INFERRED]` edges are text-similarity guesses, not facts.
 
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- **Architecture & relationships → graphify.** For "how do these subsystems
+  relate", "what's the shape of the optimizer", or orienting in a large file
+  (`config.py`, `trame_controller.py`, the `optimization/` tree), use
+  `graphify explain "<concept>"`, `graphify path "<A>" "<B>"`, or
+  `graphify query "<question>"` (scoped subgraph, smaller than GRAPH_REPORT.md).
+  `graphify-out/wiki/index.md` is good for broad navigation.
+- **Existence & verification → grep/AST, NOT graphify.** "Does X still exist /
+  what imports Y / did this get removed" must be answered against the actual
+  source; graphify can be stale and has been wrong in exactly this case. Don't
+  trust it to confirm a deletion or a dependency.
+- Treat `[INFERRED]` edges (e.g. `semantically_similar_to`) as hints to verify,
+  not findings — they fire on shared vocabulary between prose nodes.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review.
+- After modifying code, run `graphify update .` to keep the graph current
+  (AST-only, no API cost) — the cache silently contradicts reality otherwise.
