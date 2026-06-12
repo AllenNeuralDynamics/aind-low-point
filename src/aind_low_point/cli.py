@@ -94,8 +94,9 @@ def main() -> None:
     )
 
     print(f"Loaded config: {config_path}")
-    if apply_plan_on_start:
-        print(f"Applied plan at startup: {plan_path}")
+    # The plan-apply outcome is reported by build_trame_app's on_load_plan
+    # (it prints "Loaded plan from …" on success, or a clear skip/validation
+    # message otherwise) — don't claim success here before it has run.
     print("Starting trame server...")
     server.start()
 

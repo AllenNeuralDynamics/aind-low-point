@@ -187,6 +187,18 @@ def build_trame_app(
                 return
             with open(plan_path) as f:
                 raw = yaml.safe_load(f)
+            # An "export plan" (written by export_plan_geometry / the
+            # Export-plan button) is a human-readable geometry *report*, not a
+            # loadable PlanningModel — it carries derived fields like
+            # ``tip_RAS_mm`` and is keyed by ``plan_export_version``. Skip it
+            # with a clear message rather than dumping a wall of schema errors.
+            if isinstance(raw, dict) and "plan_export_version" in raw:
+                print(
+                    f"Plan YAML at {plan_path} is an exported geometry report "
+                    f"(plan_export_version={raw['plan_export_version']}), not a "
+                    "loadable plan; skipping. Use a plan saved via 'Save plan'."
+                )
+                return
             try:
                 loaded = PlanningModel.model_validate(raw)
             except Exception as exc:
