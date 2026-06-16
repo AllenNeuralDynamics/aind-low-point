@@ -397,7 +397,7 @@ plan:
         kind: catalog
         key: 'target:L:MD'
     BLA:
-      kind: 'quadbase-dovetail'
+      kind: '2.1'
       arc: b
       spin: 0
       slider_ml: 27.0
