@@ -388,8 +388,15 @@ class Enumerator:
         """
         p2h = cand["probe_to_hole"]
         seed_arcs = []
-        for group in cand["partition"]:
-            members = [(self.names.index(name), p2h[name], name) for name in group]
+        # Canonical (sorted) arc + member order so the seed is independent of the
+        # partition frozensets' hash-seed-dependent iteration order. Otherwise
+        # emit_seed's MRV anchor pick varies per process — breaking reproducibility
+        # across runs and the parallel seed pool. ``wrap`` (phase1_pool) must use
+        # the same arc order so probe_to_arc_idx aligns with the returned arc_aps.
+        for group in sorted(cand["partition"], key=sorted):
+            members = [
+                (self.names.index(name), p2h[name], name) for name in sorted(group)
+            ]
             lo = max(self.arr.ap_min_max[(p, h)][0] for p, h, _ in members)
             hi = min(self.arr.ap_min_max[(p, h)][1] for p, h, _ in members)
             seed_arcs.append(

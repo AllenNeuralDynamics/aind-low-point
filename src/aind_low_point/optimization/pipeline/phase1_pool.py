@@ -35,9 +35,11 @@ _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 
 import gc
+import multiprocessing as _mp
 import pickle
 import time
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -169,7 +171,9 @@ def wrap(cand_dict: EnumeratorCandidate, enum: Enumerator) -> MRVCand | None:
     if res is None:
         return None
     arc_aps, ml_seed, spin_seed, gap = res
-    groups = list(cand_dict["partition"])  # same iteration order seed() used
+    # Canonical arc order matching Enumerator.seed (sorted by member names) so
+    # probe_to_arc_idx aligns with arc_aps regardless of the hash seed.
+    groups = sorted(cand_dict["partition"], key=sorted)
     p2a = {name: ai for ai, grp in enumerate(groups) for name in grp}
     ha = MRVHoleAssignment(probe_to_hole=cand_dict["probe_to_hole"])
     aa = MRVArcAssignment(probe_to_arc_idx=p2a, arc_centroids_deg=list(arc_aps))
@@ -183,6 +187,25 @@ def wrap(cand_dict: EnumeratorCandidate, enum: Enumerator) -> MRVCand | None:
         cand_dict["probe_to_hole"],
         cand_dict["partition"],
     )
+
+
+# Per-worker enumerator for the spawn-based seed pool. The pool uses ``spawn``
+# (not ``fork``): this module imports JAX, which is multithreaded, and forking a
+# multithreaded process risks a deadlock. ``_seed_init`` receives the (pickled,
+# read-only) enumerator once per worker and stashes it here.
+_SEED_ENUM: "Enumerator | None" = None
+
+
+def _seed_init(enum: "Enumerator") -> None:
+    """Pool initializer: stash the enumerator for this worker's tasks."""
+    global _SEED_ENUM
+    _SEED_ENUM = enum
+
+
+def _seed_one(cand_dict: EnumeratorCandidate) -> "MRVCand | None":
+    """Seed one candidate in a worker, using the initializer-provided enumerator."""
+    assert _SEED_ENUM is not None  # set by _seed_init
+    return wrap(cand_dict, _SEED_ENUM)
 
 
 def reduced_lohi(
@@ -551,16 +574,34 @@ def load_or_seed_groups(
     if LIMIT:
         raw = raw[:LIMIT]
     t0 = time.time()
-    cands, n_fail = [], 0
-    for d in raw:
-        c = wrap(d, enum)
-        if c is None:
-            n_fail += 1
-        else:
-            cands.append(c)
+    seed_workers = int(
+        _os.environ.get("SEED_WORKERS", str(min(_os.cpu_count() or 1, 16)))
+    )
+    if seed_workers > 1 and len(raw) > seed_workers:
+        # Seeding is independent per candidate and CPU-bound (numpy CSP backtrack
+        # over tiny arrays — GIL-held, so threads don't help) but parallelises
+        # cleanly across processes. Use spawn, NOT fork: this module imports JAX,
+        # which is multithreaded, and forking a multithreaded process risks a
+        # deadlock. Spawn workers re-import the module (importing JAX is lazy — no
+        # GPU is grabbed until an op runs, and seeding runs only numpy) and receive
+        # the read-only enumerator once via the initializer. ex.map preserves input
+        # order; seed values are process-independent, so the result equals the
+        # serial pool modulo cosmetic dict/arc-label ordering.
+        chunk = max(1, len(raw) // (seed_workers * 8))
+        with ProcessPoolExecutor(
+            max_workers=seed_workers,
+            mp_context=_mp.get_context("spawn"),
+            initializer=_seed_init,
+            initargs=(enum,),
+        ) as ex:
+            results = list(ex.map(_seed_one, raw, chunksize=chunk))
+    else:
+        results = [wrap(d, enum) for d in raw]
+    cands = [c for c in results if c is not None]
+    n_fail = sum(1 for c in results if c is None)
     print(
         f"  seeded {len(cands)} cands ({n_fail} dropped: no anchors) "
-        f"in {time.time() - t0:.1f}s",
+        f"in {time.time() - t0:.1f}s [{seed_workers}w]",
         flush=True,
     )
     by_arcs: dict[int, list[MRVCand]] = {}
