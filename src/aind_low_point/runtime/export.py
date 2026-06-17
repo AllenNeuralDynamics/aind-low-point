@@ -294,8 +294,12 @@ def export_plan_geometry(
         "source_config": source_config,
         "head_pitch_about_L_deg": head_pitch_about_L,
         "arc_angles_subject_deg": dict(plan_state.kinematics.arc_angles),
+        # rig_ap = subject_ap + head_pitch_about_L (mouse mounted nose-down; see
+        # dev memory rig_ap_sign_convention). Must match the per-probe
+        # ``angles_rig_deg`` sign above — this block previously used ``-`` and
+        # disagreed with the per-probe rig AP by 2*head_pitch.
         "arc_angles_rig_deg": {
-            arc_id: float(ap) - head_pitch_about_L
+            arc_id: float(ap) + head_pitch_about_L
             for arc_id, ap in plan_state.kinematics.arc_angles.items()
         },
         "probes": probes_out,
