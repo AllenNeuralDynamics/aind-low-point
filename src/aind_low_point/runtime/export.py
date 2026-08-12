@@ -279,6 +279,7 @@ def export_plan_geometry(
             },
             "offsets_RA_mm": [float(plan.offsets_RA[0]), float(plan.offsets_RA[1])],
             "past_target_mm": float(plan.past_target_mm),
+            "position_bearing_shank": int(plan.position_bearing_shank),
             "tip_RAS_mm": [float(c) for c in tip_ras],
             "depth_from_brain_surface_mm": depth,
         }

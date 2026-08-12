@@ -16,8 +16,17 @@
 # Optional env (with defaults):
 #   HOLES=scratch/0283-300-04.holes.yml  TOPK=200  P2_ITER=1000
 #   COARSE_N=1000  REDUCED_FINE=50  FULL_FINE=50  WORKERS=4  EMIT_N=15
+#   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Gotcha 2: XLA preallocation must be DISABLED in the *launch* env (setting it
+# from inside Python is too late — JAX then defaults to preallocate=true and
+# grabs the whole mem-fraction up front, which starves extra Phase-2 workers /
+# any process-pool or MPS run). Exporting it here puts it in the env every
+# `uv run` child inherits. Harmless for the default thread-shared Phase-2;
+# load-bearing the moment you raise WORKERS or switch POOL=process/MPS.
+export XLA_PYTHON_CLIENT_PREALLOCATE="${XLA_PYTHON_CLIENT_PREALLOCATE:-false}"
 
 CONFIG="${CONFIG:?set CONFIG=examples/<subject>-config.yml}"
 HOLES="${HOLES:-scratch/0283-300-04.holes.yml}"
@@ -39,8 +48,45 @@ COV_ALPHA="${COV_ALPHA:-0.2}"; COV_WEIGHT="${COV_WEIGHT:-1.0}"
 # throughput with less GIL/stream contention + HBM than 8.
 TOPK="${TOPK:-200}"; P2_ITER="${P2_ITER:-1000}"; WORKERS="${WORKERS:-4}"
 MAX_ARCS="${MAX_ARCS:-3}"  # Phase-1 loops n_arcs from this down to 1, one process each
+MAX_PROBES_PER_ARC="${MAX_PROBES_PER_ARC:-4}"; N_SPINS="${N_SPINS:-16}"
 COARSE_N="${COARSE_N:-1000}"; REDUCED_FINE="${REDUCED_FINE:-50}"; FULL_FINE="${FULL_FINE:-50}"
 EMIT_N="${EMIT_N:-15}"
+
+# Gotcha 1: the atlas + seed caches are keyed only by the config stem, but their
+# CONTENTS depend on probe geometry (meshes, kinds), the implant holes, and the
+# enumeration caps. Editing any of those without clearing the caches silently
+# reuses stale geometry. Stamp a fingerprint and nuke atlas + seeds + pool (the
+# pool RESUMES, so it accumulates stale records too) whenever it changes.
+# Coverage tuning is env-driven (RETRO_DENSITY / COV_*) and deliberately NOT in
+# the fingerprint, so coverage variants still share the geometry caches.
+# NOT detected: editing a probe .obj in place (config text unchanged) → FRESH=1.
+export ATLAS_CACHE="${ATLAS_CACHE:-scratch/atlas_${STEM}.pkl}"
+export SEED_CACHE="${SEED_CACHE:-scratch/mrv_seeds_${STEM}.pkl}"
+STAMP="scratch/geom_${STEM}.stamp"
+FRESH="${FRESH:-0}"
+geom_fingerprint() {
+  {
+    cat "$CONFIG"
+    if [ -f "$HOLES" ]; then cat "$HOLES"; fi
+    printf 'caps MAX_ARCS=%s MPA=%s N_SPINS=%s\n' \
+      "$MAX_ARCS" "$MAX_PROBES_PER_ARC" "$N_SPINS"
+  } | sha256sum | cut -d' ' -f1
+}
+FP="$(geom_fingerprint)"
+if [ "$FRESH" = "1" ]; then
+  echo "[$(date +%H:%M)] FRESH=1 → clearing geometry caches + pool"
+  rm -f "$ATLAS_CACHE" "$SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+elif [ -f "$STAMP" ] && [ "$(cat "$STAMP")" != "$FP" ]; then
+  echo "[$(date +%H:%M)] config/holes/caps changed → clearing stale geometry caches + pool"
+  echo "    atlas=$ATLAS_CACHE seeds=$SEED_CACHE pool=$POOL"
+  rm -f "$ATLAS_CACHE" "$SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+elif [ ! -f "$STAMP" ]; then
+  echo "[$(date +%H:%M)] arming geometry-cache fingerprint (keeping existing caches);"
+  echo "    if you changed probe geometry/holes since they were built, re-run FRESH=1."
+  echo "$FP" >"$STAMP"
+else
+  echo "[$(date +%H:%M)] geometry caches current (fingerprint matched)."
+fi
 
 echo "[$(date +%H:%M)] === subject=${STEM} ==="
 
@@ -52,8 +98,8 @@ echo "[$(date +%H:%M)] Phase 1: MRV enumerate + restore + RProp/coarse-fine (no 
 for NA in $(seq "$MAX_ARCS" -1 1); do
   echo "[$(date +%H:%M)]   Phase-1 group n_arcs=${NA}"
   CONFIG="$CONFIG" HOLES="$HOLES" \
-    MAX_ARCS="$MAX_ARCS" MAX_PROBES_PER_ARC=4 FCL_TOPK=0 ONLY_NARCS="$NA" \
-    MINIMIZER=rprop WELL=thick N_SPINS=16 \
+    MAX_ARCS="$MAX_ARCS" MAX_PROBES_PER_ARC="$MAX_PROBES_PER_ARC" FCL_TOPK=0 ONLY_NARCS="$NA" \
+    MINIMIZER=rprop WELL=thick N_SPINS="$N_SPINS" \
     COARSE_N="$COARSE_N" REDUCED_FINE="$REDUCED_FINE" FULL_FINE="$FULL_FINE" \
     RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
     OUT="$POOL" JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \

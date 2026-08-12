@@ -7,11 +7,15 @@ insertion-plan CSV columns the GUI ``_save_plan`` handler produced
 (``scripts/reference_k3d_notebook.py``):
 
     structure, probe_type, ap_arc_id, ap_angle, ap_rig_angle, ml_angle, spin,
-    target_pt_{R,A,S}, ideal_pt_{R,A,S}, hole, distance_past_target
+    target_pt_{R,A,S}, ideal_pt_{R,A,S}, hole, distance_past_target,
+    position_bearing_shank
 
-``ideal_pt_*`` is the catalog target in RAS (no offset); ``target_pt_*`` adds the
-in-plane ``offsets_RA`` (the actual aim point). ``hole`` is parsed from the plan
-filename encoding (e.g. ``bla9_ca17_cla2_md6_pl1_rsp5_vm12``) when present.
+``target_pt_*`` is the executed landing — the 3D RAS tip of the position-bearing
+shank at its final recording pose (``tip_RAS_mm``: offsets, depth, and angles
+applied). Because it is consumed as the final tip position, ``distance_past_target``
+is 0 (no further advance past it). ``ideal_pt_*`` is the anatomical target centroid
+in RAS that we aimed at (no offset). ``hole`` is parsed from the plan filename
+encoding (e.g. ``bla9_ca17_cla2_md6_pl1_rsp5_vm12``).
 
 Run (CPU is plenty; avoids grabbing the GPU):
   JAX_PLATFORMS=cpu uv run --python 3.13 alp-plan-csv \\
@@ -52,6 +56,7 @@ COLUMNS = [
     "ideal_pt_S",
     "hole",
     "distance_past_target",
+    "position_bearing_shank",
 ]
 
 
@@ -92,8 +97,8 @@ def plan_to_rows(plan_path: Path, config_path: Path) -> list[dict[str, object]]:
 
     rows: list[dict[str, object]] = []
     for name, p in probes.items():
-        ideal = p["target"]["position_RAS_mm"]  # RAS, no offset
-        off_r, off_a = p["offsets_RA_mm"]
+        ideal = p["target"]["position_RAS_mm"]  # anatomical target centroid, no offset
+        tip = p["tip_RAS_mm"]  # position-bearing shank tip (depth + angles applied)
         rig = p["angles_rig_deg"]
         subj = p["angles_subject_deg"]
         arc_id = (p.get("arc") or {}).get("id")
@@ -106,14 +111,22 @@ def plan_to_rows(plan_path: Path, config_path: Path) -> list[dict[str, object]]:
                 "ap_rig_angle": rig["ap"],
                 "ml_angle": subj["ml"],
                 "spin": subj["spin"],
-                "target_pt_R": (ideal[0] + off_r) if ideal else None,
-                "target_pt_A": (ideal[1] + off_a) if ideal else None,
-                "target_pt_S": ideal[2] if ideal else None,
+                # target_pt = the executed landing: 3D RAS tip of the
+                # position-bearing shank at its final recording pose (offsets,
+                # depth, and angles already applied).
+                "target_pt_R": tip[0],
+                "target_pt_A": tip[1],
+                "target_pt_S": tip[2],
+                # ideal_pt = the anatomical target centroid we aimed at (no offset).
                 "ideal_pt_R": ideal[0] if ideal else None,
                 "ideal_pt_A": ideal[1] if ideal else None,
                 "ideal_pt_S": ideal[2] if ideal else None,
                 "hole": holes.get(name),
-                "distance_past_target": p["past_target_mm"],
+                # target_pt is consumed as the final tip position, so there is no
+                # further advance past it: depth past target is 0 by construction.
+                "distance_past_target": 0.0,
+                # 1-indexed shank whose tip target_pt reports.
+                "position_bearing_shank": p["position_bearing_shank"],
             }
         )
     return rows

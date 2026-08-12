@@ -393,6 +393,25 @@ def _mmr_rank(rows: list[Phase2ResultRecord], lam: float) -> list[Phase2ResultRe
     return picked
 
 
+def _fmt(v: object, spec: str = "+.3f") -> str:
+    """Format a possibly-None / NaN numeric for a progress line."""
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "—"
+    return "nan" if f != f else format(f, spec)
+
+
+def _log_cand(k: int, n: int, r: "Phase2ResultRecord") -> None:
+    """Emit one per-candidate progress line as it completes (completion order)."""
+    print(
+        f"  [{k:>4}/{n}] rank {str(r.get('rank')):<5} {r.get('n_arcs')}arc "
+        f"fcl {_fmt(r.get('fcl'))} g {_fmt(r.get('max_g_thread'))} "
+        f"cov {_fmt(r.get('coverage'), '.3f')} {_fmt(r.get('secs'), '.0f')}s",
+        flush=True,
+    )
+
+
 def _warmup(recs: list[Phase2InputRecord]) -> None:
     """Compile Phase 2 once per distinct n_arcs in the PARENT so the disk
     compile cache is warm; spawned workers then LOAD instead of all compiling
@@ -561,10 +580,15 @@ def main() -> int:
         print(f"  warmup {time.time() - tw:.0f}s", flush=True)
         t0 = time.time()
         # One GPU context shared across threads (no per-worker memory).
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        results: list[Phase2ResultRecord] = []
         with ThreadPoolExecutor(WORKERS) as ex:
-            results: list[Phase2ResultRecord] = list(ex.map(_phase2_one, recs))
+            futs = [ex.submit(_phase2_one, r) for r in recs]
+            for k, fut in enumerate(as_completed(futs), 1):
+                r = fut.result()
+                results.append(r)
+                _log_cand(k, len(recs), r)
         wall = time.time() - t0  # processing only (excludes warmup)
     else:
         _require_gpu_headroom(WORKERS)
@@ -580,8 +604,14 @@ def main() -> int:
                 pool.apply(_warmup, (recs,))
                 print(f"  warmup {time.time() - tw:.0f}s", flush=True)
             t0 = time.time()
-            results = pool.map(_phase2_one, recs)
+            results = []
+            for k, r in enumerate(pool.imap_unordered(_phase2_one, recs), 1):
+                results.append(r)
+                _log_cand(k, len(recs), r)
             wall = time.time() - t0  # processing only (excludes warmup)
+    # Logging above streams in completion order; restore rank order so all
+    # downstream selection/summary is identical to the old blocking-map path.
+    results.sort(key=lambda r: r.get("rank", 0))
     compute = float(sum(r["secs"] for r in results))
     print(
         f"  {wall / 60:.2f} min wall; {compute:.0f}s total compute; "
