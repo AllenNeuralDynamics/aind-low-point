@@ -17,11 +17,11 @@ from types import SimpleNamespace
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.geometry.holes import Hole, threading_margin_mm
-from aind_low_point.optimization.geometry.primitives import HoleSection, cap_basis
-from aind_low_point.optimization.geometry.probes import ProbeStaticInfo
-from aind_low_point.optimization.objectives.probe_static import _build_probe_static
-from aind_low_point.optimization.objectives.reduced_jax import threading_g_matrix
+from aind_rutter.optimization.geometry.holes import Hole, threading_margin_mm
+from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
+from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
+from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+from aind_rutter.optimization.objectives.reduced_jax import threading_g_matrix
 
 
 def _vertical_hole(a: float = 0.6, b: float = 0.3) -> Hole:

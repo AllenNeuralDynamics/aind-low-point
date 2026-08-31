@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_low_point.config import (
+from aind_rutter.config import (
     CalibrationRefModel,
     CalibrationsModel,
     TransformRecipeModel,
@@ -236,7 +236,7 @@ class TestSelectorCoercion:
 
     def test_name_selector_discrimination(self):
         """Test name selector is correctly discriminated."""
-        from aind_low_point.config import NameSelector
+        from aind_rutter.config import NameSelector
 
         selector_data = {"kind": "name", "name": "mesh1"}
         selector = NameSelector.model_validate(selector_data)
@@ -246,7 +246,7 @@ class TestSelectorCoercion:
 
     def test_index_selector_discrimination(self):
         """Test index selector is correctly discriminated."""
-        from aind_low_point.config import IndexSelector
+        from aind_rutter.config import IndexSelector
 
         selector_data = {"kind": "index", "index": 5}
         selector = IndexSelector.model_validate(selector_data)
@@ -256,7 +256,7 @@ class TestSelectorCoercion:
 
     def test_path_selector_discrimination(self):
         """Test path selector is correctly discriminated."""
-        from aind_low_point.config import PathSelector
+        from aind_rutter.config import PathSelector
 
         selector_data = {"kind": "path", "path": "/dataset/points"}
         selector = PathSelector.model_validate(selector_data)
@@ -266,7 +266,7 @@ class TestSelectorCoercion:
 
     def test_label_selector_discrimination(self):
         """Test label selector with both int and string labels."""
-        from aind_low_point.config import LabelSelector
+        from aind_rutter.config import LabelSelector
 
         # Integer label
         selector_int = LabelSelector.model_validate({"kind": "label", "label": 42})
@@ -283,7 +283,7 @@ class TestSelectorCoercion:
     def test_invalid_selector_kind(self):
         """Test invalid selector kind raises validation error."""
         with pytest.raises(ValidationError):
-            from aind_low_point.config import NameSelector
+            from aind_rutter.config import NameSelector
 
             # This should fail because we're using wrong discriminator
             NameSelector.model_validate({"kind": "invalid_kind", "name": "test"})
@@ -299,14 +299,14 @@ class TestTemplateCoercion:
         asset_data = AssetFactory.asset_with_templates(
             templates=["template1", "template2", "template3"]
         )
-        from aind_low_point.config import AssetSpecModel
+        from aind_rutter.config import AssetSpecModel
 
         asset = AssetSpecModel(**asset_data)
         assert asset.templates == ["template1", "template2", "template3"]
 
     def test_empty_templates_list_default(self):
         """Test templates defaults to empty list."""
-        from aind_low_point.config import AssetSpecModel, TargetSpecModel
+        from aind_rutter.config import AssetSpecModel, TargetSpecModel
         from tests.config_factories import AssetFactory, TargetFactory
 
         asset_data = AssetFactory.mesh_asset()
@@ -319,7 +319,7 @@ class TestTemplateCoercion:
 
     def test_single_template_in_list(self):
         """Test single template in list works correctly."""
-        from aind_low_point.config import TargetSpecModel
+        from aind_rutter.config import TargetSpecModel
         from tests.config_factories import TargetFactory
 
         target_data = TargetFactory.target_with_templates(templates=["single_template"])
@@ -332,7 +332,7 @@ class TestMaterialResolution:
 
     def test_material_ref_field_present(self):
         """Test material_ref field is preserved."""
-        from aind_low_point.config import AssetSpecModel
+        from aind_rutter.config import AssetSpecModel
         from tests.config_factories import AssetFactory
 
         asset_data = AssetFactory.asset_with_material_ref(material_ref="test_material")
@@ -341,7 +341,7 @@ class TestMaterialResolution:
 
     def test_material_ref_with_inline_material_coexist(self):
         """Test material_ref and inline material can coexist."""
-        from aind_low_point.config import AssetSpecModel
+        from aind_rutter.config import AssetSpecModel
         from tests.config_factories import AssetFactory, MaterialFactory
 
         asset_data = AssetFactory.asset_with_material_ref(
@@ -355,7 +355,7 @@ class TestMaterialResolution:
 
     def test_none_material_ref_allowed(self):
         """Test material_ref can be None."""
-        from aind_low_point.config import AssetSpecModel
+        from aind_rutter.config import AssetSpecModel
         from tests.config_factories import AssetFactory
 
         asset_data = AssetFactory.mesh_asset(material_ref=None)
@@ -364,7 +364,7 @@ class TestMaterialResolution:
 
     def test_template_material_ref_preserved(self):
         """Test material_ref in templates is preserved."""
-        from aind_low_point.config import AssetTemplateModel
+        from aind_rutter.config import AssetTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.asset_template(material_ref="template_material")
@@ -377,7 +377,7 @@ class TestTemplateFieldCoercion:
 
     def test_template_optional_fields_coercion(self):
         """Test optional fields in templates work correctly."""
-        from aind_low_point.config import BaseTemplateModel
+        from aind_rutter.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
 
         # Test with None values
@@ -391,7 +391,7 @@ class TestTemplateFieldCoercion:
 
     def test_asset_template_source_modes_coercion(self):
         """Test asset template source mode fields."""
-        from aind_low_point.config import AssetTemplateModel
+        from aind_rutter.config import AssetTemplateModel
         from tests.config_factories import SelectorFactory, TemplateFactory
 
         # Test with resource mode
@@ -409,7 +409,7 @@ class TestTemplateFieldCoercion:
 
     def test_target_template_source_modes_coercion(self):
         """Test target template source mode fields."""
-        from aind_low_point.config import TargetTemplateModel
+        from aind_rutter.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
 
         # Test derived mode

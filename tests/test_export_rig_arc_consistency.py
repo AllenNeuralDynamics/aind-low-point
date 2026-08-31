@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_low_point.assets import AssetCatalog
-from aind_low_point.build_runtime import export_plan_geometry
-from aind_low_point.core import AffineTransform
-from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.assets import AssetCatalog
+from aind_rutter.build_runtime import export_plan_geometry
+from aind_rutter.core import AffineTransform
+from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
 
 HEAD_PITCH_DEG = 14.0
 

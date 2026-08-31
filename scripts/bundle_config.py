@@ -43,7 +43,7 @@ from pathlib import Path
 
 import yaml
 
-from aind_low_point.config import ConfigModel
+from aind_rutter.config import ConfigModel
 
 
 def collect_existing_file_paths(obj, out: set[Path]) -> None:
@@ -375,7 +375,7 @@ def main() -> int:  # noqa: C901
         (bundle_root / "README.md").write_text(
             f"""# {bundle_name}
 
-A self-contained aind-low-point planning asset pack: every mesh, mask, and
+A self-contained aind-rutter planning asset pack: every mesh, mask, and
 transform referenced by the bundled config(s) is included under `data/`,
 with paths rewritten to a single `${{paths.bundle}}` indirection so the
 config travels with the data.
@@ -395,10 +395,10 @@ config travels with the data.
    `uv run --python 3.13 …`, which will fetch 3.13 if it isn't installed.
 2. **uv** — <https://docs.astral.sh/uv/>. Install with `curl -LsSf
    https://astral.sh/uv/install.sh | sh` or your distro's package manager.
-3. **aind-low-point** — clone the repo and install in editable mode:
+3. **aind-rutter** — clone the repo and install in editable mode:
    ```bash
-   git clone git@github.com:AllenNeuralDynamics/aind-low-point.git
-   cd aind-low-point
+   git clone git@github.com:AllenNeuralDynamics/aind-rutter.git
+   cd aind-rutter
    uv sync --python 3.13
    ```
 
@@ -408,10 +408,10 @@ config travels with the data.
 # 1. Extract the pack anywhere
 tar -xf {bundle_name}.tar.zst -C ~/data
 
-# 2. Launch the trame web app from your aind-low-point checkout. Set
+# 2. Launch the trame web app from your aind-rutter checkout. Set
 #    BUNDLE_DIR (the configs default to it via OmegaConf) or edit
 #    paths.bundle in the YAML to the absolute extracted path.
-cd ~/aind-low-point   # or wherever you cloned the repo
+cd ~/aind-rutter   # or wherever you cloned the repo
 {run_examples}
 ```
 

@@ -4,16 +4,16 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_low_point.assets import AssetCatalog, AssetSpec, TargetSpec
-from aind_low_point.core import MeshTransformable, PointsTransformable
-from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
-from aind_low_point.runtime.build import CollisionLabelIndex, RuntimeBundle
-from aind_low_point.runtime.probe_context import (
+from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
+from aind_rutter.core import MeshTransformable, PointsTransformable
+from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.runtime.build import CollisionLabelIndex, RuntimeBundle
+from aind_rutter.runtime.probe_context import (
     coverage_weight_for_probe,
     probe_context_from_runtime,
     resolve_plan_target_lps,
 )
-from aind_low_point.scene import Scene
+from aind_rutter.scene import Scene
 
 
 def _runtime_with_probe() -> RuntimeBundle:

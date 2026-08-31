@@ -4,12 +4,14 @@
    contain the root `toctree` directive.
 
 
-aind-low-point Documentation
+aind-rutter Documentation
 ============================
 
-**aind-low-point** is a Python package for planning neuroscience experiments -
-"Pinpoint but in Python". Developed by Allen Institute for Neural Dynamics for
-probe placement planning and 3D visualization.
+**Rutter** plans multi-probe insertions for *in vivo* neurophysiology: an
+interactive planner and a constrained-optimization solver over one shared
+runtime. A *rutter* is a mariner's handbook of sailing directions, landmarks
+and instrument settings, compiled before a voyage. Developed by the Allen
+Institute for Neural Dynamics.
 
 
 .. toctree::

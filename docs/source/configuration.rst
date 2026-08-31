@@ -1,7 +1,7 @@
 Configuration Guide
 ===================
 
-This guide covers the configuration system for aind-low-point. The configuration
+This guide covers the configuration system for aind-rutter. The configuration
 defines assets, targets, transforms, and planning parameters for probe placement
 experiments.
 
@@ -1025,7 +1025,7 @@ Load and validate configuration:
 
 .. code-block:: python
 
-    from aind_low_point.config import ConfigModel, expand_config
+    from aind_rutter.config import ConfigModel, expand_config
     import yaml
 
     # Load from YAML

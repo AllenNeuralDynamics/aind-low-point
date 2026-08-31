@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_low_point.common import Capability, Kind, Role
-from aind_low_point.config import (
+from aind_rutter.common import Capability, Kind, Role
+from aind_rutter.config import (
     AssetSpecModel,
     ConfigModel,
     MaterialModel,
@@ -40,7 +40,7 @@ class TestFieldConstraintErrors:
 
     def test_required_field_error_messages(self):
         """Test required field validation provides clear error messages."""
-        from aind_low_point.config import SceneNodeModel
+        from aind_rutter.config import SceneNodeModel
 
         with pytest.raises(ValidationError) as exc_info:
             SceneNodeModel()  # Missing required 'key' and 'asset' fields
@@ -149,7 +149,7 @@ class TestTransformOpErrors:
 
     def test_translate_op_delta_length(self):
         """Test translate operation delta must be length 3."""
-        from aind_low_point.config import TranslateTxOpModel
+        from aind_rutter.config import TranslateTxOpModel
 
         with pytest.raises(ValidationError):
             TranslateTxOpModel(delta=[1.0, 2.0])  # Too short
@@ -159,21 +159,21 @@ class TestTransformOpErrors:
 
     def test_rotate_op_angles_length(self):
         """Test rotation operation angles must be length 3."""
-        from aind_low_point.config import RotateEulerTxOpModel
+        from aind_rutter.config import RotateEulerTxOpModel
 
         with pytest.raises(ValidationError):
             RotateEulerTxOpModel(angles_deg=[90.0])  # Too short
 
     def test_invalid_rotation_order(self):
         """Test invalid rotation order raises error."""
-        from aind_low_point.config import RotateEulerTxOpModel
+        from aind_rutter.config import RotateEulerTxOpModel
 
         with pytest.raises(ValidationError):
             RotateEulerTxOpModel(order="INVALID", angles_deg=[0.0, 0.0, 90.0])
 
     def test_sitk_op_missing_path(self, temp_file_path):
         """Test SITK operation requires path."""
-        from aind_low_point.config import LoadSITKTxOpModel
+        from aind_rutter.config import LoadSITKTxOpModel
 
         # This should work with valid path
         temp_file_path.write_text("dummy transform")
@@ -204,7 +204,7 @@ class TestEdgeCases:
 
     def test_none_values_where_not_allowed(self):
         """Test None values in required fields."""
-        from aind_low_point.config import SceneNodeModel
+        from aind_rutter.config import SceneNodeModel
 
         with pytest.raises(ValidationError):
             SceneNodeModel(key=None, asset="test")  # key is str, not Optional
@@ -312,7 +312,7 @@ class TestErrorMessageQuality:
     def test_discriminated_union_error_helpful(self):
         """Test discriminated union errors are helpful."""
         with pytest.raises(ValidationError) as exc_info:
-            from aind_low_point.config import TranslateTxOpModel
+            from aind_rutter.config import TranslateTxOpModel
 
             TranslateTxOpModel(kind="translate_mm")  # Missing required delta field
 
@@ -442,7 +442,7 @@ class TestTemplateSourceModeErrors:
 
     def test_asset_template_conflicting_source_modes(self):
         """Test error when asset template has conflicting source modes."""
-        from aind_low_point.config import AssetTemplateModel
+        from aind_rutter.config import AssetTemplateModel
         from tests.config_factories import SelectorFactory, TemplateFactory
 
         # This should be caught during template merging, not model validation
@@ -460,7 +460,7 @@ class TestTemplateSourceModeErrors:
 
     def test_target_template_multiple_source_modes(self):
         """Test target template with multiple source modes."""
-        from aind_low_point.config import TargetTemplateModel
+        from aind_rutter.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
 
         # Individual template with multiple modes should work

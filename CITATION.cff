@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 authors:
 - given-names: "Allen Institute for Neural Dynamics"
-title: "aind-low-point"
+title: "Rutter"
 version: "v0.0.0"
 date-release: 2025-08-20
-url: "https://github.com/AllenNeuralDynamics/aind-low-point"
+url: "https://github.com/AllenNeuralDynamics/aind-rutter"

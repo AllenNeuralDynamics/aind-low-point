@@ -81,25 +81,32 @@ are far-decoupled.
 ```python
 def per_probe_spin_candidates(probe, hole, kind):
     """Discrete spin candidates for one probe. H1 enforced here."""
-    slot_major = π/2 - hole.slot_theta_rad  # current warm-start
+    slot_major = π / 2 - hole.slot_theta_rad  # current warm-start
     if kind.startswith("quadbase"):
         # 4-shank: must align section row → exactly 2 options
         return [slot_major, slot_major + π]
     else:
         # 1-shank: spin free for threading; offer 4 orientations
         # so body asymmetry has options under H2/H3
-        return [slot_major + k * π/2 for k in range(4)]
+        return [slot_major + k * π / 2 for k in range(4)]
 ```
 
 ### Stage 2: structure-aware combination generation
 
 ```python
-def build_spin_assignments(probes, statics, target_LPS,
-                           D_close_mm=10.0, D_interact_mm=15.0,
-                           D_far_mm=25.0, beam_B=64):
+def build_spin_assignments(
+    probes,
+    statics,
+    target_LPS,
+    D_close_mm=10.0,
+    D_interact_mm=15.0,
+    D_far_mm=25.0,
+    beam_B=64,
+):
     # 1. Build coupling graph from target geometry
     coupling = [
-        (i, j) for i, j in itertools.combinations(range(K), 2)
+        (i, j)
+        for i, j in itertools.combinations(range(K), 2)
         if np.linalg.norm(target_LPS[i] - target_LPS[j]) < D_interact_mm
     ]
 
@@ -116,8 +123,10 @@ def build_spin_assignments(probes, statics, target_LPS,
                 for spin in per_probe_spin_candidates(...):
                     s = score_partial(
                         partial | {probe_idx: spin},
-                        coupling, target_LPS,
-                        D_close_mm, D_far_mm,
+                        coupling,
+                        target_LPS,
+                        D_close_mm,
+                        D_far_mm,
                     )
                     new_beam.append((partial | {probe_idx: spin}, s))
             beam = top_k(new_beam, beam_B)
@@ -127,9 +136,15 @@ def build_spin_assignments(probes, statics, target_LPS,
     return list(itertools.product(*component_solutions))
 
 
-def score_partial(assignment, coupling_edges, target_LPS,
-                  D_close_mm, D_far_mm,
-                  body_asymmetry_local, ap_ml_per_probe):
+def score_partial(
+    assignment,
+    coupling_edges,
+    target_LPS,
+    D_close_mm,
+    D_far_mm,
+    body_asymmetry_local,
+    ap_ml_per_probe,
+):
     """Score uses the geometric optimal spin per pair, not a generic
     'prefer 180°' preference."""
     score = 0.0
@@ -138,13 +153,15 @@ def score_partial(assignment, coupling_edges, target_LPS,
             continue
         d_target = np.linalg.norm(target_LPS[i] - target_LPS[j])
         if d_target > D_far_mm:
-            continue                                  # H4: no contribution
+            continue  # H4: no contribution
         # H2 geometric: compute optimal spins per probe.
         gap_dir = normalize(target_LPS[j] - target_LPS[i])
         opt_spin_i = optimal_spin_perpendicular(
-            body_asymmetry_local[i], ap_ml_per_probe[i], gap_dir)
+            body_asymmetry_local[i], ap_ml_per_probe[i], gap_dir
+        )
         opt_spin_j = optimal_spin_perpendicular(
-            body_asymmetry_local[j], ap_ml_per_probe[j], -gap_dir)
+            body_asymmetry_local[j], ap_ml_per_probe[j], -gap_dir
+        )
         # Reward closeness to the geometric optimum
         score += np.cos(assignment[i] - opt_spin_i)
         score += np.cos(assignment[j] - opt_spin_j)

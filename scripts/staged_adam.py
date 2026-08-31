@@ -34,40 +34,40 @@ import pickle
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.enumeration.seed_emission import emit_seed
-from aind_low_point.optimization.objectives.batched_reduced import (
+from aind_rutter.optimization.enumeration.seed_emission import emit_seed
+from aind_rutter.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
 )
-from aind_low_point.optimization.objectives.batched_static import (
+from aind_rutter.optimization.objectives.batched_static import (
     build_batched_probe_static,
 )
-from aind_low_point.optimization.objectives.coverage import coverage_total_over_probes
-from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.objectives.phase1 import Phase1Weights
-from aind_low_point.optimization.objectives.probe_static import (
+from aind_rutter.optimization.objectives.coverage import coverage_total_over_probes
+from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_rutter.optimization.objectives.phase1 import Phase1Weights
+from aind_rutter.optimization.objectives.probe_static import (
     JointWeights,
     _build_probe_static,
 )
-from aind_low_point.optimization.objectives.spin_restore import (
+from aind_rutter.optimization.objectives.spin_restore import (
     make_batched_spin_restore_partial,
 )
-from aind_low_point.optimization.objectives.variables import _poses
-from aind_low_point.optimization.pipeline.enumeration import (
+from aind_rutter.optimization.objectives.variables import _poses
+from aind_rutter.optimization.pipeline.enumeration import (
     MIN_ARC_AP_SEP_DEG,
     MIN_ML_SEP_DEG,
     Enumerator,
     build_or_load_atlas,
 )
-from aind_low_point.optimization.pipeline.phase1_build import (
+from aind_rutter.optimization.pipeline.phase1_build import (
     ARG_ORDER,
     PER_CAND,
     make_batched_phase1_chunked,
 )
-from aind_low_point.optimization.pipeline.phase1_geometry import (
+from aind_rutter.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
     phase1_bounds,
 )
-from aind_low_point.optimization.pipeline.restore import (
+from aind_rutter.optimization.pipeline.restore import (
     build_y,
     enum_seed_y0,
     setup,

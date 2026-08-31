@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from aind_low_point.build_runtime import _REDUCER_REGISTRY
-from aind_low_point.runtime.reducers import EmptyReductionError
+from aind_rutter.build_runtime import _REDUCER_REGISTRY
+from aind_rutter.runtime.reducers import EmptyReductionError
 
 
 def _write_signed_volume(path: str, label: int = 685) -> None:

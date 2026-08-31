@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Dict, List
 
-from aind_low_point.common import Capability, Kind, Role
+from aind_rutter.common import Capability, Kind, Role
 
 
 class ConfigFactory:

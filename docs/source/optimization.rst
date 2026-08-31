@@ -9,13 +9,13 @@ JAX polishing, and a final constrained handoff.
 The optimizer is not part of the interactive trame planner loop. It is an
 offline batch workflow that reads a subject ``ConfigModel`` YAML and an implant
 hole YAML, writes pickle artifacts under ``scratch/``, and emits plan-only YAML
-files that can be opened later with ``alp-plan --plan``.
+files that can be opened later with ``rutter-plan --plan``.
 
 The live production entry points are:
 
-* ``alp-phase1`` -> ``aind_low_point.optimization.pipeline.phase1_pool``
-* ``alp-phase2`` -> ``aind_low_point.optimization.pipeline.phase2_ipopt``
-* ``alp-emit`` -> ``aind_low_point.optimization.pipeline.emit``
+* ``rutter-phase1`` -> ``aind_rutter.optimization.pipeline.phase1_pool``
+* ``rutter-phase2`` -> ``aind_rutter.optimization.pipeline.phase2_ipopt``
+* ``rutter-emit`` -> ``aind_rutter.optimization.pipeline.emit``
 * ``scripts/run_subject_overnight.sh`` -> unattended wrapper around those three
 
 
@@ -31,7 +31,7 @@ Install the optional optimizer stack before running the pipeline:
 The two subject inputs are:
 
 ``CONFIG``
-   Full aind-low-point config YAML. It defines probes, targets, fixture meshes,
+   Full aind-rutter config YAML. It defines probes, targets, fixture meshes,
    the implant transform, and the runtime plan skeleton.
 
 ``HOLES``
@@ -224,7 +224,7 @@ every remaining probe domain. That makes the hole assignment part of the
 search, not a post-hoc filter.
 
 ``optimization.pipeline.enumeration.Enumerator`` implements this as the
-production search for ``alp-phase1``. It carries only cheap discrete decisions
+production search for ``rutter-phase1``. It carries only cheap discrete decisions
 in the candidate pool, then asks the shared seed emitter for AP, ML, and spin
 starts only for candidates that are actually optimized.
 
@@ -320,7 +320,7 @@ round-robin spin restore over the reduced objective:
 * ``optimization.objectives.spin_restore.make_batched_spin_restore_partial``
   sweeps a full circle of spin proposals for each probe.
 * The default production knobs are ``N_SPINS=16`` and ``RESTORE_ROUNDS=4`` in
-  ``alp-phase1``.
+  ``rutter-phase1``.
 * The restore uses the well-aware reduced clearance objective and returns one
   spin vector per candidate.
 
@@ -332,7 +332,7 @@ pipeline.
 Phase 1 Pool
 ------------
 
-``alp-phase1`` runs the full MRV pool through batched continuous optimization
+``rutter-phase1`` runs the full MRV pool through batched continuous optimization
 and writes ``Phase1PoolPayload``.
 
 The continuous variable layout is:
@@ -436,7 +436,7 @@ Run directly:
    CONFIG=examples/837229-config.yml \
    HOLES=scratch/0283-300-04.holes.yml \
    OUT=scratch/837229_pool.pkl \
-   JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase1
+   JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 
 Useful Phase-1 environment knobs:
 
@@ -482,7 +482,7 @@ assignment; it does not re-run enumeration or infer arc ordering from a
 Phase 2 Handoff
 ---------------
 
-``alp-phase2`` loads a Phase-1 pool, selects top candidates by a chosen metric,
+``rutter-phase2`` loads a Phase-1 pool, selects top candidates by a chosen metric,
 runs a constrained continuous polish, gates the results, and writes
 ``Phase2HandoffPayload``.
 
@@ -535,7 +535,7 @@ Run directly:
    OUT=scratch/837229_phase2_handoff.pkl \
    TOPK=200 P2_ITER=1000 \
    PLATFORM=gpu POOL=thread WORKERS=4 \
-   JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase2
+   JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 
 Phase 2 reports two feasibility axes:
 
@@ -556,7 +556,7 @@ plans.
 Emit Plans
 ----------
 
-``alp-emit`` is pure reconstruction. It loads the handoff, applies each saved
+``rutter-emit`` is pure reconstruction. It loads the handoff, applies each saved
 pose to a mesh-free planning state, reorders arcs/probes for rig readability,
 and writes plan-only YAML files plus a decision tree and manifest.
 
@@ -568,7 +568,7 @@ Run directly:
    HOLES=scratch/0283-300-04.holes.yml \
    HANDOFF=scratch/837229_phase2_handoff.pkl \
    N=15 OUTDIR=scratch/837229_plans \
-   JAX_PLATFORMS=cpu uv run --python 3.13 alp-emit
+   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 
 Outputs:
 
@@ -584,7 +584,7 @@ Open a generated plan with the interactive planner:
 
 .. code-block:: bash
 
-   uv run alp-plan examples/837229-config.yml \
+   uv run rutter-plan examples/837229-config.yml \
      --plan scratch/837229_plans/plans/plan-01-cov17.44-....plan.yml
 
 

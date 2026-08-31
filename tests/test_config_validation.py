@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_low_point.config import ConfigModel
+from aind_rutter.config import ConfigModel
 from tests.config_factories import (
     AssetFactory,
     CalibrationFactory,
@@ -608,7 +608,7 @@ class TestBulkAssetSpec:
 
     def test_bulk_asset_expansion(self):
         """Test bulk assets expand into individual AssetSpecModels."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -636,7 +636,7 @@ class TestBulkAssetSpec:
 
     def test_bulk_asset_with_key_placeholder(self):
         """Test bulk assets substitute {key} placeholder correctly."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -899,7 +899,7 @@ class TestRangeTargetSpec:
 
     def test_range_target_with_source_key_placeholder(self):
         """Test range targets substitute {n} in source_key."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         # First add assets that the derived targets will reference
@@ -942,7 +942,7 @@ class TestDerivedTargetSpec:
 
     def test_derived_target_expansion(self):
         """Test derived targets expand from asset keys."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -985,7 +985,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_auto_scene_from_asset_with_transform(self):
         """Test assets with transform auto-generate scene nodes."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1013,7 +1013,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_auto_scene_from_asset_with_scene_tags_only(self):
         """Test assets with scene_tags (no transform) auto-generate scene nodes."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1037,7 +1037,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_explicit_scene_node_overrides_auto(self):
         """Test explicit scene nodes override auto-generated ones."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1073,7 +1073,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_auto_scene_disabled(self):
         """Test auto_scene=False suppresses auto-generation."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1097,7 +1097,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_auto_scene_from_target(self):
         """Test targets with transform auto-generate scene nodes."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1131,7 +1131,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_auto_scene_from_probe(self):
         """Test probes auto-generate scene nodes."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1175,7 +1175,7 @@ class TestAutoSceneNodeGeneration:
 
     def test_probe_auto_scene_disabled(self):
         """Test probe with auto_scene=False doesn't generate node."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1214,7 +1214,7 @@ class TestConfigExport:
 
     def test_to_explicit_dict_round_trip(self):
         """Test that exported config can be re-loaded."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         # Create a config with bulk specs and auto-generation
         config_data = ConfigFactory.minimal_config()
@@ -1269,8 +1269,8 @@ class TestConfigExport:
 
     def test_expand_config_function(self):
         """Test the standalone expand_config function."""
-        from aind_low_point.common import Kind, Role
-        from aind_low_point.config import expand_config
+        from aind_rutter.common import Kind, Role
+        from aind_rutter.config import expand_config
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1306,7 +1306,7 @@ class TestExtensionInference:
 
     def test_obj_extension_infers_mesh_trimesh(self):
         """Test .obj files infer mesh kind and trimesh loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1328,7 +1328,7 @@ class TestExtensionInference:
 
     def test_stl_extension_infers_mesh_trimesh(self):
         """Test .stl files infer mesh kind and trimesh loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1349,7 +1349,7 @@ class TestExtensionInference:
 
     def test_ply_extension_infers_mesh_trimesh(self):
         """Test .ply files infer mesh kind and trimesh loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1370,7 +1370,7 @@ class TestExtensionInference:
 
     def test_nrrd_extension_infers_mesh_sitk(self):
         """Test .nrrd files infer mesh kind and sitk_volume loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1391,7 +1391,7 @@ class TestExtensionInference:
 
     def test_nii_extension_infers_mesh_sitk(self):
         """Test .nii files infer mesh kind and sitk_volume loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1412,7 +1412,7 @@ class TestExtensionInference:
 
     def test_nii_gz_extension_infers_mesh_sitk(self):
         """Test .nii.gz files infer mesh kind and sitk_volume loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1433,7 +1433,7 @@ class TestExtensionInference:
 
     def test_npy_extension_infers_points_numpy(self):
         """Test .npy files infer points kind and numpy_points loader."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1454,7 +1454,7 @@ class TestExtensionInference:
 
     def test_npy_target_extension_inference(self):
         """Test .npy files work for targets too."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1475,7 +1475,7 @@ class TestExtensionInference:
 
     def test_explicit_kind_overrides_inference(self):
         """Test explicit kind is not overwritten by inference."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1498,7 +1498,7 @@ class TestExtensionInference:
 
     def test_explicit_loader_overrides_inference(self):
         """Test explicit loader is not overwritten by inference."""
-        from aind_low_point.common import Kind
+        from aind_rutter.common import Kind
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1521,7 +1521,7 @@ class TestExtensionInference:
 
     def test_no_inference_without_src(self):
         """Test no inference happens when src is not set."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1556,7 +1556,7 @@ class TestRoleInference:
 
     def test_structure_prefix_infers_anatomy(self):
         """Test structure: prefix infers anatomy role."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1577,7 +1577,7 @@ class TestRoleInference:
 
     def test_brain_prefix_infers_anatomy(self):
         """Test brain prefix infers anatomy role."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1598,7 +1598,7 @@ class TestRoleInference:
 
     def test_target_prefix_infers_target_role(self):
         """Test target: prefix infers target role."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1627,7 +1627,7 @@ class TestRoleInference:
 
     def test_landmark_prefix_infers_landmark_role(self):
         """Test landmark: prefix infers landmark role."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1648,7 +1648,7 @@ class TestRoleInference:
 
     def test_no_prefix_defaults_to_geometry(self):
         """Test keys without known prefix default to geometry role."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1669,7 +1669,7 @@ class TestRoleInference:
 
     def test_explicit_role_overrides_inference(self):
         """Test explicit role is not overwritten by inference."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1695,7 +1695,7 @@ class TestGlobTemplateMatching:
 
     def test_glob_pattern_matches_assets(self):
         """Test glob pattern templates auto-match assets."""
-        from aind_low_point.common import Role
+        from aind_rutter.common import Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1729,7 +1729,7 @@ class TestGlobTemplateMatching:
 
     def test_glob_pattern_matches_targets(self):
         """Test glob pattern templates auto-match targets."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1769,7 +1769,7 @@ class TestGlobTemplateMatching:
 
     def test_explicit_templates_override_glob(self):
         """Test explicit templates list overrides glob matching."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1801,7 +1801,7 @@ class TestGlobTemplateMatching:
 
     def test_exact_match_has_priority_over_glob(self):
         """Test exact template name matches have priority over glob."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1833,7 +1833,7 @@ class TestGlobTemplateMatching:
 
     def test_multiple_glob_matches_applied_in_order(self):
         """Test multiple glob matches are applied in template dict order."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1869,7 +1869,7 @@ class TestGlobTemplateMatching:
 
     def test_no_match_when_no_glob_pattern_applies(self):
         """Test no auto-match when no glob pattern applies."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1902,7 +1902,7 @@ class TestCombinedInference:
 
     def test_minimal_config_with_all_inference(self):
         """Test minimal config using all inference features."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1934,7 +1934,7 @@ class TestCombinedInference:
 
     def test_inference_after_bulk_expansion(self):
         """Test inference works on expanded bulk specs."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(
@@ -1958,7 +1958,7 @@ class TestCombinedInference:
 
     def test_inference_after_template_expansion(self):
         """Test inference fills in after template expansion."""
-        from aind_low_point.common import Kind, Role
+        from aind_rutter.common import Kind, Role
 
         config_data = ConfigFactory.minimal_config()
         config_data.update(

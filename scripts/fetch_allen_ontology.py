@@ -4,7 +4,7 @@
 Usage:
     python scripts/fetch_allen_ontology.py
 
-Writes to src/aind_low_point/data/allen_ccf_ontology.json
+Writes to src/aind_rutter/data/allen_ccf_ontology.json
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ URL = "http://api.brain-map.org/api/v2/structure_graph_download/1.json"
 OUT = (
     Path(__file__).resolve().parent.parent
     / "src"
-    / "aind_low_point"
+    / "aind_rutter"
     / "data"
     / "allen_ccf_ontology.json"
 )

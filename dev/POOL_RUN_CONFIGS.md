@@ -1,6 +1,6 @@
 # MRV pool run — tuned configurations
 
-`alp-phase1` (`src/aind_low_point/optimization/pipeline/phase1_pool.py`) runs the
+`rutter-phase1` (`src/aind_rutter/optimization/pipeline/phase1_pool.py`) runs the
 full MRV candidate pool (about 19k configs: 3 arcs,
 ≤4 probes/arc) through **restore → reduced → full** optimization and a
 per-candidate optional FCL gate, saving one record per candidate for the
@@ -29,7 +29,7 @@ baseline = 91/17).
 Beats all-fine on *everything* at <½ the surf wall-time.
 
 ```bash
-JAX_PLATFORMS=cuda uv run --python 3.13 alp-phase1
+JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 # (defaults: MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50)
 ```
 
@@ -40,14 +40,14 @@ Maximizes the feasible handoff set.
 
 ```bash
 JAX_PLATFORMS=cuda COARSE_N=3000 REDUCED_FINE=100 FULL_FINE=100 \
-  uv run --python 3.13 alp-phase1
+  uv run --python 3.13 rutter-phase1
 ```
 
 ### BASELINE — reproduce the old 165-feasible run
 
 ```bash
 JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
-  REDUCED_FINE=0 FULL_FINE=0 uv run --python 3.13 alp-phase1
+  REDUCED_FINE=0 FULL_FINE=0 uv run --python 3.13 rutter-phase1
 ```
 
 ## Knobs
@@ -79,7 +79,7 @@ full_fine, stage1, stage2, n_spins, ...}`. Each record:
 - `fcl` — true-mesh FCL min slack for the top-`FCL_TOPK` by clearance (else `nan`);
   `>= -1e-4` ⇒ FCL-feasible. `-1.0` is a boolean "≥1 pair collides" sentinel.
 
-**Next step from here:** run `alp-phase2`, which ranks by `SELECT_BY`
+**Next step from here:** run `rutter-phase2`, which ranks by `SELECT_BY`
 (`min_clear` by default), polishes the top `TOPK` with IPOPT by default
 (`SOLVER=trust-constr` remains available), applies the final FCL/threading gate,
 and MMR-ranks the feasible handoff set.

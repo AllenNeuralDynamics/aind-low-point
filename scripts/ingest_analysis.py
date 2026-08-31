@@ -25,14 +25,14 @@ from pathlib import Path
 
 import numpy as np
 
-from aind_low_point.optimization.objectives.coverage import (
+from aind_rutter.optimization.objectives.coverage import (
     coverage_per_probe_over_probes,
 )
-from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.objectives.probe_static import _build_probe_static
-from aind_low_point.optimization.objectives.variables import _poses
-from aind_low_point.optimization.pipeline.phase1_geometry import build_coverage_data
-from aind_low_point.optimization.pipeline.runtime_adapter import (
+from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+from aind_rutter.optimization.objectives.variables import _poses
+from aind_rutter.optimization.pipeline.phase1_geometry import build_coverage_data
+from aind_rutter.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
 

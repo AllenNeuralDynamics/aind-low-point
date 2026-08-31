@@ -1,16 +1,16 @@
-"""Tests for ``aind_low_point.optimization.geometry.kinematics``."""
+"""Tests for ``aind_rutter.optimization.geometry.kinematics``."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from aind_low_point.optimization.geometry import (
+from aind_rutter.optimization.geometry import (
     HoleSection,
     shaft_section_oval_value,
 )
-from aind_low_point.optimization.geometry.holes import Hole
-from aind_low_point.optimization.geometry.kinematics import (
+from aind_rutter.optimization.geometry.holes import Hole
+from aind_rutter.optimization.geometry.kinematics import (
     pose_at_hole_best_fit,
     pose_from_optimizer_vars,
     required_ap_deg,

@@ -3,9 +3,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from aind_low_point.optimization.enumeration.atlas import Atlas
-from aind_low_point.optimization.pipeline.contracts import AtlasCachePayload
-from aind_low_point.optimization.pipeline.enumeration import _normalize_atlas_payload
+from aind_rutter.optimization.enumeration.atlas import Atlas
+from aind_rutter.optimization.pipeline.contracts import AtlasCachePayload
+from aind_rutter.optimization.pipeline.enumeration import _normalize_atlas_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -52,7 +52,7 @@ def test_build_or_load_atlas_is_not_splatted_into_enumerator() -> None:
 
 
 def test_phase1_pool_records_are_built_through_helper() -> None:
-    path = ROOT / "src/aind_low_point/optimization/pipeline/phase1_pool.py"
+    path = ROOT / "src/aind_rutter/optimization/pipeline/phase1_pool.py"
     tree = ast.parse(path.read_text(), filename=str(path))
 
     helper_calls = [
@@ -71,7 +71,7 @@ def test_active_pipeline_entrypoints_use_runtime_adapter_for_setup() -> None:
     # banned legacy helpers. (The earlier diagnostic scripts that used to be in
     # this list were retired with the as_legacy_setup shim cleanup.)
     paths = [
-        ROOT / "src/aind_low_point/optimization/pipeline/phase1_build.py",
+        ROOT / "src/aind_rutter/optimization/pipeline/phase1_build.py",
         ROOT / "scripts/ingest_analysis.py",
     ]
     banned_names = {

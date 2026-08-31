@@ -6,15 +6,15 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from aind_low_point.core import AffineTransform
-from aind_low_point.optimization.geometry import HoleSection
-from aind_low_point.optimization.geometry.holes import Hole
-from aind_low_point.optimization.pipeline.runtime_adapter import (
+from aind_rutter.core import AffineTransform
+from aind_rutter.optimization.geometry import HoleSection
+from aind_rutter.optimization.geometry.holes import Hole
+from aind_rutter.optimization.pipeline.runtime_adapter import (
     find_well_fixture,
     head_pitch_deg_from_runtime,
     transform_holes_to_lps,
 )
-from aind_low_point.runtime import RuntimeBundle
+from aind_rutter.runtime import RuntimeBundle
 
 
 def test_head_pitch_deg_from_runtime_reads_subject_from_rig() -> None:

@@ -1,6 +1,7 @@
-# CLAUDE.md — aind-low-point
+# CLAUDE.md — Rutter (`aind-rutter`)
 
-Probe placement planning ("Pinpoint in Python") for AIND. Two frontends share a
+Multi-probe insertion planning for AIND: an interactive planner and a
+constrained-optimization solver over one runtime. Two frontends share that
 common runtime: K3D + ipywidgets (Jupyter, `controllers.py`) and Trame +
 PyVista (web app, `app.py` + `trame_controller.py`).
 
@@ -26,7 +27,7 @@ uv sync --python 3.13                     # set up venv
 ## Where things live
 
 ```
-src/aind_low_point/
+src/aind_rutter/
 ├── core.py                # AffineTransform, TransformChain, Material, *Transformable
 ├── common.py              # Capability (IntFlag), Role, Kind enums
 ├── orientation_codes.py   # OrientationCode (48 RAS-style codes)
@@ -75,7 +76,7 @@ flat→subpackages (the old flat `optimization/*.py` module names are gone):
   `phase2_ipopt`, `emit`, plus `enumeration`/`phase1_build`/`phase1_geometry`/
   `restore`/`thick_well`/`probe_setup`/`runtime_adapter`/`contracts`
 
-Console entry points `alp-phase1` / `alp-phase2` / `alp-emit` and the
+Console entry points `rutter-phase1` / `rutter-phase2` / `rutter-emit` and the
 `scripts/run_subject_overnight.sh` driver run the pipeline. **See
 `dev/PIPELINE.md` for the read-verified stage map** (it's full of stale-docstring
 traps — trust that doc, not the docstrings).

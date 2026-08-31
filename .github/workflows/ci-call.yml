@@ -32,6 +32,6 @@ jobs:
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
-      package-name: aind_low_point
+      package-name: aind_rutter
     secrets:
       repo-token: ${{ secrets.GITHUB_TOKEN }}

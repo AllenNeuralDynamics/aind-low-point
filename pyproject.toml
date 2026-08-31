@@ -3,8 +3,8 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aind-low-point"
-description = "Plan neuroscience experiments"
+name = "aind-rutter"
+description = "Multi-probe insertion planning for in vivo neurophysiology"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
@@ -72,16 +72,16 @@ optimization = [
 ]
 
 [project.scripts]
-alp-plan = "aind_low_point.cli:main"
-alp-phase1 = "aind_low_point.optimization.pipeline.phase1_pool:main"
-alp-phase2 = "aind_low_point.optimization.pipeline.phase2_ipopt:main"
-alp-emit = "aind_low_point.optimization.pipeline.emit:main"
-alp-plan-csv = "aind_low_point.runtime.plan_csv:main"
+rutter-plan = "aind_rutter.cli:main"
+rutter-phase1 = "aind_rutter.optimization.pipeline.phase1_pool:main"
+rutter-phase2 = "aind_rutter.optimization.pipeline.phase2_ipopt:main"
+rutter-emit = "aind_rutter.optimization.pipeline.emit:main"
+rutter-plan-csv = "aind_rutter.runtime.plan_csv:main"
 
 [project.urls]
-Repository = "https://github.com/AllenNeuralDynamics/aind-low-point/"
-Issues = "https://github.com/AllenNeuralDynamics/aind-low-point/issues"
-Changelog = "https://github.com/AllenNeuralDynamics/aind-low-point/blob/main/CHANGELOG.md"
+Repository = "https://github.com/AllenNeuralDynamics/aind-rutter/"
+Issues = "https://github.com/AllenNeuralDynamics/aind-rutter/issues"
+Changelog = "https://github.com/AllenNeuralDynamics/aind-rutter/blob/main/CHANGELOG.md"
 
 
 [dependency-groups]
@@ -106,7 +106,7 @@ docs = [
 ]
 
 [tool.setuptools.package-data]
-"aind_low_point" = ["data/*.json"]
+"aind_rutter" = ["data/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -128,14 +128,14 @@ pydocstyle = { convention = "numpy" }
 [tool.mypy]
 python_version = "3.10"
 files = [
-  "src/aind_low_point/runtime/probe_context.py",
-  "src/aind_low_point/runtime/scene_geometry.py",
-  "src/aind_low_point/optimization/pipeline/contracts.py",
-  "src/aind_low_point/optimization/pipeline/runtime_adapter.py",
-  "src/aind_low_point/optimization/pipeline/enumeration.py",
-  "src/aind_low_point/optimization/pipeline/phase1_pool.py",
-  "src/aind_low_point/optimization/pipeline/phase2_ipopt.py",
-  "src/aind_low_point/optimization/pipeline/emit.py",
+  "src/aind_rutter/runtime/probe_context.py",
+  "src/aind_rutter/runtime/scene_geometry.py",
+  "src/aind_rutter/optimization/pipeline/contracts.py",
+  "src/aind_rutter/optimization/pipeline/runtime_adapter.py",
+  "src/aind_rutter/optimization/pipeline/enumeration.py",
+  "src/aind_rutter/optimization/pipeline/phase1_pool.py",
+  "src/aind_rutter/optimization/pipeline/phase2_ipopt.py",
+  "src/aind_rutter/optimization/pipeline/emit.py",
 ]
 ignore_missing_imports = true
 follow_imports = "silent"
@@ -180,7 +180,7 @@ exclude = [
 
 [tool.commitizen]
 version_provider = "pep621"
-version_files = ["pyproject.toml", "src/aind_low_point/__init__.py:__version__"]
+version_files = ["pyproject.toml", "src/aind_rutter/__init__.py:__version__"]
 update_changelog_on_bump = true
 tag_format = "v$version"
 major_version_zero = true

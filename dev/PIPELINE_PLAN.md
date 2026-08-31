@@ -166,7 +166,7 @@ feasible/infeasible split become decidable). **One rig, both answers.**
 
 ## Repo state after the 2026-06-04 cleanup
 - Committed: bf16 trilinear, vmap coverage, points_in_region reducer, 837229
-  config, `alp-plan` CLI (tyro + startup plan-apply), spin orbit-basis refactor,
+  config, `rutter-plan` CLI (tyro + startup plan-apply), spin orbit-basis refactor,
   live pipeline scripts tracked, 73 stale diagnostics deleted, `dev/PIPELINE.md`.
 - `CLAUDE.md` is gitignored in this repo (edits are local-only).
 - Live scripts tracked; active spin/ADAM/enumerator exploration scripts kept;

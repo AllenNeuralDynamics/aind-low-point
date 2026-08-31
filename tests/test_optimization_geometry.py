@@ -1,4 +1,4 @@
-"""Tests for ``aind_low_point.optimization.geometry``.
+"""Tests for ``aind_rutter.optimization.geometry``.
 
 Covers:
   - point_to_segment_dist
@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aind_low_point.optimization.geometry import (
+from aind_rutter.optimization.geometry import (
     Capsule,
     HoleSection,
     cap_basis,

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from aind_low_point.ccf_ontology import CCFOntology
+from aind_rutter.ccf_ontology import CCFOntology
 
 FIXTURE = [
     {

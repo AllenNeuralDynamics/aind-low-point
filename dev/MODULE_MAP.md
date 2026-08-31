@@ -1,6 +1,6 @@
 # Module Map
 
-Per-file reference for `src/aind_low_point/`. Layered top-down: enums → core
+Per-file reference for `src/aind_rutter/`. Layered top-down: enums → core
 data → catalog/scene → planning state → adapters → frontends.
 
 **New to the codebase?** Start with `dev/CORE_CONCEPTS.md` for the

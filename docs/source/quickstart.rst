@@ -1,20 +1,20 @@
 Quickstart Guide
 ================
 
-This guide helps you create your first aind-low-point configuration.
+This guide helps you create your first aind-rutter configuration.
 
 Installation
 ------------
 
 .. code-block:: bash
 
-    pip install aind-low-point
+    pip install aind-rutter
 
 Or with uv:
 
 .. code-block:: bash
 
-    uv add aind-low-point
+    uv add aind-rutter
 
 
 Your First Configuration
@@ -65,7 +65,7 @@ Loading Configuration
 .. code-block:: python
 
     import yaml
-    from aind_low_point.config import ConfigModel
+    from aind_rutter.config import ConfigModel
 
     with open("config.yaml") as f:
         data = yaml.safe_load(f)

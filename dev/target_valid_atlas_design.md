@@ -195,7 +195,7 @@ class PoseAnchor:
     # Rig pose
     ap_deg: float
     ml_deg: float
-    spin_deg: float | None     # None for K=1
+    spin_deg: float | None  # None for K=1
 
     # Translation
     off_R_mm: float
@@ -204,12 +204,12 @@ class PoseAnchor:
     past_target_mm: float | None
 
     # Quality metrics
-    threading_max_g: float     # min margin; ≤ 1 ⇒ feasible
-    threading_margin: float    # 1 − threading_max_g
+    threading_max_g: float  # min margin; ≤ 1 ⇒ feasible
+    threading_margin: float  # 1 − threading_max_g
     coverage: float
     target_miss_mm: float
     offset_norm_mm: float
-    robustness: float          # e.g. ML-perturbation slack
+    robustness: float  # e.g. ML-perturbation slack
 
     # Provenance
     source_apex_offset_R_mm: float
@@ -222,7 +222,7 @@ class AtlasEntry:
     probe_name: str
     hole_id: int
     ap_bin: float
-    anchors: tuple[PoseAnchor, ...]   # ≥ 1 anchor per (probe, hole, AP bin)
+    anchors: tuple[PoseAnchor, ...]  # ≥ 1 anchor per (probe, hole, AP bin)
 ```
 
 Multiple anchors per AP bin matter because the
@@ -320,7 +320,7 @@ bank must also sit in a useful relationship to the target.
 
 ## Implementation order
 
-1. New file: `src/aind_low_point/optimization/target_valid_atlas.py`.
+1. New file: `src/aind_rutter/optimization/target_valid_atlas.py`.
    Side-by-side with `visibility_atlas.py`; don't modify the existing
    atlas yet.
 2. Apex `T` only for the first diagnostic.
@@ -348,7 +348,7 @@ bank must also sit in a useful relationship to the target.
 - [[manual_plan_files]] — manual plan loaded as
   `config + plan-overlay` pair; clearance check uses FCL BVH on full
   collision mesh.
-- `src/aind_low_point/optimization/enumeration/visibility_atlas.py` — incumbent
+- `src/aind_rutter/optimization/enumeration/visibility_atlas.py` — incumbent
   atlas, kept for comparison; do not edit.
-- `src/aind_low_point/optimization/enumeration/atlas.py` — atlas carrier
+- `src/aind_rutter/optimization/enumeration/atlas.py` — atlas carrier
   dataclasses shared by atlas builders and the pipeline.

@@ -3,12 +3,12 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_low_point.build_runtime import (
+from aind_rutter.build_runtime import (
     apply_plan_model_to_state,
     planning_state_to_plan_model,
     save_plan_to_config,
 )
-from aind_low_point.config import (
+from aind_rutter.config import (
     CatalogTargetRefModel,
     ConfigModel,
     InlineTargetRefModel,
@@ -16,8 +16,8 @@ from aind_low_point.config import (
     PlanningModel,
     ProbeDeclModel,
 )
-from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
-from aind_low_point.state_change import PlanStore
+from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.state_change import PlanStore
 from tests.config_factories import (
     AssetFactory,
     ConfigFactory,

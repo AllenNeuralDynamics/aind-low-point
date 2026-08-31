@@ -93,7 +93,7 @@ SHANK_PITCH_MM = 0.25  # AIND probes use 250 µm shank-row pitch.
 
 
 # Default recording-array center along the shaft (mm) per kind. Matches
-# ``aind_low_point.optimization.geometry.recording.RECORDING_GEOMETRY``.
+# ``aind_rutter.optimization.geometry.recording.RECORDING_GEOMETRY``.
 # Subtracted from CSV's ``distance_past_target`` to convert the OLD
 # tip-past-target semantic to the NEW recording-center-past-target one.
 ACTIVE_CENTER_MM: dict[str, float] = {
@@ -610,7 +610,7 @@ def emit_full_config(  # noqa: C901
         # Look up the per-region CCF colors from the bundled ontology
         # so each structure renders in its Allen colour (matching
         # ``use_ccf_color: true`` on the atlas-mesh-pack spec).
-        from aind_low_point.ccf_ontology import CCFOntology
+        from aind_rutter.ccf_ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         for s in structures:

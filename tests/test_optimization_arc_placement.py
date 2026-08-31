@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_low_point.optimization.enumeration.arc_placement import (
+from aind_rutter.optimization.enumeration.arc_placement import (
     bounded_isotonic_arc_aps,
 )
 

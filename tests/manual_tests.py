@@ -4,7 +4,7 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from aind_low_point.config import ConfigModel
+from aind_rutter.config import ConfigModel
 
 # %%
 logging.basicConfig(format="%(message)s", level=logging.DEBUG)

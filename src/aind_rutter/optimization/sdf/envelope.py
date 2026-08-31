@@ -1,0 +1,314 @@
+"""α-wrap envelope construction for probe collision geometry.
+
+Raw probe CAD is surface-modeled (sheets, open tubes, multi-holed
+plates) — non-watertight at the component level, so libigl PSEUDONORMAL
+SDF gives wrong signs and any algorithm that needs interior/exterior
+classification fails. The fix is CGAL's α-wrap (Portaneri et al.,
+SIGGRAPH 2022 — "Alpha Wrapping with an Offset"): given a soup of
+triangles, produce a *watertight, manifold* envelope at user-specified
+offset ``α``.
+
+The envelope preserves concavities at scales larger than ``α`` and
+smooths out features below it. For our 25 × 170 × 25 mm bodies,
+``α = 0.5 mm, offset = 0.05 mm`` gives ~22k-vertex envelopes that match
+raw FCL BVH clearance to within 1.1% FP and 0% FN.
+
+Shanks are stripped before wrapping (long thin features that the
+α-wrap would either dilate beyond their literature width or merge into
+adjacent body via the gap-closing). Stripped shanks become analytic
+OBB primitives in the dual-rep collision query.
+
+Caches envelopes by (mesh-hash, α, offset) under
+``$AIND_LOW_POINT_CACHE_DIR/envelopes`` or ``~/.cache/aind_rutter/envelopes``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+
+import numpy as np
+import trimesh
+
+# CGAL alpha-wrap via pymeshlab. Imported lazily so unrelated code
+# paths don't pay the ~100 MB pymeshlab import cost.
+
+
+SHANK_MAX_TIP_Z_MM = 1.0
+SHANK_MAX_LENGTH_MM = 10.5
+SHANK_MIN_LENGTH_MM = 5.0
+SHANK_MIN_ASPECT = 30.0
+
+# Anything below this z is "shank zone" — silicon shank plus the
+# transitional junction caps that connect shank to body. The OBB grows
+# to enclose the union; the body envelope is built from components with
+# z_min ≥ this. Set to 10.5 mm to cover the NP 2.0 silicon (z ≤ 10) plus
+# a 0.5 mm slop for the junction (typically at z ≈ 10.0–10.3 mm).
+SHANK_ZONE_Z_MAX_MM = 10.5
+
+# Lower z bound for the junction zone: components whose ``z_max`` is at
+# least this far up are candidates for the transition-zone union OBB.
+# Anything below this (e.g., tiny ``z_extent ≈ 0`` tip-face caps at
+# z=0 that fail :func:`is_shank_component`'s length criterion) is left
+# alone — bundling those into the transition OBB would extend it down
+# to z=0 and balloon the xy extent to engulf the whole shank zone.
+SHANK_JUNCTION_MIN_Z_MAX_MM = 9.0
+
+
+def is_shank_component(comp: trimesh.Trimesh) -> bool:
+    """True if ``comp`` looks like a silicon shank sheet.
+
+    Criteria (literature NP 2.x):
+      - extends through ``z ∈ [near 0, ≤ 10.5 mm]`` (tip near origin)
+      - z-extent ≥ 5 mm
+      - aspect ratio ``z / max(xy) ≥ 30`` (very elongated)
+    """
+    bounds = comp.bounds
+    z_min, z_max = bounds[0, 2], bounds[1, 2]
+    if z_max > SHANK_MAX_LENGTH_MM:
+        return False
+    if z_min > SHANK_MAX_TIP_Z_MM:
+        return False
+    extent_xy = max(bounds[1, 0] - bounds[0, 0], bounds[1, 1] - bounds[0, 1])
+    extent_z = z_max - z_min
+    if extent_z < SHANK_MIN_LENGTH_MM:
+        return False
+    return extent_z / max(extent_xy, 1e-6) > SHANK_MIN_ASPECT
+
+
+def is_in_shank_zone(comp: trimesh.Trimesh) -> bool:
+    """True if every part of ``comp`` lies in the shank zone ``z ≤
+    SHANK_ZONE_Z_MAX_MM``.
+
+    This catches both the silicon shank sheets *and* the transitional
+    junction caps between shank and body — small flat shapes that fail
+    :func:`is_shank_component`'s aspect/length criteria but sit in the
+    same z range and would otherwise be smoothed away by alpha-wrap.
+    Treating them as part of the shank zone lets the shank OBB cover
+    them and the body envelope skip them cleanly.
+    """
+    z_max = comp.bounds[1, 2]
+    return z_max <= SHANK_ZONE_Z_MAX_MM
+
+
+def _keep_in_body(comp: trimesh.Trimesh) -> bool:
+    """True if ``comp`` should join the body alpha-wrap envelope.
+
+    Keeps the real body plus the shank->PCB junction caps (small flat
+    z >= ``SHANK_JUNCTION_MIN_Z_MAX_MM`` shapes), so the watertight
+    envelope represents the junction accurately. Strips only the silicon
+    shanks (handled by the analytic shank-group OBB) and the tiny z<9
+    tip-face caps (which would balloon the envelope down to z=0). The
+    junction caps wrap cleanly on their own; folding them into the body
+    replaces the old coarse transition-zone union OBB that overhung the
+    true geometry (see 2026-06 well/junction fix).
+    """
+    if not is_in_shank_zone(comp):
+        return True  # real body
+    if is_shank_component(comp):
+        return False  # silicon shank -> shank-group OBB
+    return comp.bounds[1, 2] >= SHANK_JUNCTION_MIN_Z_MAX_MM  # junction cap
+
+
+def strip_shanks(mesh: trimesh.Trimesh) -> tuple[trimesh.Trimesh, int]:
+    """Return ``(body_mesh, n_stripped)``. ``body_mesh`` is the union of
+    the real body plus the shank->PCB junction caps; only the silicon
+    shanks and the z<9 tip-face caps are stripped. The shank-group OBB
+    built via :func:`extract_shank_obbs` covers the stripped silicon.
+    """
+    comps = mesh.split(only_watertight=False)
+    body = [c for c in comps if _keep_in_body(c)]
+    n_stripped = len(comps) - len(body)
+    if not body:
+        raise ValueError("No body components after stripping shank zone")
+    return trimesh.util.concatenate(body), n_stripped
+
+
+def extract_shank_obbs(
+    mesh: trimesh.Trimesh,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract shank-zone OBBs from a probe mesh.
+
+    Returns ``(centers, half_extents)`` of shape ``(n_obbs, 3)`` in the
+    probe's canonical local frame. **One OBB per probe at most:**
+
+    1. **Shank-group union OBB** — single AABB enclosing every
+       :func:`is_shank_component` component (the silicon shanks). For a
+       4-shank quadbase this collapses the 4 thin shanks into one wider
+       OBB (~1 mm × 70 µm × 10 mm) that also covers the 250-µm air gaps
+       between shanks. **Loses the ability to detect inter-shank
+       weaving between two probes** — intentional per the 2026-05-23
+       design decision: such configs are mechanically infeasible to
+       insert anyway, so we don't optimize for them.
+
+    The shank->PCB junction caps are **no longer** a separate OBB. The
+    old transition-zone union AABB overhung the true geometry by ~0.2 mm
+    (a 0.93×3.38×0.44 mm box for a quadbase) and produced false-positive
+    probe-vs-fixture penetrations (e.g. VM↔well: OBB −0.04 vs FCL +0.18).
+    The caps are now folded into the body alpha-wrap envelope instead
+    (see :func:`strip_shanks` / ``_keep_in_body``), which wraps them
+    accurately (2026-06 well/junction fix).
+
+    Raw CAD often represents shanks as zero-thickness sheets; the
+    bbox-derived half-extent is ``0`` on those axes. Use
+    :func:`floor_shank_half_extents` to pad to literature dimensions
+    before using for collision.
+    """
+    comps = mesh.split(only_watertight=False)
+    silicon_vertices: list[np.ndarray] = []
+    for c in comps:
+        if is_shank_component(c):
+            silicon_vertices.append(np.asarray(c.vertices, dtype=np.float64))
+
+    out_centers: list[np.ndarray] = []
+    out_halves: list[np.ndarray] = []
+
+    # Single union OBB over all silicon-shank components.
+    if silicon_vertices:
+        all_v = np.vstack(silicon_vertices)
+        bmin = all_v.min(axis=0)
+        bmax = all_v.max(axis=0)
+        out_centers.append(0.5 * (bmin + bmax))
+        out_halves.append(0.5 * (bmax - bmin))
+
+    if not out_centers:
+        return (
+            np.zeros((0, 3), dtype=np.float64),
+            np.zeros((0, 3), dtype=np.float64),
+        )
+    return (
+        np.stack(out_centers, axis=0).astype(np.float64),
+        np.stack(out_halves, axis=0).astype(np.float64),
+    )
+
+
+def floor_shank_half_extents(
+    half_extents: np.ndarray,
+    *,
+    min_thick_mm: float = 0.012,
+    min_width_mm: float = 0.035,
+) -> np.ndarray:
+    """Apply literature-spec floors to shank half-extents.
+
+    NP 2.0 silicon: 24 µm thick × 70 µm wide × ~10 mm long. Raw CAD
+    sometimes encodes shanks as zero-thickness sheets in one axis; this
+    pads them to literature dimensions for collision purposes.
+
+    Floors per row: half-thickness ``min_thick_mm`` to the smallest axis,
+    half-width ``min_width_mm`` to the next smallest. Z (length) is
+    left as-is — the mesh's z-extent is the actual shank length.
+    """
+    if half_extents.shape[0] == 0:
+        return half_extents
+    out = half_extents.copy()
+    # Sort xy half-extents per row so we know which is "thick" vs "wide"
+    xy = out[:, :2]
+    order = np.argsort(xy, axis=1)  # (N, 2): index 0 → smaller
+    for i in range(out.shape[0]):
+        small_axis = order[i, 0]
+        wide_axis = order[i, 1]
+        out[i, small_axis] = max(out[i, small_axis], min_thick_mm)
+        out[i, wide_axis] = max(out[i, wide_axis], min_width_mm)
+    return out
+
+
+def _envelope_cache_dir() -> Path:
+    root = os.environ.get("AIND_LOW_POINT_CACHE_DIR")
+    if root:
+        return Path(root) / "envelopes"
+    return Path.home() / ".cache" / "aind_rutter" / "envelopes"
+
+
+def _mesh_hash(mesh: trimesh.Trimesh) -> str:
+    h = hashlib.sha256()
+    h.update(np.ascontiguousarray(mesh.vertices, dtype=np.float64).tobytes())
+    h.update(np.ascontiguousarray(mesh.faces, dtype=np.int64).tobytes())
+    return h.hexdigest()[:16]
+
+
+def build_alpha_wrap_envelope(
+    mesh: trimesh.Trimesh,
+    *,
+    alpha_mm: float = 0.2,
+    offset_mm: float = 0.15,
+    strip_shanks_first: bool = True,
+    use_cache: bool = True,
+) -> trimesh.Trimesh:
+    """Construct a watertight α-wrap envelope of ``mesh``.
+
+    Parameters
+    ----------
+    mesh
+        Raw probe mesh in canonical local frame.
+    alpha_mm
+        α-wrap characteristic size. Smaller preserves finer concavities
+        but costs more compute (and produces more vertices). Default
+        0.5 mm gives a 22k-vertex envelope on quadbase bodies in ~7 s.
+    offset_mm
+        Outward inflation distance. Must be ``< alpha_mm`` per CGAL
+        guidelines. **Default 0.4 mm** (raised from 0.2 on 2026-05-23
+        after the envelope-undinflation finding: at the polished
+        endpoint of cand 1322 BLA-CA1, env-mesh gap measured ~0.01-0.03
+        mm vs the expected 0.2 mm, meaning the α-wrap was effectively
+        sitting AT the raw mesh surface — Phase 1 thought clearance
+        was barely-positive when FCL detected collisions). Bumping to
+        0.4 makes the envelope ~conservative enough to push Phase 1's
+        body-body penalty into the right region. Trade-off: probes
+        that genuinely have 0.1-0.3 mm clearance will read as
+        colliding, so Phase 1 may move them slightly further apart
+        than strictly required.
+    strip_shanks_first
+        When True (default), drop shank-like components before wrapping
+        so the envelope contains only the body. The optimizer handles
+        shanks as analytic OBBs.
+    use_cache
+        Cache by (mesh-hash, α, offset, strip-shanks) under the
+        envelope cache directory.
+    """
+    cdir = _envelope_cache_dir()
+    # ``_jv2``: strip_shanks now keeps junction caps in the body (2026-06);
+    # bump so pre-change cached envelopes aren't served stale.
+    key = (
+        f"{_mesh_hash(mesh)}_a{alpha_mm}_o{offset_mm}"
+        f"_strip{int(strip_shanks_first)}_jv2"
+    )
+    cpath = cdir / f"{key}.npz"
+    if use_cache and cpath.exists():
+        with np.load(cpath) as data:
+            return trimesh.Trimesh(
+                vertices=data["vertices"].astype(np.float64),
+                faces=data["faces"].astype(np.int64),
+                process=False,
+            )
+
+    import pymeshlab
+
+    body = strip_shanks(mesh)[0] if strip_shanks_first else mesh
+    ms = pymeshlab.MeshSet()
+    ms.add_mesh(
+        pymeshlab.Mesh(
+            vertex_matrix=np.ascontiguousarray(body.vertices, dtype=np.float64),
+            face_matrix=np.ascontiguousarray(body.faces, dtype=np.int32),
+        ),
+        "body",
+    )
+    ms.generate_alpha_wrap(
+        alpha=pymeshlab.PureValue(alpha_mm),
+        offset=pymeshlab.PureValue(offset_mm),
+    )
+    out = ms.current_mesh()
+    env = trimesh.Trimesh(
+        vertices=np.asarray(out.vertex_matrix(), dtype=np.float64),
+        faces=np.asarray(out.face_matrix(), dtype=np.int64),
+        process=False,
+    )
+
+    if use_cache:
+        cdir.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            cpath,
+            vertices=env.vertices.astype(np.float64),
+            faces=env.faces.astype(np.int64),
+        )
+    return env

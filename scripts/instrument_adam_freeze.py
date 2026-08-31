@@ -27,26 +27,26 @@ import pickle
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.objectives.probe_static import _build_probe_static
-from aind_low_point.optimization.objectives.variables import build_y
-from aind_low_point.optimization.pipeline.enumeration import (
+from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+from aind_rutter.optimization.objectives.variables import build_y
+from aind_rutter.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
 )
-from aind_low_point.optimization.pipeline.phase1_build import (
+from aind_rutter.optimization.pipeline.phase1_build import (
     build_cw_fns,
 )
-from aind_low_point.optimization.pipeline.phase1_geometry import (
+from aind_rutter.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from aind_low_point.optimization.pipeline.restore import setup
-from aind_low_point.optimization.pipeline.thick_well import (
+from aind_rutter.optimization.pipeline.restore import setup
+from aind_rutter.optimization.pipeline.thick_well import (
     fit_well_cone,
     make_thick_well_sdf,
 )
-from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_rutter.runtime.transforms import compile_all_transforms
 from scripts.log_candidate_trajectories import reduced_lohi, restore_spins_mrv
 
 IDX = int(_os.environ.get("IDX", "4195"))

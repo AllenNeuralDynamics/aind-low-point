@@ -7,9 +7,9 @@ The live pipeline is now:
 
 ```text
 CONFIG + HOLES
-  -> alp-phase1  (MRV enumerate, spin restore, batched RProp/coarse-fine pool)
-  -> alp-phase2  (IPOPT/trust-constr polish, FCL/threading gate, MMR ranking)
-  -> alp-emit    (plan-only YAMLs, tree.txt, manifest.md)
+  -> rutter-phase1  (MRV enumerate, spin restore, batched RProp/coarse-fine pool)
+  -> rutter-phase2  (IPOPT/trust-constr polish, FCL/threading gate, MMR ranking)
+  -> rutter-emit    (plan-only YAMLs, tree.txt, manifest.md)
 ```
 
 For the operational runbook, strategy, algorithm notes, environment knobs, and
@@ -26,7 +26,7 @@ Additional optimizer notes:
 
 Vocabulary for the current code:
 
-- Use **Phase 1 pool** for `alp-phase1`.
-- Use **Phase 2 handoff** for `alp-phase2`.
-- Use **emit** for `alp-emit`.
+- Use **Phase 1 pool** for `rutter-phase1`.
+- Use **Phase 2 handoff** for `rutter-phase2`.
+- Use **emit** for `rutter-emit`.
 - Avoid bare "Stage 2" and "Stage 3" labels; use the concrete phase names above.

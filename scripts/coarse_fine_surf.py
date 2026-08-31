@@ -34,25 +34,25 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_low_point.optimization.objectives.fcl_validator import make_fcl_validator
-from aind_low_point.optimization.objectives.phase1 import Phase1Weights
-from aind_low_point.optimization.objectives.probe_static import _build_probe_static
-from aind_low_point.optimization.objectives.variables import build_y
-from aind_low_point.optimization.pipeline.enumeration import (
+from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
+from aind_rutter.optimization.objectives.phase1 import Phase1Weights
+from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+from aind_rutter.optimization.objectives.variables import build_y
+from aind_rutter.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
 )
-from aind_low_point.optimization.pipeline.phase1_build import (
+from aind_rutter.optimization.pipeline.phase1_build import (
     make_batched_phase1_chunked,
 )
-from aind_low_point.optimization.pipeline.phase1_geometry import (
+from aind_rutter.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
     maybe_build_brain_sdf,
     phase1_bounds,
 )
-from aind_low_point.optimization.pipeline.restore import setup
-from aind_low_point.optimization.sdf import build_sdf_by_name
-from aind_low_point.runtime.transforms import compile_all_transforms
+from aind_rutter.optimization.pipeline.restore import setup
+from aind_rutter.optimization.sdf import build_sdf_by_name
+from aind_rutter.runtime.transforms import compile_all_transforms
 from scripts.log_candidate_trajectories import (
     reduced_lohi,
     restore_spins_mrv,

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_low_point.config import (
+from aind_rutter.config import (
     AssetSpecModel,
     CalibrationRefModel,
     CalibrationSourceModel,
@@ -187,7 +187,7 @@ class TestTargetSpecModel:
 
     def test_target_not_collidable_by_default(self):
         """Test that targets cannot be collidable by default."""
-        from aind_low_point.common import Capability
+        from aind_rutter.common import Capability
 
         target_data = TargetFactory.explicit_target()
         target_data["caps"] = [Capability.RENDERABLE, Capability.COLLIDABLE]
@@ -368,7 +368,7 @@ class TestBaseTemplateModel:
 
     def test_base_template_creation(self):
         """Test basic template creation."""
-        from aind_low_point.config import BaseTemplateModel
+        from aind_rutter.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.base_template(kind="mesh", role="geometry")
@@ -378,7 +378,7 @@ class TestBaseTemplateModel:
 
     def test_template_material_ref(self):
         """Test template with material reference."""
-        from aind_low_point.config import BaseTemplateModel
+        from aind_rutter.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.base_template(material_ref="template_material")
@@ -387,7 +387,7 @@ class TestBaseTemplateModel:
 
     def test_template_optional_fields(self):
         """Test template with optional fields."""
-        from aind_low_point.config import BaseTemplateModel
+        from aind_rutter.config import BaseTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.base_template(
@@ -403,7 +403,7 @@ class TestAssetTemplateModel:
 
     def test_asset_template_with_loader(self):
         """Test asset template with source loader."""
-        from aind_low_point.config import AssetTemplateModel
+        from aind_rutter.config import AssetTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.mesh_template_with_loader()
@@ -414,7 +414,7 @@ class TestAssetTemplateModel:
 
     def test_asset_template_with_resource(self):
         """Test asset template with resource selector."""
-        from aind_low_point.config import AssetTemplateModel
+        from aind_rutter.config import AssetTemplateModel
         from tests.config_factories import SelectorFactory, TemplateFactory
 
         template_data = TemplateFactory.asset_template(
@@ -432,7 +432,7 @@ class TestTargetTemplateModel:
 
     def test_target_template_explicit(self):
         """Test target template with explicit source."""
-        from aind_low_point.config import TargetTemplateModel
+        from aind_rutter.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.points_template_explicit()
@@ -443,7 +443,7 @@ class TestTargetTemplateModel:
 
     def test_target_template_derived(self):
         """Test target template with derived source."""
-        from aind_low_point.config import TargetTemplateModel
+        from aind_rutter.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.target_template_derived()
@@ -453,7 +453,7 @@ class TestTargetTemplateModel:
 
     def test_target_template_specific_fields(self):
         """Test target-specific fields in template."""
-        from aind_low_point.config import TargetTemplateModel
+        from aind_rutter.config import TargetTemplateModel
         from tests.config_factories import TemplateFactory
 
         template_data = TemplateFactory.target_template(

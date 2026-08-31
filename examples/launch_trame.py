@@ -14,30 +14,30 @@ import numpy as np
 import pyvista as pv
 import trimesh
 
-from aind_low_point.assets import AssetCatalog, AssetSpec, TargetSpec
-from aind_low_point.collisions import (
+from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
+from aind_rutter.collisions import (
     CollisionAdapter,
     CollisionHandler,
     CollisionState,
 )
-from aind_low_point.core import (
+from aind_rutter.core import (
     Material,
     MeshTransformable,
     PointsTransformable,
 )
-from aind_low_point.fcl_backend import FCLBackend
-from aind_low_point.planning import Kinematics, PlanningState, ProbePlan
-from aind_low_point.pyvista_backend import PyVistaBackend
-from aind_low_point.rendering import (
+from aind_rutter.fcl_backend import FCLBackend
+from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.pyvista_backend import PyVistaBackend
+from aind_rutter.rendering import (
     OverlayResolver,
     OverlayState,
     RendererAdapter,
     RenderHandler,
     on_collisions_changed_lambda,
 )
-from aind_low_point.scene import NodeInstance, Scene
-from aind_low_point.state_change import PlanStore
-from aind_low_point.trame_controller import TrameController
+from aind_rutter.scene import NodeInstance, Scene
+from aind_rutter.state_change import PlanStore
+from aind_rutter.trame_controller import TrameController
 
 # ---------------------------------------------------------------------------
 # 1) Synthetic geometry

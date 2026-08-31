@@ -1,13 +1,13 @@
 Architecture Guide
 ==================
 
-This guide describes the internal architecture of aind-low-point for developers
+This guide describes the internal architecture of aind-rutter for developers
 who want to understand or extend the codebase.
 
 High-Level Overview
 -------------------
 
-aind-low-point follows a layered architecture with clear separation between:
+aind-rutter follows a layered architecture with clear separation between:
 
 1. **Configuration Layer** - Declarative YAML-based specification
 2. **Build Layer** - Transform config into runtime objects
@@ -52,7 +52,7 @@ Module Organization
 
 .. code-block:: text
 
-    src/aind_low_point/
+    src/aind_rutter/
     ├── common.py           # Shared enums (Kind, Role, Capability)
     ├── orientation_codes.py # OrientationCode StrEnum (48 RAS-style codes)
     ├── core.py             # Transform primitives, geometry wrappers, Material
@@ -778,7 +778,7 @@ Adding a New Loader
 
 .. code-block:: python
 
-    from aind_low_point.build_runtime import register_loader
+    from aind_rutter.build_runtime import register_loader
 
     @register_loader("my_custom_loader")
     def my_loader(path: Path, **kwargs) -> trimesh.Trimesh:
@@ -799,7 +799,7 @@ Adding a New Reducer
 
 .. code-block:: python
 
-    from aind_low_point.build_runtime import register_reducer
+    from aind_rutter.build_runtime import register_reducer
 
     @register_reducer("bbox_center")
     def bbox_center(source: SourceGeo) -> np.ndarray:

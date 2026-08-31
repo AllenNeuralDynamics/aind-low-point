@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aind_low_point.planning import (
+from aind_rutter.planning import (
     Kinematics,
     PlanningState,
     PoseLimits,
