@@ -159,3 +159,6 @@ examples/836656-config-cal.yml
 
 # JAX test compile cache
 .jax_test_cache/
+
+# Emacs lockfiles (dangling symlinks, never committable)
+.#*
