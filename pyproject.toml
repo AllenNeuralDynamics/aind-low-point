@@ -24,7 +24,7 @@ dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
   "ipyevents>=2,<3",
-  "k3d>=2,<3",
+  "k3d>=2,<4",
   "mapbox-earcut>=2.0.0",
   "numpy>=1.20,<3",
   "omegaconf>=2,<3",
