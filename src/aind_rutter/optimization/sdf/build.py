@@ -32,6 +32,9 @@ from numpy.typing import NDArray
 
 DEFAULT_SPACING_MM: float = 0.2
 DEFAULT_PAD_MM: float = 2.0
+# Fixed so every process queries clearance at the same surface points; an
+# unseeded draw gives each worker slightly different constraints.
+SURFACE_SAMPLE_SEED: int = 0
 
 
 @dataclass(frozen=True)
@@ -201,7 +204,9 @@ def build_probe_sdf(
     sdf_grid = S.reshape(tuple(int(d) for d in dims)).astype(np.float32)
 
     # Surface-point sample set for pairwise clearance queries.
-    surface_pts, _face_idx = trimesh.sample.sample_surface(mesh, n_surface_points)
+    surface_pts, _face_idx = trimesh.sample.sample_surface(
+        mesh, n_surface_points, seed=SURFACE_SAMPLE_SEED
+    )
     surface_pts = np.asarray(surface_pts, dtype=np.float64)
 
     out = ProbeSDF(

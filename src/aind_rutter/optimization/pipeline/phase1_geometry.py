@@ -108,18 +108,39 @@ def _crop_fixture_to_box(
 def _resample_envelope_surface_in_box(
     raw_mesh, *, offset_mm: float, box_min: np.ndarray, box_max: np.ndarray, n: int
 ) -> np.ndarray:
-    """Area-uniform sample ``n`` points on the α-wrap envelope within the box."""
+    """Area-uniform sample ``n`` points on the α-wrap envelope within the box.
+
+    Seeded and cached on disk, so every process builds identical fixture constraints.
+    """
+    import hashlib
+
     import trimesh
 
+    from aind_rutter.optimization.sdf.build import (
+        SURFACE_SAMPLE_SEED,
+        _cache_dir,
+        _mesh_hash,
+    )
     from aind_rutter.optimization.sdf.envelope import build_alpha_wrap_envelope
+
+    box = np.round(np.concatenate([box_min, box_max]).astype(np.float64), 6)
+    box_key = hashlib.sha256(box.tobytes()).hexdigest()[:12]
+    cpath = _cache_dir() / (
+        f"envcrop_{_mesh_hash(raw_mesh)}_a0.2_o{offset_mm}_n{n}"
+        f"_seed{SURFACE_SAMPLE_SEED}_{box_key}.npz"
+    )
+    if cpath.exists():
+        with np.load(cpath) as data:
+            return data["surface"].astype(np.float32)
 
     env = build_alpha_wrap_envelope(
         raw_mesh, alpha_mm=0.2, offset_mm=offset_mm, strip_shanks_first=False
     )
+    rng = np.random.default_rng(SURFACE_SAMPLE_SEED)
     kept: list[np.ndarray] = []
     have = 0
     for _ in range(60):
-        pts, _ = trimesh.sample.sample_surface(env, max((n - have) * 6, 2000))
+        pts, _ = trimesh.sample.sample_surface(env, max((n - have) * 6, 2000), seed=rng)
         pts = np.asarray(pts, np.float32)
         inb = pts[np.all((pts >= box_min) & (pts <= box_max), axis=1)]
         if len(inb):
@@ -131,7 +152,14 @@ def _resample_envelope_surface_in_box(
     if len(allp) < n:
         reps = int(np.ceil(n / max(len(allp), 1)))
         allp = np.tile(allp, (reps, 1)) if len(allp) else np.zeros((n, 3), np.float32)
-    return allp[:n].astype(np.float32)
+    out = allp[:n].astype(np.float32)
+    cpath.parent.mkdir(parents=True, exist_ok=True)
+    # Workers start together; write-then-rename keeps a reader from seeing a
+    # partial file.
+    tmp = cpath.with_name(f"{cpath.stem}.{_os.getpid()}.tmp.npz")
+    np.savez(tmp, surface=out)
+    _os.replace(tmp, cpath)
+    return out
 
 
 def _crop_cone_to_well(
