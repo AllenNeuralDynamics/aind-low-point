@@ -1096,6 +1096,129 @@ def body_body_pair_clearance(
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
 
 
+# Clearance read for padded cell slots; large enough never to be the minimum.
+_PAD_CLEARANCE_MM = 1e3
+
+
+def trilinear_sdf_stacked(
+    grids: Array,
+    origins: Array,
+    spacings: Array,
+    n_reals: Array,
+    which: Array,
+    query_local: Array,
+    out_of_bounds_value: float = 1e3,
+) -> Array:
+    """:func:`trilinear_sdf` over a table of same-shape grids, reading each query
+    point from grid ``which``.
+
+    One gather serves points bound for different probes' SDFs; separate lookups
+    would each have to cover every point. ``grids`` is (K, Nx, Ny, Nz) with real
+    extents ``n_reals`` (K, 3), ``origins`` (K, 3) and ``spacings`` (K,); ``which``
+    is an integer array broadcastable to ``query_local.shape[:-1]``.
+    """
+    which = jnp.broadcast_to(which, query_local.shape[:-1])
+    n = n_reals[which]
+    coords = (
+        query_local.astype(jnp.float32) - jnp.asarray(origins, jnp.float32)[which]
+    ) / jnp.asarray(spacings, jnp.float32)[which][..., None]
+    i0 = jnp.floor(coords).astype(jnp.int32)
+    f = (coords - i0).astype(grids.dtype)
+    in_bounds = jnp.all((i0 >= 0) & (i0 < n - 1), axis=-1)
+    idx = jnp.clip(i0, 0, n - 2)
+    ix, iy, iz = idx[..., 0], idx[..., 1], idx[..., 2]
+    fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
+
+    def corner(dx: int, dy: int, dz: int) -> Array:
+        return grids[which, ix + dx, iy + dy, iz + dz]
+
+    c00 = corner(0, 0, 0) * (1 - fx) + corner(1, 0, 0) * fx
+    c01 = corner(0, 0, 1) * (1 - fx) + corner(1, 0, 1) * fx
+    c10 = corner(0, 1, 0) * (1 - fx) + corner(1, 1, 0) * fx
+    c11 = corner(0, 1, 1) * (1 - fx) + corner(1, 1, 1) * fx
+    c0 = c00 * (1 - fy) + c10 * fy
+    c1 = c01 * (1 - fy) + c11 * fy
+    interp = (c0 * (1 - fz) + c1 * fz).astype(jnp.float32)
+    return jnp.where(in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32))
+
+
+def body_body_pair_clearance_c2f(
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    kind_a: Array,
+    kind_b: Array,
+    grids: Array,
+    origins: Array,
+    spacings: Array,
+    n_reals: Array,
+    outside_min: Array,
+    coarse: Array,
+    fine: Array,
+    cells: Array,
+    radius: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 16,
+    n_cells: int = 16,
+) -> tuple[Array, Array]:
+    """Body-body clearance from coarse-to-fine surface samples, returning
+    ``(hard_min, soft_min_topk)`` like :func:`body_body_pair_clearance`.
+
+    Looks up each probe's coarse points in the other probe's SDF, ranks cells by
+    ``coarse value − cell radius`` (no fine point in a cell reads lower, since a
+    distance field changes no faster than its query point moves), and looks up the
+    fine points of the ``n_cells`` best cells. Per-kind tables in each kind's local
+    frame: ``coarse`` (K, C, 3), ``fine`` (K, F, 3), ``cells`` (K, C, W) listing fine
+    indices padded with F, ``radius`` (K, C); grids as for
+    :func:`trilinear_sdf_stacked`. ``outside_min`` (K,) is the lowest value on each
+    grid's boundary: a point off the grid is at least that far from the body, which
+    stands in for the out-of-grid sentinel when ranking, so a cell whose coarse point
+    is off the grid but whose members are close still ranks by a valid bound. See
+    :mod:`aind_rutter.optimization.sdf.surface_samples`.
+    """
+    n_coarse, n_fine = coarse.shape[1], fine.shape[1]
+
+    def into(points: Array, R_src: Array, t_src: Array, R_dst: Array, t_dst: Array):
+        return (points @ R_src.T + t_src - t_dst) @ R_dst
+
+    def lookup(kind: Array, points: Array) -> Array:
+        return trilinear_sdf_stacked(grids, origins, spacings, n_reals, kind, points)
+
+    coarse_values = jnp.concatenate(
+        [
+            lookup(kind_a, into(coarse[kind_b], R_b, t_b, R_a, t_a)),
+            lookup(kind_b, into(coarse[kind_a], R_a, t_a, R_b, t_b)),
+        ]
+    )
+    off_grid = coarse_values >= _PAD_CLEARANCE_MM
+    floor = jnp.concatenate(
+        [
+            jnp.broadcast_to(outside_min[kind_a], (n_coarse,)),
+            jnp.broadcast_to(outside_min[kind_b], (n_coarse,)),
+        ]
+    )
+    bound = jnp.where(off_grid, floor, coarse_values) - jnp.concatenate(
+        [radius[kind_b], radius[kind_a]]
+    )
+    _, chosen = jax.lax.top_k(-bound, n_cells)
+    of_a = chosen >= n_coarse  # the cell holds probe a's points, read in b's SDF
+    owner = jnp.where(of_a, kind_a, kind_b)
+    members = cells[owner, jnp.where(of_a, chosen - n_coarse, chosen)]  # (n_cells, W)
+    points = fine[owner[:, None], jnp.minimum(members, n_fine - 1)]
+    R_src = jnp.where(of_a[:, None, None], R_a, R_b)
+    t_src = jnp.where(of_a[:, None], t_a, t_b)
+    R_dst = jnp.where(of_a[:, None, None], R_b, R_a)
+    t_dst = jnp.where(of_a[:, None], t_b, t_a)
+    world = jnp.einsum("cwj,ckj->cwk", points, R_src) + t_src[:, None, :]
+    local = jnp.einsum("cwk,ckj->cwj", world - t_dst[:, None, :], R_dst)
+    fine_values = lookup(jnp.where(of_a, kind_b, kind_a)[:, None], local)
+    fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
+    pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
+    return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+
+
 # ---------------------------------------------------------------------------
 # Dual-rep aggregator helpers (reduced / Phase 1 / Phase 2 / validation)
 # ---------------------------------------------------------------------------

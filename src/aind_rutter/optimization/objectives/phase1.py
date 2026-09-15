@@ -908,7 +908,7 @@ def _pack_statics(
     sdf_part = _SDF_PACK_CACHE.get(key)
     if sdf_part is None:
         sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces = [], [], [], []
-        shank_obb_centers, shank_obb_halves = [], []
+        shank_obb_centers, shank_obb_halves, sdf_clearance = [], [], []
         # Dedup the grid→device conversion by probe KIND: the SDF/OBB/surface are
         # a deterministic function of the kind geometry (canonical-local), so each
         # kind's jnp arrays are built ONCE from the first occurrence and the refs
@@ -938,6 +938,7 @@ def _pack_statics(
                             ),
                             dtype=jnp.float32,
                         ),
+                        s.sdf_data.get("clearance"),
                     )
                     by_kind[s.kind] = ent
                 sdf_grids.append(ent[0])
@@ -946,6 +947,7 @@ def _pack_statics(
                 sdf_surfaces.append(ent[3])
                 shank_obb_centers.append(ent[4])
                 shank_obb_halves.append(ent[5])
+                sdf_clearance.append(ent[6])
             else:
                 sdf_grids.append(jnp.zeros((2, 2, 2), dtype=jnp.float32))
                 sdf_origins.append(jnp.zeros(3, dtype=jnp.float32))
@@ -953,6 +955,7 @@ def _pack_statics(
                 sdf_surfaces.append(jnp.zeros((1, 3), dtype=jnp.float32))
                 shank_obb_centers.append(jnp.zeros((0, 3), dtype=jnp.float32))
                 shank_obb_halves.append(jnp.zeros((0, 3), dtype=jnp.float32))
+                sdf_clearance.append(None)
         sdf_part = {
             "sdf_grids": tuple(sdf_grids),
             "sdf_origins": tuple(sdf_origins),
@@ -969,6 +972,8 @@ def _pack_statics(
                 sdf_part["sdf_surfaces"],
                 sdf_part["shank_obb_centers"],
                 sdf_part["shank_obb_halves"],
+                # Not a packed argument: only the table carries these samples.
+                clearance=tuple(sdf_clearance),
             )
         _SDF_PACK_CACHE[key] = sdf_part
     out.update(sdf_part)

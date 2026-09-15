@@ -24,17 +24,24 @@ import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import igl
 import numpy as np
 import trimesh
 from numpy.typing import NDArray
 
+if TYPE_CHECKING:
+    from aind_rutter.optimization.sdf.surface_samples import ClearanceSamples
+
 DEFAULT_SPACING_MM: float = 0.2
 DEFAULT_PAD_MM: float = 2.0
 # Fixed so every process queries clearance at the same surface points; an
 # unseeded draw gives each worker slightly different constraints.
 SURFACE_SAMPLE_SEED: int = 0
+# Probe body clearance samples: "c2f" adds coarse-to-fine samples (see
+# surface_samples) to each probe SDF; "uniform" keeps only ``surface_points``.
+BODY_CLEARANCE_SAMPLES = os.environ.get("RUTTER_BODY_CLEARANCE", "c2f")
 
 
 @dataclass(frozen=True)
@@ -61,6 +68,10 @@ class ProbeSDF:
     ``shank_centers`` / ``shank_halves`` are ``(S, 3)`` arrays of
     per-shank OBB params in the same canonical local frame. Empty
     ``(0, 3)`` arrays when no shanks (legacy raw-mesh SDF path).
+
+    ``clearance`` holds the coarse-to-fine body samples that the body-body
+    clearance queries instead of ``surface_points`` (probes only; ``None`` for
+    fixtures or with ``RUTTER_BODY_CLEARANCE=uniform``).
     """
 
     grid: NDArray[np.floating]  # (Nx, Ny, Nz) float32
@@ -73,6 +84,7 @@ class ProbeSDF:
     shank_halves: NDArray[np.floating] = field(
         default_factory=lambda: np.zeros((0, 3), dtype=np.float64)
     )
+    clearance: ClearanceSamples | None = None
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -277,9 +289,21 @@ def build_probe_sdf_from_alpha_wrap(
         use_cache=use_cache,
         sign_type="pseudonormal",
     )
+    clearance = None
     if strip_shanks_first:
         centers, halves = extract_shank_obbs(raw_mesh)
         halves = floor_shank_half_extents(halves)
+        if BODY_CLEARANCE_SAMPLES == "c2f":
+            from aind_rutter.optimization.sdf.surface_samples import (
+                build_clearance_samples,
+            )
+
+            clearance = build_clearance_samples(envelope, use_cache=use_cache)
+        elif BODY_CLEARANCE_SAMPLES != "uniform":
+            raise ValueError(
+                f"RUTTER_BODY_CLEARANCE must be 'c2f' or 'uniform', "
+                f"got {BODY_CLEARANCE_SAMPLES!r}"
+            )
     else:
         # Fixtures have no shanks.
         centers = np.zeros((0, 3), dtype=np.float64)
@@ -288,7 +312,9 @@ def build_probe_sdf_from_alpha_wrap(
     # have come back without them on a cache hit).
     from dataclasses import replace
 
-    return replace(body_sdf, shank_centers=centers, shank_halves=halves)
+    return replace(
+        body_sdf, shank_centers=centers, shank_halves=halves, clearance=clearance
+    )
 
 
 def build_sdf_by_name(probes, rt, n_surf):

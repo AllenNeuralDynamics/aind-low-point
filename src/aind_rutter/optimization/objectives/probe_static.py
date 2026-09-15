@@ -90,6 +90,9 @@ def _sdf_jnp_payload(sdf) -> dict:
         shank_centers=jnp.asarray(sdf.shank_centers, dtype=jnp.float32),
         shank_halves=jnp.asarray(sdf.shank_halves, dtype=jnp.float32),
     )
+    if getattr(sdf, "clearance", None) is not None:
+        # Host arrays; build_padded_probe_tables stacks them per kind.
+        payload["clearance"] = sdf.clearance
     _SDF_JNP_CACHE[key] = payload
     return payload
 

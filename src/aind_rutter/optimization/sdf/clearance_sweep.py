@@ -43,6 +43,7 @@ import jax.numpy as jnp
 
 from aind_rutter.optimization.sdf.kernels import (
     body_body_pair_clearance,
+    body_body_pair_clearance_c2f,
     body_shank_corners_pair_clearance,
     dual_rep_fixture_clearance,
     shank_only_pair_clearance,
@@ -51,6 +52,8 @@ from aind_rutter.optimization.sdf.kernels import (
 # Category order MUST match PROBE_PAIR_SLACK_GAINS and the unrolled loop's
 # (body_body, body_shank_corners, body_shank_obb, shank_shank) tuple order.
 N_PAIR_CATEGORIES = 4
+# Cells refined per probe pair by the coarse-to-fine body-body query.
+C2F_REFINED_CELLS = 16
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +102,7 @@ def build_padded_probe_tables(
     sdf_surfaces: tuple,
     shank_obb_centers: tuple,
     shank_obb_halves: tuple,
+    clearance: tuple | None = None,
 ) -> dict:
     """Dedup the per-probe SDF/OBB tuples into a per-KIND stacked table plus a
     per-probe ``kind_id``, so a dynamic index gathers ``grids[kind_id[i]]`` inside
@@ -110,12 +114,18 @@ def build_padded_probe_tables(
     HBM. Inputs are length-P tuples of jnp arrays (from ``_pack_statics``); pad
     widths are concrete Python ints at trace time. Returns the per-kind tables +
     per-probe ``kind_id``, with ``obb_mask`` (1.0 real OBB rows, 0.0 padding).
+
+    ``clearance`` is a length-P tuple of ``ClearanceSamples`` (``None`` for
+    placeholder probes). When given, the table also carries the coarse-to-fine
+    body samples (``c2f_*``) and each grid's boundary minimum (``outside_min``),
+    and :func:`swept_pair_clearances` queries body-body clearance with them.
     """
     P = len(sdf_grids)
+    clearance = clearance if clearance is not None else (None,) * P
     # Dedup by grid object identity → per-kind lists + per-probe kind index.
     kind_of: dict[int, int] = {}
     kind_id_list: list[int] = []
-    kg, ko, ks, ksurf, kobc, kobh = [], [], [], [], [], []
+    kg, ko, ks, ksurf, kobc, kobh, kclear = [], [], [], [], [], [], []
     for i in range(P):
         gid = id(sdf_grids[i])
         if gid not in kind_of:
@@ -126,6 +136,7 @@ def build_padded_probe_tables(
             ksurf.append(sdf_surfaces[i])
             kobc.append(shank_obb_centers[i])
             kobh.append(shank_obb_halves[i])
+            kclear.append(clearance[i])
         kind_id_list.append(kind_of[gid])
     nk = len(kg)
     gx = max(int(g.shape[0]) for g in kg)
@@ -172,7 +183,7 @@ def build_padded_probe_tables(
         dtype=jnp.int32,
     )
 
-    return dict(
+    table = dict(
         grids=grids,
         origins=origins,
         spacings=spacings,
@@ -183,6 +194,54 @@ def build_padded_probe_tables(
         real_shapes=real_shapes,
         kind_id=jnp.asarray(kind_id_list, jnp.int32),
     )
+    if any(c is not None for c in kclear):
+        table.update(_stack_clearance(kg, ksurf, kclear))
+    return table
+
+
+def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) -> dict:
+    """Per-kind coarse-to-fine sample tables; placeholder kinds (no SDF, never in a
+    pair) get inert rows."""
+    real = [c for c in kind_samples if c is not None]
+    n_coarse, n_fine = real[0].coarse.shape[0], real[0].fine.shape[0]
+    if any(c.coarse.shape[0] != n_coarse or c.fine.shape[0] != n_fine for c in real):
+        raise ValueError("coarse-to-fine sample counts differ between probe kinds")
+    width = max(c.cells.shape[1] for c in real)
+    coarse, fine, cells, radius, outside_min = [], [], [], [], []
+    for grid, surface, c in zip(kind_grids, kind_surfaces, kind_samples, strict=True):
+        if c is None:
+            if int(surface.shape[0]) > 1:
+                raise ValueError(
+                    "a probe kind with an SDF lacks coarse-to-fine samples; build all "
+                    "probe SDFs with the same RUTTER_BODY_CLEARANCE setting"
+                )
+            coarse.append(jnp.zeros((n_coarse, 3), jnp.float32))
+            fine.append(jnp.zeros((n_fine, 3), jnp.float32))
+            cells.append(jnp.full((n_coarse, width), n_fine, jnp.int32))
+            radius.append(jnp.zeros(n_coarse, jnp.float32))
+            outside_min.append(jnp.float32(0.0))
+            continue
+        coarse.append(jnp.asarray(c.coarse, jnp.float32))
+        fine.append(jnp.asarray(c.fine, jnp.float32))
+        pad = width - c.cells.shape[1]
+        cells.append(
+            jnp.pad(
+                jnp.asarray(c.cells, jnp.int32),
+                ((0, 0), (0, pad)),
+                constant_values=n_fine,
+            )
+        )
+        radius.append(jnp.asarray(c.radius, jnp.float32))
+        g = jnp.asarray(grid, jnp.float32)
+        faces = (g[0], g[-1], g[:, 0], g[:, -1], g[:, :, 0], g[:, :, -1])
+        outside_min.append(jnp.min(jnp.stack([f.min() for f in faces])))
+    return {
+        "c2f_coarse": jnp.stack(coarse),
+        "c2f_fine": jnp.stack(fine),
+        "c2f_cells": jnp.stack(cells),
+        "c2f_radius": jnp.stack(radius),
+        "outside_min": jnp.stack(outside_min),
+    }
 
 
 def swept_pair_clearances(
@@ -220,6 +279,7 @@ def swept_pair_clearances(
     obb_m = tables["obb_mask"]
     real_shapes = tables["real_shapes"]
     kind_id = tables["kind_id"]  # (P,) probe → kind
+    coarse_to_fine = "c2f_fine" in tables
     # World-frame body surfaces, once per PROBE: gather the per-kind local
     # surface by kind, then transform by the probe's pose.
     world_surf = (
@@ -235,24 +295,46 @@ def swept_pair_clearances(
         sfa, sfb = world_surf[ia], world_surf[ib]
         oca, oha, oma = obb_c[ka], obb_h[ka], obb_m[ka]
         ocb, ohb, omb = obb_c[kb], obb_h[kb], obb_m[kb]
-        bb = body_body_pair_clearance(
-            Ra,
-            ta,
-            Rb,
-            tb,
-            ga,
-            oa,
-            sa,
-            gb,
-            ob,
-            sb,
-            sfa,
-            sfb,
-            beta=beta,
-            top_k=top_k_body_body,
-            n_real_a=nra,
-            n_real_b=nrb,
-        )
+        if coarse_to_fine:
+            bb = body_body_pair_clearance_c2f(
+                Ra,
+                ta,
+                Rb,
+                tb,
+                ka,
+                kb,
+                grids,
+                origins,
+                spacings,
+                real_shapes,
+                tables["outside_min"],
+                tables["c2f_coarse"],
+                tables["c2f_fine"],
+                tables["c2f_cells"],
+                tables["c2f_radius"],
+                beta=beta,
+                top_k=top_k_body_body,
+                n_cells=C2F_REFINED_CELLS,
+            )
+        else:
+            bb = body_body_pair_clearance(
+                Ra,
+                ta,
+                Rb,
+                tb,
+                ga,
+                oa,
+                sa,
+                gb,
+                ob,
+                sb,
+                sfa,
+                sfb,
+                beta=beta,
+                top_k=top_k_body_body,
+                n_real_a=nra,
+                n_real_b=nrb,
+            )
         bsc = body_shank_corners_pair_clearance(
             Ra,
             ta,
