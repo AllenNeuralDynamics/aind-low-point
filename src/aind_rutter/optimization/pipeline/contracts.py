@@ -132,12 +132,24 @@ class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
 
     pose_in: Array
     objective_p1: float | None
+    solver_status: int
+    solver_message: str
     fcl_strict: bool
     thread_strict: bool
     strict_feasible: bool
     fcl_keep: bool
     thread_keep: bool
     kept: bool
+    # Set when the solve started from a jittered pose (P2_PERTURB) or ran with
+    # diagnostics (P2_DIAG); see pipeline.phase2_diagnostics.
+    pose_start: Array
+    perturb: dict[str, object] | None
+    slack_start: dict[str, Array]
+    slack_end: dict[str, Array]
+    fcl_start: float
+    fcl_pairs_start: list[tuple[str, float]]
+    fcl_pairs_end: list[tuple[str, float]]
+    diag_hist: dict[str, Array]
 
 
 class Phase2HandoffPayload(TypedDict):
@@ -196,3 +208,5 @@ class Phase2Problem(TypedDict):
     hessp: Callable[[Array, Array], Array] | None
     constraints: list[dict[str, object]]
     constraints_nlc: list[Any]
+    slack_parts: Callable[[Array], dict[str, Array]]
+    slack_labels: dict[str, object]

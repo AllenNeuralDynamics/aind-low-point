@@ -62,6 +62,8 @@ from aind_rutter.optimization.sdf.clearance_sweep import (
 from aind_rutter.optimization.sdf.kernels import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
+    FixtureClearance,
+    PairClearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
@@ -289,6 +291,9 @@ def _signature(statics, n_arcs, weights, fixtures, brain_sdf=None):
 
 
 _LARGE_SLACK = 1e3  # sentinel for masked-out (padded) constraints
+PADDED_SLACK = _LARGE_SLACK
+# Constraint groups, in the order they are concatenated into the slack vector.
+SLACK_GROUPS = ("thread", "probe_pair", "probe_fixture", "brain", "arc_sep", "ml_sep")
 
 
 def _build_jit(  # noqa: C901
@@ -546,8 +551,9 @@ def _build_jit(  # noqa: C901
             - lmt * reward_thread
         )
 
-    # ---- All slacks: scipy sees ineq[g(x) ≥ 0] over the concat'd vector ----
-    def _all_slacks(
+    # ---- Slack groups in natural shapes, SLACK_GROUPS order; scipy/IPOPT see ----
+    # ---- the flat concatenation ineq[g(x) ≥ 0] built by _all_slacks.          ----
+    def _slack_parts(
         x,
         target_LPS,
         pivot_local,
@@ -604,7 +610,7 @@ def _build_jit(  # noqa: C901
             w_offsets,
             shaft_len=shaft_len,
         )
-        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK).reshape(-1)
+        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK)
 
         # Clearance probe-probe: d_soft − min_clear per (pair, category), vmapped
         # over the static pair list (one dual-rep subgraph vs C(P,2) unrolled).
@@ -626,7 +632,7 @@ def _build_jit(  # noqa: C901
                 top_k_shank_shank=tk_ss,
             )
             _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
-            clear_pp_vec = ((_soft - min_clear) * _gains).reshape(-1)
+            clear_pp_vec = (_soft - min_clear) * _gains
         else:
             clear_pp_vec = jnp.zeros(0)
 
@@ -652,7 +658,7 @@ def _build_jit(  # noqa: C901
                 top_k_obb=tk_bs,
             )
             _fgains = jnp.asarray(FIXTURE_PAIR_SLACK_GAINS, jnp.float32)
-            clear_pf_vec = ((_fsoft - min_clear) * _fgains).reshape(-1)
+            clear_pf_vec = (_fsoft - min_clear) * _fgains
         else:
             clear_pf_vec = jnp.zeros(0)
 
@@ -668,7 +674,7 @@ def _build_jit(  # noqa: C901
             )
             d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
             s = -(d + brain_margin)
-            brain_vec = jnp.where(shank_mask > 0, s, _LARGE_SLACK).reshape(-1)
+            brain_vec = jnp.where(shank_mask > 0, s, _LARGE_SLACK)
 
         # Arc-AP separation: smooth_abs(diff) − min_arc_ap_sep.
         if arc_pairs.shape[0] > 0:
@@ -695,15 +701,19 @@ def _build_jit(  # noqa: C901
         else:
             ml_sep_vec = jnp.zeros(0)
 
+        return (
+            thread_vec,
+            clear_pp_vec,
+            clear_pf_vec,
+            brain_vec,
+            ap_sep_vec,
+            ml_sep_vec,
+        )
+
+    def _all_slacks(*args, **kwargs):
+        # Flattening each group reproduces the constraint order scipy/IPOPT see.
         return jnp.concatenate(
-            [
-                thread_vec,
-                clear_pp_vec,
-                clear_pf_vec,
-                brain_vec,
-                ap_sep_vec,
-                ml_sep_vec,
-            ]
+            [part.reshape(-1) for part in _slack_parts(*args, **kwargs)]
         )
 
     # Exact second-order terms, two flavours. DENSE = full n×n matrix (~n
@@ -731,6 +741,18 @@ def _build_jit(  # noqa: C901
         obj_hess=jax.jit(jax.hessian(_objective)),
         obj_hessp=jax.jit(_obj_hessp),
         slacks=jax.jit(_all_slacks),
+        slack_parts=jax.jit(_slack_parts),
+        slack_labels={
+            "probe_pairs": [tuple(pair) for pair in sdf_pair_list],
+            "pair_categories": list(PairClearance._fields),
+            "pair_gains": list(PROBE_PAIR_SLACK_GAINS),
+            "fixtures": [fx.name for fx in fixtures],
+            "fixture_probes": [
+                i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
+            ],
+            "fixture_categories": list(FixtureClearance._fields),
+            "fixture_gains": list(FIXTURE_PAIR_SLACK_GAINS),
+        },
         slacks_jac=jax.jit(jax.jacfwd(_all_slacks)),
         slacks_hess=jax.jit(_slacks_hess),
         slacks_hessp=jax.jit(_slacks_hessp),
@@ -769,6 +791,10 @@ def make_phase2(
       - ``constraints``: list of one scipy ``ineq`` dict over the
         concatenated slack vector
       - ``n_constraints``: total slack count (for diagnostics)
+      - ``slack_parts(x)``: the slack vector split into ``SLACK_GROUPS``, each in
+        its natural shape (padded entries at ``PADDED_SLACK``)
+      - ``slack_labels``: probe pairs, fixtures, categories and gains that index
+        the ``probe_pair`` / ``probe_fixture`` groups
     """
     # Ceilings/weights are baked into the trace as constants, so they must be in
     # the cache key (like the Phase-1 builder).
@@ -819,6 +845,13 @@ def make_phase2(
     def slacks_fn(x: NDArray) -> NDArray:
         s = jit["slacks"](jnp.asarray(x, dtype=jnp.float32), **packed)
         return np.asarray(s, dtype=np.float64)
+
+    def slack_parts(x: NDArray) -> dict[str, NDArray]:
+        parts = jit["slack_parts"](jnp.asarray(x, dtype=jnp.float32), **packed)
+        return {
+            name: np.asarray(part, dtype=np.float64)
+            for name, part in zip(SLACK_GROUPS, parts)
+        }
 
     def slacks_jac(x: NDArray) -> NDArray:
         J = jit["slacks_jac"](jnp.asarray(x, dtype=jnp.float32), **packed)
@@ -888,4 +921,6 @@ def make_phase2(
             }
         ],
         constraints_nlc=[NonlinearConstraint(**nlc_kw)],
+        slack_parts=slack_parts,
+        slack_labels=jit["slack_labels"],
     )

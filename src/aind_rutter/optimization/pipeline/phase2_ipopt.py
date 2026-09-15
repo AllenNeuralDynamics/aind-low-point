@@ -12,6 +12,10 @@ already-picked plans, so the ranked handoff is high-coverage AND diverse.
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 Env:  TOPK (default 80), WORKERS (default 16), P2_ITER (200), MINCLEAR (0.2),
       LAM_CLEAR (5.0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5)
+      RANKS / RANKS_FILE (explicit zero-based offsets into the SELECT_BY order),
+      P2_DIAG (1 = record per-iteration IPOPT history, slack groups and colliding
+      pairs at start and end), P2_PERTURB (start-pose jitter scale, 0 = off) and
+      P2_PERTURB_SEED — see pipeline.phase2_diagnostics
 """
 
 from __future__ import annotations
@@ -140,6 +144,11 @@ SELECT_BY = _os.environ.get("SELECT_BY", "min_clear")
 OUT_PKL = _os.environ.get("OUT", "scratch/phase2_handoff.pkl")
 WELL = _os.environ.get("WELL", "thick").lower()  # thin | thick (thick = tuned)
 WARMUP = _os.environ.get("WARMUP", "1") == "1"
+# Success-estimator diagnostics (dev/PIPELINE_PLAN.md); off by default so production
+# handoffs are unchanged.
+P2_DIAG = _os.environ.get("P2_DIAG", "0") == "1"
+P2_PERTURB = float(_os.environ.get("P2_PERTURB", "0"))
+P2_PERTURB_SEED = int(_os.environ.get("P2_PERTURB_SEED", "0"))
 # Coverage normalization (mirror of the Phase-1 driver): divide each probe's
 # coverage by its achievable ceiling, blend average vs worst region by COV_ALPHA
 # in [0,1], and apply the target spec's per-target priority weights. COV_WEIGHT
@@ -258,6 +267,10 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         worst_threading_g,
     )
     from aind_rutter.optimization.pipeline.phase1_geometry import phase1_bounds
+    from aind_rutter.optimization.pipeline.phase2_diagnostics import (
+        minimize_ipopt_logged,
+        perturb_pose,
+    )
 
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
     rank = rec.get("rank", -1)
@@ -282,6 +295,19 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         hessian=HESS,
         **cast(Any, _cov_norm_kwargs(st)),
     )
+    pose_start = perturb_pose(
+        pose, n_arcs, _G["n_probes"], bounds, P2_PERTURB, (P2_PERTURB_SEED, int(idx))
+    )
+    v = make_fcl_validator(
+        st, n_arcs, fixtures=tuple(_G["fcl_fixtures"]), fixture_bvhs=_G["fcl_fbvh"]
+    )
+    diag: dict[str, Any] = {}
+    if P2_DIAG:
+        diag["slack_start"] = {
+            k: a.astype(np.float32) for k, a in p2["slack_parts"](pose_start).items()
+        }
+        diag["fcl_start"] = float(np.asarray(v.slacks(pose_start)).min())
+        diag["fcl_pairs_start"] = v.violating_pairs(pose_start)
     t0 = time.perf_counter()
     if SOLVER == "ipopt":
         from cyipopt import minimize_ipopt
@@ -293,25 +319,40 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             if hasattr(bounds, "lb")
             else [(float(lo), float(hi)) for lo, hi in bounds]
         )
-        res = minimize_ipopt(
-            p2["fun"],
-            pose,
-            jac=p2["jac"],
-            bounds=bnds,
-            constraints=p2["constraints"],  # dict ineq: g(x) >= 0
-            options=dict(
-                hessian_approximation="limited-memory",
-                limited_memory_max_history=IP_HIST,
-                mu_strategy=IP_MU,
-                max_iter=P2_ITER,
-                tol=1e-6,
-                constr_viol_tol=IP_CVTOL,
-                acceptable_iter=IP_ACC_ITER,
-                acceptable_constr_viol_tol=IP_CVTOL,
-                print_level=0,
-                sb="yes",
-            ),
+        ipopt_options = dict(
+            hessian_approximation="limited-memory",
+            limited_memory_max_history=IP_HIST,
+            mu_strategy=IP_MU,
+            max_iter=P2_ITER,
+            tol=1e-6,
+            constr_viol_tol=IP_CVTOL,
+            acceptable_iter=IP_ACC_ITER,
+            acceptable_constr_viol_tol=IP_CVTOL,
+            print_level=0,
+            sb="yes",
         )
+        if P2_DIAG:
+            from aind_rutter.optimization.objectives.phase2 import PADDED_SLACK
+
+            res, diag["diag_hist"] = minimize_ipopt_logged(
+                p2["fun"],
+                pose_start,
+                jac=p2["jac"],
+                bounds=bnds,
+                constraints=p2["constraints"],
+                options=ipopt_options,
+                group_sizes=[a.size for a in diag["slack_start"].values()],
+                padded_slack=PADDED_SLACK,
+            )
+        else:
+            res = minimize_ipopt(
+                p2["fun"],
+                pose_start,
+                jac=p2["jac"],
+                bounds=bnds,
+                constraints=p2["constraints"],  # dict ineq: g(x) >= 0
+                options=ipopt_options,
+            )
     else:
         # exactly one of hess / hessp is non-None per HESS mode (None ⇒ BFGS).
         mkw: dict[str, object] = {}
@@ -321,7 +362,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             mkw["hessp"] = p2["hessp"]
         res = minimize(
             p2["fun"],
-            pose,
+            pose_start,
             jac=p2["jac"],
             method="trust-constr",
             bounds=bounds,
@@ -332,10 +373,14 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             **mkw,
         )
     dt = time.perf_counter() - t0
-    v = make_fcl_validator(
-        st, n_arcs, fixtures=tuple(_G["fcl_fixtures"]), fixture_bvhs=_G["fcl_fbvh"]
-    )
     fcl = float(np.asarray(v.slacks(res.x)).min())
+    if P2_DIAG:
+        diag["slack_end"] = {
+            k: a.astype(np.float32) for k, a in p2["slack_parts"](res.x).items()
+        }
+        diag["fcl_pairs_end"] = v.violating_pairs(res.x)
+        diag["slack_labels"] = p2["slack_labels"]
+        diag["fcl_pair_names"] = list(v.pair_names)
     # Threading-feasibility of the SOLVED pose. IPOPT can return a pose that
     # satisfies probe↔probe FCL but failed its threading constraint (g >> 0,
     # shank nowhere near the bore). Record the worst g so main() can gate it.
@@ -353,12 +398,21 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         pose_in=pose,  # Phase-1 input pose (full@end), persisted for inspection
         objective_p1=rec.get("objective"),  # the Phase-1 objective it was culled by
         nit=int(res.nit),
+        solver_status=int(res.status),
+        solver_message=str(res.message),
         secs=dt,
         hole=dict(rec["probe_to_hole"]),
         partition=rec["partition"],
         probe_to_arc_idx=rec["probe_to_arc_idx"],
         arc_centroids_deg=list(rec["arc_centroids_deg"]),
         min_clear=rec.get("min_clear"),
+        pose_start=pose_start,
+        perturb=(
+            {"scale": P2_PERTURB, "seed": [P2_PERTURB_SEED, int(idx)]}
+            if P2_PERTURB > 0
+            else None
+        ),
+        **diag,
     )
 
 
@@ -546,8 +600,15 @@ def main() -> int:
     # RANKS overrides top-TOPK: an explicit rank list into the sorted order, to
     # probe where good feasibles stop appearing rather than guessing a cutoff.
     ranks_env = _os.environ.get("RANKS", "")
-    if ranks_env:
-        sel_ranks = [int(x) for x in ranks_env.split(",") if x.strip()]
+    ranks_file = _os.environ.get("RANKS_FILE", "")
+    if ranks_env or ranks_file:
+        from aind_rutter.optimization.pipeline.phase2_diagnostics import read_ranks
+
+        sel_ranks = (
+            read_ranks(ranks_file)
+            if ranks_file
+            else [int(x) for x in ranks_env.split(",") if x.strip()]
+        )
         sel_ranks = [r for r in sel_ranks if r < len(order)]
     else:
         sel_ranks = list(range(min(TOPK, len(order))))
@@ -572,6 +633,7 @@ def main() -> int:
     print(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {WORKERS} workers"
         f" x {_THREADS} thr, maxiter={P2_ITER}, lam={LAM_CLEAR} tau={TAU_CLEAR}"
+        f", diag={P2_DIAG}, perturb={P2_PERTURB}"
     )
     # Pay the one-time compile ONCE. Threads share the PARENT's context, so warm
     # there. Spawned workers each have their own context and can't see the
@@ -707,8 +769,23 @@ def main() -> int:
             mmr_lambda=MMR_LAMBDA,
             well=WELL,
             solver=SOLVER,
+            diag=P2_DIAG,
+            perturb_scale=P2_PERTURB,
+            perturb_seed=P2_PERTURB_SEED,
+            ranks_file=_os.environ.get("RANKS_FILE", ""),
         ),
     )
+    if P2_DIAG:
+        from aind_rutter.optimization.objectives.phase2 import SLACK_GROUPS
+
+        # Labels are identical across candidates of one probe/fixture set: store once.
+        labels = [r.pop("slack_labels", None) for r in results]
+        names = [r.pop("fcl_pair_names", None) for r in results]
+        payload["config"].update(
+            slack_groups=list(SLACK_GROUPS),
+            slack_labels=next((x for x in labels if x), None),
+            fcl_pair_names=next((x for x in names if x), None),
+        )
     with open(out, "wb") as f:
         pickle.dump(payload, f)
     # Each ranked/all record carries pose + probe_to_hole + probe_to_arc_idx +
