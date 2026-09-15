@@ -15,6 +15,7 @@ from aind_rutter.optimization.sdf.clearance_sweep import (
 )
 from aind_rutter.optimization.sdf.kernels import (
     body_body_pair_clearance_c2f,
+    body_shank_box_clearance_c2f,
     trilinear_sdf,
     trilinear_sdf_stacked,
 )
@@ -240,3 +241,101 @@ def test_pair_sweep_uses_coarse_to_fine_samples_when_the_table_has_them(tables) 
 def test_table_rejects_a_real_probe_kind_without_samples(tables) -> None:
     with pytest.raises(ValueError, match="lacks coarse-to-fine samples"):
         _probe_table(tables, clearance=(tables["samples"][0], None))
+
+
+SHANK_A = (np.array([[0.0, 0.0, 5.0]]), np.array([[0.5, 0.04, 5.0]]))
+SHANK_B = (np.array([[0.0, 0.0, 5.0]]), np.array([[0.6, 0.04, 5.0]]))
+
+
+def _shank_args(tables, kind_a=0, kind_b=1):
+    return (
+        tables["coarse"], tables["fine"], tables["cells"], tables["radius"],
+        jnp.asarray(SHANK_A[0], jnp.float32), jnp.asarray(SHANK_A[1], jnp.float32),
+        jnp.asarray(SHANK_B[0], jnp.float32), jnp.asarray(SHANK_B[1], jnp.float32),
+    )  # fmt: skip
+
+
+def _box_distance(points, R, t, centers, halves):
+    """Distance to the nearest box, mirroring obb_sdf in numpy."""
+    local = (points - t) @ R
+    q = np.abs(local[:, None, :] - centers[None]) - halves[None]
+    outside = np.sqrt((np.maximum(q, 0.0) ** 2).sum(-1) + 1e-12)
+    return (outside + np.minimum(q.max(-1), 0.0)).min(axis=1)
+
+
+def _brute_shank(tables, pose, kind_a=0, kind_b=1):
+    R_a, t_a, R_b, t_b = pose
+    sa, sb = tables["samples"][kind_a], tables["samples"][kind_b]
+    coarse, cell_mins, radius = [], [], []
+    for side, R_src, t_src, R_dst, t_dst, boxes in (
+        (sb, R_b, t_b, R_a, t_a, SHANK_A),
+        (sa, R_a, t_a, R_b, t_b, SHANK_B),
+    ):
+        coarse.append(
+            _box_distance(side.coarse @ R_src.T + t_src, R_dst, t_dst, *boxes)
+        )
+        fine = _box_distance(side.fine @ R_src.T + t_src, R_dst, t_dst, *boxes)
+        radius.append(side.radius)
+        for row in side.cells:
+            members = row[row < len(side.fine)]
+            cell_mins.append(fine[members].min() if members.size else np.inf)
+    return np.concatenate(coarse), np.concatenate(radius), np.array(cell_mins)
+
+
+def _c2f_shank(tables, pose, n_cells):
+    R_a, t_a, R_b, t_b = (jnp.asarray(v, jnp.float32) for v in pose)
+    return body_shank_box_clearance_c2f(
+        R_a, t_a, R_b, t_b, jnp.asarray(0), jnp.asarray(1),
+        *_shank_args(tables), n_cells=n_cells,
+    )  # fmt: skip
+
+
+def test_shank_box_refining_every_cell_reproduces_the_fine_minimum(tables) -> None:
+    pose = _pose_pair()
+    coarse, _, cell_mins = _brute_shank(tables, pose)
+    hard, soft = _c2f_shank(tables, pose, len(coarse))
+    assert float(hard) == pytest.approx(min(coarse.min(), cell_mins.min()), abs=1e-4)
+    assert float(soft) <= float(hard) + 1e-6
+
+
+def test_shank_box_top_cells_follow_the_bound(tables) -> None:
+    pose = _pose_pair()
+    coarse, radius, cell_mins = _brute_shank(tables, pose)
+    chosen = np.argsort(coarse - radius)[:16]
+    hard, _ = _c2f_shank(tables, pose, 16)
+    assert float(hard) == pytest.approx(
+        min(coarse.min(), cell_mins[chosen].min()), abs=1e-4
+    )
+    finite = np.isfinite(cell_mins)
+    assert np.all(cell_mins[finite] >= (coarse - radius)[finite] - 1e-4)
+
+
+def test_shank_box_kernel_jits_and_has_finite_gradients(tables) -> None:
+    R_a, t_a, R_b, t_b = (jnp.asarray(v, jnp.float32) for v in _pose_pair())
+
+    def soft(tb):
+        return body_shank_box_clearance_c2f(
+            R_a, t_a, R_b, tb, jnp.asarray(0), jnp.asarray(1), *_shank_args(tables)
+        )[1]
+
+    grad = jax.jit(jax.grad(soft))(t_b)
+    assert bool(jnp.all(jnp.isfinite(grad))) and float(jnp.abs(grad).sum()) > 0
+
+
+def test_pair_sweep_switches_shank_categories_together(tables) -> None:
+    pose = _pose_pair()
+    table = _probe_table(tables, clearance=tuple(tables["samples"]))
+    uniform = _probe_table(tables, clearance=None)
+    R_a, t_a, R_b, t_b = (np.asarray(v, np.float32) for v in pose)
+    kw = {
+        "pair_a": jnp.asarray([0]), "pair_b": jnp.asarray([1]), "beta": 20.0,
+        "top_k_body_body": 16, "top_k_body_shank": 8, "top_k_shank_shank": 8,
+    }  # fmt: skip
+    Rs, ts = jnp.asarray(np.stack([R_a, R_b])), jnp.asarray(np.stack([t_a, t_b]))
+    c2f_hard, _ = swept_pair_clearances(Rs, ts, table, **kw)
+    uniform_hard, _ = swept_pair_clearances(Rs, ts, uniform, **kw)
+    # These probe kinds carry no shank boxes, so both shank categories read the
+    # empty-pool sentinel either way; the body categories still differ.
+    assert float(c2f_hard[0, 2]) == pytest.approx(float(uniform_hard[0, 2]))
+    assert float(c2f_hard[0, 3]) == pytest.approx(float(uniform_hard[0, 3]))
+    assert np.isfinite([float(c2f_hard[0, 0]), float(c2f_hard[0, 1])]).all()

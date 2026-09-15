@@ -948,37 +948,68 @@ def shank_only_pair_clearance(
         else jnp.zeros((0,), dtype=world_surface_a.dtype)
     )
 
-    if Sa > 0 and Sb > 0:
-
-        def _pair_distance(ca, ha, cb, hb):
-            return obb_obb_signed_distance(R_a, t_a, ca, ha, R_b, t_b, cb, hb)
-
-        d_sa_vs_sb = jax.vmap(
-            lambda ca, ha: jax.vmap(lambda cb, hb: _pair_distance(ca, ha, cb, hb))(
-                shank_centers_b, shank_halves_b
-            )
-        )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
-        if shank_mask_a is not None or shank_mask_b is not None:
-            ma = (
-                shank_mask_a.astype(bool)
-                if shank_mask_a is not None
-                else jnp.ones((Sa,), bool)
-            )
-            mb = (
-                shank_mask_b.astype(bool)
-                if shank_mask_b is not None
-                else jnp.ones((Sb,), bool)
-            )
-            pair_valid = ma[:, None] & mb[None, :]
-            d_sa_vs_sb = jnp.where(pair_valid, d_sa_vs_sb, _EMPTY_CLEARANCE_SENTINEL)
-        shank_shank_pool = d_sa_vs_sb.reshape(-1)
-    else:
-        shank_shank_pool = jnp.zeros((0,), dtype=world_surface_a.dtype)
-
     return (
         _hard_soft(body_shank_pool, beta=beta, top_k=top_k_body_shank),
-        _hard_soft(shank_shank_pool, beta=beta, top_k=top_k_shank_shank),
+        shank_shank_pair_clearance(
+            R_a,
+            t_a,
+            R_b,
+            t_b,
+            shank_centers_a,
+            shank_halves_a,
+            shank_centers_b,
+            shank_halves_b,
+            beta=beta,
+            top_k=top_k_shank_shank,
+            shank_mask_a=shank_mask_a,
+            shank_mask_b=shank_mask_b,
+            dtype=world_surface_a.dtype,
+        ),
     )
+
+
+def shank_shank_pair_clearance(
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 8,
+    shank_mask_a: Array | None = None,
+    shank_mask_b: Array | None = None,
+    dtype=jnp.float32,
+) -> tuple[Array, Array]:
+    """Shank-shank category: exact OBB-vs-OBB distance over 15 separating axes for
+    every shank pair, masked rows reading the no-collision sentinel."""
+    Sa, Sb = shank_centers_a.shape[0], shank_centers_b.shape[0]
+    if Sa == 0 or Sb == 0:
+        return _hard_soft(jnp.zeros((0,), dtype=dtype), beta=beta, top_k=top_k)
+
+    d_sa_vs_sb = jax.vmap(
+        lambda ca, ha: jax.vmap(
+            lambda cb, hb: obb_obb_signed_distance(R_a, t_a, ca, ha, R_b, t_b, cb, hb)
+        )(shank_centers_b, shank_halves_b)
+    )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
+    if shank_mask_a is not None or shank_mask_b is not None:
+        ma = (
+            shank_mask_a.astype(bool)
+            if shank_mask_a is not None
+            else jnp.ones((Sa,), bool)
+        )
+        mb = (
+            shank_mask_b.astype(bool)
+            if shank_mask_b is not None
+            else jnp.ones((Sb,), bool)
+        )
+        d_sa_vs_sb = jnp.where(
+            ma[:, None] & mb[None, :], d_sa_vs_sb, _EMPTY_CLEARANCE_SENTINEL
+        )
+    return _hard_soft(d_sa_vs_sb.reshape(-1), beta=beta, top_k=top_k)
 
 
 def body_shank_corners_pair_clearance(
@@ -1217,6 +1248,100 @@ def body_body_pair_clearance_c2f(
     fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
     pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+
+
+def _boxes_sdf(points_world, R, t, centers, halves, mask):
+    """Distance from world points to the nearest of one probe's shank boxes."""
+    per_box = jax.vmap(
+        lambda c, h: _obb_sdf_world_to_local(points_world, R, t, c, h),
+    )(centers, halves)  # (S, N)
+    if mask is not None:
+        per_box = jnp.where(
+            mask.astype(bool)[:, None], per_box, _EMPTY_CLEARANCE_SENTINEL
+        )
+    return per_box.min(axis=0)
+
+
+def body_shank_box_clearance_c2f(
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    kind_a: Array,
+    kind_b: Array,
+    coarse: Array,
+    fine: Array,
+    cells: Array,
+    radius: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 8,
+    n_cells: int = 16,
+    shank_mask_a: Array | None = None,
+    shank_mask_b: Array | None = None,
+) -> tuple[Array, Array]:
+    """Body-vs-shank-box category from the coarse-to-fine body samples, returning
+    ``(hard_min, soft_min_topk)`` like the body-vs-OBB pool of
+    :func:`shank_only_pair_clearance`.
+
+    Each probe's coarse body points are measured against the other probe's shank
+    boxes, cells are ranked by ``coarse value − cell radius`` (the box distance is
+    also 1-Lipschitz, so no cell member reads lower), and the fine points of the
+    ``n_cells`` best cells are measured. Sample tables are those of
+    :func:`body_body_pair_clearance_c2f`; masked-out boxes and padded cell slots
+    read the no-collision sentinel.
+    """
+    n_coarse, n_fine = coarse.shape[1], fine.shape[1]
+
+    def to_world(points, R, t):
+        return points @ R.T + t
+
+    coarse_values = jnp.concatenate(
+        [
+            _boxes_sdf(
+                to_world(coarse[kind_b], R_b, t_b),
+                R_a,
+                t_a,
+                shank_centers_a,
+                shank_halves_a,
+                shank_mask_a,
+            ),
+            _boxes_sdf(
+                to_world(coarse[kind_a], R_a, t_a),
+                R_b,
+                t_b,
+                shank_centers_b,
+                shank_halves_b,
+                shank_mask_b,
+            ),
+        ]
+    )
+    bound = coarse_values - jnp.concatenate([radius[kind_b], radius[kind_a]])
+    _, chosen = jax.lax.top_k(-bound, n_cells)
+    of_a = chosen >= n_coarse  # the cell holds probe a's points, read against b
+    owner = jnp.where(of_a, kind_a, kind_b)
+    members = cells[owner, jnp.where(of_a, chosen - n_coarse, chosen)]  # (n_cells, W)
+    points = fine[owner[:, None], jnp.minimum(members, n_fine - 1)]
+    source_R = jnp.where(of_a[:, None, None], R_a, R_b)
+    source_t = jnp.where(of_a[:, None], t_a, t_b)
+    world = jnp.einsum("cwj,ckj->cwk", points, source_R) + source_t[:, None, :]
+    flat = world.reshape(-1, 3)
+    against_a = _boxes_sdf(
+        flat, R_a, t_a, shank_centers_a, shank_halves_a, shank_mask_a
+    )
+    against_b = _boxes_sdf(
+        flat, R_b, t_b, shank_centers_b, shank_halves_b, shank_mask_b
+    )
+    fine_values = jnp.where(
+        jnp.repeat(of_a, members.shape[1]), against_b, against_a
+    ).reshape(members.shape)
+    fine_values = jnp.where(members < n_fine, fine_values, _EMPTY_CLEARANCE_SENTINEL)
+    pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
+    return _hard_soft(pool, beta=beta, top_k=top_k)
 
 
 # ---------------------------------------------------------------------------
