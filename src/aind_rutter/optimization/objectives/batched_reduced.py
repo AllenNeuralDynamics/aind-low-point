@@ -54,6 +54,8 @@ def _threading_g_for_probe(
     s_a: jnp.ndarray,  # (S,)
     s_b: jnp.ndarray,  # (S,)
     section_mask: jnp.ndarray,  # (S,)
+    w_normals: jnp.ndarray,  # (W, 3)
+    w_offsets: jnp.ndarray,  # (W,)
     threading_tol: float,
 ) -> jnp.ndarray:
     """Scalar threading penalty for one probe.
@@ -74,7 +76,9 @@ def _threading_g_for_probe(
         s_sin,
         s_a,
         s_b,
-    )  # shape (S, SH); g <= 0 ⇒ inside oval
+        w_normals=w_normals,
+        w_offsets=w_offsets,
+    )  # shape (S, SH); g <= 0 ⇒ inside oval and clear of walls
     valid = section_mask[:, None] * shank_mask[None, :]  # (S, SH)
     excess = jnp.maximum(0.0, g - threading_tol)
     return jnp.sum(valid * excess * excess)
@@ -185,6 +189,8 @@ def make_batched_reduced_objective(  # noqa: C901
         s_a: jnp.ndarray,  # (K, S)
         s_b: jnp.ndarray,  # (K, S)
         section_mask: jnp.ndarray,  # (K, S)
+        w_normals: jnp.ndarray,  # (K, W, 3)
+        w_offsets: jnp.ndarray,  # (K, W)
     ) -> jnp.ndarray:
         arc_aps = y[:n_arcs]
 
@@ -228,6 +234,8 @@ def make_batched_reduced_objective(  # noqa: C901
                 s_a[i],
                 s_b[i],
                 section_mask[i],
+                w_normals[i],
+                w_offsets[i],
                 threading_tol,
             )
 
@@ -360,14 +368,10 @@ def make_batched_reduced_objective(  # noqa: C901
 
     # Vmap over batch axis 0; jit the array-only call site so BatchedProbeStatic
     # (a plain Python dataclass) doesn't need to flow through jit.
-    _obj_batched_jit = jax.jit(
-        jax.vmap(_obj_one, in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-    )
+    _obj_batched_jit = jax.jit(jax.vmap(_obj_one))
 
     _grad_one = jax.grad(_obj_one)
-    _grad_batched_jit = jax.jit(
-        jax.vmap(_grad_one, in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-    )
+    _grad_batched_jit = jax.jit(jax.vmap(_grad_one))
 
     def _arrays(bs: BatchedProbeStatic):
         return (
@@ -381,6 +385,8 @@ def make_batched_reduced_objective(  # noqa: C901
             bs.section_a,
             bs.section_b,
             bs.section_mask.astype(jnp.float32),
+            bs.wall_normals,
+            bs.wall_offsets,
         )
 
     def obj_batched(y: jnp.ndarray, bs: BatchedProbeStatic) -> jnp.ndarray:

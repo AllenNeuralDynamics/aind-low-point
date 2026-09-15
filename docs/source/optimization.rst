@@ -35,9 +35,12 @@ The two subject inputs are:
    the implant transform, and the runtime plan skeleton.
 
 ``HOLES``
-   Implant-bore YAML loaded by ``optimization.holes.load_holes``. If the config
-   defines ``implant_to_lps``, the holes are transformed into world LPS before
-   optimization.
+   Implant-bore YAML loaded by ``optimization.holes.load_holes``. Each hole has
+   oval cross-sections along its axis and optional ``walls``: planes that cut into
+   the bore, such as an implant edge running through the channel. A shank must
+   cross every section inside its oval and on the open side of every wall. If the
+   config defines ``implant_to_lps``, the holes are transformed into world LPS
+   before optimization.
 
 Example one-subject run:
 
@@ -136,7 +139,8 @@ pair it:
 * Builds a candidate pose from the target point to each sampled top point.
   AP/ML come from that line direction; spin comes from the spin grid.
 * Projects every shank line through every section plane of the implant bore.
-* Tests each section crossing against the section's rotated ellipse.
+* Tests each section crossing against the section's rotated ellipse and the
+  hole's wall planes.
 * Keeps only anchors where every real shank passes every real section.
 
 The implementation is JAX-vmapped over ``top_sample x spin``. That makes atlas
@@ -499,7 +503,9 @@ but it changes the mathematical contract. Feasibility terms become scipy
 inequality constraints, each expressed as ``slack(x) >= 0``:
 
 * Threading: ``threading_oval_tolerance - g_thread`` for each real
-  probe/section/shank tuple.
+  probe/section/shank tuple. Where a hole has walls, ``g_thread`` is the larger of
+  the oval value and the wall distance scaled by ``2 / b``, so one tolerance means
+  about the same distance for both.
 * Probe-probe clearance: soft dual-rep clearance minus ``min_clearance_mm`` for
   each pair/category.
 * Probe-fixture clearance: fixture clearance minus ``min_clearance_mm``.

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from aind_rutter.optimization.geometry import HoleSection
-from aind_rutter.optimization.geometry.holes import Hole
+from aind_rutter.optimization.geometry.holes import Hole, HoleWall
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.runtime.probe_context import probe_context_from_runtime
 from aind_rutter.scene import resolve_base_geometry
@@ -58,7 +58,7 @@ def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
 
 
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
-    """Apply a rigid transform (R, t) to every hole's positions and axis.
+    """Apply a rigid transform (R, t) to every hole's positions, axis and walls.
     Oval ``a/b/theta`` (in the per-axis basis) are invariant under
     rigid rotation, so they're preserved as-is."""
     out: list[Hole] = []
@@ -76,8 +76,21 @@ def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Ho
             )
             for s in h.sections
         ]
+        new_walls = tuple(
+            HoleWall(
+                point=R @ np.asarray(w.point, dtype=np.float64) + t,
+                normal=R @ np.asarray(w.normal, dtype=np.float64),
+            )
+            for w in h.walls
+        )
         out.append(
-            Hole(id=h.id, axis=new_axis, ref_point=new_ref, sections=new_sections)
+            Hole(
+                id=h.id,
+                axis=new_axis,
+                ref_point=new_ref,
+                sections=new_sections,
+                walls=new_walls,
+            )
         )
     return out
 

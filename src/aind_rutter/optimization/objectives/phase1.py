@@ -44,6 +44,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -324,6 +325,8 @@ PACKED_ARG_ORDER: tuple[str, ...] = (
     "shank_obb_centers",
     "shank_obb_halves",
     "sdf_table",
+    "w_normals",
+    "w_offsets",
 )
 
 # Keys that vary per candidate. Everything else in PACKED_ARG_ORDER is fixed for
@@ -341,6 +344,8 @@ PACKED_PER_CAND_KEYS: frozenset[str] = frozenset(
         "s_b",
         "section_mask",
         "same_arc_mask",
+        "w_normals",
+        "w_offsets",
     }
 )
 
@@ -534,6 +539,8 @@ def _build_jit(  # noqa: C901
         shank_obb_halves,
         cov_weight=1.0,
         sdf_table=None,
+        w_normals=None,
+        w_offsets=None,
     ):
         # ``cov_weight`` scales the coverage term at RUNTIME (1.0 = full,
         # 0.0 = clearance-first reduced stage). Default 1.0 is a Python
@@ -567,6 +574,8 @@ def _build_jit(  # noqa: C901
             sb,
             sec_m,
             sh_m,
+            wn,
+            wo,
         ):
             R, t = pose_from_optimizer_vars(
                 target_LPS=target,
@@ -591,6 +600,8 @@ def _build_jit(  # noqa: C901
                 sa,
                 sb,
                 shaft_length_mm=shaft_len,
+                w_normals=wn,
+                w_offsets=wo,
             )  # (S, SH)
             valid_g = sec_m[:, None] * sh_m[None, :]
             # Penalty (Patch A: clamped, finite — no inf): max(0, g - tol)²
@@ -615,6 +626,8 @@ def _build_jit(  # noqa: C901
             s_b,
             section_mask,
             shank_mask,
+            w_normals,
+            w_offsets,
         )
         j_thread = jnp.sum(_jts)
 
@@ -833,6 +846,8 @@ def _pack_statics(
     s_a = np.ones((P, max_sections), dtype=np.float32)
     s_b = np.ones((P, max_sections), dtype=np.float32)
     section_mask = np.zeros((P, max_sections), dtype=np.float32)
+    w_normals = np.zeros((P, MAX_WALLS_PAD, 3), dtype=np.float32)
+    w_offsets = np.full((P, MAX_WALLS_PAD), NO_WALL_OFFSET_MM, dtype=np.float32)
     for i, s in enumerate(statics):
         target_LPS[i] = s.target_LPS
         pivot_local[i] = s.pivot_local
@@ -852,6 +867,8 @@ def _pack_statics(
             s_a[i, :nsec] = s.section_a[:nsec]
             s_b[i, :nsec] = s.section_b[:nsec]
             section_mask[i, :nsec] = 1.0
+        w_normals[i] = s.wall_normals
+        w_offsets[i] = s.wall_offsets
 
     same_arc_mask = np.zeros((P, P), dtype=np.float32)
     for i in range(P):
@@ -875,6 +892,8 @@ def _pack_statics(
         s_b=jnp.asarray(s_b),
         section_mask=jnp.asarray(section_mask),
         same_arc_mask=jnp.asarray(same_arc_mask),
+        w_normals=jnp.asarray(w_normals),
+        w_offsets=jnp.asarray(w_offsets),
     )
     # SDF + shank-OBB tuples + the padded swept-pair table. Per-probe-FIXED
     # (identical across candidates of the same probe set): skipped when

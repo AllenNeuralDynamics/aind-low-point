@@ -323,7 +323,7 @@ def make_batched_spin_restore_partial(
 
         return jax.lax.fori_loop(0, n_rounds, round_body, y)
 
-    restore_v = jax.jit(jax.vmap(restore_one, in_axes=(0,) * 11))
+    restore_v = jax.jit(jax.vmap(restore_one))
 
     def restore_call(y, *varying):
         return restore_v(y, *varying)

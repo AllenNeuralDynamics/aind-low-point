@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import fcl
 import numpy as np
@@ -14,7 +14,11 @@ from aind_rutter.optimization.enumeration.contracts import (
 )
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.headstages import make_fcl_bvh
-from aind_rutter.optimization.geometry.holes import Hole, threading_margin_mm
+from aind_rutter.optimization.geometry.holes import (
+    Hole,
+    pack_walls,
+    threading_margin_mm,
+)
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
     RecordingGeometry,
@@ -62,6 +66,9 @@ class _ProbeStatic:
     bvh_obj: fcl.CollisionObject | None = None
     sdf_data: dict | None = None
     kind: str = ""
+    # Assigned hole's wall planes, padded by holes.pack_walls and margin-inset.
+    wall_normals: NDArray = field(default_factory=lambda: pack_walls((), 0.0)[0])
+    wall_offsets: NDArray = field(default_factory=lambda: pack_walls((), 0.0)[1])
 
 
 _SDF_JNP_CACHE: dict[tuple, dict] = {}
@@ -136,6 +143,7 @@ def _build_probe_static(
         if margin:
             s_a = np.maximum(s_a - margin, 1e-3)
             s_b = np.maximum(s_b - margin, 1e-3)
+        wall_normals, wall_offsets = pack_walls(hole.walls, margin)
 
         if bvh_cache is not None and p.name in bvh_cache:
             bvh_obj = bvh_cache[p.name]
@@ -167,6 +175,8 @@ def _build_probe_static(
                 bvh_obj=bvh_obj,
                 sdf_data=sdf_payload,
                 kind=str(p.kind),
+                wall_normals=wall_normals,
+                wall_offsets=wall_offsets,
             )
         )
     return out

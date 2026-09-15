@@ -34,7 +34,7 @@ from numpy.typing import NDArray
 
 from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.geometry import cap_basis
-from aind_rutter.optimization.geometry.holes import Hole
+from aind_rutter.optimization.geometry.holes import Hole, pack_walls
 from aind_rutter.optimization.geometry.recording import get_recording_geometry
 from aind_rutter.optimization.sdf.kernels import arc_angles_to_rotation
 
@@ -136,6 +136,8 @@ def _shank_in_section_jax(
     sec_b: float,
     sec_theta: float,
     oval_slack: float = 0.2,
+    wall_normals: jnp.ndarray | None = None,
+    wall_offsets: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """True if the shank line crosses inside the section's ellipse, with
     a small ``oval_slack`` (default 20%). The slack *expands* the
@@ -169,11 +171,16 @@ def _shank_in_section_jax(
     sa = jnp.where(jnp.abs(sec_a) < 1e-12, 1.0, sec_a)
     sb = jnp.where(jnp.abs(sec_b) < 1e-12, 1.0, sec_b)
     g = (u_l / sa) ** 2 + (v_l / sb) ** 2
-    return safe & (g <= (1.0 + oval_slack) ** 2)
+    inside = safe & (g <= (1.0 + oval_slack) ** 2)
+    if wall_normals is None:
+        return inside
+    # Walls get the same relative slack: oval_slack of the minor half-axis.
+    return inside & jnp.all(wall_normals @ P - wall_offsets <= oval_slack * sb)
 
 
 def _build_check_for_hole(
     sections_packed: tuple[dict, ...],
+    walls: tuple[jnp.ndarray, jnp.ndarray] | None = None,
 ):
     """Returns a closure check(target, top_sample, spin_deg, tips_local, centroid_local)
     → (valid, ap_deg, ml_deg). Sections are closure-captured to keep the JIT
@@ -208,6 +215,8 @@ def _build_check_for_hole(
                     sec["a"],
                     sec["b"],
                     sec["theta"],
+                    wall_normals=None if walls is None else walls[0],
+                    wall_offsets=None if walls is None else walls[1],
                 )
 
             masks = jax.vmap(per_shank)(shanks_world)
@@ -266,7 +275,12 @@ def build_visibility_atlas(
             }
             for s in hole.sections
         )
-        check = _build_check_for_hole(sections_packed)
+        walls = (
+            tuple(jnp.asarray(w) for w in pack_walls(hole.walls, 0.0, len(hole.walls)))
+            if hole.walls
+            else None
+        )
+        check = _build_check_for_hole(sections_packed, walls)
         # vmap over (top_sample × spin)
         check_vmap = jax.jit(
             jax.vmap(

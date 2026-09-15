@@ -166,6 +166,8 @@ def _threading_g_per_probe(
     s_b,
     section_mask,
     shank_mask,
+    w_normals=None,
+    w_offsets=None,
     *,
     shaft_len,
 ):
@@ -174,7 +176,7 @@ def _threading_g_per_probe(
     the objective (reward) and the constraint vector consume this; flatten with
     ``.reshape(-1)`` for the probe-major order the old per-probe loop produced."""
 
-    def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m):
+    def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m, wn, wo):
         g = threading_g_matrix(
             R,
             t,
@@ -188,6 +190,8 @@ def _threading_g_per_probe(
             sa,
             sb,
             shaft_length_mm=shaft_len,
+            w_normals=wn,
+            w_offsets=wo,
         )
         return g, sec_m[:, None] * sh_m[None, :]
 
@@ -205,6 +209,8 @@ def _threading_g_per_probe(
         s_b,
         section_mask,
         shank_mask,
+        w_normals,
+        w_offsets,
     )
 
 
@@ -394,6 +400,8 @@ def _build_jit(  # noqa: C901
         shank_obb_centers,
         shank_obb_halves,
         sdf_table=None,
+        w_normals=None,
+        w_offsets=None,
     ):
         arc_aps = x[:n_arcs]
         Rs, ts = _poses_from_x(
@@ -459,6 +467,8 @@ def _build_jit(  # noqa: C901
             s_b,
             section_mask,
             shank_mask,
+            w_normals,
+            w_offsets,
             shaft_len=shaft_len,
         )
         # (P, -1): per-probe view for worst-shank reward. Hard constraint
@@ -561,6 +571,8 @@ def _build_jit(  # noqa: C901
         shank_obb_centers,
         shank_obb_halves,
         sdf_table=None,
+        w_normals=None,
+        w_offsets=None,
     ):
         arc_aps = x[:n_arcs]
         Rs, ts = _poses_from_x(
@@ -588,6 +600,8 @@ def _build_jit(  # noqa: C901
             s_b,
             section_mask,
             shank_mask,
+            w_normals,
+            w_offsets,
             shaft_len=shaft_len,
         )
         thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK).reshape(-1)

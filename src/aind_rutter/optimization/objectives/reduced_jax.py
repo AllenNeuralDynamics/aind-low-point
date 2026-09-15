@@ -29,6 +29,8 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
+
 # Persistent JAX compile cache. Each spawn-mode worker would otherwise
 # repay the ~20s XLA compile cost (the in-memory ``_JIT_CACHE`` below is
 # per-process). With the disk cache, the first worker to compile a given
@@ -143,12 +145,20 @@ def threading_g_matrix(
     s_a: jnp.ndarray,
     s_b: jnp.ndarray,
     shaft_length_mm: float = 10.0,
+    *,
+    w_normals: jnp.ndarray | None = None,
+    w_offsets: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Raw (n_sections, n_shanks) oval g values for one probe pose.
+    """Raw (n_sections, n_shanks) bore g values for one probe pose.
 
     ``g <= tol`` is feasible. No masking, no thresholding — the caller
     applies whichever mask-aware sum-of-squares or hard-constraint slack the
-    caller needs."""
+    caller needs.
+
+    ``w_normals`` (W, 3) and ``w_offsets`` (W,) add the hole's wall planes (see
+    ``holes.pack_walls``). Each section's g becomes the larger of the oval value and
+    ``2 (n·p − offset) / b``: the wall distance scaled to the oval's slope across its
+    minor axis, so one g tolerance means about the same distance for both."""
     tip_world = tips_local @ R.T + pose_tip
     shaft_dir = R @ jnp.array([0.0, 0.0, 1.0])
     line_d = shaft_length_mm * shaft_dir
@@ -180,7 +190,11 @@ def threading_g_matrix(
     # have ``|s| ≫ 1e-12`` so the guard is an exact no-op for them.
     safe_a = jnp.where(jnp.abs(s_a) < 1e-12, 1.0, s_a)
     safe_b = jnp.where(jnp.abs(s_b) < 1e-12, 1.0, s_b)
-    return (u / safe_a[:, None]) ** 2 + (v / safe_b[:, None]) ** 2 - 1.0
+    g = (u / safe_a[:, None]) ** 2 + (v / safe_b[:, None]) ** 2 - 1.0
+    if w_normals is None:
+        return g
+    wall_dist = jnp.einsum("skd,wd->skw", pts, w_normals) - w_offsets
+    return jnp.maximum(g, jnp.max(wall_dist, axis=-1) * (2.0 / safe_b[:, None]))
 
 
 def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
@@ -239,6 +253,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         s_a,
         s_b,
         section_mask,
+        w_normals=None,
+        w_offsets=None,
     ):
         """Mask-weighted threading penalty for one probe (scalar)."""
         g = threading_g_matrix(
@@ -253,6 +269,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
             s_sin,
             s_a,
             s_b,
+            w_normals=w_normals,
+            w_offsets=w_offsets,
         )
         # Zero out padded entries (s_a/s_b=1, masks=0) — also handles
         # the ``+inf`` returned for shaft-parallel-to-section.
@@ -289,6 +307,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
+        w_normals=None,
+        w_offsets=None,
     ):
         arc_aps = y[:n_arcs]
 
@@ -332,6 +352,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
                 s_a[i],
                 s_b[i],
                 section_mask[i],
+                None if w_normals is None else w_normals[i],
+                None if w_offsets is None else w_offsets[i],
             )
 
         # AP separation across arc pairs. ``smooth_abs`` keeps the
@@ -465,6 +487,8 @@ def _pack_statics(
     s_a = np.ones((P, max_sections), dtype=np.float32)
     s_b = np.ones((P, max_sections), dtype=np.float32)
     section_mask = np.zeros((P, max_sections), dtype=np.float32)
+    w_normals = np.zeros((P, MAX_WALLS_PAD, 3), dtype=np.float32)
+    w_offsets = np.full((P, MAX_WALLS_PAD), NO_WALL_OFFSET_MM, dtype=np.float32)
     for i, s in enumerate(statics):
         target_LPS[i] = s.target_LPS
         pivot_local[i] = s.pivot_local
@@ -484,6 +508,8 @@ def _pack_statics(
             s_a[i, :nsec] = s.section_a[:nsec]
             s_b[i, :nsec] = s.section_b[:nsec]
             section_mask[i, :nsec] = 1.0
+        w_normals[i] = s.wall_normals
+        w_offsets[i] = s.wall_offsets
 
     # Upper-triangular same-arc mask (excludes self-pairs)
     same_arc_mask = np.zeros((P, P), dtype=np.float32)
@@ -508,6 +534,8 @@ def _pack_statics(
         s_b=jnp.asarray(s_b),
         section_mask=jnp.asarray(section_mask),
         same_arc_mask=jnp.asarray(same_arc_mask),
+        w_normals=jnp.asarray(w_normals),
+        w_offsets=jnp.asarray(w_offsets),
     )
     # Per-probe SDF data: keep as tuples-of-arrays since each probe's
     # grid is sized to its own bbox. The trace bakes the shapes in.

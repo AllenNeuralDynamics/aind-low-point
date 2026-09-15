@@ -29,6 +29,7 @@ major-axis orientation.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,6 +61,14 @@ def threading_margin_mm() -> float:
 
 
 @dataclass(frozen=True, slots=True)
+class HoleWall:
+    """A planar wall cutting into a bore. Solid lies on the ``+normal`` side."""
+
+    point: NDArray[np.floating]
+    normal: NDArray[np.floating]
+
+
+@dataclass(frozen=True, slots=True)
 class Hole:
     """A bore through an implant, defined by an axis + per-section ovals.
 
@@ -67,12 +76,15 @@ class Hole:
     (deepest into implant material) by ``s_mm`` along ``axis``. The
     bottom section is typically the straight bore; its ``theta`` is
     the canonical slot major-axis angle, used to pre-align probe spin.
+    ``walls`` are planes that cut into the bore, such as an implant edge running
+    through the channel; a shank must clear every section oval and every wall.
     """
 
     id: int
     axis: NDArray[np.floating]
     ref_point: NDArray[np.floating]
     sections: list[HoleSection]
+    walls: tuple[HoleWall, ...] = ()
 
     @property
     def slot_theta_rad(self) -> float:
@@ -85,6 +97,29 @@ class Hole:
         c = np.cos(self.slot_theta_rad)
         s = np.sin(self.slot_theta_rad)
         return c * e1 + s * e2
+
+
+MAX_WALLS_PAD: int = 2
+# Offset for padded wall rows: with a zero normal every point sits 1 m on the open side.
+NO_WALL_OFFSET_MM: float = 1e3
+
+
+def pack_walls(
+    walls: Sequence[HoleWall], margin_mm: float, n_pad: int = MAX_WALLS_PAD
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """Kernel arrays ``(normals (n_pad, 3), offsets (n_pad,))`` for a hole's walls.
+
+    A point ``p`` clears wall ``w`` when ``normals[w] @ p <= offsets[w]``. Offsets move
+    toward the bore by ``margin_mm``, matching the oval inset. Padded rows never bind.
+    """
+    if len(walls) > n_pad:
+        raise ValueError(f"hole has {len(walls)} walls; kernels pad to {n_pad}")
+    normals = np.zeros((n_pad, 3), dtype=np.float32)
+    offsets = np.full(n_pad, NO_WALL_OFFSET_MM, dtype=np.float32)
+    for k, w in enumerate(walls):
+        normals[k] = w.normal
+        offsets[k] = float(np.dot(w.normal, w.point)) - margin_mm
+    return normals, offsets
 
 
 def load_holes(yaml_path: Path | str) -> list[Hole]:
@@ -108,12 +143,21 @@ def load_holes(yaml_path: Path | str) -> list[Hole]:
             )
             for s in entry["sections"]
         ]
+        walls = tuple(
+            HoleWall(
+                point=np.asarray(w["point_LPS"], dtype=float),
+                normal=np.asarray(w["normal_LPS"], dtype=float)
+                / np.linalg.norm(w["normal_LPS"]),
+            )
+            for w in entry.get("walls", ())
+        )
         holes.append(
             Hole(
                 id=int(entry["id"]),
                 axis=axis,
                 ref_point=ref,
                 sections=sections,
+                walls=walls,
             )
         )
     return holes

@@ -114,6 +114,8 @@ def worst_threading_g(statics, x, n_arcs) -> float:
                 s.section_sin_theta,
                 s.section_a,
                 s.section_b,
+                w_normals=jnp.asarray(s.wall_normals, jnp.float32),
+                w_offsets=jnp.asarray(s.wall_offsets, jnp.float32),
             )
         )
         if g.size:

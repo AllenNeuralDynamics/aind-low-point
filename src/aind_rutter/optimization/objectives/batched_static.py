@@ -28,7 +28,13 @@ from aind_rutter.optimization.enumeration.contracts import (
     HoleAssignment,
 )
 from aind_rutter.optimization.geometry import cap_basis
-from aind_rutter.optimization.geometry.holes import Hole, threading_margin_mm
+from aind_rutter.optimization.geometry.holes import (
+    MAX_WALLS_PAD,
+    NO_WALL_OFFSET_MM,
+    Hole,
+    pack_walls,
+    threading_margin_mm,
+)
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
     RecordingGeometry,
@@ -47,6 +53,7 @@ class BatchedProbeStatic:
         n_arcs  : max arcs (fixed; here 3)
         S       : max sections per hole (fixed; here 3)
         SH      : max shanks per probe (fixed; here 4)
+        W       : max walls per hole (``holes.MAX_WALLS_PAD``)
         N_kinds : number of distinct probe kinds across the batch
         GX,GY,GZ: padded SDF grid dims (max across kinds)
         N_surf  : surface-point count per kind (uniform)
@@ -73,6 +80,8 @@ class BatchedProbeStatic:
     section_a: jnp.ndarray  # (B, K, S)
     section_b: jnp.ndarray  # (B, K, S)
     section_mask: jnp.ndarray  # (B, K, S) bool
+    wall_normals: jnp.ndarray  # (B, K, W, 3); rows from holes.pack_walls
+    wall_offsets: jnp.ndarray  # (B, K, W), margin-inset
 
     # ---- SDF: indirect via kind table ----
     sdf_kind_id: jnp.ndarray  # (B, K) int32, -1 if no SDF
@@ -102,6 +111,7 @@ class BatchedProbeStatic:
     n_arcs: int
     S: int
     SH: int
+    W: int
 
 
 def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStaticInfo]):
@@ -182,6 +192,7 @@ def build_batched_probe_static(
     n_arcs: int = 3,
     S: int = 3,
     SH: int = 4,
+    W: int = MAX_WALLS_PAD,
     sdf_by_name: dict | None = None,
     head_pitch_deg: float = 0.0,
 ) -> BatchedProbeStatic:
@@ -256,6 +267,8 @@ def build_batched_probe_static(
     section_a_np = np.zeros((B, K, S), dtype=np.float32)
     section_b_np = np.zeros((B, K, S), dtype=np.float32)
     section_mask_np = np.zeros((B, K, S), dtype=bool)
+    wall_normals_np = np.zeros((B, K, W, 3), dtype=np.float32)
+    wall_offsets_np = np.full((B, K, W), NO_WALL_OFFSET_MM, dtype=np.float32)
 
     sdf_kind_id_np = -np.ones((B, K), dtype=np.int32)
 
@@ -306,6 +319,9 @@ def build_batched_probe_static(
                 section_a_np[b, i, s_idx] = max(float(sec.a) - _t_margin, 1e-3)
                 section_b_np[b, i, s_idx] = max(float(sec.b) - _t_margin, 1e-3)
                 section_mask_np[b, i, s_idx] = True
+            wall_normals_np[b, i], wall_offsets_np[b, i] = pack_walls(
+                hole.walls, _t_margin, n_pad=W
+            )
 
             if p.name in name_to_kind:
                 sdf_kind_id_np[b, i] = name_to_kind[p.name]
@@ -383,6 +399,8 @@ def build_batched_probe_static(
         section_a=jnp.asarray(section_a_np),
         section_b=jnp.asarray(section_b_np),
         section_mask=jnp.asarray(section_mask_np),
+        wall_normals=jnp.asarray(wall_normals_np),
+        wall_offsets=jnp.asarray(wall_offsets_np),
         sdf_kind_id=jnp.asarray(sdf_kind_id_np),
         sdf_grids=sdf_grids,
         sdf_grid_shapes=sdf_grid_shapes,
@@ -400,6 +418,7 @@ def build_batched_probe_static(
         n_arcs=n_arcs,
         S=S,
         SH=SH,
+        W=W,
     )
 
 
