@@ -478,6 +478,31 @@ locally-infeasible signature, and this rules it out cheaply.
 
 ---
 
+## The returned point is not the best one found
+
+Among the capped solves on the second subject (22 of 40 under the adopted
+defaults), taking feasibility from the recorded per-group violation counts rather
+than IPOPT's internal `inf_pr`:
+
+- Iterates are model-feasible for a median 52% of the run.
+- The best feasible objective is reached at a median iteration fraction of **0.68**
+  (p10 0.33), typically a few hundred iterations before the cap.
+- The returned point is worse than that best feasible iterate by a median 2.8%,
+  p90 11.3%, max 23.6%, and **16 of 22 return something more than 1% worse**.
+
+IPOPT returns its last iterate, and the filter line search is not monotone in the
+raw objective, so quality already found is discarded at termination. Raising the
+cap cannot recover it: over the last 100 iterations the median relative gain is
+3.6e-04, and over the last 300 it is −6.4e-03, meaning the typical capped solve is
+worse at the cap than it was 300 iterations earlier.
+
+The fix is to keep the best model-feasible iterate, which `minimize_ipopt_logged`
+can already see through the callback it uses for diagnostics. Model feasibility is
+not the FCL gate, so the safe form validates both the best iterate and the
+returned point and keeps whichever passes — two FCL evaluations per candidate.
+
+---
+
 ## Tooling
 
 Analysis prototypes live in `scratch/estimators/` (gitignored):

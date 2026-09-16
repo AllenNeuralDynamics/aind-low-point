@@ -368,6 +368,22 @@ decides how much the rest matter, so run it before tuning anything.
    all 402 constraint rows. Removes the penalty, its weight, the origin
    singularity inside the bounds, and 7 variables.
 
+**Higher priority than 4-6: keep the best feasible iterate, and make diagnostics
+the default.** Under the adopted defaults about half the solves reach the
+iteration cap, and IPOPT returns the last iterate rather than the best. Measured
+on the capped solves: the best model-feasible objective arrives at a median
+iteration fraction of 0.68, and the returned point is worse than it by a median
+2.8% (p90 11.3%), with 16 of 22 worse by more than 1%. Raising the cap does not
+help — the median relative gain over the last 100 iterations is 3.6e-04, and over
+the last 300 it is negative. `minimize_ipopt_logged` already receives every
+iterate through its diagnostics callback, so the change is to record the best
+model-feasible one and, since model feasibility is not the FCL gate, validate both
+it and the returned point and keep whichever passes. That makes `P2_DIAG`
+load-bearing rather than optional; it defaults to `0` today and
+`run_subject_overnight.sh` does not set it, so production runs blind. The storage
+cost is 79 KiB per candidate against 1 KiB, roughly 15 MiB on a 200-candidate run.
+Runtime overhead is unmeasured and wants a matched pair.
+
 Independent of the ordering, and cheap:
 
 - `lambda_unit_circle` is missing from `_weights_key` in `objectives/phase2.py`,
