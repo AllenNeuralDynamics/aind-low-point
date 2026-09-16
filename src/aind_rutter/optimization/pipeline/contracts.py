@@ -210,3 +210,6 @@ class Phase2Problem(TypedDict):
     constraints_nlc: list[Any]
     slack_parts: Callable[[Array], dict[str, Array]]
     slack_labels: dict[str, object]
+    # Which rows of the full slack vector the solver actually sees; padded rows
+    # are dropped when make_phase2 is asked to.
+    live_rows: Array

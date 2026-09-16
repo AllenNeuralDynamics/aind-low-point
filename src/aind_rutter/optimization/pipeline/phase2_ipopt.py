@@ -71,6 +71,7 @@ if _PLATFORM in ("gpu", "cuda"):
     )
 _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
+import itertools  # noqa: E402
 import pickle  # noqa: E402
 import time  # noqa: E402
 from multiprocessing import get_context  # noqa: E402
@@ -97,6 +98,14 @@ WORKERS = int(_os.environ.get("WORKERS", "4"))
 P2_ITER = int(_os.environ.get("P2_ITER", "200"))
 MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
 LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "5.0"))
+# Convergence knobs. OBB_GAIN scales the OBB-based slack categories (default
+# keeps them 100x the mm-native voxel-SDF ones); SMOOTH_REWARD shapes the
+# clearance reward with soft minima instead of hard ones.
+OBB_GAIN = float(_os.environ.get("OBB_GAIN", "100"))
+# Hand the solver only the constraint rows with a gradient: padding keeps the
+# compiled shapes uniform but leaves ~58% of rows constant.
+DROP_DEAD_ROWS = _os.environ.get("DROP_DEAD_ROWS", "0") == "1"
+SMOOTH_REWARD = _os.environ.get("SMOOTH_REWARD", "0") == "1"
 TAU_CLEAR = float(_os.environ.get("TAU_CLEAR", "0.8"))
 FCL_TOL = float(_os.environ.get("FCL_TOL", "0.2"))
 # Threading keep band (g-units): a candidate stays in the handoff if its worst
@@ -129,6 +138,12 @@ IP_MU = _os.environ.get("IP_MU", "adaptive")  # mu_strategy
 # the mm rows) is a footgun → tightened to match.
 IP_CVTOL = float(_os.environ.get("IP_CVTOL", "1e-4"))  # constr_viol_tol (mm)
 IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "25"))  # 0 disables early stop
+# acceptable_tol bounds the OVERALL NLP error, which for this problem is the dual
+# infeasibility. Solves reach feasibility within tens of iterations and then stall
+# at 0.6-3.0, so the 1e-6 default puts the acceptable exit out of reach and every
+# solve runs to the iteration cap or into restoration. See
+# dev/PHASE2_CONDITIONING.md.
+IP_ACC_TOL = float(_os.environ.get("IP_ACC_TOL", "1e-6"))
 # Subject is config-driven (generalizes across subjects): CONFIG selects the
 # YAML, HOLES the implant-bore file (placed by the config's implant_to_lps).
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
@@ -251,6 +266,17 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
     return {"coverage_ceilings": ceilings, "coverage_weights": weights}
 
 
+def _live_group_sizes(slack_start: dict, live_rows) -> list[int]:
+    """Per-group row counts as the solver sees them: the whole group when no rows
+    were dropped, otherwise the live ones."""
+    sizes = [a.size for a in slack_start.values()]
+    live = np.asarray(live_rows)
+    if live.all():
+        return sizes
+    edges = np.cumsum([0] + sizes)
+    return [int(live[a:b].sum()) for a, b in itertools.pairwise(edges)]
+
+
 def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from scipy.optimize import minimize
 
@@ -290,9 +316,12 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             tau_clear_mm=TAU_CLEAR,
             lambda_cov=COV_WEIGHT,
             cov_alpha=COV_ALPHA if COV_NORM else 0.0,
+            obb_slack_gain=OBB_GAIN,
+            smooth_clearance_reward=SMOOTH_REWARD,
         ),
         brain_sdf=_G.get("brain_sdf"),
         hessian=HESS,
+        drop_padded_rows=DROP_DEAD_ROWS,
         **cast(Any, _cov_norm_kwargs(st)),
     )
     pose_start = perturb_pose(
@@ -327,10 +356,16 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             tol=1e-6,
             constr_viol_tol=IP_CVTOL,
             acceptable_iter=IP_ACC_ITER,
+            acceptable_tol=IP_ACC_TOL,
             acceptable_constr_viol_tol=IP_CVTOL,
             print_level=0,
             sb="yes",
         )
+        if IP_ACC_TOL > 1e-6:
+            # Prefixed lookups fall back to the unprefixed value, so a loosened
+            # acceptable_tol would also relax the restoration subproblem's exit —
+            # the branch that reports local infeasibility.
+            ipopt_options["resto.acceptable_iter"] = 0
         if P2_DIAG:
             from aind_rutter.optimization.objectives.phase2 import PADDED_SLACK
 
@@ -341,7 +376,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
                 bounds=bnds,
                 constraints=p2["constraints"],
                 options=ipopt_options,
-                group_sizes=[a.size for a in diag["slack_start"].values()],
+                group_sizes=_live_group_sizes(diag["slack_start"], p2["live_rows"]),
                 padded_slack=PADDED_SLACK,
             )
         else:
@@ -497,8 +532,11 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
                 tau_clear_mm=TAU_CLEAR,
                 lambda_cov=COV_WEIGHT,
                 cov_alpha=COV_ALPHA if COV_NORM else 0.0,
+                obb_slack_gain=OBB_GAIN,
+                smooth_clearance_reward=SMOOTH_REWARD,
             ),
             brain_sdf=_G.get("brain_sdf"),
+            drop_padded_rows=DROP_DEAD_ROWS,
             **cast(Any, _cov_norm_kwargs(st)),
         )
         x = np.asarray(r["pose"], float)
@@ -764,11 +802,15 @@ def main() -> int:
             lam_clear=LAM_CLEAR,
             tau_clear=TAU_CLEAR,
             p2_iter=P2_ITER,
+            acc_tol=IP_ACC_TOL,
             fcl_tol=FCL_TOL,
             g_tol=G_TOL,
             mmr_lambda=MMR_LAMBDA,
             well=WELL,
             solver=SOLVER,
+            drop_dead_rows=DROP_DEAD_ROWS,
+            obb_gain=OBB_GAIN,
+            smooth_reward=SMOOTH_REWARD,
             diag=P2_DIAG,
             perturb_scale=P2_PERTURB,
             perturb_seed=P2_PERTURB_SEED,

@@ -60,8 +60,9 @@ from aind_rutter.optimization.sdf.clearance_sweep import (
     swept_pair_clearances,
 )
 from aind_rutter.optimization.sdf.kernels import (
-    FIXTURE_PAIR_SLACK_GAINS,
-    PROBE_PAIR_SLACK_GAINS,
+    SLACK_GAIN_BODY_BODY,
+    SLACK_GAIN_BODY_SHANK_CORNERS,
+    SLACK_GAIN_FIXTURE_BODY,
     FixtureClearance,
     PairClearance,
     pose_from_optimizer_vars,
@@ -104,6 +105,14 @@ class Phase2Weights:
 
     # Soft-min knobs for dual-rep clearance.
     softmin_beta: float = 20.0
+    # Gain on the OBB-based slack categories (body-shank box, shank-shank, probe
+    # OBB vs fixture). The default keeps them two orders above the mm-native
+    # voxel-SDF categories; lowering it evens out the KKT scaling.
+    obb_slack_gain: float = 100.0
+    # Shape the clearance reward with the soft minimum instead of the hard one:
+    # the hard min's gradient is one sample's and jumps as the closest sample
+    # changes, which stalls the line search.
+    smooth_clearance_reward: bool = False
     top_k_body_body: int = 16
     top_k_body_shank: int = 8
     top_k_shank_shank: int = 8
@@ -246,8 +255,10 @@ def _weights_key(w: Phase2Weights) -> tuple:
             "lambda_cov",
             "cov_alpha",
             "softmin_beta_cov",
+            "obb_slack_gain",
         )
     ) + (
+        int(w.smooth_clearance_reward),
         int(w.top_k_body_body),
         int(w.top_k_body_shank),
         int(w.top_k_shank_shank),
@@ -344,6 +355,15 @@ def _build_jit(  # noqa: C901
     tau_c = float(weights.tau_clear_mm)
     tau_t = float(weights.tau_thread_gunits)
     min_clear = float(weights.min_clearance_mm)
+    obb_gain = float(weights.obb_slack_gain)
+    smooth_reward = bool(weights.smooth_clearance_reward)
+    pair_gains = (
+        SLACK_GAIN_BODY_BODY,
+        SLACK_GAIN_BODY_SHANK_CORNERS,
+        obb_gain,
+        obb_gain,
+    )
+    fixture_gains = (SLACK_GAIN_FIXTURE_BODY, obb_gain)
     thread_tol = float(weights.threading_oval_tolerance)
     min_arc_ap = float(weights.min_arc_ap_sep_deg)
     min_intra_ml = float(weights.min_intra_arc_ml_sep_deg)
@@ -488,7 +508,7 @@ def _build_jit(  # noqa: C901
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
-            _phard, _ = swept_pair_clearances(
+            _phard, _psoft = swept_pair_clearances(
                 Rs,
                 ts,
                 sdf_table,
@@ -499,7 +519,8 @@ def _build_jit(  # noqa: C901
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
-            pair_hard_clearances = jnp.min(_phard, axis=1)  # (n_pairs,)
+            _pvals = _psoft if smooth_reward else _phard
+            pair_hard_clearances = jnp.min(_pvals, axis=1)  # (n_pairs,)
         else:
             pair_hard_clearances = None
 
@@ -509,7 +530,7 @@ def _build_jit(  # noqa: C901
             _fidx = [
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
             ]
-            _fh, _ = swept_fixture_clearances(
+            _fh, _fs = swept_fixture_clearances(
                 Rs,
                 ts,
                 sdf_table,
@@ -519,7 +540,8 @@ def _build_jit(  # noqa: C901
                 top_k_body=tk_bb,
                 top_k_obb=tk_bs,
             )
-            fixture_hard_clearances = jnp.min(_fh, axis=2).reshape(-1)
+            _fvals = _fs if smooth_reward else _fh
+            fixture_hard_clearances = jnp.min(_fvals, axis=2).reshape(-1)
         else:
             fixture_hard_clearances = None
 
@@ -631,7 +653,7 @@ def _build_jit(  # noqa: C901
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
             )
-            _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
+            _gains = jnp.asarray(pair_gains, jnp.float32)
             clear_pp_vec = (_soft - min_clear) * _gains
         else:
             clear_pp_vec = jnp.zeros(0)
@@ -657,7 +679,7 @@ def _build_jit(  # noqa: C901
                 top_k_body=tk_bb,
                 top_k_obb=tk_bs,
             )
-            _fgains = jnp.asarray(FIXTURE_PAIR_SLACK_GAINS, jnp.float32)
+            _fgains = jnp.asarray(fixture_gains, jnp.float32)
             clear_pf_vec = (_fsoft - min_clear) * _fgains
         else:
             clear_pf_vec = jnp.zeros(0)
@@ -745,13 +767,13 @@ def _build_jit(  # noqa: C901
         slack_labels={
             "probe_pairs": [tuple(pair) for pair in sdf_pair_list],
             "pair_categories": list(PairClearance._fields),
-            "pair_gains": list(PROBE_PAIR_SLACK_GAINS),
+            "pair_gains": list(pair_gains),
             "fixtures": [fx.name for fx in fixtures],
             "fixture_probes": [
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
             ],
             "fixture_categories": list(FixtureClearance._fields),
-            "fixture_gains": list(FIXTURE_PAIR_SLACK_GAINS),
+            "fixture_gains": list(fixture_gains),
         },
         slacks_jac=jax.jit(jax.jacfwd(_all_slacks)),
         slacks_hess=jax.jit(_slacks_hess),
@@ -768,6 +790,62 @@ def cache_stats() -> dict:
     return {**_CACHE_STATS, "entries": len(_JIT_CACHE)}
 
 
+def _padding_mask(
+    packed: dict, labels: dict, *, n_arcs: int, has_brain: bool
+) -> NDArray:
+    """Which rows of the slack vector constrain something, in ``SLACK_GROUPS``
+    order.
+
+    Uniform compiled shapes across candidates need per-probe padding, and those
+    rows reach the solver as constants with no gradient. They do not make the KKT
+    matrix singular — each inequality carries its own slack, so such a row reads
+    ``[0 … 0 | −1]`` — but each still costs a Jacobian row, a slack and a barrier
+    term in every factorization. The same masks that create the padding say which
+    rows they are, so the mask is a property of the probe geometry alone. Reading
+    it off slack *values* instead also drops live rows that merely sit at the
+    out-of-grid sentinel, which share the padding value but do carry gradient
+    once a pose brings them near a fixture.
+    """
+    section = np.asarray(packed["section_mask"]) > 0  # (probes, sections)
+    shank = np.asarray(packed["shank_mask"]) > 0  # (probes, shanks)
+    same_arc = np.asarray(packed["same_arc_mask"]) > 0  # (probes, probes)
+    iu, ju = np.triu_indices(shank.shape[0], k=1)
+    by_group = {
+        "thread": (section[:, :, None] & shank[:, None, :]).reshape(-1),
+        "probe_pair": np.ones(
+            len(labels["probe_pairs"]) * len(labels["pair_categories"]), bool
+        ),
+        "probe_fixture": np.ones(
+            len(labels["fixtures"])
+            * len(labels["fixture_probes"])
+            * len(labels["fixture_categories"]),
+            bool,
+        ),
+        "brain": shank.reshape(-1) if has_brain else np.zeros(0, bool),
+        "arc_sep": np.ones(n_arcs * (n_arcs - 1) // 2, bool),
+        "ml_sep": same_arc[iu, ju],
+    }
+    return np.concatenate([by_group[name] for name in SLACK_GROUPS])
+
+
+def _live_row_constraints(slacks_fn, slacks_jac, live_rows: NDArray, drop_padded: bool):
+    """The constraint callables the solver sees.
+
+    Masking happens outside the traced function, so the compiled slack vector is
+    unchanged and only IPOPT's view of it shrinks.
+    """
+    if not drop_padded or live_rows.all():
+        return slacks_fn, slacks_jac
+
+    def live_fn(x: NDArray) -> NDArray:
+        return slacks_fn(x)[live_rows]
+
+    def live_jac(x: NDArray) -> NDArray:
+        return slacks_jac(x)[live_rows]
+
+    return live_fn, live_jac
+
+
 def make_phase2(
     statics,
     n_arcs: int,
@@ -781,6 +859,7 @@ def make_phase2(
     coverage_weights: "tuple[float, ...] | None" = None,
     grid_dtype=jnp.bfloat16,
     hessian: str = "none",
+    drop_padded_rows: bool = False,
 ) -> Phase2Problem:
     """Build Phase 2 scipy callables.
 
@@ -900,7 +979,22 @@ def make_phase2(
     # or "hessp" (exact Hessian-VECTOR products, ~2x a gradient — the affordable
     # exact second-order). Objective via hess/hessp; constraint via the matching
     # dense matrix / LinearOperator.
-    nlc_kw = dict(fun=slacks_fn, lb=0.0, ub=np.inf, jac=slacks_jac)
+    # The exact-Hessian modes return per-row structures the mask wouldn't line up
+    # with, so they keep every row.
+    live_rows = _padding_mask(
+        packed,
+        jit["slack_labels"],
+        n_arcs=n_arcs,
+        has_brain=brain_sdf is not None,
+    )
+    con_fn, con_jac = _live_row_constraints(
+        slacks_fn,
+        slacks_jac,
+        live_rows,
+        drop_padded_rows and hessian == "none",
+    )
+
+    nlc_kw = dict(fun=con_fn, lb=0.0, ub=np.inf, jac=con_jac)
     hess_out = hessp_out = None
     if hessian == "dense":
         nlc_kw["hess"] = con_hess_dense
@@ -916,10 +1010,11 @@ def make_phase2(
         constraints=[
             {
                 "type": "ineq",
-                "fun": slacks_fn,
-                "jac": slacks_jac,
+                "fun": con_fn,
+                "jac": con_jac,
             }
         ],
+        live_rows=live_rows,
         constraints_nlc=[NonlinearConstraint(**nlc_kw)],
         slack_parts=slack_parts,
         slack_labels=jit["slack_labels"],
