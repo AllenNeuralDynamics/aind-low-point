@@ -11,7 +11,8 @@ already-picked plans, so the ranked handoff is high-coverage AND diverse.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 Env:  TOPK (default 80), WORKERS (default 16), P2_ITER (200), MINCLEAR (0.2),
-      LAM_CLEAR (5.0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5)
+      LAM_CLEAR (0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5),
+      IP_HIST (60), IP_ACC_TOL (5), IP_ACC_ITER (8), IP_CVTOL (1e-4) for IPOPT
       RANKS / RANKS_FILE (explicit zero-based offsets into the SELECT_BY order),
       P2_DIAG (1 = record per-iteration IPOPT history, slack groups and colliding
       pairs at start and end), P2_PERTURB (start-pose jitter scale, 0 = off) and
@@ -97,7 +98,12 @@ TOPK = int(_os.environ.get("TOPK", "80"))
 WORKERS = int(_os.environ.get("WORKERS", "4"))
 P2_ITER = int(_os.environ.get("P2_ITER", "200"))
 MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
-LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "5.0"))
+# The clearance reward is redundant with the min_clearance constraint and is built
+# from a hard minimum over sampled surface points, so its gradient is one sample's
+# and flips as the closest sample changes. That argmin over near-tied values is
+# what makes solves irreproducible, so the reward is off and poses are bitwise
+# repeatable across runs. See dev/PHASE2_CONDITIONING.md.
+LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "0"))
 # Convergence knobs. OBB_GAIN scales the OBB-based slack categories (default
 # keeps them 100x the mm-native voxel-SDF ones); SMOOTH_REWARD shapes the
 # clearance reward with soft minima instead of hard ones.
@@ -129,7 +135,10 @@ HESS = _os.environ.get("HESS", "none").lower()
 # nonconvex and the exact Lagrangian Hessian is indefinite away from the optimum.
 SOLVER = _os.environ.get("SOLVER", "ipopt").lower()
 # IPOPT knobs (only consulted when SOLVER=ipopt). max_iter reuses P2_ITER.
-IP_HIST = int(_os.environ.get("IP_HIST", "6"))  # limited_memory_max_history
+# limited_memory_max_history. Above the variable count, so the L-BFGS model can
+# represent a full Hessian and the limited memory stops restricting it; raising it
+# further buys nothing.
+IP_HIST = int(_os.environ.get("IP_HIST", "60"))
 IP_MU = _os.environ.get("IP_MU", "adaptive")  # mu_strategy
 # Feasibility tolerances are on the UNSCALED (gain-carrying) constraint: the
 # body/voxel rows are mm-native (gain 1) but the OBB rows carry gain 100 (0.01mm
@@ -137,13 +146,14 @@ IP_MU = _os.environ.get("IP_MU", "adaptive")  # mu_strategy
 # −1e-4 gate; the default acceptable_constr_viol_tol of 1e-2 (=0.01mm slack on
 # the mm rows) is a footgun → tightened to match.
 IP_CVTOL = float(_os.environ.get("IP_CVTOL", "1e-4"))  # constr_viol_tol (mm)
-IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "25"))  # 0 disables early stop
+IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "8"))  # 0 disables early stop
 # acceptable_tol bounds the OVERALL NLP error, which for this problem is the dual
 # infeasibility. Solves reach feasibility within tens of iterations and then stall
-# at 0.6-3.0, so the 1e-6 default puts the acceptable exit out of reach and every
-# solve runs to the iteration cap or into restoration. See
-# dev/PHASE2_CONDITIONING.md.
-IP_ACC_TOL = float(_os.environ.get("IP_ACC_TOL", "1e-6"))
+# far above IPOPT's own 1e-6 default, putting that exit out of reach so every solve
+# runs to the iteration cap or into restoration. Loosening it past the stall
+# retires the stationarity test and rests on the FCL gate, which is what decides a
+# plan anyway. See dev/PHASE2_CONDITIONING.md.
+IP_ACC_TOL = float(_os.environ.get("IP_ACC_TOL", "5"))
 # Subject is config-driven (generalizes across subjects): CONFIG selects the
 # YAML, HOLES the implant-bore file (placed by the config's implant_to_lps).
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")

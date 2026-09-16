@@ -308,7 +308,7 @@ decides how much the rest matter, so run it before tuning anything.
    the FCL margin of surviving plans was unchanged (+0.0092 vs +0.0087). It buys
    cost, not determinism — divergence stays at 4.5.
 
-   **The composite is the config to adopt:** `LAM_CLEAR=0 IP_HIST=60
+   **The composite is now the `phase2_ipopt.py` default:** `LAM_CLEAR=0 IP_HIST=60
    IP_ACC_TOL=5 IP_ACC_ITER=8` holds kept at 88%/88%, agreement at 100% and all
    40 poses bitwise identical, while cap hits fall 70/80 → 42/80 with 34 clean
    acceptable exits. The remaining 42 are unexplained: the same setting zeroed cap
