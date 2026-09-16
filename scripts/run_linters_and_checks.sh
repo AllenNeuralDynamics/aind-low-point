@@ -18,7 +18,7 @@ main() {
     uv run --frozen ruff check
     uv run --frozen interrogate -v
     uv run --frozen codespell --check-filenames
-    uv run --frozen pytest --cov aind_low_point
+    uv run --frozen pytest --cov aind_rutter
   fi
 }
 
