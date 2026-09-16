@@ -510,6 +510,33 @@ returned point and keeps whichever passes — two FCL evaluations per candidate.
 
 ---
 
+## A double initialisation is load-bearing
+
+`phase2_ipopt._warmup` calls `_init` even though the process-pool initializer has
+already run it in that worker. Removing the redundant call is **not**
+behaviour-neutral: on a 40-candidate repeat set it left only 27 of 40 poses
+bitwise identical, moved three candidates across the FCL gate, and changed the
+kept count from 34 to 33.
+
+It is a real shift rather than run-to-run variation. Each version reproduces
+bitwise against a second run of itself — 40/40 both before and after — while
+differing from the other on the same 13 candidates every time. Restoring the call
+restores parity exactly: 40/40 identical, kept 34, median iterations 1000, 21 cap
+hits, matching the baseline on every statistic.
+
+The mechanism is unknown, and these were eliminated by inspection: the
+compile-cache setup is idempotent; `from_config_path` accepts `str` and `Path`
+alike with no caching on the argument; `_SDF_PACK_CACHE` is a pure cache whose
+misses rebuild identical arrays; surface sampling is seeded; the probe-SDF disk
+cache was warm for every run, so both `_init` calls were loads of the same file;
+and the settings object pickles into workers unchanged.
+
+Neither version is more numerically correct — the values are identical either
+way. Treat the call as required, and make any change to it a deliberate
+experiment with its own parity benchmark rather than a cleanup.
+
+---
+
 ## Tooling
 
 Analysis prototypes live in `scratch/estimators/` (gitignored):

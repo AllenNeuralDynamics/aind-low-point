@@ -91,6 +91,7 @@ from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
     Phase2ResultRecord,
     ProbeToHole,
 )
+from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
 
 TOPK = int(_os.environ.get("TOPK", "80"))
 # Default 8: the GPU-thread-shared sweet spot from the bandwidth bake-off (W=8 ≈
@@ -211,8 +212,16 @@ def _setup_compile_cache():
     jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
 
 
-def _init():
-    """Per-worker heavy setup (SDFs load from disk cache, so this is cheap)."""
+def _init(settings: Phase2Settings | None = None) -> None:
+    """Per-worker heavy setup (SDFs load from disk cache, so this is cheap).
+
+    Spawned workers cannot see the parent's state, so the settings arrive as an
+    initializer argument rather than through inherited module globals, and every
+    worker task reads them back from ``_G``. Omitting them resolves from the
+    environment, which is what a caller outside the pipeline gets.
+    """
+    settings = settings or Phase2Settings()
+    _G["settings"] = settings
     _setup_compile_cache()
     from aind_rutter.optimization.objectives.probe_static import _build_probe_static
     from aind_rutter.optimization.pipeline.phase1_geometry import (
@@ -222,8 +231,8 @@ def _init():
         OptimizationRuntime,
     )
 
-    opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
-    assets = opt.build_problem_assets(well_mode=WELL, include_brain=True)
+    opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
+    assets = opt.build_problem_assets(well_mode=settings.well, include_brain=True)
     # The FCL gate uses the same fixture names plus the world-frame implant BVH.
     # The implant remains excluded from soft SDF constraints because probes pass
     # through its bored holes; FCL is the ground-truth threading/body gate.
@@ -528,7 +537,13 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
         make_phase2,
     )
 
-    _init()
+    # Load-bearing, though the pool initializer has already run this in the same
+    # worker. Removing the second call changes solver trajectories on about a
+    # third of candidates and moves the kept set, reproducibly. Everything it
+    # rebuilds is provably identical, so the sensitivity is not in the data and
+    # the mechanism is unknown — see dev/PHASE2_CONDITIONING.md. Do not drop it
+    # without re-running the parity benchmark.
+    _init(_G.get("settings"))
     done = set()
     for r in recs:
         na = r["n_arcs"]
@@ -635,6 +650,7 @@ def _require_gpu_headroom(n_workers: int) -> None:
 
 
 def main() -> int:
+    settings = Phase2Settings()
     rer = cast(Phase1PoolPayload, pickle.load(open(POSES_PKL, "rb")))
     all_recs = rer["records"]
     # NO FCL cull between Phase 1 and 2 — rank the Phase-1 pool by soft min_clear
@@ -700,6 +716,9 @@ def main() -> int:
     if POOL == "thread":
         tw = time.time()
         print(f"warming (in-parent, single-threaded) for n_arcs {nstr}...", flush=True)
+        # Threads share the parent's state, so the parent holds the settings the
+        # worker tasks read back from _G.
+        _init(settings)
         _warmup(recs)
         print(f"  warmup {time.time() - tw:.0f}s", flush=True)
         t0 = time.time()
@@ -717,7 +736,7 @@ def main() -> int:
     else:
         _require_gpu_headroom(WORKERS)
         ctx = get_context("spawn")
-        with ctx.Pool(WORKERS, initializer=_init) as pool:
+        with ctx.Pool(WORKERS, initializer=_init, initargs=(settings,)) as pool:
             if WARMUP:
                 tw = time.time()
                 print(
