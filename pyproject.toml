@@ -30,6 +30,7 @@ dependencies = [
   "omegaconf>=2,<3",
   "pandas>=2,<3",
   "pydantic>=2,<3",
+  "pydantic-settings>=2.15.0",
   "pynrrd>=1,<2",
   "python-fcl>=0.7,<0.8",
   "pyvista>=0.46.5",
