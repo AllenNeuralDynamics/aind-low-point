@@ -318,19 +318,29 @@ decides how much the rest matter, so run it before tuning anything.
    those three exceeds it tenfold and a second sits at 89% of it, while defaults
    run three orders inside. Testing it needs a new env knob; not done.
 
-   Not adopted: `tol=1e-4`, which produced the only FCL failure in the probe, and
-   `acceptable_obj_change_tol=1e-5`, which cannot stop these solves because the
-   relative objective keeps moving by more than that. `acceptable_tol=1e-3` was
+   `tol` is exposed as `IP_TOL` and defaults to 1e-4. The one FCL failure in the
+   probe came from `tol=1e-4` *without* the acceptable exit; combined with it the
+   arm was 6/6 clear. On top of `IP_ACC_TOL=5` the change is close to inert —
+   median iterations 100 against 104 — because the acceptable exit fires first and
+   `tol` is no longer the binding criterion. It rests on six candidates and wants
+   the 40-candidate pair. Not adopted: `acceptable_obj_change_tol=1e-5`, which
+   cannot stop these solves because the relative objective keeps moving by more
+   than that. `acceptable_tol=1e-3` was
    the originally planned value and never fires — the Overall NLP error equals the
    dual infeasibility, measured at 0.64–3.05. Keep `acceptable_constr_viol_tol` at
    1e-4: loosening the dual tolerance under L-BFGS is documented practice,
    loosening the feasibility tolerance would discard the real gate. The `resto.`
    prefix matters, since prefixed lookups fall back to the unprefixed value and a
    global loosening would also relax the branch that reports local infeasibility.
-3. **Match `tol` to the arithmetic.** Derivatives are float32 (epsilon 1.2e-7)
-   and grids bfloat16, against `tol=1e-6`. Either raise `tol` to 1e-4 and lean on
-   the acceptable criteria, or evaluate objective and Jacobian in float64.
-   Measure which costs less.
+3. **Match `tol` to the arithmetic. DONE 2026-09-16** — `IP_TOL` exposes `tol`
+   and defaults to 1e-4. Derivatives are float32 (epsilon 1.2e-7) over bfloat16
+   grids, so IPOPT's 1e-6 default asked for roughly one digit more precision than
+   the gradients carry, putting the threshold at their noise floor. The change is
+   close to inert on top of `IP_ACC_TOL=5` because the acceptable exit fires first
+   and `tol` no longer binds; it can only matter where neither exit fires, which
+   is the remaining cap-hitters. It rests on six candidates and wants the
+   40-candidate pair. The alternative — evaluating objective and Jacobian in
+   float64 — is untested and would cost GPU throughput.
 4. **`linear_system_scaling="slack-based"`, `linear_scaling_on_demand="no"`.**
    Verified available without HSL. It scales the slack block of the augmented
    system, where an all-inequality problem degenerates as slacks approach their

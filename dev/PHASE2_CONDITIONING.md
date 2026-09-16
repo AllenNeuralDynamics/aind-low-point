@@ -396,7 +396,8 @@ The two compose. `LAM_CLEAR=0` with `IP_HIST=60` and `IP_ACC_TOL=5` keeps kept a
 88%/88%, agreement at 100% and all 40 poses bitwise identical — the tolerance does
 not disturb the determinism — while cap hits fall from 70 of 80 to 42 of 80 and 34
 runs reach a clean acceptable exit. These are now the `phase2_ipopt.py` defaults
-— `LAM_CLEAR=0`, `IP_HIST=60`, `IP_ACC_TOL=5`, `IP_ACC_ITER=8` — so the pipeline
+— `LAM_CLEAR=0`, `IP_HIST=60`, `IP_TOL=1e-4`, `IP_ACC_TOL=5`, `IP_ACC_ITER=8` —
+so the pipeline
 drivers pick them up without overriding anything. Every measurement behind them
 comes from a single subject; a confirmation run on a second subject is still
 outstanding.

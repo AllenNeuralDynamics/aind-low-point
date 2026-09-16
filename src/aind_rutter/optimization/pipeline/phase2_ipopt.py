@@ -12,7 +12,8 @@ already-picked plans, so the ranked handoff is high-coverage AND diverse.
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 Env:  TOPK (default 80), WORKERS (default 16), P2_ITER (200), MINCLEAR (0.2),
       LAM_CLEAR (0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5),
-      IP_HIST (60), IP_ACC_TOL (5), IP_ACC_ITER (8), IP_CVTOL (1e-4) for IPOPT
+      IP_HIST (60), IP_TOL (1e-4), IP_ACC_TOL (5), IP_ACC_ITER (8),
+      IP_CVTOL (1e-4) for IPOPT
       RANKS / RANKS_FILE (explicit zero-based offsets into the SELECT_BY order),
       P2_DIAG (1 = record per-iteration IPOPT history, slack groups and colliding
       pairs at start and end), P2_PERTURB (start-pose jitter scale, 0 = off) and
@@ -154,6 +155,12 @@ IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "8"))  # 0 disables early stop
 # retires the stationarity test and rests on the FCL gate, which is what decides a
 # plan anyway. See dev/PHASE2_CONDITIONING.md.
 IP_ACC_TOL = float(_os.environ.get("IP_ACC_TOL", "5"))
+# tol thresholds the same overall NLP error, which is built from float32
+# derivatives whose epsilon is ~1.2e-7 over collision grids stored in bfloat16.
+# IPOPT's own 1e-6 default asks for about one digit more precision than those
+# gradients carry, so the threshold sits at their noise floor; this keeps it
+# above. See dev/PHASE2_CONDITIONING.md.
+IP_TOL = float(_os.environ.get("IP_TOL", "1e-4"))
 # Subject is config-driven (generalizes across subjects): CONFIG selects the
 # YAML, HOLES the implant-bore file (placed by the config's implant_to_lps).
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
@@ -363,7 +370,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             limited_memory_max_history=IP_HIST,
             mu_strategy=IP_MU,
             max_iter=P2_ITER,
-            tol=1e-6,
+            tol=IP_TOL,
             constr_viol_tol=IP_CVTOL,
             acceptable_iter=IP_ACC_ITER,
             acceptable_tol=IP_ACC_TOL,
@@ -812,6 +819,7 @@ def main() -> int:
             lam_clear=LAM_CLEAR,
             tau_clear=TAU_CLEAR,
             p2_iter=P2_ITER,
+            ip_tol=IP_TOL,
             acc_tol=IP_ACC_TOL,
             fcl_tol=FCL_TOL,
             g_tol=G_TOL,
