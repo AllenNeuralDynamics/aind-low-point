@@ -318,6 +318,14 @@ decides how much the rest matter, so run it before tuning anything.
    those three exceeds it tenfold and a second sits at 89% of it, while defaults
    run three orders inside. Testing it needs a new env knob; not done.
 
+   **Confirmed on the second subject:** kept 90%/90% against that subject's
+   baseline of 68%/88%, agreement 100% against 75%, divergence 0.000 against
+   4.559, 35/40 bitwise identical. The 5 exceptions are all cases where one run
+   capped and the other exited earlier, so the residue is the acceptable exit
+   firing at different iterations, and all 5 still agree on kept. Iterations rose
+   against that baseline (median 546 → 1000, cap 22/80 → 41/80). `IP_TOL=1e-4` is
+   not covered — both runs predate it.
+
    `tol` is exposed as `IP_TOL` and defaults to 1e-4. The one FCL failure in the
    probe came from `tol=1e-4` *without* the acceptable exit; combined with it the
    arm was 6/6 clear. On top of `IP_ACC_TOL=5` the change is close to inert —

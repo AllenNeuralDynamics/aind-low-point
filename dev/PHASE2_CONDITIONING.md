@@ -398,9 +398,20 @@ not disturb the determinism — while cap hits fall from 70 of 80 to 42 of 80 an
 runs reach a clean acceptable exit. These are now the `phase2_ipopt.py` defaults
 — `LAM_CLEAR=0`, `IP_HIST=60`, `IP_TOL=1e-4`, `IP_ACC_TOL=5`, `IP_ACC_ITER=8` —
 so the pipeline
-drivers pick them up without overriding anything. Every measurement behind them
-comes from a single subject; a confirmation run on a second subject is still
-outstanding.
+drivers pick them up without overriding anything.
+
+**Confirmed on a second subject.** Kept 90%/90% against that subject's baseline of
+68%/88%, agreement 100% against 75%, pose divergence 0.000 against 4.559, and a
+slightly wider FCL margin on kept plans (+0.0287 against +0.0203). Determinism is
+near-total rather than total there: 35 of 40 poses bitwise identical, and in every
+one of the 5 exceptions one run reached the iteration cap while the other exited
+earlier (1000/658, 1000/320, 1000/800, 737/1000, 1000/223), so the residue traces
+to the acceptable exit firing at different iterations rather than to drift within
+a solve. All 5 agree on kept. The cost is iterations: against that baseline the
+median rose 546 → 1000 and cap hits 22/80 → 41/80.
+
+`IP_TOL=1e-4` is not covered by that run — both runs predate it and used
+`tol=1e-6`.
 
 The remaining 42 are not explained. In the defaults arm the same setting took cap
 hits to zero, so something specific to the no-bonus arm blocks acceptance. Its
