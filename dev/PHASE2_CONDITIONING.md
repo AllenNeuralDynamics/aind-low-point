@@ -324,6 +324,7 @@ kept/lost label does not.
 |---|---|---|---|---|---|
 | memory 60 + no bonus | 0.000 | 40/40 | 100% | 1000 | 70/80 |
 | **memory 60 + no bonus + acc tol 5** | 0.000 | 40/40 | 100% | 1000 | 42/80 |
+| adopted defaults, i.e. the above + tol 1e-4 | 0.000 | 40/40 | 100% | 1000 | 42/80 |
 | memory 60 + no bonus + dead rows dropped | 0.000 | 40/40 | 100% | 1000 | 66/80 |
 | memory 60 + no bonus + obb gain 1 | 0.000 | 32/40 | 98% | 1000 | 69/80 |
 | no clearance bonus (memory 6) | 0.000 | 28/40 | 90% | 944 | 37/80 |
@@ -411,7 +412,13 @@ a solve. All 5 agree on kept. The cost is iterations: against that baseline the
 median rose 546 → 1000 and cap hits 22/80 → 41/80.
 
 `IP_TOL=1e-4` is not covered by that run — both runs predate it and used
-`tol=1e-6`.
+`tol=1e-6`. It was validated separately on the first subject, changing only `tol`
+against the otherwise identical configuration: cap hits identical at 42/80, median
+iterations identical at 1000, determinism preserved at 40/40 bitwise, kept 85%
+against 88% and FCL margin +0.0242 against +0.0226. The one-candidate difference
+in kept is inside the noise floor. **The change is inert at 40 candidates**, kept
+on the coherence argument rather than on measured benefit; it would start to
+matter again if `tol` ever became the binding exit criterion.
 
 The remaining 42 are not explained. In the defaults arm the same setting took cap
 hits to zero, so something specific to the no-bonus arm blocks acceptance. Its

@@ -346,8 +346,12 @@ decides how much the rest matter, so run it before tuning anything.
    the gradients carry, putting the threshold at their noise floor. The change is
    close to inert on top of `IP_ACC_TOL=5` because the acceptable exit fires first
    and `tol` no longer binds; it can only matter where neither exit fires, which
-   is the remaining cap-hitters. It rests on six candidates and wants the
-   40-candidate pair. The alternative — evaluating objective and Jacobian in
+   is the remaining cap-hitters. The 40-candidate pair confirms it is inert:
+   against the otherwise identical configuration, cap hits identical at 42/80,
+   median iterations identical at 1000, determinism preserved at 40/40 bitwise,
+   kept 85% against 88% (one candidate, inside the noise floor) and FCL margin
+   +0.0242 against +0.0226. It is kept on the coherence argument, not on measured
+   benefit. The alternative — evaluating objective and Jacobian in
    float64 — is untested and would cost GPU throughput.
 4. **`linear_system_scaling="slack-based"`, `linear_scaling_on_demand="no"`.**
    Verified available without HSL. It scales the slack block of the augmented
