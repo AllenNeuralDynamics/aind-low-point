@@ -111,6 +111,8 @@ loss (free signal)**:
 3. **Does early-cull preserve eventual-feasibles?** — needs the cutoff validated.
 4. **Should the MRV enumerator actually go to production?** — only if its
    legibility/decision-tree value is worth the wiring; it won't help throughput.
+5. **Is the top-200 cull discarding feasible plans, and what cheap signal
+   predicts Phase-2 success?** — see *Cheap estimates of Phase-2 success* below.
 
 ### The deciding experiment (NEVER RUN) — build ONE rig for all of it
 Seed ADAM from `y0_restored` (the restore output, *before* L-BFGS — exposed
@@ -147,6 +149,218 @@ feasible/infeasible split become decidable). **One rig, both answers.**
    selects ~10-15 diverse plans; report drop counts.
 7. **MRV production hardening:** keep seed emission lazy and preserve the
    enumerator's decision-tree diagnostics when changing pool ranking.
+8. **Run the Phase-2 success-estimator experiments** (section below), starting
+   with the labelled benchmark.
+
+---
+
+## Cheap estimates of Phase-2 success (planned 2026-09-15; tooling built, GPU runs pending)
+
+Phase 2 (IPOPT, `pipeline/phase2_ipopt.py`) costs about 18 s of compute per
+candidate, roughly 90× a Phase-1 candidate, so the pipeline solves only the 200
+best Phase-1 candidates by total objective (`SELECT_BY=objective`, commit
+`4606a21`). That cutoff was never validated, and Phase-1 rank is the only signal
+used to decide where solves go. This plan looks for a cheap estimate of whether a
+candidate will come out feasible, good enough to choose which candidates get full
+solves.
+
+### Evidence so far
+
+Data: the 837772 run (2026-06-25) and the 837229 rerun (2026-06-15), both on
+implant 0283-300-04 (`scratch/0283-300-04.holes.yml`). Artifacts per config stem:
+`scratch/<stem>_rerun_pool.pkl` (Phase-1 pool), `scratch/<stem>_rerun_phase2_handoff.pkl`
+(the 200 solves under `all`), `scratch/mrv_seeds_<stem>.pkl` (enumeration seeds:
+dict of arc count → list of `MRVCand`, joined to the pool by
+`(probe_to_hole, partition)`) and `scratch/atlas_<stem>.pkl`. The atlas and seed
+pickles predate the package rename and load only through an `Unpickler` that maps
+`aind_low_point` to `aind_rutter`.
+
+- The cutoff sits where solves still succeed. Feasible plans per 40 Phase-1
+  positions within the top 200: 837772 27/23/21/19/21, 837229 31/28/30/24/27.
+- Every failure (89 and 60) is a collision at the FCL −1 mm sentinel; none fails
+  threading.
+- Within the top 200, nothing tested predicts feasibility well (AUC, 837772 /
+  837229): Phase-1 objective 0.58 / 0.56; Phase-1 min clearance 0.54 / 0.61;
+  probe-kind layout 0.50 / 0.61; visibility-atlas stats per probe–hole pair ≈0.5,
+  because the atlas tests threading only; distance travelled from the enumeration
+  seeds 0.36–0.59; per-probe hole choice in a logistic model 0.62 / 0.72, the best.
+  These labels are range-restricted, which weakens every predictor.
+- Start-pose features already beat Phase-1 rank on the same labels
+  (`scratch/estimators/start_features.py`, ~0.14 s per candidate on CPU). The number
+  of pairs colliding (FCL) at the Phase-1 pose reaches AUC 0.67 / 0.74, and ranking
+  by it puts 70 / 88 feasible plans in the first 100 solves against 61 / 73 in
+  Phase-1 order. A two-feature model (colliding pairs + probe-pair slack violation)
+  trained on one subject scores AUC 0.74 / 0.69 on the other. Hardware and brain
+  slacks carry no signal (AUC 0.42–0.54), and hole choices add nothing once start
+  collisions are known. The feature ranks rather than prunes: plans with one
+  colliding pair at the start still end feasible 46% / 53% of the time (no
+  collision: 75% / 88%).
+- Across the full pools (13,454 and 14,726 candidates), single probe–hole choices
+  explain 35–37% of the held-out variance in Phase-1 min clearance, and adding
+  pairs of choices raises that to 53–55%. Pair effects correlate r = 0.62 between
+  the two subjects, and the worst pairs (written probe@hole) repeat in both:
+  BLA@h1+PL@h2, BLA@h11+MD@h3 on one arc, CA1@h3+MD@h8, CLA@h1+MD@h3 and
+  BLA@h13+MD@h6 on one arc, each 0.25–0.56 mm below what the single choices predict.
+
+### Experiments (in order)
+
+Existing hooks: `RANKS` in `phase2_ipopt.py` solves an explicit list of offsets
+into the selection order (zero-based, so position 201 is 200); cyipopt 1.7
+`minimize_ipopt(callback=...)` sees every iteration; `make_phase2(...).slacks_fn(x)`
+returns the full constraint slack vector at any pose; and
+`FCLValidator.violating_pairs(x)` names the colliding pairs and fixtures.
+
+0. **Setup and label noise (~20 min GPU).** Run the test suite. Re-solve ~40
+   existing 837772 plans unchanged, which confirms the hole-wall change is a no-op
+   for wall-free holes, and ~40 from slightly perturbed starts. If outcomes agree
+   less than ~85% of the time, fix solver consistency first: no estimator can beat
+   the label noise.
+1. **Logging in `phase2_ipopt.py` (CPU, small).** Record objective and constraint
+   violation per iteration, slack summaries by constraint type at start and end,
+   and the colliding pairs at start and end. *Built 2026-09-15:* `P2_DIAG=1`,
+   `P2_PERTURB` / `P2_PERTURB_SEED` and `RANKS_FILE` in `phase2_ipopt.py`; the
+   logged solve lives in `pipeline/phase2_diagnostics.py` and reproduces
+   `minimize_ipopt` bit for bit (`tests/test_phase2_diagnostics.py`); `make_phase2`
+   exposes `slack_parts` and `slack_labels`. A CPU smoke run on two 837772
+   candidates recorded every field. IPOPT's per-iteration `inf_pr` measures its
+   internal slack-variable formulation and stayed at 5–37 while every constraint
+   held, so early-iteration features should use the recorded per-group minimum
+   slack and violation counts instead.
+2. **Labelled benchmark (~1.5 h GPU).** Per subject, ~360 solves through `RANKS`,
+   stratified over Phase-1 positions 201–1,000, 1,001–3,000, 3,001–7,000 and
+   7,001–end, and spread over probe-kind layouts and the rare holes of constrained
+   targets (PL h2/h3, MD outside h6/h8, RSP h5). Use production settings
+   (`P2_ITER=1000`); low ranks may run to the iteration cap. With the existing 400
+   solves this gives ~1,100 labels and the feasibility-versus-rank curve over the
+   whole pool.
+3. **Score cheap estimators on those labels (no new solves).** Candidates: Phase-1
+   objective and clearance (baseline); constraint slacks at the Phase-1 pose; FCL
+   at the Phase-1 pose (count and type of collisions, with CPU cost measured);
+   constraint violation after 10/25/50/100 iterations; and a single-choice + pair
+   model fitted on one subject and tested on the other. Measure feasible plans and
+   distinct kind layouts per 100 solves when picking by each score, weighted by
+   stratum, against Phase-1 rank, plus cost per candidate.
+4. **Geometry tables (once per implant, ~30 min GPU and the most new code).** Test
+   the five worst pairs in isolation first; if they clear alone, the pair effect is
+   crowding and pair tables drop in priority. Then build, per probe–hole choice,
+   the fraction of atlas poses (over a few depths) clear of the well, headframe and
+   implant, and per pair of choices (same or different arc) the best clearance over
+   sampled pose pairs. Accept pruning only if no labelled feasible plan is excluded.
+5. **Prospective test (~25 min GPU).** Solve 200 candidates chosen by the best cheap
+   score, spread across kind layouts, and compare with the existing rank 1–200 run
+   on feasible count, distinct layouts, best coverage and total time including the
+   estimator.
+
+Prototype tooling lives in `scratch/estimators/` (gitignored):
+
+- `sample_ranks.py <stem>` writes `scratch/estimators/<stem>/benchmark_ranks.txt`,
+  `repeat_ranks.txt` and `manifest.csv`. Each position band is half uniform random,
+  half chosen for kind-layout and rare-hole diversity; the manifest's `selection`
+  column records which, because stratum weights are valid only for the random half
+  and the top-200 census.
+- `run_benchmark.sh <stem> <ranks_file> <out_pkl> [VAR=value ...]` runs production
+  Phase-2 settings with `P2_DIAG=1` on an MPS process pool (3 workers, 2 on retry).
+  Step 0 is the repeat set run twice: as is, and with `P2_PERTURB=1 P2_PERTURB_SEED=1`.
+- `start_features.py <handoff> <out>` adds start-pose slack groups and FCL collisions
+  to an existing handoff on CPU, in the same fields a `P2_DIAG=1` run records.
+- `score.py <stem> --handoff ... [--manifest ...] [--other-handoff ...] [--png ...]`
+  reports stratum-weighted AUC and yield per estimator. On the existing top-200
+  labels a logistic model on per-probe hole choices already reaches AUC 0.63
+  (837772) and 0.71 (837229), and 0.66 / 0.70 when trained on the other subject.
+
+Decision rules: adopt an estimator that reaches ≥1.3× the feasible yield of
+Phase-1 rank for the same number of solves. If constraint violation at ~50
+iterations predicts the outcome at AUC ≥ 0.85, a two-stage Phase 2 (short solves
+on ~1,000 candidates, full solves on the best) is the simplest change.
+
+---
+
+## Phase-2 solver conditioning and convergence (2026-09-16)
+
+Measured state of the IPOPT build, the conditioning numbers, and the formulation
+defects are in `dev/PHASE2_CONDITIONING.md`. Next steps, in order. The first one
+decides how much the rest matter, so run it before tuning anything.
+
+1. **One instrumented run (minutes, CPU). DONE 2026-09-16** — findings and the
+   measured corrections are in `dev/PHASE2_CONDITIONING.md`; it refuted the
+   regularization-thrash hypothesis and showed status 2 firing at strictly
+   feasible points. `print_level=5`,
+   `print_info_string="yes"` and `output_file=...` on ~5 candidates that exit
+   status 2. Production runs at `print_level=0`, so nothing is visible today. The
+   tag column discriminates between the competing explanations instead of leaving
+   them to a sweep:
+   - `!` — restoration tightened its tolerance because the original problem was
+     only slightly infeasible, i.e. IPOPT gave up while nearly feasible → (2).
+   - `Nj` / `L` / `S` / `a` — perturbation and singular-system tags, i.e.
+     regularization thrash → (4) and (5).
+   - `Ws` / `We` / `WS` — L-BFGS skipped an update (tiny step, non-positive
+     `sᵀy`) → revisit `limited_memory_max_history`.
+   - `e` — evaluation error: the JAX constraint path returned NaN or Inf at a
+     trial point. That is a modelling bug, not a solver setting.
+2. **Tolerances. DONE 2026-09-16.** `IP_ACC_TOL` is wired into
+   `phase2_ipopt.py`, echoed into the run config, and pins
+   `resto.acceptable_iter=0` whenever it is loosened; it defaults to IPOPT's 1e-6,
+   so production is unchanged until set. On the 40-candidate pair,
+   `IP_ACC_TOL=5 IP_ACC_ITER=8` cut median iterations 673 → 187 with **0 of 80
+   reaching the cap** (baseline 24 of 120) and 79 of 80 exiting "acceptable"
+   where the baseline gave 96 local-infeasibility plus 24 iteration-limit. Kept
+   averaged 70% against the baseline's 71.3%, inside its own 57–85% spread, and
+   the FCL margin of surviving plans was unchanged (+0.0092 vs +0.0087). It buys
+   cost, not determinism — divergence stays at 4.5.
+
+   **The composite is the config to adopt:** `LAM_CLEAR=0 IP_HIST=60
+   IP_ACC_TOL=5 IP_ACC_ITER=8` holds kept at 88%/88%, agreement at 100% and all
+   40 poses bitwise identical, while cap hits fall 70/80 → 42/80 with 34 clean
+   acceptable exits. The remaining 42 are unexplained: the same setting zeroed cap
+   hits under defaults, so something specific to the no-bonus arm blocks
+   acceptance. Complementarity at exit was 8.9e-3 / 1.0e-1 / 1.6e-3 there against
+   ~1e-9 under defaults. `acceptable_compl_inf_tol` defaults to 0.01, so one of
+   those three exceeds it tenfold and a second sits at 89% of it, while defaults
+   run three orders inside. Testing it needs a new env knob; not done.
+
+   Not adopted: `tol=1e-4`, which produced the only FCL failure in the probe, and
+   `acceptable_obj_change_tol=1e-5`, which cannot stop these solves because the
+   relative objective keeps moving by more than that. `acceptable_tol=1e-3` was
+   the originally planned value and never fires — the Overall NLP error equals the
+   dual infeasibility, measured at 0.64–3.05. Keep `acceptable_constr_viol_tol` at
+   1e-4: loosening the dual tolerance under L-BFGS is documented practice,
+   loosening the feasibility tolerance would discard the real gate. The `resto.`
+   prefix matters, since prefixed lookups fall back to the unprefixed value and a
+   global loosening would also relax the branch that reports local infeasibility.
+3. **Match `tol` to the arithmetic.** Derivatives are float32 (epsilon 1.2e-7)
+   and grids bfloat16, against `tol=1e-6`. Either raise `tol` to 1e-4 and lean on
+   the acceptable criteria, or evaluate objective and Jacobian in float64.
+   Measure which costs less.
+4. **`linear_system_scaling="slack-based"`, `linear_scaling_on_demand="no"`.**
+   Verified available without HSL. It scales the slack block of the augmented
+   system, where an all-inequality problem degenerates as slacks approach their
+   bounds. Expect a modest effect: published reliability across 386 CUTEr
+   problems is 92.8% unscaled against 92.0% with MC19.
+5. **Two-sided user scaling.** `nlp_scaling_method="user-scaling"` with
+   `set_problem_scaling(obj_scaling, x_scaling, g_scaling)`, injected in
+   `minimize_ipopt_logged` between the option loop and `solve`
+   (`pipeline/phase2_diagnostics.py`). This is the only route to variable
+   scaling — every automatic method sets `dx = NULL`. `minimize_ipopt` exposes no
+   hook, so the non-diagnostic path needs the same treatment. Unsettled: whether
+   to scale through IPOPT or by an affine change of variables in the model, since
+   IPOPT relaxes the unscaled bounds before applying scaling.
+6. **Reparameterize spin as an angle.** The largest change and the only one with
+   a mechanism rather than a correlation behind it: `(sx, sy)` reaches the model
+   only through `arctan2`, making the radial direction an exact null direction of
+   all 402 constraint rows. Removes the penalty, its weight, the origin
+   singularity inside the bounds, and 7 variables.
+
+Independent of the ordering, and cheap:
+
+- `lambda_unit_circle` is missing from `_weights_key` in `objectives/phase2.py`,
+  so it never invalidates `_JIT_CACHE`. Any past tuning of it on a cache hit was
+  a no-op.
+- The `_padding_mask` docstring claims the padded rows leave the KKT matrix
+  rank-deficient. They do not — each inequality carries its own slack, so the row
+  reads `[0 … 0 | −1]`. Their cost is size. Fix the docstring.
+- Run `OBB_GAIN=1` with `IP_CVTOL=1e-6` if the OBB-gain arms matter: because
+  `constr_viol_tol` is absolute on the gain-carrying constraint, every gain arm
+  already run changed the physical tolerance and the row scaling together.
 
 ---
 
