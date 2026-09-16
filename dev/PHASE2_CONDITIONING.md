@@ -510,30 +510,35 @@ returned point and keeps whichever passes — two FCL evaluations per candidate.
 
 ---
 
-## A double initialisation is load-bearing
+## A redundant initialisation shifted solver trajectories
 
-`phase2_ipopt._warmup` calls `_init` even though the process-pool initializer has
-already run it in that worker. Removing the redundant call is **not**
+`_warmup` used to call `_init` even though the process-pool initializer had
+already run it in that worker. Dropping the redundant call is **not**
 behaviour-neutral: on a 40-candidate repeat set it left only 27 of 40 poses
 bitwise identical, moved three candidates across the FCL gate, and changed the
 kept count from 34 to 33.
 
-It is a real shift rather than run-to-run variation. Each version reproduces
-bitwise against a second run of itself — 40/40 both before and after — while
-differing from the other on the same 13 candidates every time. Restoring the call
-restores parity exactly: 40/40 identical, kept 34, median iterations 1000, 21 cap
-hits, matching the baseline on every statistic.
+The shift is real rather than run-to-run variation. Each version reproduces
+bitwise against a second run of itself — 40/40 both ways — while differing from
+the other on the same 13 candidates every time.
 
-The mechanism is unknown, and these were eliminated by inspection: the
+**The call was removed deliberately.** All three flipped candidates sat within a
+hair of the gate (+0.014, +0.006 and −1.000 → +0.017 mm), inside the band where
+every kept plan in this pipeline lives, and keeping an accidental double
+initialisation to preserve bit-parity would have frozen an artefact into the
+baseline. The single-init baseline is kept 33, median iterations 994, 20 cap hits.
+
+The mechanism remains unknown, and these were eliminated by inspection: the
 compile-cache setup is idempotent; `from_config_path` accepts `str` and `Path`
 alike with no caching on the argument; `_SDF_PACK_CACHE` is a pure cache whose
 misses rebuild identical arrays; surface sampling is seeded; the probe-SDF disk
 cache was warm for every run, so both `_init` calls were loads of the same file;
-and the settings object pickles into workers unchanged.
+and the settings object pickles into workers unchanged. Neither version is more
+numerically correct — the rebuilt values are identical either way.
 
-Neither version is more numerically correct — the values are identical either
-way. Treat the call as required, and make any change to it a deliberate
-experiment with its own parity benchmark rather than a cleanup.
+The practical lesson is that this stage is sensitive to changes with no traceable
+numeric path, so treat any edit here as behaviour-affecting until a repeat-set
+comparison says otherwise.
 
 ---
 

@@ -537,13 +537,6 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
         make_phase2,
     )
 
-    # Load-bearing, though the pool initializer has already run this in the same
-    # worker. Removing the second call changes solver trajectories on about a
-    # third of candidates and moves the kept set, reproducibly. Everything it
-    # rebuilds is provably identical, so the sensitivity is not in the data and
-    # the mechanism is unknown — see dev/PHASE2_CONDITIONING.md. Do not drop it
-    # without re-running the parity benchmark.
-    _init(_G.get("settings"))
     done = set()
     for r in recs:
         na = r["n_arcs"]
