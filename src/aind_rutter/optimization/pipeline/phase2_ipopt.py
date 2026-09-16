@@ -324,6 +324,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         perturb_pose,
     )
 
+    s = _G["settings"]
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
     rank = rec.get("rank", -1)
     st = _st_for_rec(rec)
@@ -337,34 +338,39 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         coverage_data=cov_data,
         fixtures=tuple(_G["fx"]),
         weights=Phase2Weights(
-            min_clearance_mm=MINCLEAR,
-            lambda_margin_clear=LAM_CLEAR,
-            tau_clear_mm=TAU_CLEAR,
-            lambda_cov=COV_WEIGHT,
-            cov_alpha=COV_ALPHA if COV_NORM else 0.0,
-            obb_slack_gain=OBB_GAIN,
-            smooth_clearance_reward=SMOOTH_REWARD,
+            min_clearance_mm=s.minclear,
+            lambda_margin_clear=s.lam_clear,
+            tau_clear_mm=s.tau_clear,
+            lambda_cov=s.cov_weight,
+            cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
+            obb_slack_gain=s.obb_gain,
+            smooth_clearance_reward=s.smooth_reward,
         ),
         brain_sdf=_G.get("brain_sdf"),
-        hessian=HESS,
-        drop_padded_rows=DROP_DEAD_ROWS,
+        hessian=s.hess,
+        drop_padded_rows=s.drop_dead_rows,
         **cast(Any, _cov_norm_kwargs(st)),
     )
     pose_start = perturb_pose(
-        pose, n_arcs, _G["n_probes"], bounds, P2_PERTURB, (P2_PERTURB_SEED, int(idx))
+        pose,
+        n_arcs,
+        _G["n_probes"],
+        bounds,
+        s.p2_perturb,
+        (s.p2_perturb_seed, int(idx)),
     )
     v = make_fcl_validator(
         st, n_arcs, fixtures=tuple(_G["fcl_fixtures"]), fixture_bvhs=_G["fcl_fbvh"]
     )
     diag: dict[str, Any] = {}
-    if P2_DIAG:
+    if s.p2_diag:
         diag["slack_start"] = {
             k: a.astype(np.float32) for k, a in p2["slack_parts"](pose_start).items()
         }
         diag["fcl_start"] = float(np.asarray(v.slacks(pose_start)).min())
         diag["fcl_pairs_start"] = v.violating_pairs(pose_start)
     t0 = time.perf_counter()
-    if SOLVER == "ipopt":
+    if s.solver == "ipopt":
         from cyipopt import minimize_ipopt
 
         # phase1_bounds may be a scipy Bounds or a list of (lo, hi) tuples;
@@ -376,23 +382,23 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         )
         ipopt_options = dict(
             hessian_approximation="limited-memory",
-            limited_memory_max_history=IP_HIST,
-            mu_strategy=IP_MU,
-            max_iter=P2_ITER,
-            tol=IP_TOL,
-            constr_viol_tol=IP_CVTOL,
-            acceptable_iter=IP_ACC_ITER,
-            acceptable_tol=IP_ACC_TOL,
-            acceptable_constr_viol_tol=IP_CVTOL,
+            limited_memory_max_history=s.ip_hist,
+            mu_strategy=s.ip_mu,
+            max_iter=s.p2_iter,
+            tol=s.ip_tol,
+            constr_viol_tol=s.ip_cvtol,
+            acceptable_iter=s.ip_acc_iter,
+            acceptable_tol=s.ip_acc_tol,
+            acceptable_constr_viol_tol=s.ip_cvtol,
             print_level=0,
             sb="yes",
         )
-        if IP_ACC_TOL > 1e-6:
+        if s.ip_acc_tol > 1e-6:
             # Prefixed lookups fall back to the unprefixed value, so a loosened
             # acceptable_tol would also relax the restoration subproblem's exit —
             # the branch that reports local infeasibility.
             ipopt_options["resto.acceptable_iter"] = 0
-        if P2_DIAG:
+        if s.p2_diag:
             from aind_rutter.optimization.objectives.phase2 import PADDED_SLACK
 
             res, diag["diag_hist"] = minimize_ipopt_logged(
@@ -429,13 +435,17 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             bounds=bounds,
             constraints=p2["constraints_nlc"],
             options=dict(
-                maxiter=P2_ITER, xtol=1e-6, gtol=1e-5, initial_tr_radius=1.0, verbose=0
+                maxiter=s.p2_iter,
+                xtol=1e-6,
+                gtol=1e-5,
+                initial_tr_radius=1.0,
+                verbose=0,
             ),
             **mkw,
         )
     dt = time.perf_counter() - t0
     fcl = float(np.asarray(v.slacks(res.x)).min())
-    if P2_DIAG:
+    if s.p2_diag:
         diag["slack_end"] = {
             k: a.astype(np.float32) for k, a in p2["slack_parts"](res.x).items()
         }
@@ -469,8 +479,8 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         min_clear=rec.get("min_clear"),
         pose_start=pose_start,
         perturb=(
-            {"scale": P2_PERTURB, "seed": [P2_PERTURB_SEED, int(idx)]}
-            if P2_PERTURB > 0
+            {"scale": s.p2_perturb, "seed": [s.p2_perturb_seed, int(idx)]}
+            if s.p2_perturb > 0
             else None
         ),
         **diag,
@@ -847,7 +857,7 @@ def main() -> int:
             ranks_file=_os.environ.get("RANKS_FILE", ""),
         ),
     )
-    if P2_DIAG:
+    if settings.p2_diag:
         from aind_rutter.optimization.objectives.phase2 import SLACK_GROUPS
 
         # Labels are identical across candidates of one probe/fixture set: store once.
