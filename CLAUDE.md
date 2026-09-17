@@ -20,9 +20,20 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (406 currently green)
+uv run --python 3.13 pytest -q            # tests (551 currently green)
 uv sync --python 3.13                     # set up venv
+
+# Phase-2 output parity against a baseline commit, on a subject written on the
+# spot. Exits non-zero on any difference. Add --config/--holes/--poses for a
+# real subject, --platform gpu to run on the card.
+uv run --python 3.13 python scripts/parity_phase2.py --baseline HEAD~1
 ```
+
+`tests/architecture/` holds the structural rules — import cycles, dependency
+direction, private-name imports, environment reads, and which modules import
+without jax. Each carries a baseline of today's exceptions that may only shrink:
+fixing one means deleting its line, and a rule fails if a listed exception stops
+violating it.
 
 ## Where things live
 
