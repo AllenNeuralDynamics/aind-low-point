@@ -82,6 +82,7 @@ from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
     MRVHoleAssignment,
     Phase2HandoffPayload,
     Phase2InputRecord,
+    Phase2Problem,
     Phase2ResultRecord,
     ProbeToHole,
 )
@@ -215,10 +216,6 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         coverage_total_over_probes,
     )
     from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
-    from aind_rutter.optimization.objectives.phase2 import (
-        Phase2Weights,
-        make_phase2,
-    )
     from aind_rutter.optimization.objectives.variables import (
         _poses,
         worst_threading_g,
@@ -233,29 +230,9 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
     rank = rec.get("rank", -1)
     st = _st_for_rec(rec)
-    if _G["cov_data"] is None:
-        _G["cov_data"] = _G["build_cov"](_G["probes"], st)
+    p2 = _build_problem(st, n_arcs)
     cov_data = _G["cov_data"]
     bounds = phase1_bounds(n_arcs, _G["n_probes"], _G["head_pitch_deg"])
-    p2 = make_phase2(
-        st,
-        n_arcs,
-        coverage_data=cov_data,
-        fixtures=tuple(_G["fx"]),
-        weights=Phase2Weights(
-            min_clearance_mm=s.minclear,
-            lambda_margin_clear=s.lam_clear,
-            tau_clear_mm=s.tau_clear,
-            lambda_cov=s.cov_weight,
-            cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
-            obb_slack_gain=s.obb_gain,
-            smooth_clearance_reward=s.smooth_reward,
-        ),
-        brain_sdf=_G.get("brain_sdf"),
-        hessian=s.hess,
-        drop_padded_rows=s.drop_dead_rows,
-        **cast(Any, _cov_norm_kwargs(st)),
-    )
     pose_start = perturb_pose(
         pose,
         n_arcs,
@@ -442,16 +419,49 @@ def _log_cand(k: int, n: int, r: "Phase2ResultRecord") -> None:
     )
 
 
-def _warmup(recs: list[Phase2InputRecord]) -> None:
-    """Compile Phase 2 once per distinct n_arcs in the PARENT so the disk
-    compile cache is warm; spawned workers then LOAD instead of all compiling
-    simultaneously (the OOM cause). Evals the jit callables (triggers compile)
-    without running the full minimize."""
+def _build_problem(st, n_arcs: int) -> Phase2Problem:
+    """The Phase-2 problem for one candidate under the worker's settings.
+
+    ``_warmup`` and ``_phase2_one`` both build through here, so the warmup compiles
+    the functions the solve calls.
+    """
     from aind_rutter.optimization.objectives.phase2 import (
         Phase2Weights,
         make_phase2,
     )
 
+    s = _G["settings"]
+    if _G["cov_data"] is None:
+        _G["cov_data"] = _G["build_cov"](_G["probes"], st)
+    return make_phase2(
+        st,
+        n_arcs,
+        coverage_data=_G["cov_data"],
+        fixtures=tuple(_G["fx"]),
+        weights=Phase2Weights(
+            min_clearance_mm=s.minclear,
+            lambda_margin_clear=s.lam_clear,
+            tau_clear_mm=s.tau_clear,
+            lambda_cov=s.cov_weight,
+            cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
+            obb_slack_gain=s.obb_gain,
+            smooth_clearance_reward=s.smooth_reward,
+        ),
+        brain_sdf=_G.get("brain_sdf"),
+        hessian=s.hess,
+        drop_padded_rows=s.drop_dead_rows,
+        **cast(Any, _cov_norm_kwargs(st)),
+    )
+
+
+def _warmup(recs: list[Phase2InputRecord]) -> None:
+    """Compile Phase 2 once per distinct n_arcs before any solve is timed.
+
+    A thread pool warms in the parent; a process pool warms in one worker, which
+    writes the disk compile cache the others load instead of all compiling at
+    once (the OOM cause). Evaluates each function the configured solve calls
+    without running the minimize.
+    """
     s = _G["settings"]
     done = set()
     for r in recs:
@@ -459,34 +469,25 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
         if na in done:
             continue
         done.add(na)
-        st = _st_for_rec(r)
-        if _G["cov_data"] is None:
-            _G["cov_data"] = _G["build_cov"](_G["probes"], st)
-        p2 = make_phase2(
-            st,
-            na,
-            coverage_data=_G["cov_data"],
-            fixtures=tuple(_G["fx"]),
-            weights=Phase2Weights(
-                min_clearance_mm=s.minclear,
-                lambda_margin_clear=s.lam_clear,
-                tau_clear_mm=s.tau_clear,
-                lambda_cov=s.cov_weight,
-                cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
-                obb_slack_gain=s.obb_gain,
-                smooth_clearance_reward=s.smooth_reward,
-            ),
-            brain_sdf=_G.get("brain_sdf"),
-            drop_padded_rows=s.drop_dead_rows,
-            **cast(Any, _cov_norm_kwargs(st)),
-        )
+        p2 = _build_problem(_st_for_rec(r), na)
         x = np.asarray(r["pose"], float)
         t0 = time.time()
         p2["fun"](x)
         p2["jac"](x)
-        nlc = p2["constraints_nlc"][0]
-        nlc.fun(x)
-        nlc.jac(x)
+        con = p2["constraints"][0]
+        g = np.asarray(con["fun"](x))
+        con["jac"](x)
+        if s.solver == "trust-constr":
+            # IPOPT runs limited-memory and never calls the exact Hessians.
+            nlc_hess = p2["constraints_nlc"][0].hess
+            if p2["hess"] is not None:
+                p2["hess"](x)
+                nlc_hess(x, np.ones_like(g))
+            if p2["hessp"] is not None:
+                p2["hessp"](x, x)
+                nlc_hess(x, np.ones_like(g)).matvec(x)
+        if s.p2_diag:
+            p2["slack_parts"](x)
         print(f"  warmed n_arcs={na} in {time.time() - t0:.0f}s", flush=True)
 
 
