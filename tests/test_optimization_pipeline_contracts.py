@@ -1,9 +1,42 @@
+"""Rules about how the pipeline stages call into the rest of the optimizer.
+
+Each rule names identifiers it forbids or requires. Those names are asserted to
+exist first: a rule that silently stops matching after a rename would pass while
+checking nothing.
+"""
+
 from __future__ import annotations
 
 import ast
 from pathlib import Path
 
+import pytest
+
+from tests.architecture.graph import module_graph
+
 ROOT = Path(__file__).resolve().parents[1]
+
+# Legacy setup helpers the stages must reach through the runtime adapter instead.
+BANNED_SETUP_HELPERS = {
+    "_probe_static_info": "aind_rutter.optimization.pipeline.probe_setup",
+    "_transform_holes": "aind_rutter.optimization.pipeline.probe_setup",
+    "build_fixture_sdf_data": "aind_rutter.optimization.pipeline.phase1_geometry",
+}
+
+REQUIRED_NAMES = {
+    "Enumerator": "aind_rutter.optimization.pipeline.enumeration",
+    "build_or_load_atlas": "aind_rutter.optimization.pipeline.enumeration",
+    "make_phase1_pool_record": "aind_rutter.optimization.pipeline.phase1_pool",
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "module"), sorted({**BANNED_SETUP_HELPERS, **REQUIRED_NAMES}.items())
+)
+def test_the_name_a_rule_matches_on_still_exists(name: str, module: str) -> None:
+    facts = module_graph().modules.get(module)
+    assert facts is not None, f"{module} is gone; the rule naming {name} is vacuous"
+    assert name in facts.definitions, f"{module} no longer defines {name}"
 
 
 def test_build_or_load_atlas_is_not_splatted_into_enumerator() -> None:
@@ -49,11 +82,8 @@ def test_active_pipeline_entrypoints_use_runtime_adapter_for_setup() -> None:
     # legacy helpers.
     stages = ("phase1_pool", "phase1_build", "restore", "phase2_ipopt", "emit")
     paths = [ROOT / f"src/aind_rutter/optimization/pipeline/{s}.py" for s in stages]
-    banned_names = {
-        "_probe_static_info",
-        "_transform_holes",
-        "build_fixture_sdf_data",
-    }
+    assert all(path.exists() for path in paths), "a named stage module has moved"
+    banned_names = set(BANNED_SETUP_HELPERS)
     offenders: list[tuple[Path, int, str]] = []
     for path in paths:
         tree = ast.parse(path.read_text(), filename=str(path))
