@@ -17,7 +17,9 @@ from aind_rutter.core import MeshTransformable, PointsTransformable
 from aind_rutter.optimization.geometry.recording import RECORDING_GEOMETRY
 from aind_rutter.runtime.build import RuntimeBundle, build_runtime_from_config
 from tests.synthetic_subject import (
+    BRAIN_CENTER_LPS,
     HEAD_PITCH_DEG,
+    HOLE_PITCH_MM,
     PROBE_KINDS,
     SHANK_PITCH_MM,
     write_subject,
@@ -48,12 +50,17 @@ def test_catalog_holds_every_asset_with_the_right_geometry(
 def test_derived_target_is_the_reduced_source_asset_under_its_transform(
     runtime: RuntimeBundle,
 ) -> None:
-    """The brain is a sphere at (0, 0, -5), so its centre of mass is its centre."""
+    """The brain is a sphere, so its centre of mass is its centre."""
     point = np.asarray(runtime.targets_pts["target:brain"]).reshape(3)
-    pitch = np.deg2rad(2.0)  # the config's headframe_to_lps rotation about x
-    expected = np.array([0.0, 5.0 * np.sin(pitch), -5.0 * np.cos(pitch)]) + np.array(
-        [0.1, -0.2, 0.3]
+    tilt = np.deg2rad(2.0)  # the config's headframe_to_lps rotation about x
+    rotation = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, np.cos(tilt), -np.sin(tilt)],
+            [0.0, np.sin(tilt), np.cos(tilt)],
+        ]
     )
+    expected = rotation @ np.asarray(BRAIN_CENTER_LPS) + np.array([0.1, -0.2, 0.3])
     np.testing.assert_allclose(point, expected, atol=1e-3)
 
 
@@ -79,7 +86,7 @@ def test_plan_state_reproduces_the_declared_probes(runtime: RuntimeBundle) -> No
     assert probes["P2"].kind == "quadbase-alpha"
     assert probes["P2"].spin == pytest.approx(90.0)
     # The inline target is declared in RAS and stored as declared.
-    assert probes["P2"].target_point_RAS == (1.0, 0.5, -4.0)
+    assert probes["P2"].target_point_RAS == (HOLE_PITCH_MM, 0.0, -5.0)
 
 
 def test_head_pitch_comes_from_the_plan(runtime: RuntimeBundle) -> None:

@@ -27,6 +27,8 @@ WELL_TOP_Z_MM = 10.0
 HOLE_IDS = (1, 2)
 HOLE_PITCH_MM = 3.0
 HOLE_RADIUS_MM = 0.9
+# The brain sits under hole 1 so a probe reaching it threads the implant gap.
+BRAIN_CENTER_LPS = (HOLE_PITCH_MM, 0.0, -5.0)
 SHANK_PITCH_MM = 0.25
 
 
@@ -243,7 +245,11 @@ def _config(meshes: Path) -> dict:
                     "slider_ml": -6.0,
                     "past_target_mm": 0.5,
                     "offsets_RA": [0.0, 0.0],
-                    "target": {"kind": "inline", "point_RAS": [1.0, 0.5, -4.0]},
+                    # Under hole 2: RAS R is -LPS x, so this is LPS (-3, 0, -5).
+                    "target": {
+                        "kind": "inline",
+                        "point_RAS": [HOLE_PITCH_MM, 0.0, -5.0],
+                    },
                 },
             },
         },
@@ -266,7 +272,7 @@ def write_subject(root: Path) -> SyntheticSubject:
     rng = np.random.default_rng(0)
 
     brain = trimesh.creation.icosphere(subdivisions=2, radius=5.0)
-    brain.apply_translation((0.0, 0.0, -5.0))
+    brain.apply_translation(BRAIN_CENTER_LPS)
     brain.export(meshes / "brain.obj")
     _well_mesh().export(meshes / "well.obj")
     _implant_mesh().export(meshes / "implant.obj")
