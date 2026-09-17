@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 PACKAGE = "aind_rutter"
 
+_DEFINITION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
 
 @dataclass(frozen=True)
 class Import:
@@ -52,6 +54,7 @@ class ModuleFacts:
     imports: list[Import] = field(default_factory=list)
     env: list[EnvRead] = field(default_factory=list)
     jax_at_import: list[int] = field(default_factory=list)
+    definitions: frozenset[str] = frozenset()
 
 
 def _module_name(path: Path) -> str:
@@ -247,8 +250,12 @@ def module_graph() -> Graph:
     names = {_module_name(p): p for p in paths}
     modules: dict[str, ModuleFacts] = {}
     for name, path in names.items():
+        tree = ast.parse(path.read_text(), filename=str(path))
         walker = _Walker(name, path, set(names))
-        walker.visit(ast.parse(path.read_text(), filename=str(path)))
+        walker.visit(tree)
+        walker.facts.definitions = frozenset(
+            node.name for node in tree.body if isinstance(node, _DEFINITION_NODES)
+        )
         modules[name] = walker.facts
     return Graph(modules)
 
