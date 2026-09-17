@@ -9,7 +9,7 @@ objective in BatchedProbeStatic form, we vmap the existing per-candidate
 
 Correctness is free: it's literally the same function, so the batched
 value must equal the per-candidate ``make_phase1_objective`` looped over
-the batch. This script builds it and validates that exact match.
+the batch.
 """
 
 from __future__ import annotations
@@ -19,12 +19,10 @@ import os as _os
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-import pickle
 from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from aind_rutter.optimization.objectives.phase1 import (
     PACKED_ARG_ORDER,
@@ -33,17 +31,12 @@ from aind_rutter.optimization.objectives.phase1 import (
     _build_jit,
     _pack_statics,
     _signature,
-    make_phase1_objective,
 )
-from aind_rutter.optimization.objectives.probe_static import _build_probe_static
 from aind_rutter.optimization.pipeline.contracts import (
     BatchedGradientFn,
     BatchedObjectiveFn,
     Phase1ChunkedFns,
     Phase1ObjectiveFns,
-)
-from aind_rutter.optimization.pipeline.runtime_adapter import (
-    OptimizationRuntime,
 )
 from aind_rutter.optimization.sdf.clearance_sweep import (
     cast_fixture_grids,
@@ -337,79 +330,6 @@ def make_staged_rprop(
         return jax.lax.fori_loop(0, n_steps, body, init)[0]
 
     return jax.jit(run)
-
-
-def main() -> int:
-    opt = OptimizationRuntime.from_config_path(
-        "examples/836656-config-T12.yml", "scratch/0283-300-04.holes.yml"
-    )
-    assets = opt.build_problem_assets()
-    probes, holes = list(opt.probes), list(opt.holes)
-    sdf_by_name, bvh_cache = assets.probe_sdfs, assets.probe_bvhs
-    well = assets.well_fixture
-
-    data = pickle.load(open("scratch/full_polish_0283.pkl", "rb"))
-    cand_idxs = [4195, 1035, 230, 2291]
-    statics_list = []
-    x_list = []
-    for idx in cand_idxs:
-        cand = data["candidates"][idx]
-        st = _build_probe_static(
-            probes,
-            holes,
-            cand.ha,
-            cand.aa,
-            bvh_cache=bvh_cache,
-            sdf_by_name=sdf_by_name,
-        )
-        statics_list.append(st)
-        x_list.append(np.asarray(data["augmented_phase1_x"][idx], np.float32))
-    n_arcs = data["results"][cand_idxs[0]].n_arcs
-    weights = Phase1Weights()
-
-    print("Building batched objective (vmap of per-cand _objective)...")
-    bobj, bgrad = make_batched_phase1_objective(
-        statics_list, n_arcs, weights, (well,), coverage_data=None
-    )
-    x_B = np.stack(x_list)
-    bvals = np.asarray(bobj(x_B))
-
-    print(f"\n{'cand':>6} {'batched':>14} {'per-cand':>14} {'abs diff':>12}")
-    print("-" * 50)
-    maxdiff = 0.0
-    for i, idx in enumerate(cand_idxs):
-        fun, _ = make_phase1_objective(
-            statics_list[i],
-            n_arcs,
-            coverage_data=None,
-            fixtures=(well,),
-            weights=weights,
-        )
-        pv = float(fun(x_list[i]))
-        d = abs(float(bvals[i]) - pv)
-        maxdiff = max(maxdiff, d)
-        print(f"{idx:>6} {float(bvals[i]):>14.5f} {pv:>14.5f} {d:>12.2e}")
-    print(
-        f"\nmax abs diff (batched vs per-cand): {maxdiff:.3e}  "
-        f"{'PASS' if maxdiff < 1e-2 else 'FAIL'}"
-    )
-
-    # gradient sanity: finite + matches per-cand grad on cand 0
-    g = np.asarray(bgrad(x_B))
-    fun0, jac0 = make_phase1_objective(
-        statics_list[0], n_arcs, coverage_data=None, fixtures=(well,), weights=weights
-    )
-    g0 = np.asarray(jac0(x_list[0]))
-    gdiff = float(np.max(np.abs(g[0] - g0)))
-    print(
-        f"grad[0] max abs diff vs per-cand jac: {gdiff:.3e}  "
-        f"(finite={np.isfinite(g).all()})"
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 
 def build_cw_fns(

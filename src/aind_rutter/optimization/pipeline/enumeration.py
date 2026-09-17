@@ -16,16 +16,6 @@ The ``Enumerator`` accepts optional search limits: ``max_arcs`` /
 ``max_probes_per_arc`` (default to the kinematic max) and ``ap_range`` /
 ``ml_range`` windows (clip each (probe,hole)'s feasible AP envelope and drop
 anchors outside the AP/ML windows).
-
-Validation (main): the enumerated discrete decisions {probe->hole, partition}
-MUST be a superset of the 45 FCL-feasible candidates from phase2_handoff.pkl,
-and must contain the manual T12 hole-assignment. Any dropped feasible is a
-regression (likely the stricter ML pack rejecting an atlas-range-tight tuple
-whose true optimized ML lies outside the atlas anchors — reported if it happens).
-
-Run:  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.arc_first_mrv
-Env:  MAX_ARCS  MAX_PROBES_PER_ARC  AP_RANGE=lo,hi  ML_RANGE=lo,hi
-      ML_MARGINS=0,0.5,1,2,3  ML_MARGIN=1.0
 """
 
 from __future__ import annotations
@@ -45,8 +35,6 @@ from aind_rutter.optimization.enumeration.seed_emission import emit_seed
 from aind_rutter.optimization.pipeline.contracts import (
     AtlasCachePayload,
     EnumeratorCandidate,
-    Partition,
-    ProbeToArcIdx,
     SeedResult,
 )
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
@@ -58,9 +46,6 @@ from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
 ATLAS_CACHE = _os.environ.get("ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.pkl")
-POOL_PKL = "scratch/full_polish_0283.pkl"
-HANDOFF_PKL = "scratch/phase2_handoff.pkl"
-MANUAL_H = {"MD": 3, "BLA": 4, "PL": 1, "VM": 7, "RSP": 5, "CA1": 10, "CLA": 12}
 
 # Arc / per-arc caps are KINEMATIC (16° angular exclusion over the AP/ML
 # range), not hardware counts — no rail limit, the rig takes >4 per arc.
@@ -414,135 +399,3 @@ class Enumerator:
             min_ml_sep_deg=MIN_ML_SEP_DEG,
         )
         return None if seed is None else SeedResult(*seed)
-
-
-# --------------------------------------------------------------------------
-# Validation.
-# --------------------------------------------------------------------------
-def _partition_of(p2arc: ProbeToArcIdx) -> Partition:
-    groups: dict[int, set[str]] = {}
-    for name, ai in p2arc.items():
-        groups.setdefault(ai, set()).add(name)
-    return frozenset(frozenset(g) for g in groups.values())
-
-
-def validate(cands, feas, pool) -> tuple[bool, list[int], list[int]]:
-    hole_keys = {tuple(sorted(c["probe_to_hole"].items())) for c in cands}
-    full_keys = {
-        (tuple(sorted(c["probe_to_hole"].items())), c["partition"]) for c in cands
-    }
-    man = tuple(sorted(MANUAL_H.items()))
-    miss_hole, miss_full = [], []
-    for r in feas:
-        c = pool[r["idx"]]
-        hk = tuple(sorted(dict(c.ha.probe_to_hole).items()))
-        part = _partition_of(c.aa.probe_to_arc_idx)
-        if hk not in hole_keys:
-            miss_hole.append(r["idx"])
-        elif (hk, part) not in full_keys:
-            miss_full.append(r["idx"])
-    return man in hole_keys, miss_hole, miss_full
-
-
-def main() -> int:
-    atlas_payload = build_or_load_atlas()
-    atlas = atlas_payload.atlas
-    probe_names = atlas_payload.probe_names
-    head_pitch_deg = atlas_payload.head_pitch_deg
-    print(f"probes: {probe_names}")
-    pool = pickle.load(open(POOL_PKL, "rb"))["candidates"]
-    feas = [r for r in pickle.load(open(HANDOFF_PKL, "rb"))["all"] if r["fcl"] >= -0.2]
-    n = len(feas)
-
-    margins = [
-        float(x) for x in _os.environ.get("ML_MARGINS", "0,0.5,1,2,3").split(",")
-    ]
-    # Caps default to the kinematic max; override to restrict the search.
-    cap_arcs = int(_os.environ.get("MAX_ARCS", MAX_ARCS))
-    cap_per_arc = int(_os.environ.get("MAX_PROBES_PER_ARC", MAX_PROBES_PER_ARC))
-
-    def _range_env(name):
-        v = _os.environ.get(name)
-        if not v:
-            return None
-        lo, hi = (float(x) for x in v.split(","))
-        return (lo, hi)
-
-    ap_range = _range_env("AP_RANGE")
-    if ap_range is None:
-        # rig AP = subject AP + head_pitch (head nose-down) → reachable subject
-        # window = rig[±AP_LIMIT] − head_pitch. See dev memory rig_ap_sign_convention.
-        ap_range = (-AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg)
-    ml_range = _range_env("ML_RANGE")  # None → Enumerator defaults to ±ML_LIMIT
-    win = ""
-    if ap_range:
-        win += f", AP in [{ap_range[0]:g},{ap_range[1]:g}]"
-    if ml_range:
-        win += f", ML in [{ml_range[0]:g},{ml_range[1]:g}]"
-    print(
-        f"\nml-margin sweep (keep ALL {n} FCL-feasibles is the bar); "
-        f"caps: arcs<={cap_arcs}, probes/arc<={cap_per_arc}{win}:"
-    )
-    print(
-        f"{'margin':>7} {'cands':>8} {'sec':>6} {'manual':>7} "
-        f"{'holes_kept':>11} {'full_kept':>10}  dropped"
-    )
-    for m in margins:
-        enr = Enumerator(
-            atlas,
-            probe_names,
-            ml_margin_deg=m,
-            max_arcs=cap_arcs,
-            max_probes_per_arc=cap_per_arc,
-            ap_range=ap_range,
-            ml_range=ml_range,
-        )
-        t0 = time.time()
-        cands = enr.enumerate()
-        dt = time.time() - t0
-        manual_ok, miss_hole, miss_full = validate(cands, feas, pool)
-        kh = n - len(miss_hole)
-        kf = n - len(miss_hole) - len(miss_full)
-        print(
-            f"{m:>7.1f} {len(cands):>8} {dt:>6.1f} "
-            f"{'YES' if manual_ok else 'NO':>7} {kh:>8}/{n} "
-            f"{kf:>7}/{n}  {miss_hole or ''}"
-        )
-
-    # Isolate the joint-ML prune: greedy vs production's pairwise check, same
-    # margin. Delta = candidates pairwise wrongly admits (can't actually pack).
-    m = float(_os.environ.get("ML_MARGIN", "1.0"))
-    g = len(
-        Enumerator(
-            atlas,
-            probe_names,
-            m,
-            "greedy",
-            max_arcs=cap_arcs,
-            max_probes_per_arc=cap_per_arc,
-            ap_range=ap_range,
-            ml_range=ml_range,
-        ).enumerate()
-    )
-    pw = len(
-        Enumerator(
-            atlas,
-            probe_names,
-            m,
-            "pairwise",
-            max_arcs=cap_arcs,
-            max_probes_per_arc=cap_per_arc,
-            ap_range=ap_range,
-            ml_range=ml_range,
-        ).enumerate()
-    )
-    print(
-        f"\njoint-ML prune @ margin {m}°: greedy={g}  pairwise={pw}  "
-        f"pruned={pw - g} ({100 * (pw - g) / pw:.1f}% of pairwise admits "
-        f"can't joint-ML-pack)"
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
