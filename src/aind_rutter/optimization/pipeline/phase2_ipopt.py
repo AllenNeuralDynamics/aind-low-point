@@ -91,6 +91,9 @@ from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
     Phase2ResultRecord,
     ProbeToHole,
 )
+from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
+    select_records,
+)
 from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
 
 TOPK = int(_os.environ.get("TOPK", "80"))
@@ -656,54 +659,7 @@ def main() -> int:
     settings = Phase2Settings()
     rer = cast(Phase1PoolPayload, pickle.load(open(POSES_PKL, "rb")))
     all_recs = rer["records"]
-    # NO FCL cull between Phase 1 and 2 — rank the Phase-1 pool by soft min_clear
-    # (SELECT_BY), best first, and hand the top-TOPK to Phase 2. FCL runs once at
-    # the end as the ground-truth gate.
-    # SELECT_BY=objective ranks by the TOTAL Phase-1 objective (lower is better —
-    # it already blends clearance + normalized coverage + threading penalty), so
-    # sort ASCENDING. The clearance-style metrics (min_clear) are higher-is-better
-    # → descending.
-    _asc = SELECT_BY == "objective"
-    order = sorted(
-        range(len(all_recs)),
-        key=lambda i: float(
-            cast(Any, all_recs[i]).get(SELECT_BY, 1e18 if _asc else -1e9)
-        ),
-        reverse=not _asc,
-    )
-    # RANKS overrides top-TOPK: an explicit rank list into the sorted order, to
-    # probe where good feasibles stop appearing rather than guessing a cutoff.
-    ranks_env = _os.environ.get("RANKS", "")
-    ranks_file = _os.environ.get("RANKS_FILE", "")
-    if ranks_env or ranks_file:
-        from aind_rutter.optimization.pipeline.phase2_diagnostics import read_ranks
-
-        sel_ranks = (
-            read_ranks(ranks_file)
-            if ranks_file
-            else [int(x) for x in ranks_env.split(",") if x.strip()]
-        )
-        sel_ranks = [r for r in sel_ranks if r < len(order)]
-    else:
-        sel_ranks = list(range(min(TOPK, len(order))))
-
-    def _norm(src: int, rank: int) -> Phase2InputRecord:
-        r = all_recs[src]
-        pose = cast(Any, r).get("pose", r["x"])
-        return dict(
-            idx=r.get("idx", src),
-            n_arcs=r["n_arcs"],
-            pose=pose,
-            probe_to_hole=r["probe_to_hole"],
-            partition=r["partition"],
-            probe_to_arc_idx=r["probe_to_arc_idx"],
-            arc_centroids_deg=r["arc_centroids_deg"],
-            min_clear=r.get("min_clear"),
-            objective=r.get("objective"),
-            rank=rank,
-        )
-
-    recs: list[Phase2InputRecord] = [_norm(order[rk], rk) for rk in sel_ranks]
+    recs = select_records(all_recs, settings)
     print(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {WORKERS} workers"
         f" x {_THREADS} thr, maxiter={P2_ITER}, lam={LAM_CLEAR} tau={TAU_CLEAR}"
