@@ -52,8 +52,8 @@ The wrapper writes subject-keyed outputs:
 
 .. code-block:: text
 
-   scratch/<config-stem>_pool.pkl
-   scratch/<config-stem>_phase2_handoff.pkl
+   scratch/<config-stem>_pool.json.gz
+   scratch/<config-stem>_phase2_handoff.json
    scratch/<config-stem>_plans/
 
 
@@ -439,7 +439,7 @@ Run directly:
 
    CONFIG=examples/837229-config.yml \
    HOLES=scratch/0283-300-04.holes.yml \
-   OUT=scratch/837229_pool.pkl \
+   OUT=scratch/837229_pool.json.gz \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 
 Useful Phase-1 environment knobs:
@@ -464,7 +464,7 @@ Useful Phase-1 environment knobs:
      - ``scratch/mrv_seeds_<config-stem>.pkl``
      - Subject-specific enumerate/seed cache.
    * - ``OUT``
-     - ``scratch/mrv_pool_results.pkl``
+     - ``scratch/mrv_pool_results.json.gz``
      - Resumable pool output.
    * - ``LIMIT``
      - ``0``
@@ -537,8 +537,8 @@ Run directly:
    SOLVER=ipopt \
    CONFIG=examples/837229-config.yml \
    HOLES=scratch/0283-300-04.holes.yml \
-   POSES=scratch/837229_pool.pkl \
-   OUT=scratch/837229_phase2_handoff.pkl \
+   POSES=scratch/837229_pool.json.gz \
+   OUT=scratch/837229_phase2_handoff.json \
    TOPK=200 P2_ITER=1000 \
    PLATFORM=gpu POOL=thread WORKERS=4 \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
@@ -572,7 +572,7 @@ Run directly:
 
    CONFIG=examples/837229-config.yml \
    HOLES=scratch/0283-300-04.holes.yml \
-   HANDOFF=scratch/837229_phase2_handoff.pkl \
+   HANDOFF=scratch/837229_phase2_handoff.json \
    N=15 OUTDIR=scratch/837229_plans \
    JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 

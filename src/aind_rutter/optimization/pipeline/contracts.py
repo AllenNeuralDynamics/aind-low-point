@@ -115,7 +115,6 @@ class Phase2ResultRecordRequired(TypedDict):
     rank: int
     n_arcs: int
     fcl: float
-    max_g_thread: float
     coverage: float
     pose: Array
     nit: int
@@ -130,6 +129,9 @@ class Phase2ResultRecordRequired(TypedDict):
 class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
     """Phase-2 result with optional diagnostics/provenance fields."""
 
+    # Always written now; absent from handoffs that predate threading-g reporting,
+    # and every reader treats absence as NaN.
+    max_g_thread: float
     pose_in: Array
     objective_p1: float | None
     solver_status: int

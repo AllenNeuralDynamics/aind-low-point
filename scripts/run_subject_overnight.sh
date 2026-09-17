@@ -32,11 +32,11 @@ CONFIG="${CONFIG:?set CONFIG=examples/<subject>-config.yml}"
 HOLES="${HOLES:-scratch/0283-300-04.holes.yml}"
 STEM="$(basename "${CONFIG%.yml}")"
 # TAG: optional output suffix so variant runs don't clobber each other
-# (e.g. TAG=density → scratch/<stem>_density_pool.pkl). Seed cache is untagged
+# (e.g. TAG=density → scratch/<stem>_density_pool.json.gz). Seed cache is untagged
 # (geometry-only) so it's reused across coverage variants.
 TAG="${TAG:+_${TAG}}"
-POOL="scratch/${STEM}${TAG}_pool.pkl"
-HANDOFF="scratch/${STEM}${TAG}_phase2_handoff.pkl"
+POOL="scratch/${STEM}${TAG}_pool.json.gz"
+HANDOFF="scratch/${STEM}${TAG}_phase2_handoff.json"
 PLANDIR="scratch/${STEM}${TAG}_plans"
 # Coverage objective (off by default → legacy plain-sum). Density run:
 # RETRO_DENSITY=1 COV_NORM=1 COV_ALPHA=0.2 COV_WEIGHT=7.

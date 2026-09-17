@@ -27,8 +27,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from aind_rutter.optimization.pipeline.payloads import check_payload_path
 
 
 def _env(*names: str) -> AliasChoices:
@@ -85,12 +87,15 @@ class Phase2Settings(PipelineSettings):
         validation_alias=_env("SELECT_BY"),
         description="Phase-1 record field to rank by; 'objective' sorts ascending.",
     )
-    poses_pkl: Path = Field(
-        Path("scratch/mrv_pool_results.pkl"), validation_alias=_env("POSES")
+    poses: Path = Field(
+        Path("scratch/mrv_pool_results.json.gz"),
+        validation_alias=_env("POSES"),
+        description="Phase-1 pool to select from.",
     )
-    out_pkl: Path = Field(
-        Path("scratch/phase2_handoff.pkl"),
+    out: Path = Field(
+        Path("scratch/phase2_handoff.json"),
         validation_alias=_env("RUTTER_OUT", "OUT"),
+        description="Where the handoff is written.",
     )
     ranks: str = Field(
         "",
@@ -98,6 +103,12 @@ class Phase2Settings(PipelineSettings):
         description="Explicit zero-based offsets into the select_by order.",
     )
     ranks_file: Path | None = Field(None, validation_alias=_env("RANKS_FILE"))
+
+    @field_validator("poses", "out")
+    @classmethod
+    def _json_payload(cls, path: Path) -> Path:
+        # Checked at construction so a wrong path fails before any solving.
+        return check_payload_path(path)
 
     # Execution.
     workers: int = Field(4, validation_alias=_env("WORKERS"))

@@ -142,7 +142,6 @@ class HandoffRecord(_Model):
     rank: int
     n_arcs: int
     fcl: float
-    max_g_thread: float
     coverage: float
     pose: Float64Array
     nit: int
@@ -152,6 +151,7 @@ class HandoffRecord(_Model):
     probe_to_arc_idx: dict[str, int]
     arc_centroids_deg: list[float]
     min_clear: float | None
+    max_g_thread: float | None = None
     pose_in: Float64Array | None = None
     objective_p1: float | None = None
     solver_status: int | None = None
@@ -182,12 +182,19 @@ class HandoffFile(_Model):
     ranked: list[int]
 
 
-def _check_path(path: Path) -> None:
+def check_payload_path(path: str | Path) -> Path:
+    """``path`` as a ``Path``, if it names a ``.json`` or ``.json.gz`` file.
+
+    Stages call this before doing any work, so a wrong output path fails at
+    startup instead of after the solve.
+    """
+    path = Path(path)
     if path.suffix != ".json" and path.suffixes[-2:] != [".json", ".gz"]:
         raise ValueError(
             f"{path}: pipeline payloads are .json or .json.gz files; pickled "
             "payloads are no longer read"
         )
+    return path
 
 
 def _write_bytes(path: Path, data: bytes) -> None:
@@ -238,8 +245,7 @@ def write_pool(path: str | Path, payload: Phase1PoolPayload) -> None:
         If ``path`` is not ``.json`` or ``.json.gz``, or the payload does not
         match the pool schema.
     """
-    path = Path(path)
-    _check_path(path)
+    path = check_payload_path(path)
     model = PoolFile.model_validate(
         {"kind": "phase1_pool", "schema_version": SCHEMA_VERSION, **payload}
     )
@@ -248,8 +254,7 @@ def write_pool(path: str | Path, payload: Phase1PoolPayload) -> None:
 
 def read_pool(path: str | Path) -> Phase1PoolPayload:
     """Read and validate a Phase-1 pool written by ``write_pool``."""
-    path = Path(path)
-    _check_path(path)
+    path = check_payload_path(path)
     try:
         model = PoolFile.model_validate_json(_read_bytes(path))
     except ValidationError as e:
@@ -268,8 +273,7 @@ def write_handoff(path: str | Path, payload: Phase2HandoffPayload) -> None:
         the handoff schema, candidate ids in ``all`` repeat, or a ``ranked``
         record differs from the entry of ``all`` with its id.
     """
-    path = Path(path)
-    _check_path(path)
+    path = check_payload_path(path)
     by_idx: dict[int, object] = {}
     for rec in payload["all"]:
         if rec["idx"] in by_idx:
@@ -299,8 +303,7 @@ def read_handoff(path: str | Path) -> Phase2HandoffPayload:
     ``ranked`` holds the same record objects as ``all``, as it does in the
     payload the stage produced.
     """
-    path = Path(path)
-    _check_path(path)
+    path = check_payload_path(path)
     try:
         model = HandoffFile.model_validate_json(_read_bytes(path))
     except ValidationError as e:

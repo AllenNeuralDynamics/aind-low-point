@@ -13,29 +13,14 @@ from aind_rutter.optimization.pipeline.handoff import (
 )
 from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
-# Every field carries an environment alias, so ambient values would otherwise
-# decide what these assertions compare against.
-_ENV = (
-    "RUTTER_CONFIG",
-    "CONFIG",
-    "RUTTER_HOLES",
-    "HOLES",
-    "WELL",
-    "TOPK",
-    "SELECT_BY",
-    "FCL_TOL",
-    "G_TOL",
-    "MMR_LAMBDA",
-    "RANKS_FILE",
-    "IP_TOL",
-    "IP_ACC_TOL",
-)
-
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in _ENV:
-        monkeypatch.delenv(name, raising=False)
+    # Every field carries an environment alias, so ambient values would otherwise
+    # decide what these assertions compare against.
+    for field in Phase2Settings.model_fields.values():
+        for name in getattr(field.validation_alias, "choices", ()) or ():
+            monkeypatch.delenv(str(name), raising=False)
 
 
 def _res(fcl: float, **fields: Any) -> Any:
@@ -107,7 +92,7 @@ def test_an_unset_ranks_file_records_an_empty_string() -> None:
 def test_the_provenance_survives_a_round_trip_through_json() -> None:
     import json
 
-    # The payload is pickled, but a settings dump that cannot serialise would
+    # The handoff is written as JSON; a settings dump that cannot serialise would
     # mean a Path or enum leaked into it.
     json.dumps(handoff_config(Phase2Settings()))
 

@@ -50,6 +50,23 @@ def test_arguments_win_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> 
     assert s.lam_clear == 5.0, "unsupplied fields still come from the environment"
 
 
+@pytest.mark.parametrize("field", ["poses", "out"])
+def test_a_pickle_payload_path_fails_at_construction(field: str) -> None:
+    with pytest.raises(ValidationError, match="json"):
+        Phase2Settings(**{field: "scratch/run.pkl"})
+    assert getattr(Phase2Settings(**{field: "scratch/run.json.gz"}), field) == Path(
+        "scratch/run.json.gz"
+    )
+
+
+def test_a_pickle_payload_path_from_the_environment_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OUT", "scratch/handoff.pkl")
+    with pytest.raises(ValidationError, match="json"):
+        Phase2Settings()
+
+
 def test_the_prefixed_spelling_outranks_the_generic_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -11,7 +11,7 @@ re-optimization happens here — pure reconstruction.
 
 Run:
   CONFIG=examples/837229-config.yml HOLES=scratch/0283-300-04.holes.yml \\
-  HANDOFF=scratch/837229_phase2_handoff.pkl N=15 OUTDIR=examples/837229_plans \\
+  HANDOFF=scratch/837229_phase2_handoff.json N=15 OUTDIR=examples/837229_plans \\
   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 """
 
@@ -19,17 +19,15 @@ from __future__ import annotations
 
 import copy
 import os
-import pickle
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 
 import numpy as np
 import yaml
 
 from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
-from aind_rutter.optimization.pipeline.contracts import Phase2HandoffPayload
+from aind_rutter.optimization.pipeline.payloads import read_handoff
 from aind_rutter.runtime import (
     build_plan_state_from_config,
     planning_state_to_plan_model,
@@ -38,7 +36,7 @@ from aind_rutter.runtime.export import reorder_plan_for_rig
 
 CONFIG = os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
-HANDOFF = os.environ.get("HANDOFF", "scratch/phase2_handoff.pkl")
+HANDOFF = os.environ.get("HANDOFF", "scratch/phase2_handoff.json")
 N = int(os.environ.get("N", "15"))
 OUTDIR = os.environ.get("OUTDIR", "scratch/plans")
 
@@ -145,7 +143,7 @@ def main() -> int:
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
 
-    H = cast(Phase2HandoffPayload, pickle.load(open(HANDOFF, "rb")))
+    H = read_handoff(HANDOFF)
     ranked = H.get("ranked", [])  # MMR-ranked feasible plans
     fcl_tol = H.get("config", {}).get("fcl_tol", 0.2)
     fcl_desc = f"-{fcl_tol:g}"

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import pytest
+
 from aind_rutter.optimization.pipeline.selection import (
     rank_order,
     select_records,
 )
 from aind_rutter.optimization.pipeline.settings import Phase2Settings
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # TOPK, SELECT_BY, RANKS and the payload paths all have environment aliases.
+    for field in Phase2Settings.model_fields.values():
+        for name in getattr(field.validation_alias, "choices", ()) or ():
+            monkeypatch.delenv(str(name), raising=False)
 
 
 def _rec(idx: int, **fields) -> dict:

@@ -86,6 +86,11 @@ from aind_rutter.optimization.pipeline.phase1_build import (
     make_batched_phase1_chunked,
     make_staged_rprop,
 )
+from aind_rutter.optimization.pipeline.payloads import (
+    check_payload_path,
+    read_pool,
+    write_pool,
+)
 from aind_rutter.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
     phase1_bounds,
@@ -116,7 +121,7 @@ MAX_PPA = int(_os.environ.get("MAX_PROBES_PER_ARC", "4"))
 ONLY_NARCS = int(_os.environ.get("ONLY_NARCS", "0"))
 BF16 = _os.environ.get("BF16_STORE", "1") == "1"
 PROGRESS_EVERY = int(_os.environ.get("PROGRESS_EVERY", "25"))
-OUT = _os.environ.get("OUT", "scratch/mrv_pool_results.pkl")
+OUT = _os.environ.get("OUT", "scratch/mrv_pool_results.json.gz")
 # Seed cache is SUBJECT-SPECIFIC (enumerated candidates depend on the subject's
 # config); default keys off the config stem so subjects never share seeds.
 _CFG_STEM = _os.path.splitext(
@@ -544,8 +549,7 @@ def save_results(records: list[Phase1PoolRecord]) -> None:
         reduced_fine=REDUCED_FINE,
         full_fine=FULL_FINE,
     )
-    with open(OUT, "wb") as f:
-        pickle.dump(payload, f)
+    write_pool(OUT, payload)
 
 
 def load_or_seed_groups(
@@ -616,6 +620,7 @@ def load_or_seed_groups(
 
 
 def main() -> int:
+    check_payload_path(OUT)
     opt = setup_runtime()
     _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, fixture_bvhs = setup(
         opt
@@ -665,18 +670,16 @@ def main() -> int:
     records: list[Phase1PoolRecord] = []
     done_narcs: set = set()
     if _os.path.exists(OUT):
-        try:
-            prev = cast(Phase1PoolPayload, pickle.load(open(OUT, "rb")))
-            records = list(prev.get("records", []))
-            done_narcs = {r["n_arcs"] for r in records}
-            if done_narcs:
-                print(
-                    f"resuming from {OUT}: {len(records)} records, "
-                    f"done groups {sorted(done_narcs)}",
-                    flush=True,
-                )
-        except Exception as e:
-            print(f"  (could not resume from {OUT}: {e})", flush=True)
+        # An unreadable pool aborts the run: save_results rewrites OUT with every
+        # group, so carrying on would discard the groups it already holds.
+        records = list(read_pool(OUT)["records"])
+        done_narcs = {r["n_arcs"] for r in records}
+        if done_narcs:
+            print(
+                f"resuming from {OUT}: {len(records)} records, "
+                f"done groups {sorted(done_narcs)}",
+                flush=True,
+            )
 
     # Largest group first: the hungriest spin-restore runs on the cleanest GPU.
     for n_arcs in sorted(by_arcs, key=lambda k: -len(by_arcs[k])):

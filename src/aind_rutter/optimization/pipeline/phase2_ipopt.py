@@ -70,11 +70,9 @@ if _PLATFORM in ("gpu", "cuda"):
 _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
 import itertools  # noqa: E402
-import pickle  # noqa: E402
 import time  # noqa: E402
 from collections.abc import Callable  # noqa: E402
 from multiprocessing import get_context  # noqa: E402
-from pathlib import Path  # noqa: E402
 from typing import Any, cast  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -82,7 +80,6 @@ import numpy as np  # noqa: E402
 from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
     MRVArcAssignment,
     MRVHoleAssignment,
-    Phase1PoolPayload,
     Phase2HandoffPayload,
     Phase2InputRecord,
     Phase2ResultRecord,
@@ -91,6 +88,10 @@ from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     classify_results,
     handoff_config,
+)
+from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
+    read_pool,
+    write_handoff,
 )
 from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
     select_records,
@@ -732,16 +733,12 @@ def _flush_print(msg: str) -> None:
 
 def main() -> int:
     settings = Phase2Settings()
-    rer = cast(Phase1PoolPayload, pickle.load(open(settings.poses_pkl, "rb")))
-    recs = select_records(rer["records"], settings)
+    recs = select_records(read_pool(settings.poses)["records"], settings)
     payload = run(recs, settings, on_result=_log_cand, log=_flush_print)
     _print_report(payload, settings)
-    out = Path(settings.out_pkl)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "wb") as f:
-        pickle.dump(payload, f)
+    write_handoff(settings.out, payload)
     print(
-        f"\nsaved → {out}  ({len(payload['ranked'])} feasible ranked, "
+        f"\nsaved → {settings.out}  ({len(payload['ranked'])} feasible ranked, "
         f"{len(payload['all'])} total)"
     )
     return 0

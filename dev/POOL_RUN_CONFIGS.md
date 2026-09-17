@@ -61,7 +61,7 @@ JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
 | `FULL_FINE` | `50` | fine (@5000) steps ending the **full** stage; rest @`COARSE_N` |
 | `STAGE1`/`STAGE2` | `500` | total steps in the reduced / full stage |
 | `COARSE_N=5000` or `RED/FULL_FINE=STAGE` | — | degenerate cases collapse to all-fine |
-| `OUT` | `scratch/mrv_pool_results.pkl` | output; **resumable** — re-running skips already-saved n_arcs groups |
+| `OUT` | `scratch/mrv_pool_results.json.gz` | output; **resumable** — re-running skips already-saved n_arcs groups |
 | `SEED_CACHE` | `scratch/mrv_seeds_<config-stem>.pkl` | enumerate+seed is cached (~14 min); subject-specific and reused on restart |
 | `FCL_TOPK` | `300` | FCL is run on the top-K by soft clearance per n_arcs group |
 | `LIMIT` | `0` | cap candidates (smoke testing; disables seed cache + resume) |
