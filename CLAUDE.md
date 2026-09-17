@@ -79,7 +79,8 @@ flat→subpackages (the old flat `optimization/*.py` module names are gone):
   outputs live in modules kept free of jax so they import without a GPU
   backend — `settings` (`Phase2Settings`, constructor over environment over
   defaults), `selection` (which candidates get solved), `handoff` (keep bands
-  and provenance), `phase2_diagnostics`
+  and provenance), `payloads` (JSON files for the pool, handoff and Phase-1
+  caches; nothing in the pipeline reads pickles), `phase2_diagnostics`
 
 Console entry points `rutter-phase1` / `rutter-phase2` / `rutter-emit` and the
 `scripts/run_subject_overnight.sh` driver run the pipeline. **See

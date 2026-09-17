@@ -1,6 +1,7 @@
-"""On-disk form of the Phase-1 pool and the Phase-2 handoff.
+"""On-disk form of the pipeline's stage outputs and caches.
 
-Both are JSON, gzip-compressed when the path ends in ``.gz``, and validated
+The Phase-1 pool, the Phase-2 handoff, and the atlas and seed caches Phase 1
+reuses are JSON, gzip-compressed when the path ends in ``.gz``, and validated
 against the models here on every write and read. Arrays are stored with their
 dtype and shape, and JSON holds float64 and float32 values exactly (NaN and the
 infinities as bare constants), so a read returns the arrays that were written.
@@ -15,10 +16,11 @@ Kept free of jax so it can be imported and tested without a GPU backend.
 
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -32,7 +34,9 @@ from pydantic import (
     ValidationError,
 )
 
+from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.pipeline.contracts import (
+    AtlasCachePayload,
     Phase1PoolPayload,
     Phase2HandoffPayload,
 )
@@ -218,7 +222,12 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 def _read_bytes(path: Path) -> bytes:
     data = path.read_bytes()
-    return gzip.decompress(data) if path.suffix == ".gz" else data
+    if path.suffix != ".gz":
+        return data
+    try:
+        return gzip.decompress(data)
+    except (OSError, EOFError) as e:
+        raise ValueError(f"{path}: corrupt gzip data") from e
 
 
 def _same_value(a: object, b: object) -> bool:
@@ -321,3 +330,156 @@ def read_handoff(path: str | Path) -> Phase2HandoffPayload:
             "config": model.config,
         },
     )
+
+
+_ANCHOR_FIELDS = [f.name for f in dataclasses.fields(PoseAnchor)]
+
+
+class AtlasEntryRecord(_Model):
+    probe_name: str
+    hole_id: int
+    ap_min: float | None
+    ap_max: float | None
+    # One row per anchor, one column per name in the file's ``anchor_fields``.
+    anchors: Float64Array
+
+
+class AtlasCacheFile(_Model):
+    kind: Literal["atlas_cache"]
+    schema_version: Literal[1]
+    # A change to PoseAnchor's fields makes older caches unreadable, so they
+    # are rebuilt instead of loaded into the wrong columns.
+    anchor_fields: list[str]
+    probe_names: list[str]
+    head_pitch_deg: float
+    atlas_probe_names: list[str]
+    hole_ids: list[int]
+    entries: list[AtlasEntryRecord]
+
+
+class SeedRecord(_Model):
+    n_arcs: int
+    probe_to_hole: dict[str, int]
+    partition: Partition
+    probe_to_arc_idx: dict[str, int]
+    arc_centroids_deg: list[float]
+    ml_seed: dict[str, float]
+    spin_seed: dict[str, float]
+    min_ml_gap: float
+
+
+class SeedCacheFile(_Model):
+    kind: Literal["seed_cache"]
+    schema_version: Literal[1]
+    groups: dict[int, list[SeedRecord]]
+
+
+def write_atlas_cache(path: str | Path, payload: AtlasCachePayload) -> None:
+    """Write the visibility atlas and the probe order and head pitch it assumed.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is not ``.json`` or ``.json.gz``, or an entry's key does not
+        name its own probe and hole.
+    """
+    path = check_payload_path(path)
+    entries = []
+    for key, entry in payload.atlas.entries.items():
+        if key != (entry.probe_name, entry.hole_id):
+            raise ValueError(
+                f"atlas entry keyed {key} describes {(entry.probe_name, entry.hole_id)}"
+            )
+        rows = [[getattr(a, f) for f in _ANCHOR_FIELDS] for a in entry.anchors]
+        entries.append(
+            {
+                "probe_name": entry.probe_name,
+                "hole_id": entry.hole_id,
+                "ap_min": entry.ap_min,
+                "ap_max": entry.ap_max,
+                "anchors": np.array(rows, np.float64).reshape(-1, len(_ANCHOR_FIELDS)),
+            }
+        )
+    model = AtlasCacheFile.model_validate(
+        {
+            "kind": "atlas_cache",
+            "schema_version": SCHEMA_VERSION,
+            "anchor_fields": _ANCHOR_FIELDS,
+            "probe_names": list(payload.probe_names),
+            "head_pitch_deg": payload.head_pitch_deg,
+            "atlas_probe_names": list(payload.atlas.probe_names),
+            "hole_ids": list(payload.atlas.hole_ids),
+            "entries": entries,
+        }
+    )
+    _write_bytes(path, model.model_dump_json().encode())
+
+
+def read_atlas_cache(path: str | Path) -> AtlasCachePayload:
+    """Read an atlas cache written by ``write_atlas_cache``.
+
+    Raises
+    ------
+    ValueError
+        If the file is not a valid atlas cache, including one written for a
+        different set of anchor fields; callers treat that as a cache miss.
+    """
+    path = check_payload_path(path)
+    try:
+        model = AtlasCacheFile.model_validate_json(_read_bytes(path))
+    except ValidationError as e:
+        raise ValueError(f"{path}: not a valid atlas cache") from e
+    if model.anchor_fields != _ANCHOR_FIELDS:
+        raise ValueError(
+            f"{path}: anchors stored as {model.anchor_fields}, "
+            f"expected {_ANCHOR_FIELDS}"
+        )
+    entries = {
+        (e.probe_name, e.hole_id): AtlasEntry(
+            e.probe_name,
+            e.hole_id,
+            e.ap_min,
+            e.ap_max,
+            tuple(PoseAnchor(*row) for row in e.anchors.tolist()),
+        )
+        for e in model.entries
+    }
+    atlas = Atlas(entries, tuple(model.atlas_probe_names), tuple(model.hole_ids))
+    return AtlasCachePayload(atlas, tuple(model.probe_names), model.head_pitch_deg)
+
+
+def write_seed_cache(
+    path: str | Path, groups: Mapping[int, Sequence[Mapping[str, object]]]
+) -> None:
+    """Write seeded candidates grouped by arc count, preserving their order.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is not ``.json`` or ``.json.gz``, or a record does not match
+        the seed schema.
+    """
+    path = check_payload_path(path)
+    model = SeedCacheFile.model_validate(
+        {"kind": "seed_cache", "schema_version": SCHEMA_VERSION, "groups": groups}
+    )
+    _write_bytes(path, model.model_dump_json().encode())
+
+
+def read_seed_cache(path: str | Path) -> dict[int, list[dict[str, Any]]]:
+    """Read a seed cache written by ``write_seed_cache``.
+
+    Raises
+    ------
+    ValueError
+        If the file is not a valid seed cache; callers treat that as a miss.
+    """
+    path = check_payload_path(path)
+    try:
+        model = SeedCacheFile.model_validate_json(_read_bytes(path))
+    except ValidationError as e:
+        raise ValueError(f"{path}: not a valid seed cache") from e
+    return {
+        n_arcs: [rec.model_dump() for rec in records]
+        for n_arcs, records in model.groups.items()
+    }

@@ -25,7 +25,6 @@ import os as _os
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-import pickle
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -37,6 +36,11 @@ from aind_rutter.optimization.pipeline.contracts import (
     EnumeratorCandidate,
     SeedResult,
 )
+from aind_rutter.optimization.pipeline.payloads import (
+    check_payload_path,
+    read_atlas_cache,
+    write_atlas_cache,
+)
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 
 # Subject is config-driven (generalizes across subjects). The visibility atlas
@@ -45,7 +49,9 @@ from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 # to force a path.
 CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
 HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
-ATLAS_CACHE = _os.environ.get("ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.pkl")
+ATLAS_CACHE = _os.environ.get(
+    "ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.json.gz"
+)
 
 # Arc / per-arc caps are KINEMATIC (16° angular exclusion over the AP/ML
 # range), not hardware counts — no rail limit, the rig takes >4 per arc.
@@ -60,28 +66,13 @@ GLOBAL_CAP = 1_000_000
 # --------------------------------------------------------------------------
 # Atlas (build once, cache).
 # --------------------------------------------------------------------------
-def _normalize_atlas_payload(payload: object) -> AtlasCachePayload | None:
-    """Normalize current and legacy atlas-cache pickle payloads."""
-    if isinstance(payload, AtlasCachePayload):
-        return payload
-    if isinstance(payload, tuple) and len(payload) == 3:
-        atlas, probe_names, head_pitch_deg = payload
-        return AtlasCachePayload(
-            atlas=atlas,
-            probe_names=tuple(probe_names),
-            head_pitch_deg=float(head_pitch_deg),
-        )
-    return None
-
-
 def build_or_load_atlas() -> AtlasCachePayload:
-    if Path(ATLAS_CACHE).exists():
-        with open(ATLAS_CACHE, "rb") as f:
-            payload = pickle.load(f)
-        normalized = _normalize_atlas_payload(payload)
-        if normalized is not None:
-            return normalized
-        # legacy 2-tuple cache without head pitch → rebuild below
+    cache = check_payload_path(ATLAS_CACHE)
+    if cache.exists():
+        try:
+            return read_atlas_cache(cache)
+        except ValueError as e:
+            print(f"atlas cache unusable, rebuilding: {e}", flush=True)
     from aind_rutter.optimization.enumeration.visibility_atlas import (
         build_visibility_atlas,
     )
@@ -98,9 +89,8 @@ def build_or_load_atlas() -> AtlasCachePayload:
         f"built visibility atlas in {time.time() - t0:.0f}s "
         f"({len(opt.probes)} probes, {len(opt.holes)} holes)"
     )
-    payload = AtlasCachePayload(atlas, opt.probe_names, opt.head_pitch_deg)
-    with open(ATLAS_CACHE, "wb") as f:
-        pickle.dump(payload, f)
+    payload = AtlasCachePayload(atlas, tuple(opt.probe_names), opt.head_pitch_deg)
+    write_atlas_cache(cache, payload)
     return payload
 
 

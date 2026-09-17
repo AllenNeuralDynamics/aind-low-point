@@ -461,7 +461,7 @@ Useful Phase-1 environment knobs:
      - Restrict a run to one arc-count group; the overnight wrapper uses this
        for one GPU process per group.
    * - ``SEED_CACHE``
-     - ``scratch/mrv_seeds_<config-stem>.pkl``
+     - ``scratch/mrv_seeds_<config-stem>.json.gz``
      - Subject-specific enumerate/seed cache.
    * - ``OUT``
      - ``scratch/mrv_pool_results.json.gz``

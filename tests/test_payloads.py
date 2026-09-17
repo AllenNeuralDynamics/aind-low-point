@@ -10,16 +10,22 @@ from typing import Any, cast, get_type_hints
 import numpy as np
 import pytest
 
+from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.pipeline import contracts
+from aind_rutter.optimization.pipeline.contracts import AtlasCachePayload
 from aind_rutter.optimization.pipeline.payloads import (
     HandoffFile,
     HandoffRecord,
     PoolFile,
     PoolRecord,
+    read_atlas_cache,
     read_handoff,
     read_pool,
+    read_seed_cache,
+    write_atlas_cache,
     write_handoff,
     write_pool,
+    write_seed_cache,
 )
 
 _FILE_ONLY = {"kind", "schema_version"}
@@ -297,6 +303,90 @@ def test_file_models_match_the_in_memory_contracts(
 ) -> None:
     assert _fields(model, drop) == _keys(typed_dict)
     get_type_hints(typed_dict)  # the contract itself still resolves
+
+
+def _atlas() -> AtlasCachePayload:
+    anchors = (
+        PoseAnchor(-12.0, 3.5, 90.0, 0.1, -0.2, 4.25, float("nan"), 0.0),
+        PoseAnchor(-10.0, 3.0, 270.0, 0.0, 0.0, 4.5, -0.3, 0.125),
+    )
+    entries = {
+        ("VM", 7): AtlasEntry("VM", 7, -12.0, -10.0, anchors),
+        # No target-valid pose for this pair.
+        ("MD", 3): AtlasEntry("MD", 3, None, None, ()),
+    }
+    return AtlasCachePayload(Atlas(entries, ("VM", "MD"), (3, 7)), ("VM", "MD"), 14.0)
+
+
+def test_an_atlas_cache_reads_back_equal(tmp_path: Path) -> None:
+    payload = _atlas()
+    path = tmp_path / "atlas.json.gz"
+    write_atlas_cache(path, payload)
+    back = read_atlas_cache(path)
+    assert back.probe_names == payload.probe_names
+    assert back.head_pitch_deg == payload.head_pitch_deg
+    assert list(back.atlas.entries) == list(payload.atlas.entries)
+    assert back.atlas.entries[("MD", 3)] == payload.atlas.entries[("MD", 3)]
+    got = back.atlas.entries[("VM", 7)].anchors
+    want = payload.atlas.entries[("VM", 7)].anchors
+    assert got[1] == want[1]
+    assert np.isnan(got[0].threading_max_g) and got[0].spin_deg == want[0].spin_deg
+
+
+def test_an_atlas_cache_for_other_anchor_fields_is_unreadable(tmp_path: Path) -> None:
+    import json
+
+    path = tmp_path / "atlas.json"
+    write_atlas_cache(path, _atlas())
+    doc = json.loads(path.read_text())
+    doc["anchor_fields"] = list(reversed(doc["anchor_fields"]))
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="anchors stored as"):
+        read_atlas_cache(path)
+
+
+def test_a_mis_keyed_atlas_entry_is_rejected(tmp_path: Path) -> None:
+    payload = _atlas()
+    entry = payload.atlas.entries.pop(("MD", 3))
+    payload.atlas.entries[("MD", 4)] = entry
+    with pytest.raises(ValueError, match="keyed"):
+        write_atlas_cache(tmp_path / "atlas.json", payload)
+
+
+def _seed(n_arcs: int, ml: float) -> dict[str, Any]:
+    return {
+        "n_arcs": n_arcs,
+        "probe_to_hole": {"VM": 7, "MD": 3},
+        "partition": frozenset({frozenset({"VM"}), frozenset({"MD"})}),
+        "probe_to_arc_idx": {"MD": 0, "VM": 1},
+        "arc_centroids_deg": [-20.0, 16.5],
+        "ml_seed": {"VM": ml, "MD": -ml},
+        "spin_seed": {"VM": 0.0, "MD": 180.0},
+        "min_ml_gap": 16.0,
+    }
+
+
+def test_a_seed_cache_keeps_groups_and_candidates_in_order(tmp_path: Path) -> None:
+    groups = {3: [_seed(3, 1.5), _seed(3, 2.5)], 1: [_seed(1, 0.25)]}
+    path = tmp_path / "seeds.json.gz"
+    write_seed_cache(path, groups)
+    back = read_seed_cache(path)
+    assert list(back) == [3, 1], "group order and integer keys survive JSON"
+    assert _same(groups[3], back[3]) and _same(groups[1], back[1])
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [("atlas.json.gz", b"not gzip"), ("atlas.json", b'{"kind": "atlas_cache"')],
+)
+def test_a_corrupt_cache_raises_value_error(
+    tmp_path: Path, name: str, content: bytes
+) -> None:
+    # Callers treat ValueError as a cache miss and rebuild.
+    path = tmp_path / name
+    path.write_bytes(content)
+    with pytest.raises(ValueError):
+        read_atlas_cache(path)
 
 
 def test_importing_the_module_does_not_initialise_jax() -> None:

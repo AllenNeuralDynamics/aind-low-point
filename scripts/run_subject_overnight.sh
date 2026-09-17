@@ -60,8 +60,8 @@ EMIT_N="${EMIT_N:-15}"
 # Coverage tuning is env-driven (RETRO_DENSITY / COV_*) and deliberately NOT in
 # the fingerprint, so coverage variants still share the geometry caches.
 # NOT detected: editing a probe .obj in place (config text unchanged) → FRESH=1.
-export ATLAS_CACHE="${ATLAS_CACHE:-scratch/atlas_${STEM}.pkl}"
-export SEED_CACHE="${SEED_CACHE:-scratch/mrv_seeds_${STEM}.pkl}"
+export ATLAS_CACHE="${ATLAS_CACHE:-scratch/atlas_${STEM}.json.gz}"
+export SEED_CACHE="${SEED_CACHE:-scratch/mrv_seeds_${STEM}.json.gz}"
 STAMP="scratch/geom_${STEM}.stamp"
 FRESH="${FRESH:-0}"
 geom_fingerprint() {

@@ -36,7 +36,6 @@ _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 
 import gc
 import multiprocessing as _mp
-import pickle
 import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -79,17 +78,19 @@ from aind_rutter.optimization.pipeline.enumeration import (
     Enumerator,
     build_or_load_atlas,
 )
+from aind_rutter.optimization.pipeline.payloads import (
+    check_payload_path,
+    read_pool,
+    read_seed_cache,
+    write_pool,
+    write_seed_cache,
+)
 from aind_rutter.optimization.pipeline.phase1_build import (
     ARG_ORDER,
     PER_CAND,
     build_cw_fns,
     make_batched_phase1_chunked,
     make_staged_rprop,
-)
-from aind_rutter.optimization.pipeline.payloads import (
-    check_payload_path,
-    read_pool,
-    write_pool,
 )
 from aind_rutter.optimization.pipeline.phase1_geometry import (
     build_coverage_data,
@@ -127,7 +128,7 @@ OUT = _os.environ.get("OUT", "scratch/mrv_pool_results.json.gz")
 _CFG_STEM = _os.path.splitext(
     _os.path.basename(_os.environ.get("CONFIG", "examples/836656-config-T12.yml"))
 )[0]
-SEED_CACHE = _os.environ.get("SEED_CACHE", f"scratch/mrv_seeds_{_CFG_STEM}.pkl")
+SEED_CACHE = _os.environ.get("SEED_CACHE", f"scratch/mrv_seeds_{_CFG_STEM}.json.gz")
 
 # Tuned-optimizer knobs (defaults = the THROUGHPUT preset).
 MINIMIZER = _os.environ.get(
@@ -191,6 +192,38 @@ def wrap(cand_dict: EnumeratorCandidate, enum: Enumerator) -> MRVCand | None:
         len(groups),
         cand_dict["probe_to_hole"],
         cand_dict["partition"],
+    )
+
+
+def _seed_record(c: MRVCand) -> dict[str, object]:
+    if c.ha.probe_to_hole != c.probe_to_hole:
+        raise ValueError("candidate hole assignment disagrees with probe_to_hole")
+    return {
+        "n_arcs": c.n_arcs,
+        "probe_to_hole": c.probe_to_hole,
+        "partition": c.partition,
+        "probe_to_arc_idx": c.aa.probe_to_arc_idx,
+        "arc_centroids_deg": c.aa.arc_centroids_deg,
+        "ml_seed": c.ml_seed,
+        "spin_seed": c.spin_seed,
+        "min_ml_gap": c.min_ml_gap,
+    }
+
+
+def _cand_from_record(r: dict[str, Any]) -> MRVCand:
+    # Shares one probe_to_hole dict between .ha and the candidate, as wrap does.
+    return MRVCand(
+        MRVHoleAssignment(probe_to_hole=r["probe_to_hole"]),
+        MRVArcAssignment(
+            probe_to_arc_idx=r["probe_to_arc_idx"],
+            arc_centroids_deg=r["arc_centroids_deg"],
+        ),
+        r["ml_seed"],
+        r["spin_seed"],
+        r["min_ml_gap"],
+        r["n_arcs"],
+        r["probe_to_hole"],
+        r["partition"],
     )
 
 
@@ -558,15 +591,20 @@ def load_or_seed_groups(
     """Enumerate+seed the MRV pool once, cache grouped-by-n_arcs to SEED_CACHE.
     On restart (cache present, no LIMIT) just reload — the seed CSP is ~14 min."""
     if SEED_CACHE and not LIMIT and _os.path.exists(SEED_CACHE):
-        cached_by_arcs = cast(
-            dict[int, list[MRVCand]], pickle.load(open(SEED_CACHE, "rb"))
-        )
-        print(
-            f"loaded seeds from {SEED_CACHE}: groups "
-            + ", ".join(f"{k}:{len(v)}" for k, v in sorted(cached_by_arcs.items())),
-            flush=True,
-        )
-        return cached_by_arcs
+        try:
+            cached_by_arcs = {
+                n_arcs: [_cand_from_record(r) for r in records]
+                for n_arcs, records in read_seed_cache(SEED_CACHE).items()
+            }
+        except ValueError as e:
+            print(f"seed cache unusable, re-seeding: {e}", flush=True)
+        else:
+            print(
+                f"loaded seeds from {SEED_CACHE}: groups "
+                + ", ".join(f"{k}:{len(v)}" for k, v in sorted(cached_by_arcs.items())),
+                flush=True,
+            )
+            return cached_by_arcs
 
     print(
         f"enumerating MRV pool (arcs<={MAX_ARCS}, probes/arc<={MAX_PPA})...", flush=True
@@ -613,14 +651,18 @@ def load_or_seed_groups(
         by_arcs.setdefault(c.n_arcs, []).append(c)
     print("  groups " + ", ".join(f"{k}:{len(v)}" for k, v in sorted(by_arcs.items())))
     if SEED_CACHE and not LIMIT:
-        with open(SEED_CACHE, "wb") as f:
-            pickle.dump(by_arcs, f)
+        write_seed_cache(
+            SEED_CACHE,
+            {n_arcs: [_seed_record(c) for c in g] for n_arcs, g in by_arcs.items()},
+        )
         print(f"  cached seeds → {SEED_CACHE}", flush=True)
     return by_arcs
 
 
 def main() -> int:
     check_payload_path(OUT)
+    if SEED_CACHE:
+        check_payload_path(SEED_CACHE)
     opt = setup_runtime()
     _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, fixture_bvhs = setup(
         opt

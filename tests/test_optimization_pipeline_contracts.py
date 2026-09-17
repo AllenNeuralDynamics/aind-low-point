@@ -3,29 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from aind_rutter.optimization.enumeration.atlas import Atlas
-from aind_rutter.optimization.pipeline.contracts import AtlasCachePayload
-from aind_rutter.optimization.pipeline.enumeration import _normalize_atlas_payload
-
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_legacy_atlas_tuple_normalizes_to_payload() -> None:
-    atlas = Atlas(entries={}, probe_names=("probe-a",), hole_ids=(1,))
-
-    payload = _normalize_atlas_payload((atlas, ["probe-a"], 12.5))
-
-    assert payload == AtlasCachePayload(
-        atlas=atlas,
-        probe_names=("probe-a",),
-        head_pitch_deg=12.5,
-    )
-
-
-def test_legacy_two_tuple_atlas_payload_is_rejected() -> None:
-    atlas = Atlas(entries={}, probe_names=("probe-a",), hole_ids=(1,))
-
-    assert _normalize_atlas_payload((atlas, ["probe-a"])) is None
 
 
 def test_build_or_load_atlas_is_not_splatted_into_enumerator() -> None:
