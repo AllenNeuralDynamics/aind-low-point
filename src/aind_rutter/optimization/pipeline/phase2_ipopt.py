@@ -76,6 +76,7 @@ _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 import itertools  # noqa: E402
 import pickle  # noqa: E402
 import time  # noqa: E402
+from collections.abc import Callable  # noqa: E402
 from multiprocessing import get_context  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, cast  # noqa: E402
@@ -90,6 +91,10 @@ from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
     Phase2InputRecord,
     Phase2ResultRecord,
     ProbeToHole,
+)
+from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
+    classify_results,
+    handoff_config,
 )
 from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
     select_records,
@@ -655,16 +660,20 @@ def _require_gpu_headroom(n_workers: int) -> None:
     )
 
 
-def main() -> int:
-    settings = Phase2Settings()
-    rer = cast(Phase1PoolPayload, pickle.load(open(POSES_PKL, "rb")))
-    all_recs = rer["records"]
-    recs = select_records(all_recs, settings)
-    print(
-        f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {WORKERS} workers"
-        f" x {_THREADS} thr, maxiter={P2_ITER}, lam={LAM_CLEAR} tau={TAU_CLEAR}"
-        f", diag={P2_DIAG}, perturb={P2_PERTURB}"
-    )
+def solve_candidates(
+    recs: list[Phase2InputRecord],
+    settings: Phase2Settings,
+    *,
+    on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> list[Phase2ResultRecord]:
+    """Solve every candidate, returning the results in rank order.
+
+    ``on_result`` sees each result as it completes, which is not rank order, and
+    ``log`` receives coarse progress. Both default to silent: an imported caller
+    gets results rather than stdout.
+    """
+    note = log or (lambda _msg: None)
     # Pay the one-time compile ONCE. Threads share the PARENT's context, so warm
     # there. Spawned workers each have their own context and can't see the
     # parent's in-memory cache — so for a PROCESS pool we warm inside ONE worker,
@@ -674,144 +683,91 @@ def main() -> int:
     nstr = sorted({r["n_arcs"] for r in recs})
     if POOL == "thread":
         tw = time.time()
-        print(f"warming (in-parent, single-threaded) for n_arcs {nstr}...", flush=True)
+        note(f"warming (in-parent, single-threaded) for n_arcs {nstr}...")
         # Threads share the parent's state, so the parent holds the settings the
         # worker tasks read back from _G.
         _init(settings)
         _warmup(recs)
-        print(f"  warmup {time.time() - tw:.0f}s", flush=True)
+        note(f"  warmup {time.time() - tw:.0f}s")
         t0 = time.time()
         # One GPU context shared across threads (no per-worker memory).
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         results: list[Phase2ResultRecord] = []
-        with ThreadPoolExecutor(WORKERS) as ex:
+        with ThreadPoolExecutor(settings.workers) as ex:
             futs = [ex.submit(_phase2_one, r) for r in recs]
             for k, fut in enumerate(as_completed(futs), 1):
                 r = fut.result()
                 results.append(r)
-                _log_cand(k, len(recs), r)
+                if on_result is not None:
+                    on_result(k, len(recs), r)
         wall = time.time() - t0  # processing only (excludes warmup)
     else:
-        _require_gpu_headroom(WORKERS)
+        _require_gpu_headroom(settings.workers)
         ctx = get_context("spawn")
-        with ctx.Pool(WORKERS, initializer=_init, initargs=(settings,)) as pool:
-            if WARMUP:
+        with ctx.Pool(
+            settings.workers, initializer=_init, initargs=(settings,)
+        ) as pool:
+            if settings.warmup:
                 tw = time.time()
-                print(
+                note(
                     f"warming (one worker → disk cache; parent stays GPU-free) "
-                    f"for n_arcs {nstr}...",
-                    flush=True,
+                    f"for n_arcs {nstr}..."
                 )
                 pool.apply(_warmup, (recs,))
-                print(f"  warmup {time.time() - tw:.0f}s", flush=True)
+                note(f"  warmup {time.time() - tw:.0f}s")
             t0 = time.time()
             results = []
             for k, r in enumerate(pool.imap_unordered(_phase2_one, recs), 1):
                 results.append(r)
-                _log_cand(k, len(recs), r)
+                if on_result is not None:
+                    on_result(k, len(recs), r)
             wall = time.time() - t0  # processing only (excludes warmup)
-    # Logging above streams in completion order; restore rank order so all
-    # downstream selection/summary is identical to the old blocking-map path.
+    # Results arrive in completion order; restore rank order so all downstream
+    # selection and reporting is independent of how the pool interleaved.
     results.sort(key=lambda r: r.get("rank", 0))
+    n = max(len(results), 1)
     compute = float(sum(r["secs"] for r in results))
-    print(
+    note(
         f"  {wall / 60:.2f} min wall; {compute:.0f}s total compute; "
         f"{compute / max(wall, 1e-9):.1f}x effective parallelism "
-        f"({compute / len(results):.0f}s/cand); "
-        f"throughput {len(results) / wall:.2f} cand/s"
+        f"({compute / n:.0f}s/cand); "
+        f"throughput {len(results) / max(wall, 1e-9):.2f} cand/s"
     )
-    print(
+    note(
         f"  per-cand secs (1st incl compile if WARMUP off): "
         f"{[round(r['secs']) for r in results]}"
     )
+    return results
 
-    # The FCL gate now includes the implant, so a plan whose shank pierces the
-    # implant solid (mis-threaded, g >> 0) gets fcl < 0 and is dropped here —
-    # no separate threading gate needed. ``max_g_thread`` is logged for insight
-    # into how close the kept plans sit to their bore walls.
-    # Two independent feasibility axes, both REPORTED not hard-gated upstream:
-    #   FCL (probe/fixture/implant collisions, mm) and threading g (bore fit).
-    # STRICT = truly feasible on both; the KEEP band admits mildly-infeasible
-    # plans a human can still salvage (FCL>=-FCL_TOL AND g<=G_TOL). Dropped plans
-    # remain in ``all`` (with pose_in + pose) for morning inspection.
-    for r in results:
-        g = r.get("max_g_thread", float("nan"))
-        r["fcl_strict"] = bool(r["fcl"] >= -1e-4)
-        r["thread_strict"] = bool(np.isfinite(g) and g <= 0.0)
-        r["strict_feasible"] = bool(r["fcl_strict"] and r["thread_strict"])
-        r["fcl_keep"] = bool(r["fcl"] >= -FCL_TOL)
-        r["thread_keep"] = bool(np.isfinite(g) and g <= G_TOL)
-        r["kept"] = bool(r["fcl_keep"] and r["thread_keep"])
-    feas = [r for r in results if r["kept"]]
-    print(
-        f"  KEEP band FCL>=-{FCL_TOL} AND g<=+{G_TOL}: {len(feas)}/{len(results)}  "
-        f"(STRICT FCL>=-1e-4 AND g<=0: "
-        f"{sum(1 for r in results if r['strict_feasible'])})"
+
+def run(
+    recs: list[Phase2InputRecord],
+    settings: Phase2Settings,
+    *,
+    on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> Phase2HandoffPayload:
+    """Solve, classify and rank a selection of candidates.
+
+    The returned payload is what ``pipeline.emit`` consumes; writing it to disk
+    is the caller's business. Each record carries pose, probe_to_hole,
+    probe_to_arc_idx, arc_centroids_deg and n_arcs — enough to rebuild the plan
+    and emit a config per candidate.
+    """
+    note = log or (lambda _msg: None)
+    note(
+        f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
+        f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
+        f" lam={settings.lam_clear} tau={settings.tau_clear},"
+        f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
     )
-    g_kept = [r.get("max_g_thread", float("nan")) for r in feas]
-    if g_kept:
-        import numpy as _np
-
-        print(
-            f"  kept-plan threading g: max={_np.nanmax(g_kept):+.3f} "
-            f"median={_np.nanmedian(g_kept):+.3f} (g<=0 ⇒ shank inside inset bore)"
-        )
-
-    # Stratification view: feasibility + post-Phase-2 coverage vs rerank rank,
-    # so we can see where in the distribution good feasibles stop appearing.
-    by_rank = sorted(results, key=lambda r: r["rank"])
-    print("\n=== per-candidate (rank-ordered) ===")
-    print(
-        f"{'rank':>5} {'cand':>6} {'fcl':>8} {'max_g':>7} "
-        f"{'keep':>4} {'strict':>6} {'coverage':>9}"
-    )
-    for r in by_rank:
-        print(
-            f"{r['rank']:>5} {r['idx']:>6} {r['fcl']:>+8.4f} "
-            f"{r.get('max_g_thread', float('nan')):>+7.3f} "
-            f"{'Y' if r['kept'] else 'n':>4} "
-            f"{'Y' if r['strict_feasible'] else 'n':>6} {r['coverage']:>9.3f}"
-        )
-    ranked = _mmr_rank(feas, MMR_LAMBDA)
-
-    print(f"\n=== handoff ranking (MMR lam={MMR_LAMBDA}, coverage + diversity) ===")
-    print(f"{'#':>3} {'cand':>6} {'coverage':>9} {'fcl':>8} {'maxsim_prev':>11}")
-    for i, r in enumerate(ranked):
-        sim = max(_similarity(r["hole"], p["hole"]) for p in ranked[:i]) if i else 0.0
-        print(
-            f"{i + 1:>3} {r['idx']:>6} {r['coverage']:>9.3f} {r['fcl']:>+8.4f} "
-            f"{sim:>11.2f}"
-        )
-
-    out = Path(OUT_PKL)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    results = solve_candidates(recs, settings, on_result=on_result, log=log)
+    feasible = classify_results(results, settings)
     payload: Phase2HandoffPayload = dict(
-        ranked=ranked,
+        ranked=_mmr_rank(feasible, settings.mmr_lambda),
         all=results,
-        config=dict(
-            subject_config=CONFIG,
-            topk=TOPK,
-            select_by=SELECT_BY,
-            minclear=MINCLEAR,
-            lam_clear=LAM_CLEAR,
-            tau_clear=TAU_CLEAR,
-            p2_iter=P2_ITER,
-            ip_tol=IP_TOL,
-            acc_tol=IP_ACC_TOL,
-            fcl_tol=FCL_TOL,
-            g_tol=G_TOL,
-            mmr_lambda=MMR_LAMBDA,
-            well=WELL,
-            solver=SOLVER,
-            drop_dead_rows=DROP_DEAD_ROWS,
-            obb_gain=OBB_GAIN,
-            smooth_reward=SMOOTH_REWARD,
-            diag=P2_DIAG,
-            perturb_scale=P2_PERTURB,
-            perturb_seed=P2_PERTURB_SEED,
-            ranks_file=_os.environ.get("RANKS_FILE", ""),
-        ),
+        config=handoff_config(settings),
     )
     if settings.p2_diag:
         from aind_rutter.optimization.objectives.phase2 import SLACK_GROUPS
@@ -824,12 +780,73 @@ def main() -> int:
             slack_labels=next((x for x in labels if x), None),
             fcl_pair_names=next((x for x in names if x), None),
         )
+    return payload
+
+
+def _print_report(payload: Phase2HandoffPayload, settings: Phase2Settings) -> None:
+    """Print the keep-band summary and the two per-candidate tables."""
+    results = payload["all"]
+    ranked = payload["ranked"]
+    feasible = [r for r in results if r["kept"]]
+    print(
+        f"  KEEP band FCL>=-{settings.fcl_tol} AND g<=+{settings.g_tol}: "
+        f"{len(feasible)}/{len(results)}  (STRICT FCL>=-1e-4 AND g<=0: "
+        f"{sum(1 for r in results if r['strict_feasible'])})"
+    )
+    g_kept = [r.get("max_g_thread", float("nan")) for r in feasible]
+    if g_kept:
+        print(
+            f"  kept-plan threading g: max={np.nanmax(g_kept):+.3f} "
+            f"median={np.nanmedian(g_kept):+.3f} (g<=0 ⇒ shank inside inset bore)"
+        )
+
+    # Stratification view: feasibility + post-Phase-2 coverage vs rerank rank,
+    # so we can see where in the distribution good feasibles stop appearing.
+    print("\n=== per-candidate (rank-ordered) ===")
+    print(
+        f"{'rank':>5} {'cand':>6} {'fcl':>8} {'max_g':>7} "
+        f"{'keep':>4} {'strict':>6} {'coverage':>9}"
+    )
+    for r in sorted(results, key=lambda r: r["rank"]):
+        print(
+            f"{r['rank']:>5} {r['idx']:>6} {r['fcl']:>+8.4f} "
+            f"{r.get('max_g_thread', float('nan')):>+7.3f} "
+            f"{'Y' if r['kept'] else 'n':>4} "
+            f"{'Y' if r['strict_feasible'] else 'n':>6} {r['coverage']:>9.3f}"
+        )
+
+    print(
+        f"\n=== handoff ranking (MMR lam={settings.mmr_lambda}, "
+        f"coverage + diversity) ==="
+    )
+    print(f"{'#':>3} {'cand':>6} {'coverage':>9} {'fcl':>8} {'maxsim_prev':>11}")
+    for i, r in enumerate(ranked):
+        sim = max(_similarity(r["hole"], p["hole"]) for p in ranked[:i]) if i else 0.0
+        print(
+            f"{i + 1:>3} {r['idx']:>6} {r['coverage']:>9.3f} {r['fcl']:>+8.4f} "
+            f"{sim:>11.2f}"
+        )
+
+
+def _flush_print(msg: str) -> None:
+    """Progress sink for ``run``; flushed so a piped log stays live."""
+    print(msg, flush=True)
+
+
+def main() -> int:
+    settings = Phase2Settings()
+    rer = cast(Phase1PoolPayload, pickle.load(open(settings.poses_pkl, "rb")))
+    recs = select_records(rer["records"], settings)
+    payload = run(recs, settings, on_result=_log_cand, log=_flush_print)
+    _print_report(payload, settings)
+    out = Path(settings.out_pkl)
+    out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "wb") as f:
         pickle.dump(payload, f)
-    # Each ranked/all record carries pose + probe_to_hole + probe_to_arc_idx +
-    # arc_centroids_deg + n_arcs — everything needed to rebuild the plan and emit
-    # a trame config per feasible candidate.
-    print(f"\nsaved → {out}  ({len(ranked)} feasible ranked, {len(results)} total)")
+    print(
+        f"\nsaved → {out}  ({len(payload['ranked'])} feasible ranked, "
+        f"{len(payload['all'])} total)"
+    )
     return 0
 
 

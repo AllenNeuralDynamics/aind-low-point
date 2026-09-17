@@ -74,7 +74,12 @@ flat→subpackages (the old flat `optimization/*.py` module names are gone):
   `envelope`, `clearance_sweep`
 - `pipeline/` — the offline batch flow: Phase-1 `phase1_pool`, Phase-2
   `phase2_ipopt`, `emit`, plus `enumeration`/`phase1_build`/`phase1_geometry`/
-  `restore`/`thick_well`/`probe_setup`/`runtime_adapter`/`contracts`
+  `restore`/`thick_well`/`probe_setup`/`runtime_adapter`/`contracts`.
+  Phase 2 is callable as `phase2_ipopt.run(recs, settings)`; its inputs and
+  outputs live in modules kept free of jax so they import without a GPU
+  backend — `settings` (`Phase2Settings`, constructor over environment over
+  defaults), `selection` (which candidates get solved), `handoff` (keep bands
+  and provenance), `phase2_diagnostics`
 
 Console entry points `rutter-phase1` / `rutter-phase2` / `rutter-emit` and the
 `scripts/run_subject_overnight.sh` driver run the pipeline. **See
