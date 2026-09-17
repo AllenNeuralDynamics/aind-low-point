@@ -10,14 +10,10 @@ post-Phase-2 coverage, penalizing similarity (shared probe->hole fraction) to
 already-picked plans, so the ranked handoff is high-coverage AND diverse.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
-Env:  TOPK (default 80), WORKERS (default 16), P2_ITER (200), MINCLEAR (0.2),
-      LAM_CLEAR (0), TAU_CLEAR (0.8), FCL_TOL (0.2), MMR_LAMBDA (0.5),
-      IP_HIST (60), IP_TOL (1e-4), IP_ACC_TOL (5), IP_ACC_ITER (8),
-      IP_CVTOL (1e-4) for IPOPT
-      RANKS / RANKS_FILE (explicit zero-based offsets into the SELECT_BY order),
-      P2_DIAG (1 = record per-iteration IPOPT history, slack groups and colliding
-      pairs at start and end), P2_PERTURB (start-pose jitter scale, 0 = off) and
-      P2_PERTURB_SEED — see pipeline.phase2_diagnostics
+      or call ``run(recs, settings)`` from Python.
+Env:  every ``pipeline.settings.Phase2Settings`` field, under its alias. POOL,
+      PLATFORM, THREADS and GPU_MEM_FRACTION are read below at import instead,
+      because they must be set before jax loads.
 """
 
 from __future__ import annotations
@@ -101,106 +97,6 @@ from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
 )
 from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
 
-TOPK = int(_os.environ.get("TOPK", "80"))
-# Default 8: the GPU-thread-shared sweet spot from the bandwidth bake-off (W=8 ≈
-# 0.067 cand/s on the shared HBM; the knee is past 4 threads). POOL=thread means
-# all 8 share one GPU context.
-WORKERS = int(_os.environ.get("WORKERS", "4"))
-P2_ITER = int(_os.environ.get("P2_ITER", "200"))
-MINCLEAR = float(_os.environ.get("MINCLEAR", "0.2"))
-# The clearance reward is redundant with the min_clearance constraint and is built
-# from a hard minimum over sampled surface points, so its gradient is one sample's
-# and flips as the closest sample changes. That argmin over near-tied values is
-# what makes solves irreproducible, so the reward is off and poses are bitwise
-# repeatable across runs. See dev/PHASE2_CONDITIONING.md.
-LAM_CLEAR = float(_os.environ.get("LAM_CLEAR", "0"))
-# Convergence knobs. OBB_GAIN scales the OBB-based slack categories (default
-# keeps them 100x the mm-native voxel-SDF ones); SMOOTH_REWARD shapes the
-# clearance reward with soft minima instead of hard ones.
-OBB_GAIN = float(_os.environ.get("OBB_GAIN", "100"))
-# Hand the solver only the constraint rows with a gradient: padding keeps the
-# compiled shapes uniform but leaves ~58% of rows constant.
-DROP_DEAD_ROWS = _os.environ.get("DROP_DEAD_ROWS", "0") == "1"
-SMOOTH_REWARD = _os.environ.get("SMOOTH_REWARD", "0") == "1"
-TAU_CLEAR = float(_os.environ.get("TAU_CLEAR", "0.8"))
-FCL_TOL = float(_os.environ.get("FCL_TOL", "0.2"))
-# Threading keep band (g-units): a candidate stays in the handoff if its worst
-# threading g <= G_TOL (mildly-infeasible-but-human-fixable), independent of FCL.
-# A separate STRICT flag (g <= 0) marks truly threaded plans. Threading never
-# hard-gates before this final report.
-G_TOL = float(_os.environ.get("G_TOL", "0.2"))
-MMR_LAMBDA = float(_os.environ.get("MMR_LAMBDA", "0.5"))
-# Second-order mode for trust-constr: "none" (BFGS approx, default/fast),
-# "dense" (exact n×n Hessian — ~44x slower), or "hessp" (exact Hessian-VECTOR
-# products via JAX — ~2x a gradient, the affordable exact second-order).
-HESS = _os.environ.get("HESS", "none").lower()
-# Solver: "ipopt" (cyipopt interior-point, default) or "trust-constr" (scipy).
-# IPOPT's restoration phase reaches feasibility from infeasible starts far
-# better than trust-constr — on the tuned-545 stalled set it rescues 9/11 vs
-# trust-constr-BFGS 0/11. We run it LIMITED-MEMORY (L-BFGS): no second-order, so
-# (a) it evaluates only the first-order obj/grad/constraint/Jacobian on the GPU
-# — the same surface trust-constr-BFGS uses, NO exposure to the `_slacks_hessp`
-# GPU autotuner crash — and (b) it BEATS exact-Hessian IPOPT here (more rescues,
-# doesn't drive feasible cands into collision, 2-5x faster) because this NLP is
-# nonconvex and the exact Lagrangian Hessian is indefinite away from the optimum.
-SOLVER = _os.environ.get("SOLVER", "ipopt").lower()
-# IPOPT knobs (only consulted when SOLVER=ipopt). max_iter reuses P2_ITER.
-# limited_memory_max_history. Above the variable count, so the L-BFGS model can
-# represent a full Hessian and the limited memory stops restricting it; raising it
-# further buys nothing.
-IP_HIST = int(_os.environ.get("IP_HIST", "60"))
-IP_MU = _os.environ.get("IP_MU", "adaptive")  # mu_strategy
-# Feasibility tolerances are on the UNSCALED (gain-carrying) constraint: the
-# body/voxel rows are mm-native (gain 1) but the OBB rows carry gain 100 (0.01mm
-# units), so a threshold X bounds the mm rows at X mm. 1e-4 mm is inside the FCL
-# −1e-4 gate; the default acceptable_constr_viol_tol of 1e-2 (=0.01mm slack on
-# the mm rows) is a footgun → tightened to match.
-IP_CVTOL = float(_os.environ.get("IP_CVTOL", "1e-4"))  # constr_viol_tol (mm)
-IP_ACC_ITER = int(_os.environ.get("IP_ACC_ITER", "8"))  # 0 disables early stop
-# acceptable_tol bounds the OVERALL NLP error, which for this problem is the dual
-# infeasibility. Solves reach feasibility within tens of iterations and then stall
-# far above IPOPT's own 1e-6 default, putting that exit out of reach so every solve
-# runs to the iteration cap or into restoration. Loosening it past the stall
-# retires the stationarity test and rests on the FCL gate, which is what decides a
-# plan anyway. See dev/PHASE2_CONDITIONING.md.
-IP_ACC_TOL = float(_os.environ.get("IP_ACC_TOL", "5"))
-# tol thresholds the same overall NLP error, which is built from float32
-# derivatives whose epsilon is ~1.2e-7 over collision grids stored in bfloat16.
-# IPOPT's own 1e-6 default asks for about one digit more precision than those
-# gradients carry, so the threshold sits at their noise floor; this keeps it
-# above. See dev/PHASE2_CONDITIONING.md.
-IP_TOL = float(_os.environ.get("IP_TOL", "1e-4"))
-# Subject is config-driven (generalizes across subjects): CONFIG selects the
-# YAML, HOLES the implant-bore file (placed by the config's implant_to_lps).
-CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
-HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
-# Phase-1 pool (rutter-phase1 output): records carry probe_to_hole, partition,
-# probe_to_arc_idx, arc_centroids_deg, x (Phase-1 pose), min_clear. Phase 2
-# rebuilds `st` from the saved arc assignment — NO full_polish_0283 dependency.
-POSES_PKL = _os.environ.get("POSES", "scratch/mrv_pool_results.pkl")
-# Selection metric for the top-TOPK handed to Phase 2. Default min_clear (soft
-# clearance) — there is NO FCL cull between Phase 1 and 2; FCL runs once at the
-# end as the ground-truth gate.
-SELECT_BY = _os.environ.get("SELECT_BY", "min_clear")
-OUT_PKL = _os.environ.get("OUT", "scratch/phase2_handoff.pkl")
-WELL = _os.environ.get("WELL", "thick").lower()  # thin | thick (thick = tuned)
-WARMUP = _os.environ.get("WARMUP", "1") == "1"
-# Success-estimator diagnostics (dev/PIPELINE_PLAN.md); off by default so production
-# handoffs are unchanged.
-P2_DIAG = _os.environ.get("P2_DIAG", "0") == "1"
-P2_PERTURB = float(_os.environ.get("P2_PERTURB", "0"))
-P2_PERTURB_SEED = int(_os.environ.get("P2_PERTURB_SEED", "0"))
-# Coverage normalization (mirror of the Phase-1 driver): divide each probe's
-# coverage by its achievable ceiling, blend average vs worst region by COV_ALPHA
-# in [0,1], and apply the target spec's per-target priority weights. COV_WEIGHT
-# is the overall coverage-vs-clearance gain (coverage is a [0,1] scalar). Must
-# match the Phase-1 settings for the objective to be consistent across stages.
-COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
-COV_ALPHA = float(_os.environ.get("COV_ALPHA", "0.2"))
-COV_WEIGHT = float(_os.environ.get("COV_WEIGHT", "1.0"))
-# POOL is read at the top (before the platform block) so the GPU memory fraction
-# can depend on it.
-
 _G: dict = {}
 
 
@@ -282,9 +178,9 @@ def _st_for_rec(rec: Phase2InputRecord):
 
 def _cov_norm_kwargs(st) -> dict[str, object]:
     """make_phase2 kwargs for coverage normalization (ceilings + per-target
-    weights), or empty when COV_NORM is off. Ceilings/weights are per-probe-fixed
-    so compute once per worker and cache in ``_G``."""
-    if not COV_NORM:
+    weights), or empty when it is off. Ceilings/weights are per-probe-fixed so
+    compute once per worker and cache in ``_G``."""
+    if not _G["settings"].cov_norm:
         return {}
     if _G.get("cov_norm") is None:
         from aind_rutter.optimization.objectives.coverage import (
@@ -555,6 +451,7 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
         make_phase2,
     )
 
+    s = _G["settings"]
     done = set()
     for r in recs:
         na = r["n_arcs"]
@@ -570,16 +467,16 @@ def _warmup(recs: list[Phase2InputRecord]) -> None:
             coverage_data=_G["cov_data"],
             fixtures=tuple(_G["fx"]),
             weights=Phase2Weights(
-                min_clearance_mm=MINCLEAR,
-                lambda_margin_clear=LAM_CLEAR,
-                tau_clear_mm=TAU_CLEAR,
-                lambda_cov=COV_WEIGHT,
-                cov_alpha=COV_ALPHA if COV_NORM else 0.0,
-                obb_slack_gain=OBB_GAIN,
-                smooth_clearance_reward=SMOOTH_REWARD,
+                min_clearance_mm=s.minclear,
+                lambda_margin_clear=s.lam_clear,
+                tau_clear_mm=s.tau_clear,
+                lambda_cov=s.cov_weight,
+                cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
+                obb_slack_gain=s.obb_gain,
+                smooth_clearance_reward=s.smooth_reward,
             ),
             brain_sdf=_G.get("brain_sdf"),
-            drop_padded_rows=DROP_DEAD_ROWS,
+            drop_padded_rows=s.drop_dead_rows,
             **cast(Any, _cov_norm_kwargs(st)),
         )
         x = np.asarray(r["pose"], float)

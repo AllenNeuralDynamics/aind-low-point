@@ -62,6 +62,10 @@ class PipelineSettings(BaseSettings):
         validation_alias=_env("WELL"),
         description="Well SDF mode; thick solidifies the thin-skin envelope.",
     )
+    # Coverage normalization divides each probe's coverage by its achievable
+    # ceiling and blends the average and worst region by cov_alpha; cov_weight is
+    # the coverage-vs-clearance gain. Both phases must agree for the objective to
+    # mean the same thing across stages.
     cov_norm: bool = Field(False, validation_alias=_env("COV_NORM"))
     cov_alpha: float = Field(0.2, validation_alias=_env("COV_ALPHA"))
     cov_weight: float = Field(1.0, validation_alias=_env("COV_WEIGHT"))
@@ -101,31 +105,61 @@ class Phase2Settings(PipelineSettings):
 
     # Objective weights.
     minclear: float = Field(0.2, validation_alias=_env("MINCLEAR"))
+    # The clearance reward duplicates the min_clearance constraint and takes its
+    # gradient from the single closest surface sample, which flips between
+    # near-tied samples and makes solves irreproducible. Off, poses repeat
+    # bitwise across runs.
     lam_clear: float = Field(0.0, validation_alias=_env("LAM_CLEAR"))
     tau_clear: float = Field(0.8, validation_alias=_env("TAU_CLEAR"))
+    # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
+    # ones.
     obb_gain: float = Field(100.0, validation_alias=_env("OBB_GAIN"))
+    # Soft minima instead of hard ones in the clearance reward.
     smooth_reward: bool = Field(False, validation_alias=_env("SMOOTH_REWARD"))
+    # Hand the solver only rows with a gradient; padding keeps compiled shapes
+    # uniform but leaves most rows constant.
     drop_dead_rows: bool = Field(False, validation_alias=_env("DROP_DEAD_ROWS"))
 
     # Solver.
+    # IPOPT's restoration phase reaches feasibility from infeasible starts where
+    # trust-constr stalls. It runs limited-memory, so only first-order
+    # evaluations reach the GPU; the exact Lagrangian Hessian of this nonconvex
+    # problem is indefinite away from the optimum and helps less than it costs.
     solver: Literal["ipopt", "trust-constr"] = Field(
         "ipopt", validation_alias=_env("SOLVER")
     )
+    # trust-constr only: none (BFGS), dense (exact n×n Hessian, slow) or hessp
+    # (exact Hessian-vector products at about the cost of a gradient).
     hess: Literal["none", "dense", "hessp"] = Field(
         "none", validation_alias=_env("HESS")
     )
     p2_iter: int = Field(200, validation_alias=_env("P2_ITER"))
+    # Above the variable count, so the L-BFGS model can represent a full Hessian
+    # and a longer history buys nothing.
     ip_hist: int = Field(60, validation_alias=_env("IP_HIST"))
     ip_mu: Literal["adaptive", "monotone"] = Field(
         "adaptive", validation_alias=_env("IP_MU")
     )
+    # tol thresholds the overall NLP error, which is built from float32
+    # derivatives over bfloat16 collision grids; IPOPT's 1e-6 default asks for
+    # more precision than those gradients carry.
     ip_tol: float = Field(1e-4, validation_alias=_env("IP_TOL"))
+    # Measured on the gain-carrying constraint, so it bounds the mm-native rows in
+    # mm, inside the FCL gate's -1e-4. It also sets acceptable_constr_viol_tol,
+    # whose IPOPT default of 1e-2 would accept 0.01 mm of overlap.
     ip_cvtol: float = Field(1e-4, validation_alias=_env("IP_CVTOL"))
+    # acceptable_tol bounds the same overall error, which here is the dual
+    # infeasibility. Feasible solves stall far above tol, so without this every
+    # solve ends at the iteration cap or in restoration; the FCL gate decides the
+    # plan either way.
     ip_acc_tol: float = Field(5.0, validation_alias=_env("IP_ACC_TOL"))
+    # Consecutive acceptable iterations before stopping; 0 disables the early exit.
     ip_acc_iter: int = Field(8, validation_alias=_env("IP_ACC_ITER"))
 
     # Keep bands and ranking.
     fcl_tol: float = Field(0.2, validation_alias=_env("FCL_TOL"))
+    # Threading keep band in g-units, judged independently of FCL; the separate
+    # strict flag marks g <= 0.
     g_tol: float = Field(0.2, validation_alias=_env("G_TOL"))
     mmr_lambda: float = Field(0.5, validation_alias=_env("MMR_LAMBDA"))
 
