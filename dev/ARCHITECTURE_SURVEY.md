@@ -23,8 +23,8 @@ runtime-build, trame-app and Phase-2 smoke tests, `tests/architecture/` with its
 shrinking baselines, a synthetic subject at `tests/synthetic_subject.py`, and the
 parity harness at `scripts/parity_phase2.py`. The suite went from 499 to 557
 tests. Two findings under "Tests and documentation" are fixed by that work and
-are marked where they appear. Everything else stands as written, and step 2 waits
-on the decisions at the end.
+are marked where they appear. Everything else stands as written. The six
+decisions that gate step 2 are answered at the end; the rest are still open.
 
 ## The package today
 
@@ -83,7 +83,7 @@ before the code around it moves.
 | D10 | Phase 1 and Phase 2 parse shared settings differently | `phase1_pool.py:144` tests `COV_NORM == "1"`, while `Phase2Settings` parses booleans. Phase 1 reads `CONFIG`; `Phase2Settings` prefers `RUTTER_CONFIG`. | `COV_NORM=true` normalizes Phase 2 only; an exported `RUTTER_CONFIG` sends the phases to different subjects | verified |
 | D11 | The optimizer ignores a configured probe pivot | Nothing under `optimization/` reads `pivot_LPS`; the app honors it (`planning.py:405`) | Latent: every current config leaves it null | verified |
 | D12 | The thread-pool Phase 2 ignores `settings.warmup` | `solve_candidates` warms unconditionally on the thread branch | `WARMUP=0` has no effect in the default pool mode | verified |
-| D13 | CI tests below the supported Python floor | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required | Three conflicting statements of the floor | verified |
+| D13 | CI has not run a test since at least June 2026 | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required. Every leg of run 33395088563 failed during setup: 3.9 on uv refusing an interpreter below `requires-python`, 3.13 on a stale `uv.lock` under `--locked`. | Three conflicting statements of the floor, and no leg of the matrix reaches pytest | verified (run log) |
 | R1 | The app's FCL manager is shared across threads without a lock | The worker thread mutates the manager (`collisions.py:287-301`) while the kind-change path uses it on the main thread. `FCLBackend.sync` omits group and mask (`fcl_backend.py:63-79`). | Possible race and mis-filtered new nodes | reported |
 | R2 | The AP/ML readout skips angle clamping | `trame_controller.py:2106-2122` copies `planning.py:291-307` without `clamp_angles` | Sliders can show unclamped values | reported |
 | R3 | Default opacities bypass the material override path | `trame_controller.py:2053-2063` sets actor opacity directly; any repaint restores the config value | Opacity resets on collision flips | reported |
@@ -444,6 +444,77 @@ previous commit.
 5. For `.npy` sources (D7): register a `numpy_points` loader, or map the extension
    to an existing one?
 6. What is the supported Python floor (D13)?
+
+#### Answers
+
+Recorded 2026-09-17, with the evidence each rests on. Step 2 proceeds on these.
+
+1. **Split the difference: the soft objectives keep it, the FCL gate loses it.**
+   Phase 1 screens hundreds of thousands of candidates and every extra fixture SDF
+   costs compile and per-step time, so a soft objective over the well alone
+   (`phase1_pool.py:275,346`) is a defensible speed/fidelity trade — the well
+   lumen is what a probe enters through, and `_crop_fixture_to_box` already crops
+   the cone to the well's box. That stays, with the fixture set becoming an
+   explicit setting rather than a hard-coded one-tuple.
+
+   Phase 1's FCL check excluding the implant does not survive the same argument.
+   It is the same validator Phase 2 runs, under the same field name `fcl`, and a
+   reader compares the two columns. Phase 1 passes `opt.fixture_sdfs()`
+   (`phase1_pool.py:750`), which drops implant-tagged nodes; Phase 2 passes
+   `fcl_fixture_set(..., include_implant=True)` (`phase2_ipopt.py:145`). Phase 1
+   gains the implant. The change is safe to land: nothing culls on Phase-1 `fcl`
+   — `rank_order` sorts on `min_clear` or `objective` — so only a reported number
+   moves, and the pool's poses stay bitwise identical.
+
+2. **Only in the exported copy.** `export_plan_geometry` is a reporter, and the
+   relabel is cosmetic by its own docstring, so it has no business editing the
+   session's domain state. It also edits without a dispatch, so `PlanStore`
+   subscribers never hear about it: the UI keeps the old arc labels while the
+   state holds new ones, and the next Save writes the relabelled arcs. Make
+   `reorder_plan_for_rig` pure — take a state, return a reordered one — and let
+   both callers use the return value. `emit.py:175` already deep-copies per plan
+   and is unaffected. Relabelling the live session, if anyone wants it, is a
+   separate dispatched command.
+
+3. **Yes, and the swap belongs in the session layer.** `kind` is a required field
+   of `ProbeDeclModel`, so every plan-only YAML carries one, and
+   `planning_state_to_plan_model` writes whatever the session holds — a plan saved
+   after a UI kind change carries the new kind and loads into a session that keeps
+   the old mesh. `SetProbeKind`'s docstring assigns the mesh swap to the
+   TrameController, and that assignment is the defect: `apply_plan_model_to_state`
+   is shared by the app's plan load and `rutter-plan-csv`, and neither goes
+   through the controller's dropdown handler. One operation updates the plan and
+   the scene node's `asset_key` together. Exports and the CSV are unaffected —
+   `export.py:220` resolves `probe:{plan.kind}` from the plan, not from the node —
+   so the damage is confined to what is drawn and what collides.
+
+4. **Honor it; the field stays.** The optimizer recomputes the pivot with the
+   formula that built it — the shank tips' mean x and y with the kind's
+   `active_center_mm` for z — in `probe_static.py:119` and
+   `batched_static.py:238`, both copies of `runtime/build.py:266`. Reading
+   `AssetSpec.pivot_LPS` instead makes the override work, gives the app and the
+   optimizer one source, and deletes two copies of the same arithmetic, which step
+   5 would otherwise have to consolidate anyway. The optimizer keeps its present
+   computation as the fallback for a null pivot, which is what every config has
+   today, so the change is bitwise identical on current data and the parity
+   harness can prove it.
+
+5. **Register `numpy_points`.** No loader can be mapped to instead: `csv_points`
+   parses CSV through pandas and nothing else reads arrays. The name is already
+   the documented default in `EXTENSION_DEFAULTS`, in two model docstrings and
+   throughout `tests/config_factories.py`, so the contract exists and only the
+   implementation is missing. Load with `allow_pickle=False` and require a float
+   `(N, 3)`: a pickled `.npy` executes arbitrary code on load, which is the thing
+   the JSON payload work removed from this pipeline.
+
+6. **3.13.** Nothing below it has ever been tested. Both CI legs have failed since
+   at least June 2026 without running a test: 3.9 because uv refuses an
+   interpreter below `requires-python >=3.10`, and 3.13 because `uv.lock` is stale
+   under `--locked`. The code already needs 3.10 at minimum — 22 uses of
+   `dataclass(slots=True)` and `itertools.pairwise` — and `python-fcl` has no 3.14
+   wheel, so 3.13 is the only version anyone runs. Set `requires-python =
+   ">=3.13"`, cut the matrix to 3.13, refresh the lock, and let CLAUDE.md's
+   existing statement become true. Restoring a green CI belongs with this fix.
 
 ### Before step 3 (dead code)
 
