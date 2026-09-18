@@ -353,11 +353,34 @@ def resolve_target_LPS(
     return np.zeros(3, dtype=np.float64)
 
 
+# Slider names, so a caller can ask "is this control live?" without a mapping.
+CALIBRATION_LOCKED_AXES = frozenset({"ap_tilt", "ml_tilt"})
+
+
+def locked_axes_for(ps: "PlanningState", name: str) -> frozenset[str]:
+    """Pose axes this probe's own controls cannot change.
+
+    A calibrated probe whose calibration is loaded takes both tilts from the
+    measured rotation, so an edit to either would be resolved away. Declaring
+    ``calibrated`` without a calibration present locks nothing — the tilts fall
+    back to the arc and the local angle.
+
+    Being bound to an arc is not a lock: the AP control still works, it moves
+    the whole arc.
+    """
+    plan = ps.probes.get(name)
+    if plan is None:
+        return frozenset()
+    if plan.calibrated and ps.calibrations.get(name) is not None:
+        return CALIBRATION_LOCKED_AXES
+    return frozenset()
+
+
 def _resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
     plan = ps.probes[name]
     cal = ps.calibrations.get(name)
 
-    if plan.calibrated and cal is not None:
+    if CALIBRATION_LOCKED_AXES <= locked_axes_for(ps, name):
         ap, ml = find_probe_angle(cal.rotation)  # locked to calibration
     else:
         # AP: from arc if bound, else local; ML: always per-probe local

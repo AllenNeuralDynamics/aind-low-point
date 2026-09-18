@@ -40,6 +40,7 @@ from aind_rutter.planning import (
     PoseResolver,
     ProbePose,
     kinematic_violations,
+    locked_axes_for,
     probe_asset_key,
 )
 from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
@@ -337,6 +338,9 @@ class TrameController:
             # are pre-zeroed; readouts update on probe/plan changes.
             state.probe_has_calibration = False
             state.probe_calibrated = False
+            # Which pose controls this probe cannot drive. The runtime owns the
+            # rule; the sliders gray themselves from this list.
+            state.probe_locked_axes = []
             state.probe_newscale_apply_x = 0.0
             state.probe_newscale_apply_y = 0.0
             state.probe_newscale_apply_z = 0.0
@@ -590,10 +594,8 @@ class TrameController:
         plan = self.store.state.probes.get(probe)
         if plan is None:
             return
-        # When the probe is locked to its calibration, AP comes from
-        # find_probe_angle(cal.rotation) — silently ignore slider events
-        # so the stored arc/ap_local is preserved for un-toggling later.
-        if plan.calibrated and probe in self.store.state.calibrations:
+        # Preserve the stored arc/ap_local for un-toggling later.
+        if "ap_tilt" in locked_axes_for(self.store.state, probe):
             return
         if plan.arc_id and plan.bind_ap_to_arc:
             self.store.dispatch(SetArcAngle(arc_id=plan.arc_id, ap_deg=ap))
@@ -604,9 +606,7 @@ class TrameController:
         plan = self.store.state.probes.get(probe)
         if not plan:
             return
-        # Same as AP: when calibrated, ML is locked to the calibration;
-        # don't mutate stored ml_local.
-        if plan.calibrated and probe in self.store.state.calibrations:
+        if "ml_tilt" in locked_axes_for(self.store.state, probe):
             return
         if self.couple_ml:
             arc_id = plan.arc_id
@@ -893,6 +893,9 @@ class TrameController:
             state.scene_collision_str = coll_scene
             state.probe_has_calibration = has_cal
             state.probe_calibrated = is_cal
+            state.probe_locked_axes = sorted(
+                locked_axes_for(self.store.state, probe_name)
+            )
             state.probe_newscale_readout_x = nx
             state.probe_newscale_readout_y = ny
             state.probe_newscale_readout_z = nz
@@ -1477,10 +1480,20 @@ class TrameController:
         self._slider_row("depth", "Depth (mm)", -10, 10, 0.1)
         vuetify3.VDivider(classes="my-2")
         self._slider_row(
-            "ap_tilt", "AP tilt (°)", -60, 60, 0.5, disabled="probe_calibrated"
+            "ap_tilt",
+            "AP tilt (°)",
+            -60,
+            60,
+            0.5,
+            disabled="probe_locked_axes.includes('ap_tilt')",
         )
         self._slider_row(
-            "ml_tilt", "ML tilt (°)", -60, 60, 0.5, disabled="probe_calibrated"
+            "ml_tilt",
+            "ML tilt (°)",
+            -60,
+            60,
+            0.5,
+            disabled="probe_locked_axes.includes('ml_tilt')",
         )
         self._slider_row("spin", "Spin (°)", -180, 180, 1)
         vuetify3.VDivider(classes="my-2")

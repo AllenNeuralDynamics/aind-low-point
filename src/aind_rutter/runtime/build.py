@@ -583,12 +583,8 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
         node_tf = _resolve_scene_node_transform(n.transform, compiled_transforms)
 
         extras: dict[str, Any] = {}
-        locked_axes: set[str] = set()
         if n.pose_source_probe:
             extras["pose_source_probe"] = n.pose_source_probe
-            decl = cfg.plan.probes.get(n.pose_source_probe)
-            if decl and decl.calibrated:
-                locked_axes.update({"ap_tilt", "ml_tilt"})
 
         scene.upsert(
             NodeInstance(
@@ -598,7 +594,6 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
                 tags=set(n.tags),
                 material_override=None,
                 enabled=True,
-                locked_axes=locked_axes,
                 extras=extras,
             )
         )

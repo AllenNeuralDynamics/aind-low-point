@@ -29,10 +29,6 @@ class NodeInstance:
     material_override: Optional[Material] = None
     enabled: bool = True
 
-    # Per-instance constraints/locks (e.g., calibration)
-    locked_axes: Set[str] = field(
-        default_factory=set
-    )  # {"ap_tilt", "ml_tilt", "spin", "x", "y", "z"}
     # e.g., calibration_rt
     extras: dict[str, Any] = field(default_factory=dict)
 
