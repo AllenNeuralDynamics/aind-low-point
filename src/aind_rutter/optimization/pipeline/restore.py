@@ -18,15 +18,19 @@ import numpy as np
 from aind_rutter.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
+from aind_rutter.optimization.pipeline.settings import PipelineSettings
 
 # Variables per probe in the full Phase-1 layout.
 PPV = 6
 N_SURF = int(_os.environ.get("N_SURF", "5000"))
 # Subject is config-driven: CONFIG selects the YAML, HOLES the implant-bore file
-# (placed into the scene by the config's own implant_to_lps in setup()). Defaults
-# reproduce the 836656 test subject; override for any other subject.
-CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
-HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
+# (placed into the scene by the config's own implant_to_lps in setup()). Both
+# come from PipelineSettings so that every stage resolves them the same way —
+# RUTTER_CONFIG ahead of CONFIG — rather than each reading the bare name and
+# sending the phases to different subjects.
+_SHARED = PipelineSettings()
+CONFIG = _SHARED.config
+HOLES = _SHARED.holes
 
 
 def setup_runtime() -> OptimizationRuntime:

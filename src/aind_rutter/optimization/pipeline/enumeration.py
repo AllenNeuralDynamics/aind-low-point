@@ -41,14 +41,16 @@ from aind_rutter.optimization.pipeline.payloads import (
     read_atlas_cache,
     write_atlas_cache,
 )
+from aind_rutter.optimization.pipeline.settings import PipelineSettings
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 
 # Subject is config-driven (generalizes across subjects). The visibility atlas
 # depends on the subject's targets + implant placement, so its cache is keyed off
 # the config stem — different subjects NEVER share an atlas. Override ATLAS_CACHE
 # to force a path.
-CONFIG = _os.environ.get("CONFIG", "examples/836656-config-T12.yml")
-HOLES = _os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
+_SHARED = PipelineSettings()  # one resolution of the subject for every stage
+CONFIG = _SHARED.config
+HOLES = _SHARED.holes
 ATLAS_CACHE = _os.environ.get(
     "ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.json.gz"
 )

@@ -28,14 +28,16 @@ import yaml
 from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
 from aind_rutter.optimization.pipeline.payloads import read_handoff
+from aind_rutter.optimization.pipeline.settings import PipelineSettings
 from aind_rutter.runtime import (
     build_plan_state_from_config,
     planning_state_to_plan_model,
 )
 from aind_rutter.runtime.export import reorder_plan_for_rig
 
-CONFIG = os.environ.get("CONFIG", "examples/836656-config-T12.yml")
-HOLES = os.environ.get("HOLES", "scratch/0283-300-04.holes.yml")
+_SHARED = PipelineSettings()  # one resolution of the subject for every stage
+CONFIG = _SHARED.config
+HOLES = _SHARED.holes
 HANDOFF = os.environ.get("HANDOFF", "scratch/phase2_handoff.json")
 N = int(os.environ.get("N", "15"))
 OUTDIR = os.environ.get("OUTDIR", "scratch/plans")

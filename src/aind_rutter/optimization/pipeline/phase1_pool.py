@@ -103,7 +103,12 @@ from aind_rutter.optimization.pipeline.restore import (
     setup_runtime,
     spins_deg_from_reduced,
 )
+from aind_rutter.optimization.pipeline.settings import PipelineSettings
 from aind_rutter.planning import AP_LIMIT_DEG
+
+# Values Phase 2 also reads. Resolved through the shared model so the two phases
+# cannot disagree about the subject, the well mode or the coverage weighting.
+_SHARED = PipelineSettings()
 
 STAGE1 = int(_os.environ.get("STAGE1", "500"))
 STAGE2 = int(_os.environ.get("STAGE2", "500"))
@@ -135,16 +140,16 @@ SEED_CACHE = _os.environ.get("SEED_CACHE", f"scratch/mrv_seeds_{_CFG_STEM}.json.
 MINIMIZER = _os.environ.get(
     "MINIMIZER", "rprop"
 ).lower()  # rprop|moment_restart|adam_const
-WELL_MODE = _os.environ.get("WELL", "thick").lower()  # thick|thin
+WELL_MODE = _SHARED.well  # thick|thin
 # Coverage normalization: divide each probe's coverage by its achievable ceiling
 # (so shank-count / area / σ / density weigh equally), blend average vs worst
 # region by COV_ALPHA in [0,1] (0 = pure average, 1 = pure minimax laggard), and
 # apply per-target priority weights (from the target spec's ``coverage_weight``,
 # overridable via COVERAGE_WEIGHTS env). COV_WEIGHT is the overall coverage gain
 # vs clearance in the full stage (coverage is now a [0,1] scalar, count-free).
-COV_NORM = _os.environ.get("COV_NORM", "0") == "1"
-COV_ALPHA = float(_os.environ.get("COV_ALPHA", "0.2"))
-COV_WEIGHT = float(_os.environ.get("COV_WEIGHT", "1.0"))
+COV_NORM = _SHARED.cov_norm
+COV_ALPHA = _SHARED.cov_alpha
+COV_WEIGHT = _SHARED.cov_weight
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]
 COARSE_N = int(
