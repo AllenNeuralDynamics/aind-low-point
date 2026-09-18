@@ -17,7 +17,7 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Steps 1 to 4 of the
+The survey below is a snapshot of commit `a5420cc`. Steps 1 to 5 of the
 proposed sequence have since landed.
 
 **Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
@@ -120,7 +120,38 @@ One thing step 4 did not fix: **the `HOLES` default points into the gitignored
 `scratch/`**, so a fresh clone cannot run the pipeline without being told where
 the bore file is.
 
-**What is left.** Steps 5 to 7, and one gated step: retiring `caps`, `collision`,
+**Step 5** consolidated the duplicated domain math, each change behind the
+Phase-2 parity harness where it touched the solver. Four of the eight rows in
+"Domain math is implemented several times" had already been closed by steps 2 and
+3; the rest:
+
+| was | is |
+|---|---|
+| the pivot derived in four places, and a helper that looked the centre up from the built-in table whenever a caller omitted it | `pivot_from_shank_tips`, pure geometry, centre supplied by the caller |
+| the per-probe variable count declared five times | one definition |
+| the reduced stride written as a bare `3` at 21 sites | `objectives/layout.py`, which owns both layouts |
+| `_weights_key` hand-written in three places | `objectives/cache_keys.weights_cache_key`, from `dataclasses.fields` |
+| the named shank tip and the world brain mesh, once in the app and once in the export | `runtime.shanks.named_shank_tip_world`, `runtime.scene_geometry.brain_world_mesh` |
+
+**Two of these were live defects rather than tidying.** `lambda_unit_circle` is
+read inside both the Phase-1 and the reduced traced objectives and was in
+neither's compile-cache key, so a kernel traced at one value was silently reused
+at another — the same defect D2 fixed for Phase 2, never propagated. It is a
+basin-selection knob, so the wrong value changes which candidates converge. And
+`pivot_from_shank_tips` gave `probe_context` a different answer for an
+unregistered kind than the four sites that resolved the geometry themselves.
+
+The pose row closed as a test rather than a consolidation: the three builders
+already agreed on the tip to 1e-6, which nothing had checked. They part company
+only outside the rig's angular limits, where the app clamps through
+`Kinematics.clamp_angles` and the two optimizer builders do not; feeding the
+clamped angles to the optimizer reproduces the app exactly, and that is asserted.
+
+`_pack_statics` stays as two copies. They pack genuinely different layouts, and
+merging them now that the layouts are named would mean a layout-generic packer —
+more abstraction than two sites justify.
+
+**What is left.** Steps 6 and 7, and one gated step: retiring `caps`, `collision`,
 `chem_shift_policy`, `chem_shift_apply_by_role` and the `role` prefix inference
 from the models. Those stay until the configs on `/mnt/vast` and in `scratch/`
 have been through `scripts/upgrade_config.py`, because once they go
@@ -529,7 +560,7 @@ previous commit.
 4. **Unify configuration.** Settings for every stage, `jax_env`, no import-time
    environment reads below the CLI. *(Done — see Status.)*
 5. **Consolidate duplicated domain math** behind parity tests: pose, pivot,
-   variable layout, target resolution.
+   variable layout, target resolution. *(Done — see Status.)*
 6. **Move and rename,** bottom-up with `git mv`: `domain` and `config`, then
    `build` and `plan_io`, then `session` and the frontends, then the optimization
    subpackages, then `pipeline`. Each move updates imports, docs and the baseline
