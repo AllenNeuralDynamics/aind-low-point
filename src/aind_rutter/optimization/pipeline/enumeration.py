@@ -124,7 +124,6 @@ class Enumerator:
         atlas: Atlas,
         probe_names: Sequence[str],
         ml_margin_deg: float = 0.0,
-        ml_mode: str = "greedy",
         max_arcs: int = MAX_ARCS,
         max_probes_per_arc: int = MAX_PROBES_PER_ARC,
         ap_range: "tuple[float, float] | None" = None,
@@ -140,10 +139,6 @@ class Enumerator:
         # soft), so the greedy ML-pack uses ml-windows widened by this margin
         # to avoid false-rejecting tuples that polish to feasible.
         self.ml_margin = ml_margin_deg
-        # "greedy" = joint interval-packing (sound for K probes); "pairwise" =
-        # production's max-possible-pairwise-diff (necessary but unsound for
-        # 3+ probe arcs). Comparing counts isolates the joint-ML prune.
-        self.ml_mode = ml_mode
         # Arc / per-arc caps. Default to the KINEMATIC max (16° exclusion over
         # the AP/ML range); callers can tighten them to restrict the search
         # (e.g. reproduce the old 3-arc / 4-per-arc enumeration).
@@ -239,18 +234,14 @@ class Enumerator:
         return greedy_place(self._arc_ml_windows(arc), MIN_ML_SEP_DEG)
 
     def _ml_gate(self, arc) -> bool:
-        """Feasibility gate per the selected ML mode."""
+        """Can every probe on this arc be placed MIN_ML_SEP_DEG apart?
+
+        Joint interval-packing, which is sound for K probes; the pairwise
+        max-possible-difference it replaced admits infeasible 3-probe arcs.
+        """
         ivals = self._arc_ml_windows(arc)
         if len(ivals) < 2:
             return True
-        if self.ml_mode == "pairwise":
-            # production's necessary condition: every pair CAN reach sep apart
-            mp = min(
-                max(abs(ivals[i][1] - ivals[j][0]), abs(ivals[j][1] - ivals[i][0]))
-                for i in range(len(ivals))
-                for j in range(i + 1, len(ivals))
-            )
-            return mp >= MIN_ML_SEP_DEG
         return greedy_place(ivals, MIN_ML_SEP_DEG) is not None
 
     def enumerate(self) -> list[EnumeratorCandidate]:

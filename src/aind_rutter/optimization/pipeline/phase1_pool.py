@@ -701,7 +701,6 @@ def main() -> int:
             atlas_payload.atlas,
             atlas_payload.probe_names,
             ml_margin_deg=0.0,
-            ml_mode="greedy",
             max_arcs=MAX_ARCS,
             max_probes_per_arc=MAX_PPA,
             ap_range=ap_range,

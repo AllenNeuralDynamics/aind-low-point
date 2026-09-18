@@ -5,8 +5,6 @@ This module performs pure validation:
   - Build per-probe-pair and per-probe-fixture FCL BVH queries
   - Expose ``slacks(x) -> np.ndarray`` returning signed clearance per
     pair (positive = clear, negative = sentinel for "colliding")
-  - Expose ``is_feasible(x, margin=0.0) -> bool`` for binary
-    accept/reject decisions
   - Expose ``pair_names`` for diagnostic labelling
 
 Phase 2 with the dual-rep clearance (body voxel SDF + analytic OBBs
@@ -215,14 +213,6 @@ class FCLValidator:
                     )
                 )
         return np.asarray(out, dtype=np.float64)
-
-    def is_feasible(self, x: NDArray, *, margin: float = 0.0) -> bool:
-        """Boolean accept/reject. ``margin > 0`` requires every pair to
-        be clear by at least that amount (mm)."""
-        s = self.slacks(x)
-        if s.size == 0:
-            return True
-        return bool(np.min(s) >= margin - 1e-9)
 
     def violating_pairs(
         self, x: NDArray, *, margin: float = 0.0

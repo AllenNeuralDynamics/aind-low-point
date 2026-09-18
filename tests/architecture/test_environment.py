@@ -69,7 +69,6 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.restore:JAX_PLATFORMS@import",
     "aind_rutter.optimization.pipeline.restore:N_SURF@import",
     "aind_rutter.optimization.pipeline.restore:XLA_PYTHON_CLIENT_PREALLOCATE@import",
-    "aind_rutter.optimization.pipeline.runtime_adapter:<dynamic>@function",
     "aind_rutter.optimization.pipeline.thick_well:JAX_PLATFORMS@import",
     "aind_rutter.optimization.pipeline.thick_well:MARGIN@import",
     "aind_rutter.optimization.pipeline.thick_well:XLA_PYTHON_CLIENT_PREALLOCATE@import",

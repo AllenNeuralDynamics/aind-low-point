@@ -109,22 +109,6 @@ class OptimizationRuntime:
         )
 
     @classmethod
-    def from_env(
-        cls,
-        *,
-        config_env: str = "CONFIG",
-        holes_env: str = "HOLES",
-        default_config: str = "examples/836656-config-T12.yml",
-        default_holes: str = "scratch/0283-300-04.holes.yml",
-    ) -> "OptimizationRuntime":
-        import os
-
-        return cls.from_config_path(
-            os.environ.get(config_env, default_config),
-            os.environ.get(holes_env, default_holes),
-        )
-
-    @classmethod
     def from_config(
         cls,
         cfg: ConfigModel,

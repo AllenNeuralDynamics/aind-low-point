@@ -44,9 +44,9 @@ def _build_kde_grid(
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Deposit each target point's Gaussian kernel onto a voxel grid.
 
-    Mirrors :func:`aind_rutter.optimization.objectives.density.voxel_kde_density`
-    but returns ``(grid, origin, spacing_mm)`` directly instead of a
-    closure. Same result; just no opaque function wrapper.
+    Returns ``(grid, origin, spacing_mm)``. The grid is the equally-weighted
+    Gaussian mixture over ``target_points``, sampled at ``spacing_mm`` and
+    padded by ``pad_sigmas`` so the kernel tails fall inside it.
     """
     targets = np.asarray(target_points, dtype=np.float64)
     n = targets.shape[0]
@@ -93,10 +93,9 @@ class GaussianCoverageData:
 class KdeCoverageData:
     """Static per-probe data for the voxel-KDE coverage backend.
 
-    The grid is pre-baked on the host by
-    :func:`aind_rutter.optimization.objectives.density.voxel_kde_density`; we
-    rebuild it here in JAX-friendly arrays and copy the grid contents
-    out of the closure.
+    :func:`_build_kde_grid` bakes the grid on the host; the kernel then
+    trilinearly interpolates it, which costs one lookup per sample instead
+    of one exponential per target point.
     """
 
     grid: jnp.ndarray  # (Nx, Ny, Nz)
