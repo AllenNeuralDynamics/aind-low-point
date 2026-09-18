@@ -711,6 +711,37 @@ The list below is the question as it was asked.
    `collisions` or `state_change`? The answer decides whether moves need
    compatibility shims.
 
+### Before steps 4–6 — answered
+
+**10. Move `ProbePlan` to LPS.** Only two fields hold RAS —
+`target_point_RAS` and `offsets_RA` — and both convert at first use. Narrow, but
+it changes command signatures, so it goes with step 6.
+
+**11. The optimizer stays separable.** Probe-kind data and pose math move to
+`domain/`. Today `assets.py` and `runtime/build.py` import
+`optimization/geometry/recording`, so launching the viewer pulls in the
+optimizer; that is what the split ends.
+
+**12. Descriptive stage names, and the proposed package layout stands.** The
+console scripts keep their `rutter-phase1` / `rutter-phase2` spelling.
+
+**13. Retire the unprefixed environment names**, once the configs are migrated.
+`scripts/run_subject_overnight.sh` passes 38 of them and changes in the same
+commit.
+
+**14.** Resolved by the vocabulary rework: the collision rule is `collidable`
+plus `role: probe`, and the group/mask labels are gone.
+
+**15. Split by audience.** `CONTRIBUTING.md` takes setup, test and lint
+commands, style and PR conventions; `docs/source` takes the stable reference
+(`COORDINATES`, `CONFIG_MODEL`, `VOCABULARY`, `PIPELINE`); `dev/` keeps the
+dated working notes and design records; `CLAUDE.md` keeps only what an agent
+would otherwise get wrong, and shrinks.
+
+**16. The subject configs stay tracked** in `examples/`.
+
+The list below is the questions as they were asked.
+
 ### Before steps 4–6 (configuration, consolidation, renames)
 
 10. Should `ProbePlan` store LPS internally, with RAS kept only in YAML and the UI?
