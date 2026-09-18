@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from aind_rutter.common import Capability, MRSignal, Role
+from aind_rutter.common import MRSignal, Role
 from aind_rutter.config import ConfigModel
 from aind_rutter.runtime.build import resolve_collidable
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
@@ -288,11 +288,11 @@ class Migration:
 
     name: str
     summary: str
-    applies: Callable[[ConfigModel], bool]
+    applies: Callable[[ConfigModel, str], bool]
     rewrite: Callable[[str, ConfigModel], str]
 
 
-def _mr_signal_applies(cfg: ConfigModel) -> bool:
+def _mr_signal_applies(cfg: ConfigModel, text: str) -> bool:
     if cfg.imaging is None:
         return False  # an atlas plan has no image to be shifted in
     return any(s.mr_signal is None for s in [*cfg.assets, *cfg.targets])
@@ -309,7 +309,7 @@ def _mr_signal_rewrite(text: str, cfg: ConfigModel) -> str:
     )
 
 
-def _collidable_applies(cfg: ConfigModel) -> bool:
+def _collidable_applies(cfg: ConfigModel, text: str) -> bool:
     return any(
         s.collidable is None and (s.caps or s.collision.group or s.collision.mask)
         for s in [*cfg.assets, *cfg.targets]
@@ -354,22 +354,24 @@ def _collidable_rewrite(text: str, cfg: ConfigModel) -> str:
         return roles.pop()
 
     text = rewrite_declarations(text, "collidable", collidable_for)
-    text = rewrite_declarations(
-        text, "role", role_for, drop_keys=("caps",), drop_blocks=("collision",)
+    # Both go as blocks: a generated config writes `caps` as the IntFlag's
+    # integers rather than its names, so dropping the key alone would strand
+    # the list items under it.
+    return rewrite_declarations(
+        text, "role", role_for, drop_blocks=("caps", "collision")
     )
-    return _drop_cap_items(text)
 
 
-def _drop_cap_items(text: str) -> str:
-    """Remove the list items left behind by a block-style ``caps:``."""
-    names = {m.name.lower() for m in Capability}
-    out = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- ") and stripped[2:].strip().lower() in names:
-            continue
-        out.append(line)
-    return "\n".join(out) + "\n"
+def _options_applies(cfg: ConfigModel, text: str) -> bool:
+    """Read from the text: the model has retired the field, so a parsed config
+    never shows it."""
+    return any(re.match(r"^options:", ln) for ln in text.splitlines())
+
+
+def _options_rewrite(text: str, cfg: ConfigModel) -> str:
+    """`color_map` and `remove_last_color` were the reference notebook's palette
+    knobs; nothing has read them since."""
+    return "\n".join(_drop_block(text.splitlines(), "options")) + "\n"
 
 
 MIGRATIONS: tuple[Migration, ...] = (
@@ -385,19 +387,25 @@ MIGRATIONS: tuple[Migration, ...] = (
         applies=_collidable_applies,
         rewrite=_collidable_rewrite,
     ),
+    Migration(
+        name="options",
+        summary="drop the `options` block, which nothing has read",
+        applies=_options_applies,
+        rewrite=_options_rewrite,
+    ),
 )
 
 
 def upgrade(path: Path, *, dry_run: bool) -> str:
     """Apply every applicable migration, or leave the file exactly as it was."""
-    cfg = ConfigModel.from_yaml(path, require_mr_signal=False)
+    cfg = ConfigModel.from_yaml(path, legacy=True)
     before = behaviour(cfg)
 
     original = path.read_text()
     text = original
     applied: list[str] = []
     for migration in MIGRATIONS:
-        if not migration.applies(cfg):
+        if not migration.applies(cfg, text):
             continue
         text = migration.rewrite(text, cfg)
         applied.append(migration.name)

@@ -99,6 +99,18 @@ holders. An unregistered kind also resolved silently to tip-on-target, which is
 the answer a pipette gets deliberately, so a mistyped kind was indistinguishable
 from a legitimate array-less probe.
 
+## Two lists, one node
+
+`tags` describes the thing, `scene_tags` the placement, and the generated scene
+node carries the union. Before this, `tags` was filled onto every asset and read
+by nothing, so `tags: [structure]` was invisible to anything filtering nodes.
+
+Unknown tags are fine — a subject groups its nodes however it likes. A tag that
+is a *near miss* for one the code acts on draws a warning naming the likely
+intent, because that kind of typo is otherwise silent: a misspelled `fixture`
+drops the well out of collision checking. The set the code acts on is
+`common.KNOWN_SCENE_TAGS`.
+
 ## Asset templates
 
 A probe *kind* asset (`probe:2.1`) is geometry the planner instances, not a

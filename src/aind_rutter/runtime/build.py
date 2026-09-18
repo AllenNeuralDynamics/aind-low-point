@@ -182,7 +182,6 @@ def _base_spec_kwargs_from_model(
         role=Role.PROBE if is_probe_spec(m) else m.role,
         default_material=material,
         metadata=dict(m.metadata),
-        tags=set(m.tags),
         collidable=resolve_collidable(m),
         pivot_LPS=np.array(m.pivot_LPS, float) if m.pivot_LPS else None,
         bbox_hint=np.array(m.bbox_hint, float) if m.bbox_hint else None,

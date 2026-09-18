@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
 import fnmatch
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from typing import (
@@ -27,7 +29,13 @@ from pydantic import (
     model_validator,
 )
 
-from aind_rutter.common import Capability, Kind, MRSignal, Role
+from aind_rutter.common import (
+    KNOWN_SCENE_TAGS,
+    Capability,
+    Kind,
+    MRSignal,
+    Role,
+)
 from aind_rutter.orientation_codes import OrientationCode
 from aind_rutter.planning import probe_asset_key
 
@@ -107,6 +115,11 @@ def _find_matching_templates(key: str, templates: dict[str, Any]) -> list[str]:
             matches.append(tname)
 
     return matches
+
+
+# Top-level keys the model no longer has. A legacy load drops them so the
+# upgrade path can still read a config written before they went.
+RETIRED_KEYS: tuple[str, ...] = ("options",)
 
 
 # Add FILE_NATIVE as a sentinel without mixing semantics
@@ -1643,13 +1656,6 @@ class PathsModel(BaseModel):
         super().__init__(**data)
 
 
-class OptionsModel(BaseModel):
-    model_config = {"extra": "forbid"}
-
-    color_map: str = "rainbow"
-    remove_last_color: bool = True
-
-
 # -----------------------------------------------------------------------------
 # Root config (everything together) + cross-reference validation
 # -----------------------------------------------------------------------------
@@ -1680,26 +1686,25 @@ class ConfigModel(BaseModel):
     # Named transforms & misc
     transforms: dict[str, TransformRecipeModel] = Field(default_factory=dict)
     canonicalizations: dict[str, CanonicalizationDefModel] = Field(default_factory=dict)
-    options: OptionsModel = Field(default_factory=OptionsModel)
 
     @classmethod
-    def from_yaml(
-        cls, path: "str | Path", *, require_mr_signal: bool = True
-    ) -> "ConfigModel":
+    def from_yaml(cls, path: "str | Path", *, legacy: bool = False) -> "ConfigModel":
         """Load a ConfigModel from a YAML file with OmegaConf interpolation.
 
-        ``require_mr_signal=False`` loads a config written before that field
-        existed. Only the upgrade path passes it: a config loaded this way
-        resolves chemical shift from ``role``, which cannot tell an annotation
-        centroid from a bore centre.
+        ``legacy=True`` reads a config written against an older schema: keys the
+        model has since retired are dropped rather than refused, and `mr_signal`
+        is not required. Only `scripts/upgrade_config.py` passes it — a config
+        read this way resolves chemical shift from `role`, which cannot tell an
+        annotation centroid from a bore centre.
         """
         from omegaconf import OmegaConf
 
         raw = OmegaConf.load(path)
         resolved = OmegaConf.to_container(raw, resolve=True)
-        return cls.model_validate(
-            resolved, context={"require_mr_signal": require_mr_signal}
-        )
+        if legacy and isinstance(resolved, dict):
+            for key in RETIRED_KEYS:
+                resolved.pop(key, None)
+        return cls.model_validate(resolved, context={"require_mr_signal": not legacy})
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
@@ -1839,13 +1844,16 @@ class ConfigModel(BaseModel):
                 continue
             if asset.key in explicit_keys:
                 continue  # explicit node takes precedence
-            if asset.transform or asset.scene_tags:
+            if asset.transform or asset.scene_tags or asset.tags:
                 generated_nodes.append(
                     SceneNodeModel(
                         key=asset.key,
                         asset=asset.key,
                         transform=asset.transform,
-                        tags=asset.scene_tags,
+                        # `tags` describes the thing, `scene_tags` the placement;
+                        # the node carries both, so a label on an asset is
+                        # something a filter can actually find.
+                        tags=sorted({*asset.scene_tags, *asset.tags}),
                     )
                 )
 
@@ -1855,13 +1863,16 @@ class ConfigModel(BaseModel):
                 continue
             if target.key in explicit_keys:
                 continue
-            if target.transform or target.scene_tags:
+            if target.transform or target.scene_tags or target.tags:
                 generated_nodes.append(
                     SceneNodeModel(
                         key=target.key,
                         asset=target.key,
                         transform=target.transform,
-                        tags=target.scene_tags,
+                        # `tags` describes the thing, `scene_tags` the placement;
+                        # the node carries both, so a label on an asset is
+                        # something a filter can actually find.
+                        tags=sorted({*target.scene_tags, *target.tags}),
                     )
                 )
 
@@ -1975,6 +1986,27 @@ class ConfigModel(BaseModel):
                         f"`recording: {NO_RECORDING_ARRAY}` if it has no array"
                     )
 
+        def _check_scene_tags():
+            """Nudge on a tag that is a near-miss for one the code acts on.
+
+            Silent otherwise: an unfamiliar tag is how a subject groups its own
+            nodes, and warning on those would train the reader to ignore this.
+            """
+            for spec in [*self.assets, *self.targets]:
+                for tag in {*spec.scene_tags, *spec.tags}:
+                    if tag in KNOWN_SCENE_TAGS:
+                        continue
+                    close = difflib.get_close_matches(
+                        tag, sorted(KNOWN_SCENE_TAGS), n=1, cutoff=0.8
+                    )
+                    if close:
+                        warnings.warn(
+                            f"{_where_key(spec)}: tag '{tag}' is not one the code "
+                            f"acts on — did you mean '{close[0]}'?",
+                            stacklevel=2,
+                        )
+
+        _check_scene_tags()
         _check_probe_recording()
 
         def _check_mr_signal(spec, where_prefix: str):

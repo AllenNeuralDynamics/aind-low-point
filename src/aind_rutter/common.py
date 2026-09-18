@@ -51,3 +51,24 @@ class Kind(str, Enum):
     MESH = "mesh"
     POINTS = "points"
     LINES = "lines"
+
+
+# Scene tags something in the codebase dispatches on. Tags are open — a subject
+# may group nodes however it likes — so an unknown tag is fine. One that is a
+# near-miss for a known tag is almost certainly a typo, and a typo here is
+# silent: a misspelled `fixture` drops the well out of collision checking.
+KNOWN_SCENE_TAGS: frozenset[str] = frozenset(
+    {
+        "fixture",
+        "cone",
+        "well",
+        "headframe",
+        "implant",
+        "probe",
+        "brain",
+        "structure",
+        "target",
+        "static",
+        "dynamic",
+    }
+)

@@ -31,7 +31,6 @@ class BaseSpec:
     default_material: Material = field(default_factory=lambda: Material("default"))
     metadata: dict[str, Any] = field(default_factory=dict)
     # free-form (scene/UI grouping)
-    tags: set[str] = field(default_factory=set)
 
     # HOW it behaves (capabilities & collision policy)
     # Whether this asset gets an FCL body. Which *pairs* are then tested is a

@@ -55,13 +55,11 @@ def test_the_legacy_config_will_not_load_strictly(legacy: Path) -> None:
     """The reason the script exists, and why it loads with the flag."""
     with pytest.raises(Exception, match="mr_signal is required"):
         ConfigModel.from_yaml(legacy)
-    assert ConfigModel.from_yaml(legacy, require_mr_signal=False)
+    assert ConfigModel.from_yaml(legacy, legacy=True)
 
 
 def test_every_decision_survives_the_upgrade(legacy: Path) -> None:
-    before = upgrade_mod.decisions(
-        ConfigModel.from_yaml(legacy, require_mr_signal=False)
-    )
+    before = upgrade_mod.decisions(ConfigModel.from_yaml(legacy, legacy=True))
     upgrade_mod.upgrade(legacy, dry_run=False)
     after = upgrade_mod.decisions(ConfigModel.from_yaml(legacy))
     assert after == before
@@ -123,8 +121,9 @@ def test_an_atlas_config_gets_no_mr_signal(tmp_path: Path) -> None:
             }
         )
     )
-    cfg = ConfigModel.from_yaml(path, require_mr_signal=False)
-    applied = [m.name for m in upgrade_mod.MIGRATIONS if m.applies(cfg)]
+    cfg = ConfigModel.from_yaml(path, legacy=True)
+    text = path.read_text()
+    applied = [m.name for m in upgrade_mod.MIGRATIONS if m.applies(cfg, text)]
     assert "mr_signal" not in applied
 
 
