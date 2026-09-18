@@ -325,13 +325,19 @@ def _collidable_rewrite(text: str, cfg: ConfigModel) -> str:
     by_key = {str(s.key): s for s in [*cfg.assets, *cfg.targets]}
 
     def collidable_for(keys: list[str]) -> str | None:
+        """``true`` where it is, nothing where it is not.
+
+        ``False`` is the model default, and no template can be setting ``True``
+        — the field did not exist before this migration — so writing it would
+        be noise on every target in the file.
+        """
         known = [k for k in keys if k in by_key]
         if not known:
             return None
         values = {resolve_collidable(by_key[k]) for k in known}
         if len(values) != 1:
             raise ValueError(f"declaration {keys} is collidable both ways")
-        return "true" if values.pop() else "false"
+        return "true" if values.pop() else None
 
     def role_for(keys: list[str]) -> str | None:
         known = [k for k in keys if k in by_key]

@@ -75,6 +75,11 @@ That replaced per-asset `collision.group` / `collision.mask` label lists
 compiled to bitmasks. Across every tracked config those labels only ever
 expressed the two patterns the rule states.
 
+State it on the template, not on each asset — `role: probe` and
+`collidable: true` on the `probe` template, and every probe asset is then a
+key, a mesh and a template reference. An asset may still override either, which
+is how a fixture that is drawn but never collided against is declared.
+
 | tag | meaning |
 |---|---|
 | `static`, `dynamic` | whether the node's transform changes as a plan is edited |

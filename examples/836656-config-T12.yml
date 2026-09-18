@@ -72,9 +72,10 @@ materials:
     opacity: 0.7
 asset_templates:
   hardware:
+    collidable: true
     kind: mesh
     mr_signal: none
-    role: geometry
+    role: fixture
     loader: trimesh
     canonicalization_ref: obj-wavefront
     material:
@@ -89,9 +90,10 @@ asset_templates:
     tags:
     - structure
   probe:
+    collidable: true
     kind: mesh
     mr_signal: none
-    role: geometry
+    role: probe
     loader: trimesh
     canonicalization_ref: probe-mesh
     material:
@@ -117,7 +119,6 @@ target_templates:
     - hole
 assets:
 - key: brain
-  collidable: false
   src: ${paths.brain_mask_path}
   templates:
   - structure
@@ -128,8 +129,6 @@ assets:
   scene_tags:
   - static
 - key: headframe
-  role: fixture
-  collidable: true
   src: ${paths.model_path}/TenRunHeadframe.obj
   mr_signal: fat
   templates:
@@ -142,8 +141,6 @@ assets:
   - fixture
   - headframe
 - key: cone
-  role: fixture
-  collidable: true
   src: ${paths.model_path}/0274-430-01.obj
   templates:
   - hardware
@@ -151,8 +148,6 @@ assets:
   - fixture
   - cone
 - key: well
-  role: fixture
-  collidable: true
   src: ${paths.model_path}/WHC_Well/0274-400-07_X02.obj
   templates:
   - hardware
@@ -160,8 +155,6 @@ assets:
   - fixture
   - well
 - key: implant
-  role: fixture
-  collidable: true
   src: ${paths.model_path}/0283-300-04.obj
   mr_signal: fat
   templates:
@@ -172,7 +165,6 @@ assets:
   - fixture
   - implant
 - key: retro-targets
-  collidable: false
   kind: points
   mr_signal: water
   src: ${paths.annotations_path}/${paths.mouse}_rabies_pts_from_698928_LPS.csv
@@ -188,46 +180,33 @@ assets:
     opacity: 0.6
     point_size: 3.0
 - key: probe:2.1
-  role: probe
-  collidable: true
   src: ${paths.model_path}/dovetailtweezer_oneShank_centered_corrected.obj
   templates:
   - probe
 - key: probe:2.1-alpha
-  role: probe
-  collidable: true
   recording:
     active_ranges_mm: [[0.200, 3.065]]
   src: ${paths.model_path}/Centered_Newscale_2pt0.obj
   templates:
   - probe
 - key: probe:quadbase-alpha
-  role: probe
-  collidable: true
   src: ${paths.model_path}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj
   templates:
   - probe
 - key: probe:quadbase-dovetail
-  role: probe
-  collidable: true
   src: ${paths.model_path}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj
   templates:
   - probe
 - key: probe:2.4
-  role: probe
-  collidable: true
   src: ${paths.model_path}/dovetailwtweezer_fourShank_centeredOnShank0.obj
   templates:
   - probe
 - key: probe:pipette
-  role: probe
-  collidable: true
   recording: none
   src: ${paths.model_path}/injection_pipette.obj
   templates:
   - probe
 - key: structure:BLA
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -244,7 +223,6 @@ assets:
     color: '#9DE79C'
     opacity: 0.15
 - key: structure:CA1
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -261,7 +239,6 @@ assets:
     color: '#7ED04B'
     opacity: 0.15
 - key: structure:CLA
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -278,7 +255,6 @@ assets:
     color: '#8ADA87'
     opacity: 0.15
 - key: structure:MD
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -295,7 +271,6 @@ assets:
     color: '#FF909F'
     opacity: 0.15
 - key: structure:PL
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -312,7 +287,6 @@ assets:
     color: '#2FA850'
     opacity: 0.15
 - key: structure:RSP
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:
@@ -329,7 +303,6 @@ assets:
     color: '#1AA698'
     opacity: 0.15
 - key: structure:VM
-  collidable: false
   src: ${paths.ccf_annotation_path}
   loader: ccf_annotation_region
   loader_kwargs:

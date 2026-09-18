@@ -90,3 +90,53 @@ def test_every_collidable_asset_is_a_probe_or_a_fixture(path: str) -> None:
         if resolve_collidable(s) and s.role not in (Role.PROBE, Role.FIXTURE)
     ]
     assert not stranded, f"{path}: collidable but neither probe nor fixture: {stranded}"
+
+
+def test_a_template_carries_collidability_for_its_assets() -> None:
+    """Where the real configs state it: once per template, not once per asset."""
+    cfg = ConfigModel.model_validate(
+        {
+            "version": 1,
+            "asset_templates": {
+                "hardware": {"kind": "mesh", "role": "fixture", "collidable": True}
+            },
+            "assets": [
+                {
+                    "key": "well",
+                    "src": "w.obj",
+                    "loader": "trimesh",
+                    "templates": ["hardware"],
+                },
+                {
+                    "key": "cone",
+                    "src": "c.obj",
+                    "loader": "trimesh",
+                    "templates": ["hardware"],
+                },
+            ],
+        }
+    )
+    assert [resolve_collidable(a) for a in cfg.assets] == [True, True]
+    assert {a.role for a in cfg.assets} == {Role.FIXTURE}
+
+
+def test_an_asset_may_opt_out_of_its_template() -> None:
+    """A fixture that is drawn but never collided against."""
+    cfg = ConfigModel.model_validate(
+        {
+            "version": 1,
+            "asset_templates": {
+                "hardware": {"kind": "mesh", "role": "fixture", "collidable": True}
+            },
+            "assets": [
+                {
+                    "key": "decor",
+                    "src": "d.obj",
+                    "loader": "trimesh",
+                    "templates": ["hardware"],
+                    "collidable": False,
+                },
+            ],
+        }
+    )
+    assert resolve_collidable(cfg.assets[0]) is False
