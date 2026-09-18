@@ -201,7 +201,6 @@ Phase1ChunkedFns = tuple[
     BatchedGradientFn,
     ArglistBuilder,
     AdamRunnerFactory,
-    AdamRunnerFactory,
 ]
 
 

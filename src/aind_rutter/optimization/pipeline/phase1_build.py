@@ -45,7 +45,7 @@ ARG_ORDER = list(PACKED_ARG_ORDER)
 PER_CAND = set(PACKED_PER_CAND_KEYS)
 
 
-def make_batched_phase1_chunked(  # noqa: C901
+def make_batched_phase1_chunked(
     template_statics,
     n_arcs,
     weights,
@@ -117,30 +117,6 @@ def make_batched_phase1_chunked(  # noqa: C901
         stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
         return [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
 
-    def make_adam(lo, hi, *, steps, lr, b1=0.9, b2=0.999, eps=1e-8):
-        """Compiled projected ADAM: the entire `steps` loop is one kernel
-        (lax.fori_loop) — no Python loop, no per-step host sync."""
-        lo_j = jnp.asarray(lo, jnp.float32)
-        hi_j = jnp.asarray(hi, jnp.float32)
-
-        def run(x0, arglist):
-            z = jnp.zeros_like(x0)
-
-            def body(i, st):
-                x, m, v = st
-                g = vmapped_grad(x, *arglist)
-                m = b1 * m + (1 - b1) * g
-                v = b2 * v + (1 - b2) * g * g
-                tt = i.astype(jnp.float32) + 1.0
-                mh = m / (1 - jnp.power(b1, tt))
-                vh = v / (1 - jnp.power(b2, tt))
-                x = jnp.clip(x - lr * mh / (jnp.sqrt(vh) + eps), lo_j, hi_j)
-                return (x, m, v)
-
-            return jax.lax.fori_loop(0, steps, body, (x0, z, z))[0]
-
-        return jax.jit(run)
-
     def make_staged_adam(
         *,
         lr,
@@ -148,7 +124,6 @@ def make_batched_phase1_chunked(  # noqa: C901
         b2=0.999,
         eps=1e-8,
         schedule="const",
-        min_lr_frac=0.0,
         period=50,
         grad_clip=0.0,
     ):
@@ -164,11 +139,7 @@ def make_batched_phase1_chunked(  # noqa: C901
 
         ``schedule`` sets the per-step learning rate ``lr(i)`` (the lever for
         ADAM's effective-step decay — ``v`` accumulates and stalls long runs):
-          - ``"const"`` — flat ``lr`` (byte-identical to the un-scheduled kernel)
-          - ``"cosine"`` — single cosine anneal ``lr → lr·min_lr_frac`` over
-            ``n_steps`` (settle)
-          - ``"cosine_restart"`` — cosine warm restarts (SGDR) with ``period``
-            steps per cycle: periodic LR spikes to escape shallow minima.
+          - ``"const"`` — flat ``lr``
           - ``"moment_restart"`` — reset the ADAM moments ``m,v`` to 0 every
             ``period`` steps (with bias correction restarted): the segmented
             momentum-reset hack baked into ONE continuous kernel. The reset
@@ -177,18 +148,7 @@ def make_batched_phase1_chunked(  # noqa: C901
             exploits.
         """
         base = float(lr)
-        mn = base * float(min_lr_frac)
         per = max(float(period), 1.0)
-
-        def lr_at(i, n_steps):
-            t = i.astype(jnp.float32)
-            if schedule == "cosine":
-                n = jnp.maximum(n_steps.astype(jnp.float32), 1.0)
-                return mn + 0.5 * (base - mn) * (1.0 + jnp.cos(jnp.pi * t / n))
-            if schedule == "cosine_restart":
-                frac = jnp.mod(t, per) / per
-                return mn + 0.5 * (base - mn) * (1.0 + jnp.cos(jnp.pi * frac))
-            return jnp.float32(base)
 
         def run(x0, arglist, lo, hi, cov_weight, n_steps):
             lo_j = jnp.asarray(lo, jnp.float32)
@@ -219,15 +179,14 @@ def make_batched_phase1_chunked(  # noqa: C901
                 v = b2 * v + (1 - b2) * g * g
                 mh = m / (1 - jnp.power(b1, tt))
                 vh = v / (1 - jnp.power(b2, tt))
-                lr_i = lr_at(i, n_steps)
-                x = jnp.clip(x - lr_i * mh / (jnp.sqrt(vh) + eps), lo_j, hi_j)
+                x = jnp.clip(x - base * mh / (jnp.sqrt(vh) + eps), lo_j, hi_j)
                 return (x, m, v)
 
             return jax.lax.fori_loop(0, n_steps, body, (x0, z, z))[0]
 
         return jax.jit(run, static_argnums=())
 
-    return vobj, vgrad, build_arglist, make_adam, make_staged_adam
+    return vobj, vgrad, build_arglist, make_staged_adam
 
 
 def make_staged_rprop(

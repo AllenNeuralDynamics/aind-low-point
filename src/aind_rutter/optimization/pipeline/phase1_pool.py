@@ -343,7 +343,7 @@ def _kernel(
 ) -> tuple[Callable, ArglistBuilder, Callable]:
     """Build (vobj, build_arglist, run) for one fidelity's template statics."""
     weights = Phase1Weights(cov_alpha=COV_ALPHA) if COV_NORM else Phase1Weights()
-    vobj, _vg, barg, _ma, mkad = make_batched_phase1_chunked(
+    vobj, _vg, barg, mkad = make_batched_phase1_chunked(
         st0,
         n_arcs,
         weights,
