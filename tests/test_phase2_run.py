@@ -214,3 +214,28 @@ def test_worker_setup_drops_the_previous_subjects_state(settings) -> None:
     assert phase2_ipopt._G.get("cov_norm") is None
     assert phase2_ipopt._G["settings"] is settings
     assert cache_stats()["entries"] == 0
+
+
+def test_warmup_can_be_turned_off(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """WARMUP=0 had no effect in the default pool mode; the compile ran anyway.
+
+    Skipping it does not change the result, only who pays the compile: the
+    warmup, or the first candidate to be solved.
+    """
+    from aind_rutter.optimization.pipeline import phase2_ipopt
+
+    warmed: list[int] = []
+    monkeypatch.setattr(phase2_ipopt, "_warmup", lambda recs: warmed.append(len(recs)))
+
+    messages: list[str] = []
+    phase2_ipopt.solve_candidates(
+        [_record()], settings.model_copy(update={"warmup": False}), log=messages.append
+    )
+    assert warmed == []
+    assert not any("warming" in message for message in messages)
+
+    phase2_ipopt.solve_candidates(
+        [_record()], settings.model_copy(update={"warmup": True}), log=messages.append
+    )
+    assert warmed == [1]
+    assert any("warming" in message for message in messages)

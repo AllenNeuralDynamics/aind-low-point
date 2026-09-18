@@ -583,13 +583,16 @@ def solve_candidates(
     # worker. Largest n_arcs first so the heaviest compile is the one warmed.
     nstr = sorted({r["n_arcs"] for r in recs})
     if POOL == "thread":
-        tw = time.time()
-        note(f"warming (in-parent, single-threaded) for n_arcs {nstr}...")
         # Threads share the parent's state, so the parent holds the settings the
-        # worker tasks read back from _G.
+        # worker tasks read back from _G. The setup itself is not optional —
+        # only the compile that warmup pays up front, which WARMUP=0 moves onto
+        # the first candidate instead.
         _init(settings)
-        _warmup(recs)
-        note(f"  warmup {time.time() - tw:.0f}s")
+        if settings.warmup:
+            tw = time.time()
+            note(f"warming (in-parent, single-threaded) for n_arcs {nstr}...")
+            _warmup(recs)
+            note(f"  warmup {time.time() - tw:.0f}s")
         t0 = time.time()
         # One GPU context shared across threads (no per-worker memory).
         from concurrent.futures import ThreadPoolExecutor, as_completed
