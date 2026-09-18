@@ -74,7 +74,7 @@ The root ``ConfigModel`` contains these sections:
     asset_templates:
       "structure:*":
         role: anatomy
-        caps: [RENDERABLE]
+        mr_signal: water
 
     target_templates:
       default_target:
@@ -102,9 +102,6 @@ The root ``ConfigModel`` contains these sections:
         files: {}
         probe_to_ref: {}
 
-    # Rendering options
-    options:
-      color_map: rainbow
 
 
 Assets
@@ -124,7 +121,7 @@ Basic Asset Definition
         role: anatomy
         src: /data/brain.obj
         loader: trimesh
-        caps: [RENDERABLE, COLLIDABLE]
+        mr_signal: water
 
 Asset Fields
 ~~~~~~~~~~~~
@@ -134,11 +131,18 @@ Field                Required     Description
 ==================== ============ ================================================
 ``key``              Yes          Unique identifier
 ``kind``             Inferred     ``mesh``, ``points``, or ``lines``
-``role``             Inferred     ``anatomy``, ``target``, ``landmark``, ``geometry``
+``role``             Inferred     ``probe``, ``fixture``, ``anatomy``, ``target``,
+                                  ``landmark``, ``geometry``
 ``src``              Conditional  Path to geometry file
 ``loader``           Inferred     Loader name (``trimesh``, ``numpy_points``, etc.)
 ``loader_kwargs``    No           Additional loader arguments
-``caps``             No           Capabilities (default: ``[RENDERABLE]``)
+``mr_signal``        Conditional  ``water`` | ``fat`` | ``none`` — which resonance
+                                  localized it. **Required on every asset and
+                                  target when** ``imaging`` **is set**
+``collidable``       No           Give this asset an FCL body (default: false)
+``recording``        Conditional  A probe's electrode layout, or ``none`` for a
+                                  probe with no array. Required for a probe kind
+                                  the built-in table does not know
 ``material_ref``     No           Reference to materials bank
 ``material``         No           Inline material definition
 ``tags``             No           Arbitrary string tags
@@ -259,10 +263,10 @@ Target-Specific Fields
    * - ``uncertainty_mm``
      - No
      - Position uncertainty radius (advisory).
-   * - ``chem_shift_policy``
-     - No
-     - MR chem-shift correction: ``auto`` (default, applies if ``imaging`` is
-       configured), ``on``, or ``off``.
+   * - ``mr_signal``
+     - Conditional
+     - ``water`` | ``fat`` | ``none``. Required when ``imaging`` is set; see
+       `Chemical shift`_.
 
 Range Target Declarations
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -378,7 +382,7 @@ Defining Templates
       structure:
         kind: mesh
         role: anatomy
-        caps: [RENDERABLE]
+        mr_signal: water
         material_ref: anatomy_material
 
       transparent:
@@ -388,7 +392,7 @@ Defining Templates
     target_templates:
       default:
         reducer: centroid
-        caps: [RENDERABLE]
+        mr_signal: water
 
 Applying Templates
 ~~~~~~~~~~~~~~~~~~
@@ -413,7 +417,7 @@ Templates with glob patterns automatically match assets by key:
     asset_templates:
       "structure:*":
         role: anatomy
-        caps: [RENDERABLE]
+        mr_signal: water
 
     assets:
       - key: structure:PL
@@ -432,9 +436,13 @@ Template Merge Behavior
 When templates are applied:
 
 - Scalar values: Later values override earlier
-- Lists (``tags``, ``caps``): Union of all values
+- Lists (``tags``, ``scene_tags``): Union of all values
 - Dicts (``metadata``, ``loader_kwargs``): Shallow merge
-- ``material``, ``collision``: Nested merge
+- ``material``: Nested merge
+
+State a property on the template rather than on each asset that uses it. A probe
+asset is then a key, a mesh and a template reference; any asset may still
+override what the template says.
 
 
 Materials
@@ -597,24 +605,20 @@ Source Space Options
 ``tags`` vs ``scene_tags``
 --------------------------
 
-Two fields with almost-identical names but different scopes — easy to confuse,
-worth getting straight before authoring a config.
+Two lists, one node. ``tags`` describes the thing and ``scene_tags`` the
+placement; **the generated scene node carries the union of both**, and that node
+is what the UI and the optimizer filter on.
 
-================ ====================================================
-``tags``         Lives on the **asset spec**. Catalog-only metadata —
-                 used for queries like "give me every CCF region" or
-                 "is this asset a target?". Doesn't reach the rendered
-                 scene. Default: empty list.
-``scene_tags``   Lives on the **scene node** (auto-created from the asset).
-                 What the UI, collision adapter, and visibility toggles
-                 filter on. Default: empty list (which suppresses
-                 auto-scene-node creation unless ``transform`` is set).
-================ ====================================================
+A node is auto-created from an asset when ``transform``, ``scene_tags`` or
+``tags`` is set — controlled by ``auto_scene``, default ``true``. Set
+``auto_scene: false`` for an asset that is a template rather than a placement,
+which is what a probe *kind* asset is: the nodes the planner poses come from
+``plan.probes``. Probes default to ``scene_tags: [probe, dynamic]``.
 
-A node is auto-created from an asset when **either** ``transform`` is set
-**or** ``scene_tags`` is non-empty (controlled by ``auto_scene``, default
-``true``). Probes are an exception — they always have ``scene_tags=
-["probe", "dynamic"]`` by default.
+Tags are open: group nodes however suits the subject. A tag within an edit or
+two of one the code acts on draws a warning naming the likely intent, because
+that kind of typo is otherwise silent — a misspelled ``fixture`` drops the well
+out of collision checking with no error.
 
 Well-known ``scene_tags`` values
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -626,8 +630,7 @@ them up.
 ==================== =====================================================
 Tag                  What it does
 ==================== =====================================================
-``static``           Doesn't move with probe state. Affects collision-group
-                     inclusion.
+``static``           Doesn't move with probe state.
 ``dynamic``          Repositioned on every probe state change (probes only).
 ``probe``            Identifies probe meshes. Drives the *Probes* visibility
                      switch + opacity slider on the Display tab.
@@ -637,19 +640,20 @@ Tag                  What it does
 ``structure``        CCF-region meshes; drives the *CCF regions* group.
 ``fixture``          Generic rig hardware (well, probe-guard, etc.). Drives
                      the *Other fixtures* group; gets a default 60%
-                     transparency at startup.
+                     transparency at startup. With ``cone``, ``well`` and
+                     ``headframe``, puts the node in the optimizer's
+                     static-obstacle set.
 ``implant``          The implant body. Drives the *Implant* group; gets a
                      default 80% transparency at startup. The implant
-                     typically carries **both** ``fixture`` and ``implant``;
-                     the visibility-group exclusion column keeps the implant
-                     slider distinct from "Other fixtures".
+                     typically carries **both** ``fixture`` and ``implant``,
+                     and ``implant`` takes it back *out* of the optimizer's
+                     obstacle set — probes thread through its bores.
 ``headframe``        Headframe mesh. Subject to fixture-group defaults.
 ``target``           Visualised target points.
 ``hole``             Per-bore points on the implant (used by hole extraction).
 ==================== =====================================================
 
-When in doubt: ``scene_tags`` is what controls how the user *sees* the
-asset; ``tags`` is what controls how the *code* finds it.
+Collision pairing is **not** a tag; see `Collision`_.
 
 
 Scene Graph
@@ -660,8 +664,8 @@ The scene graph defines instances of assets with transforms for rendering.
 Auto-Generated Nodes
 ~~~~~~~~~~~~~~~~~~~~
 
-Assets and targets with ``transform`` or ``scene_tags`` automatically create
-scene nodes:
+Assets and targets with ``transform``, ``scene_tags`` or ``tags`` automatically
+create scene nodes:
 
 .. code-block:: yaml
 
@@ -906,27 +910,113 @@ The geometric **Export plan** button is a *different* format
 execution. It's read-only — there's no loader for that variant.
 
 
-Capabilities
-------------
+Collision
+---------
 
-Capabilities control what systems process an asset:
-
-============== ===============================================
-Capability     Description
-============== ===============================================
-RENDERABLE     Asset appears in rendered scene
-MOVABLE        Asset can be moved interactively
-COLLIDABLE     Asset participates in collision detection
-SELECTABLE     Asset can be selected in UI
-DEFORMABLE     Asset supports deformation
-SAVABLE        Asset state is persisted
-============== ===============================================
-
-Specify as list:
+``collidable: true`` gives an asset an FCL body. **Which pairs are then tested is
+a rule, not something the config lists**: a pair is checked when both sides are
+collidable and at least one has ``role: probe``. Probes are checked against
+fixtures and against each other; fixtures are not checked against each other.
 
 .. code-block:: yaml
 
-    caps: [RENDERABLE, COLLIDABLE]
+    asset_templates:
+      probe:
+        kind: mesh
+        role: probe
+        collidable: true
+
+This replaced a six-member ``caps`` list and per-asset ``collision.group`` /
+``collision.mask`` label lists. Of the six capabilities only ``COLLIDABLE`` was
+ever read, and the labels only ever expressed the rule above.
+
+
+Chemical shift
+--------------
+
+Fat and water resonate about 3.5 ppm apart, so a scanner reconstructing at the
+water frequency places fat-derived signal a few millimetres off along the readout
+axis. The canonical frame here is the headframe's, and the headframe is located
+from vaseline fiducials — so fat-localized features define the frame and
+water-localized ones are translated into it.
+
+Every asset and target therefore states which resonance localized it:
+
+============ =====================================================
+``mr_signal`` Meaning
+============ =====================================================
+``water``    Brain anatomy, segmented structures, targets derived
+             from the annotation volume. **Gets the correction.**
+``fat``      Located from a vaseline fiducial — the headframe, the
+             implant, bore centres. Defines the frame; stays put.
+``none``     Never in the image: CAD assumed rigid to the headframe
+             (cone, well) or geometry the planner places (probes).
+============ =====================================================
+
+.. code-block:: yaml
+
+    assets:
+      - key: brain
+        mr_signal: water
+      - key: headframe
+        mr_signal: fat
+      - key: probe:2.1
+        mr_signal: none
+
+``imaging.chem_shift_ppm_default`` sets the ppm for the whole config; the
+per-asset ``chem_shift_ppm`` overrides it and is rarely needed.
+
+**A config with no** ``imaging`` **block declares no** ``mr_signal`` **at all.**
+An atlas-based plan has no image, so there is nothing to shift and nothing to
+say. Where ``imaging`` *is* set, omitting ``mr_signal`` is an error rather than a
+default, because a wrong answer here moves geometry by millimetres and nothing
+downstream notices.
+
+
+Probe recording geometry
+------------------------
+
+A probe kind the built-in table knows — ``2.1``, ``2.4``, ``quadbase``,
+``quadbase-alpha``, ``quadbase-dovetail`` — needs no declaration. Anything else
+states where its electrodes are, in mm from the shank tip, one range per shank:
+
+.. code-block:: yaml
+
+    assets:
+      - key: probe:np-3.0
+        role: probe
+        collidable: true
+        recording:
+          active_ranges_mm: [[0.2, 3.065], [0.2, 3.065]]
+          shank_pitch_mm: 0.25
+
+      - key: probe:pipette
+        role: probe
+        recording: none        # no array: targets with its tip
+
+A kind that is in neither the table nor the config is refused at load. It used to
+resolve silently to tip-on-target — the same answer a pipette gets deliberately —
+so a mistyped kind was indistinguishable from an array-less probe, and differed
+by 1.6 mm of insertion depth for a 2.1.
+
+
+Upgrading an older config
+-------------------------
+
+A config written against an earlier schema is brought forward with:
+
+.. code-block:: bash
+
+    uv run --python 3.13 python scripts/upgrade_config.py --list
+    uv run --python 3.13 python scripts/upgrade_config.py --dry-run path/to/*.yml
+
+It rewrites the YAML text, so comments and ``${...}`` interpolations survive, and
+accepts the result only if the config's behaviour is unchanged — the same
+chemical-shift decision and ppm for every key, the same collidability, the same
+collision pairs. Otherwise the original is restored and the differing key named.
+
+Run it **before** taking a version that removes the fields it reads: the
+migrations derive the new fields from the old ones.
 
 
 Complete Example
@@ -948,27 +1038,42 @@ Complete Example
 
     transforms:
       headframe_to_lps:
-        kind: sitk_file
-        path: ${paths.data_root}/transforms/headframe.h5
+        sequence:
+          - kind: sitk_file
+            path: ${paths.data_root}/transforms/headframe.h5
+
+    imaging:
+      magnet_frequency_MHz: 599.0
+      chem_shift_ppm_default: 3.9
 
     asset_templates:
       "structure:*":
         role: anatomy
+        mr_signal: water
         material_ref: brain
-        transform: headframe_to_lps
+
+      probe:
+        kind: mesh
+        role: probe
+        collidable: true
+        mr_signal: none
+        loader: trimesh
 
     target_templates:
       "target:*":
-        reducer: centroid
+        reducer: mesh_center_mass
+        mr_signal: water
         material_ref: target
 
     assets:
       - keys: [structure:PL, structure:MD, structure:CLA]
         src: ${paths.data_root}/masks/{name}-Mask.nrrd
+        transform: headframe_to_lps
+        scene_tags: [static, structure]
 
-      - key: probe:neuropixels
-        src: /probes/neuropixels.obj
-        role: geometry
+      - key: probe:2.1
+        src: /probes/np21.obj
+        templates: [probe]
 
     targets:
       - derive_from: [structure:PL, structure:MD, structure:CLA]
@@ -981,13 +1086,13 @@ Complete Example
 
       probes:
         probe_A:
-          kind: neuropixels
+          kind: "2.1"
           arc: left
           target: target:PL
           slider_ml: 5.0
 
         probe_B:
-          kind: neuropixels
+          kind: "2.1"
           arc: right
           target: target:MD
           slider_ml: 3.0
@@ -1011,9 +1116,15 @@ The configuration is validated at parse time. Common errors:
 - Asset has both file source and resource source
 - Target missing source (no ``src``, ``source_key``, or ``from_resource``)
 
+**Missing declarations**:
+
+- ``mr_signal`` absent from an asset or target while ``imaging`` is set
+- a probe kind with no recording geometry, in neither the built-in table nor
+  the config
+
 **Constraint violations**:
 
-- Targets cannot have ``COLLIDABLE`` capability
+- A target cannot be ``collidable``
 - ``FILE_NATIVE`` source space requires a transform
 - Duplicate keys in asset/target catalog
 

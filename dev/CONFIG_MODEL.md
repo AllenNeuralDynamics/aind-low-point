@@ -188,37 +188,16 @@ does everything in `mode="after"`. Order matters:
 Errors are collected via the local `err(msg)` callback so the user sees all
 problems at once, not one at a time.
 
-## `tags` vs `scene_tags` (two fields, different scopes)
+## `tags` and `scene_tags`
 
-Both appear on almost every model and easy to confuse.
+`tags` describes the thing, `scene_tags` the placement, and the generated
+`SceneNodeModel` carries the **union** of both. A node is generated when any of
+`transform`, `scene_tags` or `tags` is set, under `auto_scene` (default `True`).
 
-| Field | Lives on | Used for | When unset |
-|---|---|---|---|
-| `tags` | `AssetSpec` / `TargetSpec` (catalog) | Catalog-level metadata: `catalog.assets_with_tag(...)`, "is this a CCF region asset?". Does **not** reach the scene. | empty list |
-| `scene_tags` | `NodeInstance` (scene) | Scene-level filters: `scene.by_tag(...)`, `VISIBILITY_GROUPS` (visibility toggles + opacity sliders), default-opacity overrides in the trame controller, collision-group selection. | empty list (no scene node unless `transform` is set) |
-
-A node is auto-created from the asset when **either** `transform` is set
-**or** `scene_tags` is non-empty (controlled by `auto_scene`, default
-`True`). Set `auto_scene: false` to suppress.
-
-### Well-known `scene_tags` values
-
-These are what existing UI / runtime logic actively looks for. New values
-are fine — they just won't trigger any behaviour unless someone wires them
-up.
-
-| Tag | Meaning / Behaviour |
-|---|---|
-| `static` | Doesn't move with probe state. Used for collision group inclusion. |
-| `dynamic` | Repositioned on every probe state change (probes only). |
-| `probe` | Identifies probe meshes. Matches the `("probes", "Probes", {"probe"}, set())` group in `VISIBILITY_GROUPS` → drives the *Probes* visibility switch + opacity slider on the Display tab. |
-| `brain` | Drives the "Brain outline" visibility group; also what `recenter_view` finds when computing the camera focal point. |
-| `structure` | CCF-region meshes; drives the "CCF regions" group. |
-| `fixture` | Generic non-implant rig hardware (well, probe-guard, …). Drives the "Other fixtures" group; default opacity 0.6 via `_DEFAULT_OPACITY_BY_TAG`. |
-| `implant` | The implant body. Drives the "Implant" group; default opacity 0.2. Note the implant typically carries **both** `fixture` and `implant`; the visibility-group exclusion column keeps the implant slider distinct from the "Other fixtures" slider. |
-| `headframe` | Headframe mesh. Subject to fixture-group opacity defaults. |
-| `target` | Visualised target points. |
-| `hole` | Per-bore points on the implant (for hole extraction). |
+The tags something dispatches on are `common.KNOWN_SCENE_TAGS`; a config tag
+within an edit or two of one of them draws a warning at load. `dev/VOCABULARY.md`
+has what each does and why the chemical-shift and collision decisions are enum
+fields rather than tags.
 
 ### `ProbeDeclModel` defaults
 
@@ -326,4 +305,6 @@ hand-off to physical execution. It's read-only; there's no loader for it.
 | Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build_runtime.py` registry |
 | Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check `_resolve_target_LPS_from_plan` fallback path | `planning.py:151` |
 | Probe orientation off | Wrong `canonicalization_ref` for probe mesh (LSA vs ASR) | example config + `canonicalizations` block |
-| Collisions silently missing pairs | This was the `defaultCollisionCallback` bug — fixed in `fcl_backend.py` | `fcl_backend.py:113` (per-pair callback) |
+| Collisions silently missing pairs | This was the `defaultCollisionCallback` bug — fixed in `fcl_backend.py` | `fcl_backend.py` (per-pair callback) |
+| An asset is never collided | `collidable` unset, or neither side of the pair is `role: probe` | `collisions.pair_bits` |
+| Geometry off by a few mm along AP | wrong `mr_signal` — `water` is what gets corrected | `runtime/chem_shift.py` |
