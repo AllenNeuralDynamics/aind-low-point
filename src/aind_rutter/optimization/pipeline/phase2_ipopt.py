@@ -123,8 +123,13 @@ def _init(settings: Phase2Settings | None = None) -> None:
     environment, which is what a caller outside the pipeline gets.
     """
     settings = settings or Phase2Settings()
+    # A second run in one process must inherit nothing from the first: _G holds
+    # the previous subject's geometry and its derived coverage ceilings, and the
+    # compiled kernels are keyed on shapes that a different subject can match.
+    _G.clear()
     _G["settings"] = settings
     _setup_compile_cache()
+    from aind_rutter.optimization.objectives.phase2 import clear_jit_cache
     from aind_rutter.optimization.objectives.probe_static import _build_probe_static
     from aind_rutter.optimization.pipeline.phase1_geometry import (
         build_coverage_data,
@@ -133,6 +138,7 @@ def _init(settings: Phase2Settings | None = None) -> None:
         OptimizationRuntime,
     )
 
+    clear_jit_cache()
     opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
     assets = opt.build_problem_assets(well_mode=settings.well, include_brain=True)
     # The FCL gate uses the same fixture names plus the world-frame implant BVH.

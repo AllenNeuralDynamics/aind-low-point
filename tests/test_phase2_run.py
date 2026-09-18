@@ -194,3 +194,23 @@ def test_the_payload_round_trips_through_the_handoff_file(solved, tmp_path) -> N
         np.asarray(reloaded["all"][0]["pose"]), np.asarray(payload["all"][0]["pose"])
     )
     assert reloaded["config"]["fcl_tol"] == payload["config"]["fcl_tol"]
+
+
+def test_worker_setup_drops_the_previous_subjects_state(settings) -> None:
+    """A second run in one process must inherit nothing from the first.
+
+    The worker globals hold the previous subject's geometry and the coverage
+    ceilings derived from it, and the compiled kernels are keyed on shapes that
+    a different subject can match, so setup clears all three.
+    """
+    from aind_rutter.optimization.objectives.phase2 import cache_stats
+    from aind_rutter.optimization.pipeline import phase2_ipopt
+
+    phase2_ipopt._G["cov_norm"] = ((1.0,), (1.0,))
+    phase2_ipopt._G["from_another_subject"] = "stale"
+    phase2_ipopt._init(settings)
+
+    assert "from_another_subject" not in phase2_ipopt._G
+    assert phase2_ipopt._G.get("cov_norm") is None
+    assert phase2_ipopt._G["settings"] is settings
+    assert cache_stats()["entries"] == 0

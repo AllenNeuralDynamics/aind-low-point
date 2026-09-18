@@ -23,7 +23,7 @@ Shares all geometry/density kernels with Phase 1 — no duplicate code.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Hashable
 
 import jax
@@ -235,33 +235,17 @@ _CACHE_STATS = {"hits": 0, "misses": 0}
 
 
 def _weights_key(w: Phase2Weights) -> tuple:
+    """Every weight, by name.
+
+    Read from the dataclass rather than a hand-written list, because a weight
+    left out of the key is baked into the traced kernel and then silently reused
+    at a different value. Floats round to 6 decimals so that float noise in a
+    recomputed weight does not force a recompile.
+    """
     return tuple(
-        float(getattr(w, f))
-        for f in (
-            "lambda_bounds",
-            "lambda_margin_clear",
-            "lambda_margin_thread",
-            "tau_clear_mm",
-            "tau_thread_gunits",
-            "min_clearance_mm",
-            "threading_oval_tolerance",
-            "min_arc_ap_sep_deg",
-            "min_intra_arc_ml_sep_deg",
-            "comfortable_ap_deg",
-            "comfortable_ml_deg",
-            "softmin_beta",
-            "shaft_length_mm",
-            "brain_margin_mm",
-            "lambda_cov",
-            "cov_alpha",
-            "softmin_beta_cov",
-            "obb_slack_gain",
-        )
-    ) + (
-        int(w.smooth_clearance_reward),
-        int(w.top_k_body_body),
-        int(w.top_k_body_shank),
-        int(w.top_k_shank_shank),
+        (f.name, round(value, 6) if isinstance(value, float) else value)
+        for f in fields(w)
+        for value in (getattr(w, f.name),)
     )
 
 
@@ -790,6 +774,19 @@ def cache_stats() -> dict:
     return {**_CACHE_STATS, "entries": len(_JIT_CACHE)}
 
 
+def clear_jit_cache() -> None:
+    """Drop every compiled kernel and the hit counters.
+
+    The cache key carries the shapes of the fixture, brain and probe grids but
+    not their values, and coverage data is not in it at all, so an entry is only
+    valid for the inputs that built it. A caller that changes subject or well
+    mode must clear the cache, or it gets the previous subject's kernel with the
+    previous subject's geometry compiled in.
+    """
+    _JIT_CACHE.clear()
+    _CACHE_STATS.update(hits=0, misses=0)
+
+
 def _padding_mask(
     packed: dict, labels: dict, *, n_arcs: int, has_brain: bool
 ) -> NDArray:
@@ -892,14 +889,14 @@ def make_phase2(
     # dtype is in the cache key for the same reason.
     fixtures = cast_fixture_grids(fixtures, grid_dtype)
     dtype_key = jnp.dtype(grid_dtype).name
-    sig = _signature(statics, n_arcs, weights, fixtures, brain_sdf) + (
-        ceil_key,
-        wcov_key,
-        dtype_key,
-    )
+    # The shape signature is what _build_jit unpacks; the rest of the key covers
+    # the other values it bakes into the trace. Kept as two names rather than a
+    # slice, so adding a component to the key cannot silently shift the unpack.
+    shape_sig = _signature(statics, n_arcs, weights, fixtures, brain_sdf)
+    sig = shape_sig + (ceil_key, wcov_key, dtype_key, int(coverage_n_samples))
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
-            sig[:-3],
+            shape_sig,
             weights,
             coverage_data,
             fixtures,
