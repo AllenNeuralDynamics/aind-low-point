@@ -40,6 +40,13 @@ from aind_rutter.optimization.geometry.recording import (
     RecordingGeometry,
     pivot_from_shank_tips,
 )
+from aind_rutter.optimization.objectives.layout import (
+    ML,
+    SPIN_COS,
+    SPIN_SIN,
+    reduced_block,
+    reduced_n_vars,
+)
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 
 
@@ -103,8 +110,8 @@ class BatchedProbeStatic:
     sdf_shank_obb_mask: jnp.ndarray  # (N_kinds, max_Sa) 0/1
 
     # ---- Optimization bounds (per candidate) ----
-    bounds_lo: jnp.ndarray  # (B, n_arcs + 3*K) — (ml, sx, sy)
-    bounds_hi: jnp.ndarray  # (B, n_arcs + 3*K)
+    bounds_lo: jnp.ndarray  # (B, reduced_n_vars) — (ml, sx, sy)
+    bounds_hi: jnp.ndarray  # (B, reduced_n_vars)
 
     # ---- Static dims ----
     K: int
@@ -265,7 +272,7 @@ def build_batched_probe_static(
 
     sdf_kind_id_np = -np.ones((B, K), dtype=np.int32)
 
-    n_vars = n_arcs + 3 * K  # (ml, sx, sy) per probe under Patch B
+    n_vars = reduced_n_vars(n_arcs, K)  # (ml, sx, sy) per probe
     bounds_lo = np.zeros((B, n_vars), dtype=np.float32)
     bounds_hi = np.zeros((B, n_vars), dtype=np.float32)
     ap_lo, ap_hi = _ap_bounds_deg(head_pitch_deg)
@@ -283,12 +290,13 @@ def build_batched_probe_static(
             bounds_hi[b, a] = ap_hi
         # Per-probe ml + (sx, sy) bounds + arc index + section data
         for i, p in enumerate(probes):
-            bounds_lo[b, n_arcs + 3 * i] = ml_lo
-            bounds_hi[b, n_arcs + 3 * i] = ml_hi
-            bounds_lo[b, n_arcs + 3 * i + 1] = sxy_lo
-            bounds_hi[b, n_arcs + 3 * i + 1] = sxy_hi
-            bounds_lo[b, n_arcs + 3 * i + 2] = sxy_lo
-            bounds_hi[b, n_arcs + 3 * i + 2] = sxy_hi
+            off = reduced_block(n_arcs, i)
+            bounds_lo[b, off + ML] = ml_lo
+            bounds_hi[b, off + ML] = ml_hi
+            bounds_lo[b, off + SPIN_COS] = sxy_lo
+            bounds_hi[b, off + SPIN_COS] = sxy_hi
+            bounds_lo[b, off + SPIN_SIN] = sxy_lo
+            bounds_hi[b, off + SPIN_SIN] = sxy_hi
             probe_arc_idx[b, i] = aa.probe_to_arc_idx.get(p.name, 0)
 
             hole_id = ha.probe_to_hole.get(p.name)

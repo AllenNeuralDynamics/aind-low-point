@@ -33,6 +33,12 @@ from aind_rutter.optimization.objectives.batched_reduced import (
     _threading_g_for_probe,
 )
 from aind_rutter.optimization.objectives.batched_static import BatchedProbeStatic
+from aind_rutter.optimization.objectives.layout import (
+    ML,
+    SPIN_COS,
+    SPIN_SIN,
+    reduced_block,
+)
 from aind_rutter.optimization.objectives.probe_static import JointWeights
 from aind_rutter.optimization.pipeline.contracts import (
     SpinRestoreWithLosses,
@@ -110,7 +116,7 @@ def make_batched_spin_restore_partial(
     idxK = jnp.arange(K)
 
     def _pose_k(y, arc_aps, arc_idx, k):
-        off = n_arcs + 3 * k
+        off = reduced_block(n_arcs, k)
         spin = spin_deg_from_sxy(y[off + 1], y[off + 2])
         return pose_from_optimizer_vars(
             target_LPS=target_LPS[k],
@@ -137,7 +143,7 @@ def make_batched_spin_restore_partial(
             [sdf_surface_points[int(kind_np[k])] @ Rs[k].T + ts[k] for k in range(K)]
         )  # (K, Nsurf, 3)
         arc_i = arc_aps[arc_idx[i]]
-        ml_i = y[n_arcs + 3 * i]
+        ml_i = y[reduced_block(n_arcs, i) + ML]
         tgt_i, piv_i = target_LPS[i], pivot_local[i]
         ki = kind_id[i]
         grid_i, org_i, sp_i = sdf_grids[ki], sdf_origins[ki], sdf_spacings[ki]
@@ -244,7 +250,8 @@ def make_batched_spin_restore_partial(
     def _probe_body(y, i, arc_idx, sections):
         losses = _spin_losses(y, i, arc_idx, sections)
         best = spin_xy_grid[jnp.argmin(losses)]
-        return y.at[n_arcs + 3 * i + 1].set(best[0]).at[n_arcs + 3 * i + 2].set(best[1])
+        off = reduced_block(n_arcs, i)
+        return y.at[off + SPIN_COS].set(best[0]).at[off + SPIN_SIN].set(best[1])
 
     def restore_one(y, *varying):
         arc_idx, sections = varying[0], varying[1:]

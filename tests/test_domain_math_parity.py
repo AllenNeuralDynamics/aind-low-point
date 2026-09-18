@@ -107,3 +107,54 @@ def test_a_configured_pivot_still_wins_everywhere() -> None:
         SimpleNamespace(probe_to_arc_idx={"p": 0}, arc_centroids_deg=(0.0,)),
     )
     np.testing.assert_allclose(static.pivot_local, configured)
+
+
+def test_the_reduced_stride_has_one_definition() -> None:
+    """It was a bare `3` at 21 sites across five modules.
+
+    A literal is not wrong until the layout changes, at which point a site that
+    was missed keeps indexing the old shape and silently reads a neighbouring
+    variable rather than failing.
+    """
+    from aind_rutter.optimization.objectives import layout
+
+    assert layout.REDUCED_PER_PROBE_VARS == 3
+    assert layout.PHASE1_PER_PROBE_VARS == 6
+
+
+def test_the_two_layouts_share_their_first_three_slots() -> None:
+    """Which is what lets a reduced solution seed a full one."""
+    from aind_rutter.optimization.objectives import layout
+
+    assert (layout.ML, layout.SPIN_COS, layout.SPIN_SIN) == (0, 1, 2)
+    assert layout.ML < layout.REDUCED_PER_PROBE_VARS
+    assert layout.SPIN_SIN < layout.REDUCED_PER_PROBE_VARS
+
+
+def test_the_block_helpers_match_the_arithmetic_they_replaced() -> None:
+    from aind_rutter.optimization.objectives import layout
+
+    for n_arcs in (0, 1, 3):
+        for i in range(4):
+            assert layout.reduced_block(n_arcs, i) == n_arcs + 3 * i
+            assert layout.full_block(n_arcs, i) == n_arcs + 6 * i
+        for n_probes in range(5):
+            assert layout.reduced_n_vars(n_arcs, n_probes) == n_arcs + 3 * n_probes
+            assert layout.full_n_vars(n_arcs, n_probes) == n_arcs + 6 * n_probes
+
+
+def test_no_module_spells_the_reduced_stride_out() -> None:
+    """The regression this consolidation exists to prevent."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "src" / "aind_rutter" / "optimization"
+    pattern = re.compile(r"n_arcs \+ 3 ?\* ?[A-Za-z_]")
+    offenders = [
+        f"{path.name}:{n}"
+        for path in root.rglob("*.py")
+        if "__pycache__" not in str(path)
+        for n, line in enumerate(path.read_text().splitlines(), 1)
+        if pattern.search(line)
+    ]
+    assert not offenders, f"reduced stride written out at {offenders}"

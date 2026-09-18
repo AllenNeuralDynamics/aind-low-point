@@ -18,6 +18,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.optimization.objectives.batched_static import BatchedProbeStatic
+from aind_rutter.optimization.objectives.layout import (
+    reduced_block,
+)
 from aind_rutter.optimization.objectives.probe_static import JointWeights
 from aind_rutter.optimization.objectives.reduced_jax import (
     smooth_abs,
@@ -202,7 +205,7 @@ def make_batched_reduced_objective(  # noqa: C901
         Rs: list[jnp.ndarray] = []
         ts: list[jnp.ndarray] = []
         for i in range(K):
-            off = n_arcs + 3 * i
+            off = reduced_block(n_arcs, i)
             ml = y[off]
             sx = y[off + 1]
             sy = y[off + 2]

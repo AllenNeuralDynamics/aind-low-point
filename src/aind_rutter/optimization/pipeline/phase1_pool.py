@@ -52,6 +52,13 @@ from aind_rutter.optimization.objectives.batched_static import (
     build_batched_probe_static,
 )
 from aind_rutter.optimization.objectives.clearance_metrics import make_min_clear_one
+from aind_rutter.optimization.objectives.layout import (
+    ML,
+    SPIN_COS,
+    SPIN_SIN,
+    reduced_block,
+    reduced_n_vars,
+)
 from aind_rutter.optimization.objectives.phase1 import Phase1Weights
 from aind_rutter.optimization.objectives.probe_static import (
     JointWeights,
@@ -224,14 +231,15 @@ def restore_group(
     fixtures = (well,)
     seed_rows: list[np.ndarray] = []
     for c in cands:
-        y0 = np.zeros(n_arcs + 3 * K, np.float32)
+        y0 = np.zeros(reduced_n_vars(n_arcs, K), np.float32)
         for a in range(min(n_arcs, len(c.aa.arc_centroids_deg))):
             y0[a] = float(c.aa.arc_centroids_deg[a])
         for k, p in enumerate(probes):
             sp = np.deg2rad(float(c.spin_seed.get(p.name, 0.0)))
-            y0[n_arcs + 3 * k] = float(c.ml_seed.get(p.name, 0.0))
-            y0[n_arcs + 3 * k + 1] = float(np.cos(sp))
-            y0[n_arcs + 3 * k + 2] = float(np.sin(sp))
+            off = reduced_block(n_arcs, k)
+            y0[off + ML] = float(c.ml_seed.get(p.name, 0.0))
+            y0[off + SPIN_COS] = float(np.cos(sp))
+            y0[off + SPIN_SIN] = float(np.sin(sp))
         seed_rows.append(y0)
     seeds = np.stack(seed_rows)
     B = len(cands)

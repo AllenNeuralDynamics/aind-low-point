@@ -51,6 +51,7 @@ from aind_rutter.optimization.objectives.coverage import (
     coverage_total_over_probes,
     normalized_coverage_objective,
 )
+from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
 from aind_rutter.optimization.objectives.reduced_jax import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
@@ -106,7 +107,7 @@ class BrainSDFData:
     spacing: jnp.ndarray
 
 
-PHASE1_PER_PROBE_VARS = 6  # (ml, sx, sy, off_R, off_A, depth)
+# Re-exported: several modules import it from here. See objectives/layout.py.
 
 
 # ---------------------------------------------------------------------------

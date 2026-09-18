@@ -15,6 +15,11 @@ _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 
 import numpy as np
 
+from aind_rutter.optimization.objectives.layout import (
+    SPIN_COS,
+    SPIN_SIN,
+    reduced_block,
+)
 from aind_rutter.optimization.objectives.variables import PHASE1_PER_PROBE_VARS
 from aind_rutter.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
@@ -53,7 +58,8 @@ def setup(settings: PipelineSettings, runtime: OptimizationRuntime | None = None
 def spins_deg_from_reduced(y_red, n_arcs, K):
     out = []
     for k in range(K):
-        sx = y_red[n_arcs + 3 * k + 1]
-        sy = y_red[n_arcs + 3 * k + 2]
+        off = reduced_block(n_arcs, k)
+        sx = y_red[off + SPIN_COS]
+        sy = y_red[off + SPIN_SIN]
         out.append(float(np.degrees(np.arctan2(sy, sx))))
     return np.array(out)

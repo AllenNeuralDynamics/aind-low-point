@@ -29,6 +29,9 @@ import numpy as np
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
+from aind_rutter.optimization.objectives.layout import (
+    reduced_block,
+)
 from aind_rutter.optimization.sdf.kernels import (
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
@@ -287,7 +290,7 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         Rs = []
         ts = []
         for i in range(n_probes):
-            off = n_arcs + 3 * i
+            off = reduced_block(n_arcs, i)
             ml = y[off]
             sx = y[off + 1]
             sy = y[off + 2]
