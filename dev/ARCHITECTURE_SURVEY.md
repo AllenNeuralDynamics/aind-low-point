@@ -65,7 +65,7 @@ Two facts shape any restructuring:
 
 ## Defects found during the survey
 
-These change behavior today, or will once someone reaches the path. They are
+These change behavior today, or will once someone reaches the path. D14–D16 came out of checking the Python floor for decision 6. They are
 listed apart from the structural findings because each should be fixed on its own,
 before the code around it moves.
 
@@ -84,6 +84,9 @@ before the code around it moves.
 | D11 | The optimizer ignores a configured probe pivot | Nothing under `optimization/` reads `pivot_LPS`; the app honors it (`planning.py:405`) | Latent: every current config leaves it null | verified |
 | D12 | The thread-pool Phase 2 ignores `settings.warmup` | `solve_candidates` warms unconditionally on the thread branch | `WARMUP=0` has no effect in the default pool mode | verified |
 | D13 | CI has not run a test since at least June 2026 | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required. Every leg of run 33395088563 failed during setup: 3.9 on uv refusing an interpreter below `requires-python`, 3.13 on a stale `uv.lock` under `--locked`. | Three conflicting statements of the floor, and no leg of the matrix reaches pytest | verified (run log) |
+| D14 | A fresh install cannot start the app | `trame_controller.py:18` imports `pyvista.trame.ui`; pyvista's `trame/__init__.py` imports `trame_pyvista` unconditionally, and pyvista declares it only under its `jupyter` extra. The project depends on plain `pyvista>=0.46.5`. | `rutter-plan` fails to import on any resolution that picks pyvista 0.49; only the stale `uv.lock`, pinning 0.47.1, hides it | verified (3.11 and 3.14 installs) |
+| D15 | The declared Python floor is impossible | `pyproject.toml:9` requires `>=3.10`; `orientation_codes.py:3` imports `enum.StrEnum`, added in 3.11 | On 3.10 the package does not import; 25 test modules fail to collect | verified (measured) |
+| D16 | `ruff check` does not run the configured rule set | The installed ruff enables 415 rules with no config at all, and `[tool.ruff.lint]` uses `extend-select`, which adds to that default rather than replacing it | 497 findings in `src` under the documented lint command; with `select` in place of `extend-select`, zero | verified (measured) |
 | R1 | The app's FCL manager is shared across threads without a lock | The worker thread mutates the manager (`collisions.py:287-301`) while the kind-change path uses it on the main thread. `FCLBackend.sync` omits group and mask (`fcl_backend.py:63-79`). | Possible race and mis-filtered new nodes | reported |
 | R2 | The AP/ML readout skips angle clamping | `trame_controller.py:2106-2122` copies `planning.py:291-307` without `clamp_angles` | Sliders can show unclamped values | reported |
 | R3 | Default opacities bypass the material override path | `trame_controller.py:2053-2063` sets actor opacity directly; any repaint restores the config value | Opacity resets on collision flips | reported |
@@ -450,21 +453,23 @@ previous commit.
 Recorded 2026-09-17, with the evidence each rests on. Step 2 proceeds on these.
 
 1. **Split the difference: the soft objectives keep it, the FCL gate loses it.**
-   Phase 1 screens hundreds of thousands of candidates and every extra fixture SDF
-   costs compile and per-step time, so a soft objective over the well alone
-   (`phase1_pool.py:275,346`) is a defensible speed/fidelity trade — the well
-   lumen is what a probe enters through, and `_crop_fixture_to_box` already crops
-   the cone to the well's box. That stays, with the fixture set becoming an
-   explicit setting rather than a hard-coded one-tuple.
+   Confirmed intended by the author — the implant is not needed in Phase 1
+   because the threading terms already constrain the bore. The soft objective
+   over the well alone (`phase1_pool.py:275,346`) stays, with the fixture set
+   becoming an explicit setting rather than a hard-coded one-tuple.
 
-   Phase 1's FCL check excluding the implant does not survive the same argument.
-   It is the same validator Phase 2 runs, under the same field name `fcl`, and a
-   reader compares the two columns. Phase 1 passes `opt.fixture_sdfs()`
-   (`phase1_pool.py:750`), which drops implant-tagged nodes; Phase 2 passes
-   `fcl_fixture_set(..., include_implant=True)` (`phase2_ipopt.py:145`). Phase 1
-   gains the implant. The change is safe to land: nothing culls on Phase-1 `fcl`
-   — `rank_order` sorts on `min_clear` or `objective` — so only a reported number
-   moves, and the pool's poses stay bitwise identical.
+   Phase 1's FCL check gains the implant, so that both phases compute the field
+   named `fcl` the same way. Nothing gates on the Phase-1 value: it is written
+   for the top `FCL_TOPK` by soft clearance, left NaN elsewhere, printed as a
+   count, and every candidate enters the pool either way (`phase1_pool.py:745-770`).
+   It is off entirely in production — `run_subject_overnight.sh:101` sets
+   `FCL_TOPK=0` — so the fix changes a diagnostic column, and the pool's poses
+   stay bitwise identical. Whether to keep that diagnostic at all is decision 8.
+
+   One trap sits behind it: `select_by` names any pool field, so `SELECT_BY=fcl`
+   sorts on NaN for every record outside the top-K, and `rank_order`'s missing-key
+   sentinel does not apply to a key that is present and NaN. Make `rank_order`
+   treat NaN as the worst value while the fixture set is being fixed.
 
 2. **Only in the exported copy.** `export_plan_geometry` is a reporter, and the
    relabel is cosmetic by its own docstring, so it has no business editing the
@@ -507,14 +512,24 @@ Recorded 2026-09-17, with the evidence each rests on. Step 2 proceeds on these.
    `(N, 3)`: a pickled `.npy` executes arbitrary code on load, which is the thing
    the JSON payload work removed from this pipeline.
 
-6. **3.13.** Nothing below it has ever been tested. Both CI legs have failed since
-   at least June 2026 without running a test: 3.9 because uv refuses an
-   interpreter below `requires-python >=3.10`, and 3.13 because `uv.lock` is stale
-   under `--locked`. The code already needs 3.10 at minimum — 22 uses of
-   `dataclass(slots=True)` and `itertools.pairwise` — and `python-fcl` has no 3.14
-   wheel, so 3.13 is the only version anyone runs. Set `requires-python =
-   ">=3.13"`, cut the matrix to 3.13, refresh the lock, and let CLAUDE.md's
-   existing statement become true. Restoring a green CI belongs with this fix.
+6. **Floor 3.11, current 3.13, both tested.** The policy is to test the declared
+   floor and a current release, which needs the declared floor to be true — and
+   it is not. `requires-python = ">=3.10"` is contradicted by
+   `orientation_codes.py:3`, which imports `enum.StrEnum`, added in 3.11: on 3.10
+   the package does not import at all (25 collection errors, measured). On 3.11
+   the suite reaches 550 passed against jax 0.10.2, and the failures that remain
+   are D14 and a test assertion since fixed, not language incompatibilities.
+
+   3.14 cannot be the upper leg yet. `python-fcl` does now ship cp314 wheels, so
+   CLAUDE.md's stated reason is stale, but `scikit-image` (pulled in by
+   `trimesh[recommend]`) and `mesh2sdf` do not, and both fail to build from
+   source. Add 3.14 when those wheels land.
+
+   So: `requires-python = ">=3.11"`, a CI matrix of `["3.11", "3.13"]` — quoted,
+   because YAML reads an unquoted 3.10 as 3.1 — and a refreshed `uv.lock` so
+   `--locked` passes. Carrying 3.11 means carrying two jax generations, which the
+   Phase-2 solve is not bitwise identical across; if that is unwelcome, the
+   alternative is a 3.13 floor and a single leg until 3.14 is installable.
 
 ### Before step 3 (dead code)
 
