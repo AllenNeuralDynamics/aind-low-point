@@ -123,8 +123,11 @@ line-length = 88
 extend-exclude = ["scripts/reference_k3d_notebook.py"]
 
 [tool.ruff.lint]
-extend-select = ["Q", "RUF100", "C90", "I", "F", "E", "W"]
-extend-ignore = []
+# `select`, not `extend-select`: ruff's own default set is large and moves
+# between releases, so extending it made `ruff check` report whatever the
+# installed binary happened to enable.
+select = ["Q", "RUF100", "C90", "I", "F", "E", "W"]
+ignore = []
 mccabe = { max-complexity = 14 }
 pydocstyle = { convention = "numpy" }
 
