@@ -77,17 +77,25 @@ A probe *kind* asset (`probe:2.1`) is geometry the planner instances, not a
 placement. It carries `auto_scene: false` so that tagging it does not generate
 a scene node; the nodes that get posed come from `plan.probes`.
 
-## Upgrading a config written before `mr_signal`
+## Upgrading a config to the current schema
 
 ```bash
-uv run --python 3.13 python scripts/upgrade_config_mr_signal.py \
-    --dry-run examples/*_out.yml
+uv run --python 3.13 python scripts/upgrade_config.py --list
+uv run --python 3.13 python scripts/upgrade_config.py --dry-run examples/*_out.yml
 ```
 
-`water` is derived from what the old `role` rule resolves to for that very
-file, so the decision cannot move; the script re-reads the result and restores
-the original if any key's answer changed. `fat` is assigned by key and is
-documentation only — `fat` and `none` behave identically. The superseded
+Each migration rewrites the YAML text, so comments and `${...}` interpolations
+survive. A run is accepted only if the config's behaviour is unchanged — the
+same chemical-shift decision and ppm per key, the same collidability, the same
+set of colliding pairs — and the original is restored otherwise.
+
+**Run it before taking a version that deletes the superseded fields.** The
+migrations read the old fields to derive the new ones, so a config can only be
+upgraded while the code still understands it.
+
+For `mr_signal`, `water` is derived from what the old `role` rule resolves to
+for that very file, so the decision cannot move. `fat` is assigned by key and
+is documentation only — `fat` and `none` behave identically. The superseded
 `chem_shift_policy` and `chem_shift_apply_by_role` are removed.
 
 `ConfigModel.from_yaml(path, require_mr_signal=False)` loads an un-upgraded

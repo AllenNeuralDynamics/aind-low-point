@@ -10,7 +10,7 @@ import yaml
 from aind_rutter.common import MRSignal
 from aind_rutter.config import ConfigModel
 
-upgrade_mod = pytest.importorskip("scripts.upgrade_config_mr_signal")
+upgrade_mod = pytest.importorskip("scripts.upgrade_config")
 
 LEGACY = {
     "version": 1,
