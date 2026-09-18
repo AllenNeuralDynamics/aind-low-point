@@ -20,6 +20,14 @@ PyVista (web app, `app.py` + `trame_controller.py`).
   misspelling is refused at load; `tags`/`scene_tags` are open and only draw a
   warning on a near miss. `mr_signal` decides chemical shift and is required on
   every asset and target whenever `imaging` is set. See `dev/VOCABULARY.md`.
+- **Every pipeline stage is told, not configured by import order.**
+  `phase1_pool.run(Phase1Settings())`, `phase2_ipopt.run(recs, Phase2Settings())`
+  and `emit.run(EmitSettings())` take typed settings; constructor arguments
+  outrank the environment. Each variable also accepts a `RUTTER_`-prefixed
+  spelling, which wins — `CONFIG`, `OUT`, `LIMIT` and `N` are set in many
+  environments for unrelated reasons. The only import-time environment reads
+  left are the jax platform and allocator variables, which must precede the jax
+  import.
 - **What a config resolves to is pinned.** `tests/config_semantics.json` records
   every tracked config's per-asset chemical-shift decision and ppm and
   collidability, plus its scene nodes, fixture set and collision pairs.
@@ -31,7 +39,7 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (730 currently green)
+uv run --python 3.13 pytest -q            # tests (786 currently green)
 uv sync --python 3.13                     # set up venv
 
 # Phase-2 output parity against a baseline commit, on a subject written on the

@@ -17,7 +17,7 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Steps 1 to 3 of the
+The survey below is a snapshot of commit `a5420cc`. Steps 1 to 4 of the
 proposed sequence have since landed.
 
 **Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
@@ -91,7 +91,36 @@ The suite went 499 → 671 (step 2) → 730. Two findings under "Tests and
 documentation" are fixed by step 1 and are marked where they appear. Everything
 else stands as written.
 
-**What is left.** Steps 4 to 7, and one gated step: retiring `caps`, `collision`,
+**Step 4** gave every stage typed settings. Phase 1 read 21 values as module
+globals at import, so its importable entry point could not be told anything;
+`emit` read three more. Both now have `run(settings)` beside a `main()` that
+builds the settings from the environment, as Phase 2 has had since it was
+written, and `restore`, `enumeration` and `thick_well` take the settings rather
+than reading for themselves.
+
+The architecture baseline went from 54 recorded environment reads to 28. **Every
+import-time read that remains is a jax platform or allocator variable** —
+`JAX_PLATFORMS`, the `XLA_PYTHON_CLIENT_*` pair, and Phase 2's `PLATFORM`,
+`POOL`, `THREADS` and `GPU_MEM_FRACTION` — which must be set before jax loads and
+so cannot come from an object built inside `main`. The default subject path, found
+in seven places by the survey, is now in one.
+
+Two result-changing values are still read where they are used:
+`THREADING_MARGIN_MM` in `geometry.holes` and `RETRO_DENSITY` in
+`pipeline.probe_setup`. Both sit below the pipeline layer, so surfacing them
+means passing settings down into `geometry` and `objectives` — a layering change
+that belongs with steps 5 and 6 rather than with configuration.
+
+Since nothing in the suite runs a Phase-1 pool, the conversion was checked by
+resolution rather than outcome: `tests/phase1_env.py` records what each global
+made of a given environment, read out of the module before the change, and the
+settings object is held to it field by field.
+
+One thing step 4 did not fix: **the `HOLES` default points into the gitignored
+`scratch/`**, so a fresh clone cannot run the pipeline without being told where
+the bore file is.
+
+**What is left.** Steps 5 to 7, and one gated step: retiring `caps`, `collision`,
 `chem_shift_policy`, `chem_shift_apply_by_role` and the `role` prefix inference
 from the models. Those stay until the configs on `/mnt/vast` and in `scratch/`
 have been through `scripts/upgrade_config.py`, because once they go
@@ -498,7 +527,7 @@ previous commit.
 3. **Delete dead code,** after the keep/delete decisions. *(Done — see
    Status. The config vocabulary rework came out of it.)*
 4. **Unify configuration.** Settings for every stage, `jax_env`, no import-time
-   environment reads below the CLI.
+   environment reads below the CLI. *(Done — see Status.)*
 5. **Consolidate duplicated domain math** behind parity tests: pose, pivot,
    variable layout, target resolution.
 6. **Move and rename,** bottom-up with `git mv`: `domain` and `config`, then
