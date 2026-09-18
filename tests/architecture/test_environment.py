@@ -40,7 +40,6 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.phase1_pool:LIMIT@import",
     "aind_rutter.optimization.pipeline.phase1_pool:MAX_ARCS@import",
     "aind_rutter.optimization.pipeline.phase1_pool:MAX_PROBES_PER_ARC@import",
-    "aind_rutter.optimization.pipeline.phase1_pool:MINIMIZER@import",
     "aind_rutter.optimization.pipeline.phase1_pool:N_SPINS@import",
     "aind_rutter.optimization.pipeline.phase1_pool:ONLY_NARCS@import",
     "aind_rutter.optimization.pipeline.phase1_pool:OUT@import",

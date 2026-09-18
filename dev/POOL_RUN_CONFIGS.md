@@ -2,10 +2,9 @@
 
 `rutter-phase1` (`src/aind_rutter/optimization/pipeline/phase1_pool.py`) runs the
 full MRV candidate pool (about 19k configs: 3 arcs,
-≤4 probes/arc) through **restore → reduced → full** optimization and a
-per-candidate optional FCL gate, saving one record per candidate for the
-downstream Phase-2 IPOPT/trust-constr polish, FCL/threading gate, and MMR
-handoff ranking.
+≤4 probes/arc) through **restore → reduced → full** optimization, saving one
+record per candidate for the downstream Phase-2 IPOPT/trust-constr polish,
+FCL/threading gate, and MMR handoff ranking. FCL runs once, in Phase 2.
 
 The optimizer is **tuned** (each lever measured on the 545-config calibration set;
 see `dev/` memory `well_sdf_thin_skin_thickening`, `adam_moment_restart_schedule`,
@@ -14,7 +13,7 @@ see `dev/` memory `well_sdf_thin_skin_thickening`, `adam_moment_restart_schedule
 | lever | tuned value | why |
 |---|---|---|
 | **well SDF** | `thick` | the well asset is a thin *surface* shell → α-wrap SDF is a ~0.8 mm skin (min −0.63 mm) that under-reports body penetration. `make_thick_well_sdf` solidifies the conical-annulus body. FCL still uses the **true thin mesh** (honest gate). |
-| **minimizer** | `rprop` (iRprop−) | ADAM's 2nd moment `v` inflates from early collision-gradient spikes and stalls long continuous runs (measured). RProp is sign-based → immune, and the right tool for this deterministic ill-conditioned problem. |
+| **minimizer** | iRprop− | ADAM's 2nd moment `v` inflates from early collision-gradient spikes and stalls long continuous runs (measured). RProp is sign-based → immune, and the right tool for this deterministic ill-conditioned problem. It is now the only minimizer; the two ADAM variants it replaced are recorded below. |
 | **surf schedule** | coarse→fine, both stages | surf points = the DRAM-bound gather count. Running the bulk at coarse surf then a short fine finish is a *homotopy* — coarse smooths collision walls → RProp reaches more basins → fine finish + FCL validate. Win-win: faster **and** more feasibles. The fine finish on **both** stages (reduced too) is load-bearing. |
 
 ## The two presets
@@ -43,18 +42,23 @@ JAX_PLATFORMS=cuda COARSE_N=3000 REDUCED_FINE=100 FULL_FINE=100 \
   uv run --python 3.13 rutter-phase1
 ```
 
-### BASELINE — reproduce the old 165-feasible run
+### The two ADAM variants, and why they are gone
 
-```bash
-JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
-  REDUCED_FINE=0 FULL_FINE=0 uv run --python 3.13 rutter-phase1
-```
+Phase 1 once took `MINIMIZER=rprop|moment_restart|adam_const`. Both ADAM
+branches were deleted once the comparison settled; neither is reachable now.
+
+| variant | result on the 545 calibration set |
+|---|---|
+| `adam_const` | flat learning rate. The 2nd moment `v` accumulates from early collision-gradient spikes and the effective step decays before the basin floor, so long continuous runs stall. This produced the old 165-feasible pool, with `WELL=thin COARSE_N=5000 REDUCED_FINE=0 FULL_FINE=0`. |
+| `moment_restart` | resets `m, v` every 50 steps, which restores a full `lr·sign(g)` step and roughly doubles `adam_const`'s feasible count — landing level with RProp. Equivalent, so never worth selecting. |
+
+RProp reaches the same place as `moment_restart` without the moment state, and
+both ADAM branches only had to keep compiling.
 
 ## Knobs
 
 | env | default | meaning |
 |---|---|---|
-| `MINIMIZER` | `rprop` | `rprop` \| `moment_restart` (ADAM, equivalent) \| `adam_const` (old) |
 | `WELL` | `thick` | `thick` \| `thin` (soft side only; FCL always true mesh) |
 | `COARSE_N` | `1000` | coarse-pass surf count; `5000` ⇒ single-fidelity (no coarse) |
 | `REDUCED_FINE` | `50` | fine (@5000) steps ending the **reduced** stage; rest @`COARSE_N` |
@@ -63,21 +67,22 @@ JAX_PLATFORMS=cuda MINIMIZER=adam_const WELL=thin COARSE_N=5000 \
 | `COARSE_N=5000` or `RED/FULL_FINE=STAGE` | — | degenerate cases collapse to all-fine |
 | `OUT` | `scratch/mrv_pool_results.json.gz` | output; **resumable** — re-running skips already-saved n_arcs groups |
 | `SEED_CACHE` | `scratch/mrv_seeds_<config-stem>.json.gz` | enumerate+seed is cached (~14 min); subject-specific and reused on restart |
-| `FCL_TOPK` | `300` | FCL is run on the top-K by soft clearance per n_arcs group |
 | `LIMIT` | `0` | cap candidates (smoke testing; disables seed cache + resume) |
 
 ## Output
 
-`OUT` is a pickle `{records: [...], minimizer, well, coarse_n, reduced_fine,
-full_fine, stage1, stage2, n_spins, ...}`. Each record:
+`OUT` is gzipped JSON, written through `pipeline/payloads.py`:
+`{records: [...], minimizer, well, coarse_n, reduced_fine, full_fine, stage1,
+stage2, n_spins, ...}`. Each record:
 
 - `probe_to_hole`, `partition`, `min_ml_gap` — the discrete decision + seed margin
 - `x` — full-stage final pose; `x_reduced` — reduced-stage checkpoint pose
 - `objective` — full Phase-1 objective (coverage on)
 - `min_clear` — full@end soft dual-rep clearance (**the cull metric**, thick well)
 - `min_clear_reduced` — reduced@end soft clearance (checkpoint)
-- `fcl` — true-mesh FCL min slack for the top-`FCL_TOPK` by clearance (else `nan`);
-  `>= -1e-4` ⇒ FCL-feasible. `-1.0` is a boolean "≥1 pair collides" sentinel.
+
+Pools written before Phase 1 stopped running its own FCL check also carry `fcl`;
+nothing reads it.
 
 **Next step from here:** run `rutter-phase2`, which ranks by `SELECT_BY`
 (`min_clear` by default), polishes the top `TOPK` with IPOPT by default

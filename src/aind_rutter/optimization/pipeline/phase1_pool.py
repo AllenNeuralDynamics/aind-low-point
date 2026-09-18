@@ -6,24 +6,22 @@ from the joint ``emit_seed`` (arc/ml/spin) via ``Enumerator.seed``, spin-restore
 optimization and a per-candidate FCL gate. Output → OUT (then cull/select/
 trust-constr from there).
 
-The optimizer is TUNED (see dev memory: well_sdf_thin_skin_thickening,
-adam_moment_restart_schedule, coarse_fine_surf_tuning):
+The optimizer is TUNED (see dev/POOL_RUN_CONFIGS.md for the measurements):
   - WELL=thick   — solidified well SDF (fixes the thin-skin false-negative);
                    FCL still uses the true thin mesh (honest gate).
-  - MINIMIZER=rprop — sign-based iRprop− (no ADAM v-freeze; the winning minimizer).
+  - iRprop− — sign-based; immune to the ADAM v-freeze that stalls long runs.
   - coarse→fine surf — reduced/full each run (STAGE-REDUCED_FINE/FULL_FINE) steps
                    @COARSE_N surf then the FINE_* finish @5000 (the homotopy win).
 
 Two documented presets (copy-paste commands in dev/POOL_RUN_CONFIGS.md):
   THROUGHPUT (default): COARSE_N=1000, REDUCED_FINE=FULL_FINE=50   (~2.16x; 545:105/20)
   YIELD:                COARSE_N=3000, REDUCED_FINE=FULL_FINE=100  (~1.31x; 545:123/21)
-  BASELINE:             MINIMIZER=adam_const WELL=thin COARSE_N=5000  (old 165-feas run)
 
 Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-Env:  MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
+Env:  WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
       STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128
 """
 
@@ -135,9 +133,6 @@ _CFG_STEM = _os.path.splitext(
 SEED_CACHE = _os.environ.get("SEED_CACHE", f"scratch/mrv_seeds_{_CFG_STEM}.json.gz")
 
 # Tuned-optimizer knobs (defaults = the THROUGHPUT preset).
-MINIMIZER = _os.environ.get(
-    "MINIMIZER", "rprop"
-).lower()  # rprop|moment_restart|adam_const
 WELL_MODE = _SHARED.well  # thick|thin
 # Coverage normalization: divide each probe's coverage by its achievable ceiling
 # (so shank-count / area / σ / density weigh equally), blend average vs worst
@@ -329,13 +324,9 @@ def restore_group(
     return out
 
 
-def make_runner(mkad: Callable[..., Callable], vgrad_cw) -> Callable:
-    """run(x0, arglist, lo, hi, cov_weight, n_steps) for the chosen MINIMIZER."""
-    if MINIMIZER == "rprop":
-        return make_staged_rprop(vgrad_cw, eta0_frac=0.02, etamax_frac=0.5)
-    if MINIMIZER == "moment_restart":
-        return mkad(lr=0.02, b2=0.999, schedule="moment_restart", period=50)
-    return mkad(lr=0.02, b2=0.999, schedule="const")  # adam_const (old baseline)
+def make_runner(vgrad_cw) -> Callable:
+    """run(x0, arglist, lo, hi, cov_weight, n_steps)."""
+    return make_staged_rprop(vgrad_cw, eta0_frac=0.02, etamax_frac=0.5)
 
 
 def _kernel(
@@ -343,7 +334,7 @@ def _kernel(
 ) -> tuple[Callable, ArglistBuilder, Callable]:
     """Build (vobj, build_arglist, run) for one fidelity's template statics."""
     weights = Phase1Weights(cov_alpha=COV_ALPHA) if COV_NORM else Phase1Weights()
-    vobj, _vg, barg, mkad = make_batched_phase1_chunked(
+    vobj, _vg, barg = make_batched_phase1_chunked(
         st0,
         n_arcs,
         weights,
@@ -354,21 +345,17 @@ def _kernel(
         coverage_ceilings=ceilings,
         coverage_weights=cov_weights,
     )
-    vg = (
-        build_cw_fns(
-            st0,
-            n_arcs,
-            cov,
-            well_soft,
-            brain_sdf,
-            weights=weights,
-            coverage_ceilings=ceilings,
-            coverage_weights=cov_weights,
-        )[1]
-        if MINIMIZER == "rprop"
-        else None
-    )
-    return vobj, barg, make_runner(mkad, vg)
+    vg = build_cw_fns(
+        st0,
+        n_arcs,
+        cov,
+        well_soft,
+        brain_sdf,
+        weights=weights,
+        coverage_ceilings=ceilings,
+        coverage_weights=cov_weights,
+    )[1]
+    return vobj, barg, make_runner(vg)
 
 
 def run_group(  # noqa: C901
@@ -487,7 +474,7 @@ def run_group(  # noqa: C901
     n_chunks = n_tot // CHUNK
     fid = f"coarse{COARSE_N}→fine" if TWO_FIDELITY else "fine"
     print(
-        f"  {MINIMIZER} {fid} (chunk={CHUNK}, reduced {rc}c+{rf}f → "
+        f"  rprop {fid} (chunk={CHUNK}, reduced {rc}c+{rf}f → "
         f"full {fc}c+{ff}f, {n_chunks} chunks)...",
         flush=True,
     )
@@ -578,7 +565,7 @@ def save_results(records: list[Phase1PoolRecord]) -> None:
         n_spins=N_SPINS,
         max_arcs=MAX_ARCS,
         max_ppa=MAX_PPA,
-        minimizer=MINIMIZER,
+        minimizer="rprop",
         well=WELL_MODE,
         coarse_n=COARSE_N,
         reduced_fine=REDUCED_FINE,
@@ -675,7 +662,7 @@ def main() -> int:
     well_soft = opt.thick_well_fixture(well_thin) if WELL_MODE == "thick" else well_thin
     sdf_coarse = opt.probe_sdfs(COARSE_N) if TWO_FIDELITY else sdf_fine
     print(
-        f"config: minimizer={MINIMIZER} well={WELL_MODE} "
+        f"config: well={WELL_MODE} "
         f"{'coarse' + str(COARSE_N) + '→fine' if TWO_FIDELITY else 'fine-only'} "
         f"reduced {STAGE1 - REDUCED_FINE}c+{REDUCED_FINE}f → "
         f"full {STAGE2 - FULL_FINE}c+{FULL_FINE}f → {OUT}",

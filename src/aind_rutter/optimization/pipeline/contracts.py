@@ -194,13 +194,11 @@ class SpinRestoreWithLosses(SpinRestoreFn, Protocol):
 BatchedObjectiveFn = Callable[..., Any]
 BatchedGradientFn = Callable[..., Any]
 ArglistBuilder = Callable[[list[Any]], list[Any]]
-AdamRunnerFactory = Callable[..., Callable[..., Any]]
 Phase1ObjectiveFns = tuple[BatchedObjectiveFn, BatchedGradientFn]
 Phase1ChunkedFns = tuple[
     BatchedObjectiveFn,
     BatchedGradientFn,
     ArglistBuilder,
-    AdamRunnerFactory,
 ]
 
 

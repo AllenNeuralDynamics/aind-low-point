@@ -92,15 +92,6 @@ def make_batched_phase1_chunked(
     vobj = jax.jit(jax.vmap(obj_pos, in_axes=in_axes))
     vgrad = jax.jit(vmapped_grad)
 
-    # cov_weight-aware variant: cov_weight rides as a shared (in_axes=None)
-    # runtime scalar so ONE compiled kernel serves the reduced (cov_weight=0)
-    # and full (cov_weight=1) stages. grad is still w.r.t. x only (argnums=0).
-    def obj_pos_cw(x, cov_weight, *args):
-        return jit_obj(x, cov_weight=cov_weight, **dict(zip(ARG_ORDER, args)))
-
-    in_axes_cw = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
-    vmapped_grad_cw = jax.vmap(jax.grad(obj_pos_cw, argnums=0), in_axes=in_axes_cw)
-
     # Shared per-probe constants are identical across all candidates;
     # build them once from the template.
     tpack = _pack_statics(template_statics, n_arcs)
@@ -117,76 +108,7 @@ def make_batched_phase1_chunked(
         stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
         return [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
 
-    def make_staged_adam(
-        *,
-        lr,
-        b1=0.9,
-        b2=0.999,
-        eps=1e-8,
-        schedule="const",
-        period=50,
-        grad_clip=0.0,
-    ):
-        """One compiled projected-ADAM kernel shared across stages.
-
-        ``run(x0, arglist, lo, hi, cov_weight, n_steps)`` takes the bounds,
-        the coverage weight, AND the step count as RUNTIME args, so the
-        reduced (offsets/depth pinned via ``lo==hi``, ``cov_weight=0``) and
-        full (real bounds, ``cov_weight=1``) stages hit the SAME XLA
-        executable — no second compile. ``n_steps`` is the dynamic upper
-        bound of the ``fori_loop`` (so the two stages can differ in length
-        without recompiling).
-
-        ``schedule`` sets the per-step learning rate ``lr(i)`` (the lever for
-        ADAM's effective-step decay — ``v`` accumulates and stalls long runs):
-          - ``"const"`` — flat ``lr``
-          - ``"moment_restart"`` — reset the ADAM moments ``m,v`` to 0 every
-            ``period`` steps (with bias correction restarted): the segmented
-            momentum-reset hack baked into ONE continuous kernel. The reset
-            yields a full ``lr·sign(g)`` step that re-energizes a stalled run —
-            this is the mechanism (not the LR) that the segmented schedule
-            exploits.
-        """
-        base = float(lr)
-        per = max(float(period), 1.0)
-
-        def run(x0, arglist, lo, hi, cov_weight, n_steps):
-            lo_j = jnp.asarray(lo, jnp.float32)
-            hi_j = jnp.asarray(hi, jnp.float32)
-            cw = jnp.asarray(cov_weight, jnp.float32)
-            z = jnp.zeros_like(x0)
-
-            def body(i, st):
-                x, m, v = st
-                g = vmapped_grad_cw(x, cw, *arglist)
-                if grad_clip > 0.0:
-                    # per-candidate global-norm clip: caps the magnitude the 2nd
-                    # moment v sees (stops the seed/coverage spike poisoning √v̂)
-                    # while preserving direction.
-                    gn = jnp.sqrt(jnp.sum(g * g, axis=-1, keepdims=True))
-                    g = g * jnp.minimum(1.0, grad_clip / (gn + 1e-12))
-                if schedule == "moment_restart":
-                    # reset m,v at each period boundary; bias-correct with the
-                    # WITHIN-cycle step count so the post-reset step is full-size.
-                    seg_i = jnp.mod(i.astype(jnp.float32), per)
-                    keep = (seg_i != 0.0).astype(jnp.float32)
-                    m = m * keep
-                    v = v * keep
-                    tt = seg_i + 1.0
-                else:
-                    tt = i.astype(jnp.float32) + 1.0
-                m = b1 * m + (1 - b1) * g
-                v = b2 * v + (1 - b2) * g * g
-                mh = m / (1 - jnp.power(b1, tt))
-                vh = v / (1 - jnp.power(b2, tt))
-                x = jnp.clip(x - base * mh / (jnp.sqrt(vh) + eps), lo_j, hi_j)
-                return (x, m, v)
-
-            return jax.lax.fori_loop(0, n_steps, body, (x0, z, z))[0]
-
-        return jax.jit(run, static_argnums=())
-
-    return vobj, vgrad, build_arglist, make_staged_adam
+    return vobj, vgrad, build_arglist
 
 
 def make_staged_rprop(
@@ -198,8 +120,12 @@ def make_staged_rprop(
     grow=1.2,
     shrink=0.5,
 ) -> Callable[..., Any]:
-    """Projected iRprop− (sign-based resilient backprop) on the same interface as
-    ``make_staged_adam``'s ``run(x0, arglist, lo, hi, cov_weight, n_steps)``.
+    """Projected iRprop− (sign-based resilient backprop).
+
+    ``run(x0, arglist, lo, hi, cov_weight, n_steps)`` takes the bounds, the
+    coverage weight and the step count as RUNTIME args, so the reduced
+    (offsets/depth pinned via ``lo==hi``, ``cov_weight=0``) and full stages hit
+    the same XLA executable.
 
     Magnitude-INVARIANT: each coordinate steps ``sign(g)·η_i`` with a per-coord
     step ``η_i`` that grows (×``grow``) on a consistent gradient sign and shrinks
