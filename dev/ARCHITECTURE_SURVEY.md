@@ -84,8 +84,8 @@ before the code around it moves.
 | D11 | The optimizer ignores a configured probe pivot | Nothing under `optimization/` reads `pivot_LPS`; the app honors it (`planning.py:405`) | Latent: every current config leaves it null | verified |
 | D12 | The thread-pool Phase 2 ignores `settings.warmup` | `solve_candidates` warms unconditionally on the thread branch | `WARMUP=0` has no effect in the default pool mode | verified |
 | D13 | CI has not run a test since at least June 2026 | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required. Every leg of run 33395088563 failed during setup: 3.9 on uv refusing an interpreter below `requires-python`, 3.13 on a stale `uv.lock` under `--locked`. | Three conflicting statements of the floor, and no leg of the matrix reaches pytest | verified (run log) |
-| D14 | A fresh install cannot start the app | `trame_controller.py:18` imports `pyvista.trame.ui`; pyvista's `trame/__init__.py` imports `trame_pyvista` unconditionally, and pyvista declares it only under its `jupyter` extra. The project depends on plain `pyvista>=0.46.5`. | `rutter-plan` fails to import on any resolution that picks pyvista 0.49; only the stale `uv.lock`, pinning 0.47.1, hides it | verified (3.11 and 3.14 installs) |
-| D15 | The declared Python floor is impossible | `pyproject.toml:9` requires `>=3.10`; `orientation_codes.py:3` imports `enum.StrEnum`, added in 3.11 | On 3.10 the package does not import; 25 test modules fail to collect | verified (measured) |
+| D14 | A fresh install cannot start the app (fixed, `0ae6d0d`) | `trame_controller.py:18` imports `pyvista.trame.ui`; pyvista's `trame/__init__.py` imports `trame_pyvista` unconditionally, and pyvista declares it only under its `jupyter` extra. The project depends on plain `pyvista>=0.46.5`. | `rutter-plan` fails to import on any resolution that picks pyvista 0.49; only the stale `uv.lock`, pinning 0.47.1, hides it | verified (3.11 and 3.14 installs) |
+| D15 | The declared Python floor is impossible (fixed, `0ae6d0d`) | `pyproject.toml:9` requires `>=3.10`; `orientation_codes.py:3` imports `enum.StrEnum`, added in 3.11 | On 3.10 the package does not import; 25 test modules fail to collect | verified (measured) |
 | D16 | `ruff check` does not run the configured rule set | The installed ruff enables 415 rules with no config at all, and `[tool.ruff.lint]` uses `extend-select`, which adds to that default rather than replacing it | 497 findings in `src` under the documented lint command; with `select` in place of `extend-select`, zero | verified (measured) |
 | R1 | The app's FCL manager is shared across threads without a lock | The worker thread mutates the manager (`collisions.py:287-301`) while the kind-change path uses it on the main thread. `FCLBackend.sync` omits group and mask (`fcl_backend.py:63-79`). | Possible race and mis-filtered new nodes | reported |
 | R2 | The AP/ML readout skips angle clamping | `trame_controller.py:2106-2122` copies `planning.py:291-307` without `clamp_angles` | Sliders can show unclamped values | reported |
@@ -469,7 +469,16 @@ Recorded 2026-09-17, with the evidence each rests on. Step 2 proceeds on these.
    One trap sits behind it: `select_by` names any pool field, so `SELECT_BY=fcl`
    sorts on NaN for every record outside the top-K, and `rank_order`'s missing-key
    sentinel does not apply to a key that is present and NaN. Make `rank_order`
-   treat NaN as the worst value while the fixture set is being fixed.
+   treat NaN as the worst value.
+
+   **Superseded, 2026-09-17:** the check goes instead, which also answers its
+   line in decision 8. Production has run with `FCL_TOPK=0` throughout, so no
+   pool on disk carries a value, and a diagnostic nobody runs is not worth the
+   fixture set it would need. Deleting it removes the per-candidate validator
+   loop, the `FCL_TOPK` knob and the feasible-count line. It does not remove
+   `PoolRecord.fcl`: that field is required by the pool schema, so removing it
+   would make every existing pool unreadable. Make it optional, stop writing it,
+   and leave old files loading as they do.
 
 2. **Only in the exported copy.** `export_plan_geometry` is a reporter, and the
    relabel is cosmetic by its own docstring, so it has no business editing the
