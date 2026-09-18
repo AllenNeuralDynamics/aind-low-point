@@ -63,10 +63,6 @@ asset_templates:
     loader: trimesh
     canonicalization_ref: "obj-wavefront"
     material: { color: "#E7DDFF", opacity: 1.0 }
-    caps: [renderable, collidable]
-    collision:
-      group: fixture
-      mask: [probe]
   structure:
     kind: mesh
     mr_signal: water
@@ -74,9 +70,6 @@ asset_templates:
     loader: trimesh
     material_ref: structure
     tags: [structure]
-    collision:
-      group: static
-      mask: []
   probe:
     kind: mesh
     mr_signal: none
@@ -84,10 +77,6 @@ asset_templates:
     loader: trimesh
     canonicalization_ref: "probe-mesh"
     material: { color: "#66DD66", opacity: 1.0 }  # FIX: was default_material
-    caps: [renderable, movable, collidable, selectable, savable]
-    collision:
-      group: probe
-      mask: [fixture, probe]
 
 target_templates:
   structure:
@@ -95,9 +84,6 @@ target_templates:
     mr_signal: water
     material_ref: structure_target
     tags: [structure, target]
-    collision:
-      group: static
-      mask: []
   hole:
     loader: trimesh
     mr_signal: fat
@@ -105,9 +91,6 @@ target_templates:
     reducer: mesh_centroid
     material: { color: "#FF00FF", opacity: 0.5 }  # FIX: was missing #
     tags: [hole]
-    collision:
-      group: static
-      mask: []
 
 # ---------------------------------------------------------------------------
 # Assets  (transform + scene_tags → auto scene node generation)
@@ -115,6 +98,7 @@ target_templates:
 
 assets:
   - key: brain
+    collidable: false
     src: "${paths.brain_mask_path}"
     templates: [structure]
     material: { color: "#EFC3CA", opacity: 0.1 }
@@ -124,12 +108,15 @@ assets:
   # 7 structures → 1 bulk entry
   - keys: [structure:PL, structure:MD, structure:CLA,
            structure:CA1, structure:VM, structure:BLA, structure:RSP]
+    collidable: false
     src: "${paths.structure_path}/${paths.mouse}-{name}-Mask.nrrd"
     templates: [structure]
     transform: headframe_to_lps
     scene_tags: [static, structure]
 
   - key: headframe
+    role: fixture
+    collidable: true
     src: "${paths.model_path}/TenRunHeadframe.obj"
     mr_signal: fat
     templates: [hardware]
@@ -137,16 +124,22 @@ assets:
     scene_tags: [static, fixture, headframe]
 
   - key: cone
+    role: fixture
+    collidable: true
     src: "${paths.model_path}/0274-430-01.obj"
     templates: [hardware]
     scene_tags: [fixture, cone]
 
   - key: well
+    role: fixture
+    collidable: true
     src: "${paths.model_path}/WHC_Well/0274-400-07_X02.obj"
     templates: [hardware]
     scene_tags: [fixture, well]
 
   - key: implant
+    role: fixture
+    collidable: true
     src: "${paths.model_path}/0283-300-04.obj"
     mr_signal: fat
     templates: [hardware]
@@ -155,6 +148,7 @@ assets:
     scene_tags: [fixture, implant]
 
   - key: retro-targets
+    collidable: false
     kind: points
     mr_signal: water
     src: "${paths.annotations_path}/OldRabiesTracing/${paths.mouse}_rabies_pts_from_698928_LPS.csv"
@@ -164,28 +158,37 @@ assets:
     transform: headframe_to_lps
     scene_tags: [static]
     material: { color: "#FF4444", opacity: 0.6, point_size: 3.0 }
-    caps: [renderable]
 
   # Probe meshes (no transform/scene_tags — nodes auto-generated from plan.probes)
   - key: probe:2.1
+    role: probe
+    collidable: true
     src: "${paths.model_path}/dovetailtweezer_oneShank_centered_corrected.obj"
     templates: [probe]
 
   - key: "probe:2.1-alpha"
+    role: probe
+    collidable: true
     recording:
       active_ranges_mm: [[0.200, 3.065]]
     src: "${paths.model_path}/Centered_Newscale_2pt0.obj"
     templates: [probe]
 
   - key: probe:quadbase
+    role: probe
+    collidable: true
     src: "${paths.model_path}/Quadbase_customHolder_centeredOnShank0.obj"
     templates: [probe]
 
   - key: probe:2.4
+    role: probe
+    collidable: true
     src: "${paths.model_path}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
   - key: probe:pipette
+    role: probe
+    collidable: true
     recording: none
     src: "${paths.model_path}/injection_pipette.obj"
     templates: [probe]

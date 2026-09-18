@@ -108,14 +108,40 @@ def test_a_dry_run_writes_nothing(legacy: Path) -> None:
     assert legacy.read_text() == original
 
 
-def test_an_atlas_config_is_skipped(tmp_path: Path) -> None:
-    """No imaging block, so there is no chemical shift to describe."""
+def test_an_atlas_config_gets_no_mr_signal(tmp_path: Path) -> None:
+    """No imaging block, so there is no chemical shift to describe.
+
+    Other migrations still apply — an atlas plan has probes and fixtures like
+    any other.
+    """
     path = tmp_path / "atlas.yml"
     path.write_text(
         yaml.safe_dump(
             {
                 "version": 1,
                 "assets": [{"key": "brain", "kind": "mesh", "src": "b.obj"}],
+            }
+        )
+    )
+    cfg = ConfigModel.from_yaml(path, require_mr_signal=False)
+    applied = [m.name for m in upgrade_mod.MIGRATIONS if m.applies(cfg)]
+    assert "mr_signal" not in applied
+
+
+def test_a_config_no_migration_touches_says_why(tmp_path: Path) -> None:
+    path = tmp_path / "atlas.yml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "assets": [
+                    {
+                        "key": "brain",
+                        "kind": "mesh",
+                        "src": "b.obj",
+                        "collidable": False,
+                    }
+                ],
             }
         )
     )

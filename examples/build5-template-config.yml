@@ -59,40 +59,29 @@ asset_templates:
     role: geometry
     loader: trimesh
     material_ref: fixture
-    caps: [renderable, collidable]
-    collision:
-      group: fixture
-      mask: [probe]
   probe:
     kind: mesh
     role: geometry
     loader: trimesh
     canonicalization_ref: "probe-mesh"
     material: { color: "#66DD66", opacity: 1.0 }
-    caps: [renderable, movable, collidable, selectable, savable]
-    collision:
-      group: probe
-      mask: [fixture, probe]
 
 target_templates:
   structure:
     reducer: mesh_center_mass
     material_ref: structure_target
     tags: [structure, target]
-    collision:
-      group: static
-      mask: []
 
 assets:
   # Whole-brain outline (skull-stripped MRI mask, already in template-LPS).
   # Rendered very transparent for spatial context only — non-collidable.
   - key: brain
+    collidable: false
     src: "${paths.template_dir}/CK-GL-T1-template-100-mask.nii.gz"
     loader: sitk_volume
     role: anatomy
     canonicalization_ref: "identity-lps"
     material: { color: "#FFFFFF", opacity: 0.05 }
-    caps: [renderable]
     scene_tags: [static, brain]
 
   # CCF regions meshed from the lateralized annotation volume (template-LPS mm,
@@ -100,6 +89,7 @@ assets:
   # separate per-region brainglobe mesh — keeps rendering and per-hemisphere
   # target selection on one source of truth. Colors are the bundled CCF colors.
   - key: structure:ACB
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: ACB }
@@ -109,8 +99,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: ACB, hemisphere: both }
     material: { color: "#80CDF8", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:GPe
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: GPe }
@@ -120,8 +110,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: GPe, hemisphere: both }
     material: { color: "#8599CC", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:SNr
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: SNr }
@@ -131,8 +121,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: SNr, hemisphere: both }
     material: { color: "#FF90FF", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:VTA
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: VTA }
@@ -142,8 +132,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: VTA, hemisphere: both }
     material: { color: "#FF90FF", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:SI
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: SI }
@@ -153,8 +143,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: SI, hemisphere: both }
     material: { color: "#A2B1D8", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:PL
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: PL }
@@ -164,8 +154,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: PL, hemisphere: both }
     material: { color: "#2FA850", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:ORB
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: ORB }
@@ -175,8 +165,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: ORB, hemisphere: both }
     material: { color: "#248A5E", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:SUB
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: SUB }
@@ -186,8 +176,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: SUB, hemisphere: both }
     material: { color: "#4FC244", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:BLA
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: BLA }
@@ -197,8 +187,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: BLA, hemisphere: both }
     material: { color: "#9DE79C", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:MD
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: MD }
@@ -208,8 +198,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: MD, hemisphere: both }
     material: { color: "#FF909F", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:PVT
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: PVT }
@@ -219,8 +209,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: PVT, hemisphere: both }
     material: { color: "#FF909F", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:LHA
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: LHA }
@@ -230,8 +220,8 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: LHA, hemisphere: both }
     material: { color: "#F2483B", opacity: 0.12 }
-    collision: { group: static, mask: [] }
   - key: structure:ACA
+    collidable: false
     src: "${paths.ccf_annotation_path}"
     loader: ccf_annotation_region
     loader_kwargs: { acronym: ACA }
@@ -241,28 +231,35 @@ assets:
     scene_tags: [static, structure]
     metadata: { ccf_acronym: ACA, hemisphere: both }
     material: { color: "#40A666", opacity: 0.12 }
-    collision: { group: static, mask: [] }
 
   # Hardware fixtures — each in its own native frame.
   - key: implant
+    role: fixture
+    collidable: true
     src: "${paths.hardware_dir}/0274-P-001.obj"
     templates: [hardware]
     canonicalization_ref: "obj-asr"
     scene_tags: [fixture, implant]
 
   - key: well
+    role: fixture
+    collidable: true
     src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
     scene_tags: [fixture, well]
 
   - key: probe-guard
+    role: fixture
+    collidable: true
     src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard.obj"
     templates: [hardware]
     canonicalization_ref: "identity-lps-meters"
     scene_tags: [fixture, probe-guard]
 
   - key: headframe
+    role: fixture
+    collidable: true
     src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
@@ -270,18 +267,26 @@ assets:
 
   # Probe meshes (Newscale, LSA convention, from AIND's shared HeadframeModels).
   - key: probe:2.1
+    role: probe
+    collidable: true
     src: "${paths.probe_models_dir}/dovetailtweezer_oneShank_centered_corrected.obj"
     templates: [probe]
 
   - key: probe:2.4
+    role: probe
+    collidable: true
     src: "${paths.probe_models_dir}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
   - key: probe:quadbase-alpha
+    role: probe
+    collidable: true
     src: "${paths.probe_models_dir}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj"
     templates: [probe]
 
   - key: probe:quadbase-dovetail
+    role: probe
+    collidable: true
     src: "${paths.probe_models_dir}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj"
     templates: [probe]
 

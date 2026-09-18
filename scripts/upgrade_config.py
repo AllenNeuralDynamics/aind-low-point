@@ -29,8 +29,9 @@ from typing import Any
 
 import yaml
 
-from aind_rutter.common import Capability, MRSignal
+from aind_rutter.common import Capability, MRSignal, Role
 from aind_rutter.config import ConfigModel
+from aind_rutter.runtime.build import resolve_collidable
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
 
 # Localized from a vaseline fiducial rather than from tissue. Behaviourally the
@@ -71,33 +72,29 @@ def decisions(cfg: ConfigModel) -> dict[str, bool]:
     }
 
 
-def _collidable(spec: Any) -> bool:
-    caps = Capability(0)
-    for cap in spec.caps or ():
-        caps |= cap
-    return bool(caps & Capability.COLLIDABLE)
-
-
 def _is_probe(spec: Any) -> bool:
     """Probe-ness, by whichever mechanism this config still uses."""
+    if spec.role is Role.PROBE:
+        return True
     if spec.collision.group == "probe":
         return True
     return str(spec.key or "").startswith("probe:")
 
 
 def colliding_pairs(cfg: ConfigModel) -> set[tuple[str, str]]:
-    """The pairs `FCLBackend` would test, by the labels the config carries.
+    """The pairs `FCLBackend` would test.
 
-    A pair is tested when each side's mask admits the other's group; the bits
-    are one-to-one with the labels, so the labels decide it.
+    Read through the rule rather than the labels, because a migration removes
+    the labels — `tests/test_collision_pairs.py` is what proves the two agree
+    before one replaces the other.
     """
     specs = [*cfg.assets, *cfg.targets]
+    state = {str(s.key): (resolve_collidable(s), _is_probe(s)) for s in specs}
     out: set[tuple[str, str]] = set()
     for i, a in enumerate(specs):
         for b in specs[i + 1 :]:
-            if b.collision.group in a.collision.mask and (
-                a.collision.group in b.collision.mask
-            ):
+            (ca, pa), (cb, pb) = state[str(a.key)], state[str(b.key)]
+            if ca and cb and (pa or pb):
                 out.add(tuple(sorted((str(a.key), str(b.key)))))  # type: ignore[arg-type]
     return out
 
@@ -119,7 +116,9 @@ def behaviour(cfg: ConfigModel) -> dict[str, Any]:
             )
             for s in [*cfg.assets, *cfg.targets]
         },
-        "collidable": {str(s.key): _collidable(s) for s in [*cfg.assets, *cfg.targets]},
+        "collidable": {
+            str(s.key): resolve_collidable(s) for s in [*cfg.assets, *cfg.targets]
+        },
         "pairs": sorted(colliding_pairs(cfg)),
     }
 
@@ -310,12 +309,75 @@ def _mr_signal_rewrite(text: str, cfg: ConfigModel) -> str:
     )
 
 
+def _collidable_applies(cfg: ConfigModel) -> bool:
+    return any(
+        s.collidable is None and (s.caps or s.collision.group or s.collision.mask)
+        for s in [*cfg.assets, *cfg.targets]
+    )
+
+
+def _collidable_rewrite(text: str, cfg: ConfigModel) -> str:
+    """State collidability and probe-ness; drop the labels they replace.
+
+    The pair filter is a rule — both sides collidable, at least one a probe —
+    so `collision.group` and `collision.mask` carry nothing the two say.
+    """
+    by_key = {str(s.key): s for s in [*cfg.assets, *cfg.targets]}
+
+    def collidable_for(keys: list[str]) -> str | None:
+        known = [k for k in keys if k in by_key]
+        if not known:
+            return None
+        values = {resolve_collidable(by_key[k]) for k in known}
+        if len(values) != 1:
+            raise ValueError(f"declaration {keys} is collidable both ways")
+        return "true" if values.pop() else "false"
+
+    def role_for(keys: list[str]) -> str | None:
+        known = [k for k in keys if k in by_key]
+        if not known:
+            return None
+        roles = {
+            "probe"
+            if _is_probe(by_key[k])
+            else ("fixture" if by_key[k].collision.group == "fixture" else None)
+            for k in known
+        }
+        if len(roles) != 1:
+            raise ValueError(f"declaration {keys} spans roles {roles}")
+        return roles.pop()
+
+    text = rewrite_declarations(text, "collidable", collidable_for)
+    text = rewrite_declarations(
+        text, "role", role_for, drop_keys=("caps",), drop_blocks=("collision",)
+    )
+    return _drop_cap_items(text)
+
+
+def _drop_cap_items(text: str) -> str:
+    """Remove the list items left behind by a block-style ``caps:``."""
+    names = {m.name.lower() for m in Capability}
+    out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- ") and stripped[2:].strip().lower() in names:
+            continue
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         name="mr_signal",
         summary="chemical shift moves from role + policy to an explicit signal",
         applies=_mr_signal_applies,
         rewrite=_mr_signal_rewrite,
+    ),
+    Migration(
+        name="collidable",
+        summary="caps and collision labels become `collidable` plus a role",
+        applies=_collidable_applies,
+        rewrite=_collidable_rewrite,
     ),
 )
 

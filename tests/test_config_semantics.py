@@ -19,6 +19,7 @@ from tests.config_semantics import (
     CONFIGS,
     GOLDEN,
     fixtures_for,
+    pairs_for,
     scene_for,
     semantics_for,
 )
@@ -76,33 +77,15 @@ def test_bore_targets_are_not_shifted_but_annotation_targets_are(path: str) -> N
 
 
 @pytest.mark.parametrize("path", CONFIGS)
-def test_the_collision_pair_filter_is_just_probe_versus_collidable(path: str) -> None:
-    """`collision.group`/`mask` say no more than two tags would.
+def test_a_config_yields_the_recorded_collision_pairs(path: str, golden: dict) -> None:
+    """Which pairs the backend tests.
 
-    `FCLBackend` tests a pair when each side's mask contains the other's group
-    (`fcl_backend.py:126`, on bits that are one-to-one with the labels). Across
-    every tracked config that reduces to: both sides collidable, and at least one
-    of them a probe. Nothing has ever declared a third pattern, so the two label
-    fields and the bit compiler behind them carry no information the tags lack.
+    These were per-asset `collision.group`/`mask` labels compiled to bits; they
+    are now the rule "both collidable, at least one a probe", which
+    tests/test_collision_pairs.py checks in isolation. The counts here are the
+    ones the labels produced.
     """
-    resolved = semantics_for(path)
-    keys = sorted(resolved)
-    disagreements = []
-    for i, a in enumerate(keys):
-        for b in keys[i + 1 :]:
-            sa, sb = resolved[a], resolved[b]
-            by_label = (
-                sb["collision_group"] in sa["collision_mask"]
-                and sa["collision_group"] in sb["collision_mask"]
-            )
-            by_tag = (
-                sa["collidable"]
-                and sb["collidable"]
-                and "probe" in (sa["collision_group"], sb["collision_group"])
-            )
-            if by_label != by_tag:
-                disagreements.append((a, b, by_label, by_tag))
-    assert not disagreements, f"{path}: {disagreements[:5]}"
+    assert pairs_for(path) == golden[path]["pairs"]
 
 
 @pytest.mark.parametrize("path", CONFIGS)

@@ -16,8 +16,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aind_rutter.common import Capability
 from aind_rutter.config import ConfigModel
+from aind_rutter.runtime.build import resolve_collidable
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
 from aind_rutter.runtime.scene_geometry import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 
@@ -54,21 +54,16 @@ def _chem_context(cfg: ConfigModel) -> ChemShiftContext:
 
 
 def _spec_semantics(spec: Any, chem: ChemShiftContext) -> dict[str, Any]:
-    caps = Capability(0)
-    for cap in spec.caps or ():
-        caps |= cap
     shifted = _should_apply_chem(spec, chem)
     ppm = spec.chem_shift_ppm if spec.chem_shift_ppm is not None else chem.default_ppm
     return {
         "kind": str(getattr(spec.kind, "value", spec.kind)),
         "chem_shift": shifted,
         "chem_ppm": ppm if shifted else None,
-        "collidable": bool(caps & Capability.COLLIDABLE),
-        "renderable": bool(caps & Capability.RENDERABLE),
+        "collidable": resolve_collidable(spec),
+        "role": None if spec.role is None else spec.role.value,
         "scene_tags": sorted(spec.scene_tags or ()),
         "asset_tags": sorted(spec.tags or ()),
-        "collision_group": spec.collision.group,
-        "collision_mask": sorted(spec.collision.mask or ()),
     }
 
 
@@ -116,12 +111,21 @@ def fixtures_for(path: str) -> list[str]:
     )
 
 
+def pairs_for(path: str) -> list[list[str]]:
+    """The pairs the collision backend tests, by the rule that replaced labels."""
+    from scripts.upgrade_config import colliding_pairs
+
+    cfg = ConfigModel.from_yaml(ROOT / path)
+    return [list(pair) for pair in sorted(colliding_pairs(cfg))]
+
+
 def all_semantics() -> dict[str, dict[str, Any]]:
     return {
         path: {
             "specs": semantics_for(path),
             "scene": scene_for(path),
             "fixtures": fixtures_for(path),
+            "pairs": pairs_for(path),
         }
         for path in CONFIGS
     }

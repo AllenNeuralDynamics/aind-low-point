@@ -5,6 +5,128 @@
       "headframe",
       "well"
     ],
+    "pairs": [
+      [
+        "cone",
+        "probe:2.1"
+      ],
+      [
+        "cone",
+        "probe:2.1-alpha"
+      ],
+      [
+        "cone",
+        "probe:2.4"
+      ],
+      [
+        "cone",
+        "probe:pipette"
+      ],
+      [
+        "cone",
+        "probe:quadbase"
+      ],
+      [
+        "headframe",
+        "probe:2.1"
+      ],
+      [
+        "headframe",
+        "probe:2.1-alpha"
+      ],
+      [
+        "headframe",
+        "probe:2.4"
+      ],
+      [
+        "headframe",
+        "probe:pipette"
+      ],
+      [
+        "headframe",
+        "probe:quadbase"
+      ],
+      [
+        "implant",
+        "probe:2.1"
+      ],
+      [
+        "implant",
+        "probe:2.1-alpha"
+      ],
+      [
+        "implant",
+        "probe:2.4"
+      ],
+      [
+        "implant",
+        "probe:pipette"
+      ],
+      [
+        "implant",
+        "probe:quadbase"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.1-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase"
+      ],
+      [
+        "probe:2.1",
+        "well"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase"
+      ],
+      [
+        "probe:2.1-alpha",
+        "well"
+      ],
+      [
+        "probe:2.4",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase"
+      ],
+      [
+        "probe:2.4",
+        "well"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase"
+      ],
+      [
+        "probe:pipette",
+        "well"
+      ],
+      [
+        "probe:quadbase",
+        "well"
+      ]
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -354,10 +476,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -367,12 +487,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "cone",
           "fixture"
@@ -383,12 +499,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "headframe",
@@ -400,12 +512,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "implant"
@@ -416,13 +524,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.1-alpha": {
@@ -430,13 +533,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.4": {
@@ -444,13 +542,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:pipette": {
@@ -458,13 +551,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase": {
@@ -472,13 +560,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "retro-targets": {
@@ -488,10 +571,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": null,
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -503,10 +584,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -519,10 +598,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -535,10 +612,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -551,10 +626,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -567,10 +640,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -583,10 +654,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -599,10 +668,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -616,10 +683,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -634,10 +699,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -652,10 +715,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -670,10 +731,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -688,10 +747,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -706,10 +763,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -724,10 +779,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -741,10 +794,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -758,10 +809,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -775,10 +824,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -792,10 +839,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -809,10 +854,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -826,10 +869,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -843,10 +884,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -860,10 +899,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -877,10 +914,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -894,10 +929,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -911,10 +944,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -928,10 +959,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -945,10 +974,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -960,12 +987,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "well"
@@ -979,6 +1002,164 @@
       "headframe",
       "well"
     ],
+    "pairs": [
+      [
+        "cone",
+        "probe:2.1"
+      ],
+      [
+        "cone",
+        "probe:2.1-alpha"
+      ],
+      [
+        "cone",
+        "probe:2.4"
+      ],
+      [
+        "cone",
+        "probe:pipette"
+      ],
+      [
+        "cone",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "cone",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "headframe",
+        "probe:2.1"
+      ],
+      [
+        "headframe",
+        "probe:2.1-alpha"
+      ],
+      [
+        "headframe",
+        "probe:2.4"
+      ],
+      [
+        "headframe",
+        "probe:pipette"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "implant",
+        "probe:2.1"
+      ],
+      [
+        "implant",
+        "probe:2.1-alpha"
+      ],
+      [
+        "implant",
+        "probe:2.4"
+      ],
+      [
+        "implant",
+        "probe:pipette"
+      ],
+      [
+        "implant",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "implant",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.1-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "well"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1-alpha",
+        "well"
+      ],
+      [
+        "probe:2.4",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.4",
+        "well"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:pipette",
+        "well"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "well"
+      ],
+      [
+        "probe:quadbase-dovetail",
+        "well"
+      ]
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -1391,10 +1572,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -1404,12 +1583,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "cone",
           "fixture"
@@ -1420,12 +1595,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "headframe",
@@ -1437,12 +1608,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "implant"
@@ -1453,13 +1620,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.1-alpha": {
@@ -1467,13 +1629,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.4": {
@@ -1481,13 +1638,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:pipette": {
@@ -1495,13 +1647,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-alpha": {
@@ -1509,13 +1656,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-dovetail": {
@@ -1523,13 +1665,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "retro-targets": {
@@ -1539,10 +1676,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": null,
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -1554,10 +1689,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1570,10 +1703,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1586,10 +1717,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1602,10 +1731,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1618,10 +1745,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1634,10 +1759,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1650,10 +1773,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -1667,10 +1788,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1685,10 +1804,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1703,10 +1820,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1721,10 +1836,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1739,10 +1852,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1757,10 +1868,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1775,10 +1884,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1793,10 +1900,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1811,10 +1916,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1829,10 +1932,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1847,10 +1948,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1865,10 +1964,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1883,10 +1980,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1901,10 +1996,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -1918,10 +2011,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -1935,10 +2026,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -1952,10 +2041,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -1969,10 +2056,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -1986,10 +2071,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2003,10 +2086,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2020,10 +2101,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2037,10 +2116,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2054,10 +2131,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2071,10 +2146,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2088,10 +2161,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2105,10 +2176,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2122,10 +2191,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -2137,12 +2204,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "well"
@@ -2156,6 +2219,164 @@
       "headframe",
       "well"
     ],
+    "pairs": [
+      [
+        "cone",
+        "probe:2.1"
+      ],
+      [
+        "cone",
+        "probe:2.1-alpha"
+      ],
+      [
+        "cone",
+        "probe:2.4"
+      ],
+      [
+        "cone",
+        "probe:pipette"
+      ],
+      [
+        "cone",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "cone",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "headframe",
+        "probe:2.1"
+      ],
+      [
+        "headframe",
+        "probe:2.1-alpha"
+      ],
+      [
+        "headframe",
+        "probe:2.4"
+      ],
+      [
+        "headframe",
+        "probe:pipette"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "implant",
+        "probe:2.1"
+      ],
+      [
+        "implant",
+        "probe:2.1-alpha"
+      ],
+      [
+        "implant",
+        "probe:2.4"
+      ],
+      [
+        "implant",
+        "probe:pipette"
+      ],
+      [
+        "implant",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "implant",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.1-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "well"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1-alpha",
+        "well"
+      ],
+      [
+        "probe:2.4",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.4",
+        "well"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:pipette",
+        "well"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "well"
+      ],
+      [
+        "probe:quadbase-dovetail",
+        "well"
+      ]
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -2568,10 +2789,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -2581,12 +2800,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "cone",
           "fixture"
@@ -2597,12 +2812,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "headframe",
@@ -2614,12 +2825,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "implant"
@@ -2630,13 +2837,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.1-alpha": {
@@ -2644,13 +2846,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.4": {
@@ -2658,13 +2855,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:pipette": {
@@ -2672,13 +2864,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-alpha": {
@@ -2686,13 +2873,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-dovetail": {
@@ -2700,13 +2882,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "retro-targets": {
@@ -2716,10 +2893,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": null,
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -2731,10 +2906,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2747,10 +2920,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2763,10 +2934,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2779,10 +2948,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2795,10 +2962,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2811,10 +2976,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2827,10 +2990,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -2844,10 +3005,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2862,10 +3021,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2880,10 +3037,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2898,10 +3053,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2916,10 +3069,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2934,10 +3085,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2952,10 +3101,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2970,10 +3117,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -2988,10 +3133,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3006,10 +3149,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3024,10 +3165,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3042,10 +3181,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3060,10 +3197,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3078,10 +3213,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3095,10 +3228,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3112,10 +3243,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3129,10 +3258,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3146,10 +3273,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3163,10 +3288,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3180,10 +3303,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3197,10 +3318,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3214,10 +3333,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3231,10 +3348,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3248,10 +3363,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3265,10 +3378,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3282,10 +3393,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3299,10 +3408,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -3314,12 +3421,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "well"
@@ -3332,6 +3435,164 @@
       "cone",
       "headframe",
       "well"
+    ],
+    "pairs": [
+      [
+        "cone",
+        "probe:2.1"
+      ],
+      [
+        "cone",
+        "probe:2.1-alpha"
+      ],
+      [
+        "cone",
+        "probe:2.4"
+      ],
+      [
+        "cone",
+        "probe:pipette"
+      ],
+      [
+        "cone",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "cone",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "headframe",
+        "probe:2.1"
+      ],
+      [
+        "headframe",
+        "probe:2.1-alpha"
+      ],
+      [
+        "headframe",
+        "probe:2.4"
+      ],
+      [
+        "headframe",
+        "probe:pipette"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "implant",
+        "probe:2.1"
+      ],
+      [
+        "implant",
+        "probe:2.1-alpha"
+      ],
+      [
+        "implant",
+        "probe:2.4"
+      ],
+      [
+        "implant",
+        "probe:pipette"
+      ],
+      [
+        "implant",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "implant",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.1-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "well"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1-alpha",
+        "well"
+      ],
+      [
+        "probe:2.4",
+        "probe:pipette"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.4",
+        "well"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:pipette",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:pipette",
+        "well"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "well"
+      ],
+      [
+        "probe:quadbase-dovetail",
+        "well"
+      ]
     ],
     "scene": {
       "brain": {
@@ -3682,10 +3943,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -3695,12 +3954,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "cone",
           "fixture"
@@ -3711,12 +3966,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "headframe",
@@ -3728,12 +3979,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "implant"
@@ -3744,13 +3991,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.1-alpha": {
@@ -3758,13 +4000,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.4": {
@@ -3772,13 +4009,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:pipette": {
@@ -3786,13 +4018,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-alpha": {
@@ -3800,13 +4027,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-dovetail": {
@@ -3814,13 +4036,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "retro-targets": {
@@ -3830,10 +4047,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": null,
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static"
         ]
@@ -3845,10 +4060,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3861,10 +4074,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3877,10 +4088,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3893,10 +4102,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3909,10 +4116,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3925,10 +4130,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3941,10 +4144,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -3958,10 +4159,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3976,10 +4175,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -3994,10 +4191,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -4012,10 +4207,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -4030,10 +4223,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -4048,10 +4239,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -4066,10 +4255,8 @@
         "chem_ppm": 3.9,
         "chem_shift": true,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "brain",
           "static",
@@ -4083,10 +4270,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4100,10 +4285,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4117,10 +4300,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4134,10 +4315,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4151,10 +4330,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4168,10 +4345,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4185,10 +4360,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4202,10 +4375,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4219,10 +4390,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4236,10 +4405,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4253,10 +4420,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4270,10 +4435,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4287,10 +4450,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": [
           "hole",
           "static",
@@ -4302,12 +4463,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "well"
@@ -4320,6 +4477,96 @@
       "headframe",
       "probe-guard",
       "well"
+    ],
+    "pairs": [
+      [
+        "headframe",
+        "probe:2.1"
+      ],
+      [
+        "headframe",
+        "probe:2.4"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "headframe",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "implant",
+        "probe:2.1"
+      ],
+      [
+        "implant",
+        "probe:2.4"
+      ],
+      [
+        "implant",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "implant",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe-guard",
+        "probe:2.1"
+      ],
+      [
+        "probe-guard",
+        "probe:2.4"
+      ],
+      [
+        "probe-guard",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe-guard",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "probe:2.4"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.1",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.1",
+        "well"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-alpha"
+      ],
+      [
+        "probe:2.4",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:2.4",
+        "well"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "probe:quadbase-dovetail"
+      ],
+      [
+        "probe:quadbase-alpha",
+        "well"
+      ],
+      [
+        "probe:quadbase-dovetail",
+        "well"
+      ]
     ],
     "scene": {
       "brain": {
@@ -4521,10 +4768,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": null,
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "brain",
           "static"
@@ -4535,12 +4780,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "headframe",
           "static"
@@ -4551,12 +4792,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "implant"
@@ -4567,12 +4804,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "probe-guard"
@@ -4583,13 +4816,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:2.4": {
@@ -4597,13 +4825,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-alpha": {
@@ -4611,13 +4834,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "probe:quadbase-dovetail": {
@@ -4625,13 +4843,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "probe",
-        "collision_mask": [
-          "fixture",
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "probe",
         "scene_tags": []
       },
       "structure:ACA": {
@@ -4641,10 +4854,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4657,10 +4868,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4673,10 +4882,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4689,10 +4896,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4705,10 +4910,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4721,10 +4924,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4737,10 +4938,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4753,10 +4952,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4769,10 +4966,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4785,10 +4980,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4801,10 +4994,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4817,10 +5008,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4833,10 +5022,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "mesh",
-        "renderable": true,
+        "role": "anatomy",
         "scene_tags": [
           "static",
           "structure"
@@ -4850,10 +5037,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:ACB": {
@@ -4864,10 +5049,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:BLA": {
@@ -4878,10 +5061,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:GPe": {
@@ -4892,10 +5073,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:LHA": {
@@ -4906,10 +5085,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:MD": {
@@ -4920,10 +5097,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:ORB": {
@@ -4934,10 +5109,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:PL": {
@@ -4948,10 +5121,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:PVT": {
@@ -4962,10 +5133,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:SI": {
@@ -4976,10 +5145,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:SNr": {
@@ -4990,10 +5157,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:SUB": {
@@ -5004,10 +5169,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:L:VTA": {
@@ -5018,10 +5181,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:ACA": {
@@ -5032,10 +5193,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:ACB": {
@@ -5046,10 +5205,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:BLA": {
@@ -5060,10 +5217,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:GPe": {
@@ -5074,10 +5229,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:LHA": {
@@ -5088,10 +5241,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:MD": {
@@ -5102,10 +5253,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:ORB": {
@@ -5116,10 +5265,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:PL": {
@@ -5130,10 +5277,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:PVT": {
@@ -5144,10 +5289,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:SI": {
@@ -5158,10 +5301,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:SNr": {
@@ -5172,10 +5313,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:SUB": {
@@ -5186,10 +5325,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "target:R:VTA": {
@@ -5200,10 +5337,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": false,
-        "collision_group": "static",
-        "collision_mask": [],
         "kind": "points",
-        "renderable": true,
+        "role": "target",
         "scene_tags": []
       },
       "well": {
@@ -5211,12 +5346,8 @@
         "chem_ppm": null,
         "chem_shift": false,
         "collidable": true,
-        "collision_group": "fixture",
-        "collision_mask": [
-          "probe"
-        ],
         "kind": "mesh",
-        "renderable": true,
+        "role": "fixture",
         "scene_tags": [
           "fixture",
           "well"

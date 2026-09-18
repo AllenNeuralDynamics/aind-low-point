@@ -456,6 +456,7 @@ class BaseTemplateModel(GeometrySourceModel):
     canonicalization_override: Optional["CanonicalizationDefModel"] = None
 
     caps: Optional[list["Capability"]] = None
+    collidable: Optional[bool] = None
     collision: Optional["CollisionPolicyModel"] = None
 
     pivot_LPS: Optional[list[float]] = None
@@ -557,6 +558,8 @@ class BaseSpecModel(BaseModel):
 
     # capabilities are parsed from strings like ["RENDERABLE", "COLLIDABLE"]
     caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    collidable: Optional[bool] = None
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     # UI/layout hints
@@ -731,6 +734,8 @@ class BulkAssetSpecModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    collidable: Optional[bool] = None
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
@@ -832,6 +837,8 @@ class AtlasMeshPackSpecModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    collidable: Optional[bool] = None
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
@@ -995,7 +1002,7 @@ class TargetSpecModel(BaseSpecModel):
                 f"Target '{self.key}': provide exactly one of "
                 "(src+loader) | (source_key+reducer) | (from_resource+selector)"
             )
-        if Capability.COLLIDABLE in self.caps:
+        if self.collidable or Capability.COLLIDABLE in self.caps:
             raise ValueError(
                 f"Target '{self.key}': targets should not be collidable by default."
             )
@@ -1053,6 +1060,8 @@ class RangeTargetSpecModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    collidable: Optional[bool] = None
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
@@ -1172,6 +1181,8 @@ class DerivedTargetSpecModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
+    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    collidable: Optional[bool] = None
     collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)

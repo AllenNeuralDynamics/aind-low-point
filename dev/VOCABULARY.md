@@ -66,9 +66,17 @@ implicit.
 
 ## What may happen to it
 
+`collidable: true` on an asset gives it an FCL body — a bool, not a tag, so a
+misspelling is refused. **Which pairs are then tested is a rule, not data:**
+both sides collidable, and at least one with `role: probe`. Probes hit fixtures
+and each other; fixtures do not hit each other.
+
+That replaced per-asset `collision.group` / `collision.mask` label lists
+compiled to bitmasks. Across every tracked config those labels only ever
+expressed the two patterns the rule states.
+
 | tag | meaning |
 |---|---|
-| `collidable` | gets an FCL body. A pair is tested when both sides are collidable and at least one is a `probe`; fixtures do not collide with each other. |
 | `static`, `dynamic` | whether the node's transform changes as a plan is edited |
 
 ## Where a probe's electrodes are — `recording`

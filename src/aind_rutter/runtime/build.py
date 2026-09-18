@@ -177,13 +177,13 @@ def _base_spec_kwargs_from_model(
     return dict(
         key=m.key,
         kind=m.kind.value,  # "mesh" | "points" | "lines"
-        role=m.role,  # keep enum if your runtime type expects it; else use m.role.value
+        # Normalised: configs that predate `role: probe` say `geometry` and
+        # carry the probe-ness in the key prefix instead.
+        role=Role.PROBE if is_probe_spec(m) else m.role,
         default_material=material,
         metadata=dict(m.metadata),
         tags=set(m.tags),
-        caps=_capabilities_from_list(m.caps),
-        collidable_group=group_bits,
-        collidable_mask=mask_bits,
+        collidable=resolve_collidable(m),
         pivot_LPS=np.array(m.pivot_LPS, float) if m.pivot_LPS else None,
         bbox_hint=np.array(m.bbox_hint, float) if m.bbox_hint else None,
     )
@@ -275,6 +275,19 @@ def _default_probe_pivot_local(
     )
 
 
+def resolve_collidable(m) -> bool:
+    """Whether this asset gets an FCL body.
+
+    ``collidable`` states it; ``caps`` containing ``COLLIDABLE`` is how configs
+    that predate the field said it.
+    """
+    declared = getattr(m, "collidable", None)
+    if declared is not None:
+        return bool(declared)
+    caps = _capabilities_from_list(getattr(m, "caps", None) or ())
+    return bool(caps & Capability.COLLIDABLE)
+
+
 def is_probe_spec(a) -> bool:
     """Whether this asset is a probe.
 
@@ -359,9 +372,7 @@ def build_target_spec(
     resource_registry: dict[str, GeometryOut] = {},
 ) -> tuple[TargetSpec, np.ndarray]:
     # Targets must be non-collidable by default; enforce here (even if config forgot).
-    base_kwargs["caps"] = Capability.RENDERABLE
-    base_kwargs["collidable_group"] = 0
-    base_kwargs["collidable_mask"] = 0
+    base_kwargs["collidable"] = False
 
     # Resolve points (explicit file or derived by reducer)
     if t.src and t.loader:

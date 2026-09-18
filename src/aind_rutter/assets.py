@@ -11,7 +11,7 @@ from typing import (
     Union,
 )
 
-from aind_rutter.common import Capability, Role
+from aind_rutter.common import Role
 from aind_rutter.core import (
     Float3,
     FloatAABB,
@@ -34,9 +34,9 @@ class BaseSpec:
     tags: set[str] = field(default_factory=set)
 
     # HOW it behaves (capabilities & collision policy)
-    caps: Capability = Capability.RENDERABLE
-    collidable_group: int = 0  # label-compiled group bit (0 = none)
-    collidable_mask: int = 0  # set of groups it can collide with (bitmask)
+    # Whether this asset gets an FCL body. Which *pairs* are then tested is a
+    # rule, not a per-asset label: see `collisions.pair_bits`.
+    collidable: bool = False
 
     # Optional quick UI/layout hints (applies to meshes/points; ignored
     # otherwise)
@@ -77,10 +77,9 @@ class AssetSpec(BaseSpec):
             raise ValueError(f"{self.key}: kind='mesh' but only points were provided")
         if self.kind == "points" and self.points is None and self.mesh is not None:
             raise ValueError(f"{self.key}: kind='points' but only mesh was provided")
-        if self.role != Role.GEOMETRY and self.caps & Capability.COLLIDABLE:
-            # Non-geometry roles default to non-collidable unless explicitly chosen
-            object.__setattr__(self, "collidable_mask", 0)
-            object.__setattr__(self, "collidable_group", 0)
+        if self.role in (Role.TARGET, Role.LANDMARK, Role.ANATOMY):
+            # A target or a landmark is a point, not an obstacle.
+            object.__setattr__(self, "collidable", False)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +90,6 @@ class TargetSpec(BaseSpec):
     # For targets we default to points, role TARGET, and non-collidable caps
     kind: Literal["points", "derived_point"] = "points"
     role: Role = Role.TARGET
-    caps: Capability = Capability.RENDERABLE
 
     # SOURCE: either load explicit points, or derive from another asset
     # - If 'source_path' + 'loader' given → explicit points (like AssetSpec points)
@@ -116,7 +114,7 @@ class TargetSpec(BaseSpec):
 
     def __post_init__(self):
         # Enforce typical non-collidable defaults for targets
-        if self.caps & Capability.COLLIDABLE:
+        if self.collidable:
             raise ValueError(f"{self.key}: targets should not be collidable by default")
         # Require either explicit points (source_path+loader) or derived
         # (source_key+reducer)

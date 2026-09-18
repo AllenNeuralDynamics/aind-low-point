@@ -19,7 +19,7 @@ import numpy as np
 import trimesh
 
 from aind_rutter.assets import AssetCatalog
-from aind_rutter.common import Capability
+from aind_rutter.common import Role
 from aind_rutter.core import MeshTransformable, Pair
 from aind_rutter.planning import (
     PlanningState,
@@ -84,9 +84,27 @@ class CollisionBackend(Protocol):
     ) -> List[CollisionPair]: ...
 
 
+# The pair filter, as two bits. A pair is tested when both sides are collidable
+# and at least one is a probe: probes hit fixtures and each other, fixtures do
+# not hit each other. This replaced per-asset group/mask labels, which across
+# every subject config only ever expressed these two patterns.
+_PROBE = 1
+_FIXTURE = 2
+
+
+def pair_bits(spec) -> tuple[int, int]:
+    """``(group, mask)`` for one asset; the backend tests a pair when each
+    side's mask admits the other's group."""
+    if not spec.collidable:
+        return 0, 0
+    if spec.role is Role.PROBE:
+        return _PROBE, _PROBE | _FIXTURE
+    return _FIXTURE, _PROBE
+
+
 def default_include(node: NodeInstance, catalog: AssetCatalog) -> bool:
     spec = catalog.get_spec(node.asset_key)
-    return spec.kind == "mesh" and bool(spec.caps & Capability.COLLIDABLE)
+    return spec.kind == "mesh" and spec.collidable
 
 
 @dataclass
@@ -194,12 +212,13 @@ class CollisionAdapter:
         R, t = resolver.world_rt_for_node(node)
         tf = _rt_to_transform(R, t, name=f"pose:{node.key}")
         spec = self.assets.get_spec(node.asset_key)
+        group, mask = pair_bits(spec)
         return ObjSpec(
             node_id=node.key,
             geom=bvh,
             transform=tf,
-            group=spec.collidable_group,
-            mask=spec.collidable_mask,
+            group=group,
+            mask=mask,
         )
 
 

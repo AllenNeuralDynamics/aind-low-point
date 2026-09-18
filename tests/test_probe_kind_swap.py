@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from aind_rutter.assets import AssetCatalog, AssetSpec
-from aind_rutter.common import Capability
 from aind_rutter.core import MeshTransformable
 from aind_rutter.planning import (
     Kinematics,
@@ -41,7 +40,7 @@ def _catalog(*kinds: str) -> AssetCatalog:
             key=probe_asset_key(kind),
             kind="mesh",
             mesh=MeshTransformable(mesh),
-            caps=Capability.RENDERABLE | Capability.COLLIDABLE,
+            collidable=True,
         )
     return AssetCatalog(assets=assets, targets={})
 
