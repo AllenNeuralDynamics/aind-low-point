@@ -17,14 +17,25 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Step 1 of the proposed
-sequence has since landed (commits `5a94195`–`14e1b81`): the console-script,
+The survey below is a snapshot of commit `a5420cc`. Steps 1 and 2 of the
+proposed sequence have since landed.
+
+**Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
 runtime-build, trame-app and Phase-2 smoke tests, `tests/architecture/` with its
 shrinking baselines, a synthetic subject at `tests/synthetic_subject.py`, and the
-parity harness at `scripts/parity_phase2.py`. The suite went from 499 to 557
-tests. Two findings under "Tests and documentation" are fixed by that work and
-are marked where they appear. Everything else stands as written. The six
-decisions that gate step 2 are answered at the end; the rest are still open.
+parity harness at `scripts/parity_phase2.py`.
+
+**Step 2** fixed every verified defect but one. Each row of the table below
+carries the commit that closed it. Three defects, D14 to D16, were found while
+answering decision 6 and are recorded here rather than in the original survey's
+numbering. D13 is half done: the Python floor, the CI matrix and the lock are
+fixed, and what remains is watching a run go green, which needs a push to `main`
+or a manually dispatched run.
+
+The suite went from 499 tests to 671. Two findings under "Tests and
+documentation" are fixed by step 1 and are marked where they appear. Everything
+else stands as written. The six decisions that gated step 2 are answered at the
+end; the keep/delete decisions that gate step 3 are still open.
 
 ## The package today
 
@@ -83,7 +94,7 @@ before the code around it moves.
 | D10 | Phase 1 and Phase 2 parse shared settings differently (fixed, `a699886`) | `phase1_pool.py:144` tests `COV_NORM == "1"`, while `Phase2Settings` parses booleans. Phase 1 reads `CONFIG`; `Phase2Settings` prefers `RUTTER_CONFIG`. | `COV_NORM=true` normalizes Phase 2 only; an exported `RUTTER_CONFIG` sends the phases to different subjects | verified |
 | D11 | The optimizer ignores a configured probe pivot (fixed, `3d7cb05`) | Nothing under `optimization/` reads `pivot_LPS`; the app honors it (`planning.py:405`) | Latent: every current config leaves it null | verified |
 | D12 | The thread-pool Phase 2 ignores `settings.warmup` (fixed, `a9f8f60`) | `solve_candidates` warms unconditionally on the thread branch | `WARMUP=0` has no effect in the default pool mode | verified |
-| D13 | CI has not run a test since at least June 2026 | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required. Every leg of run 33395088563 failed during setup: 3.9 on uv refusing an interpreter below `requires-python`, 3.13 on a stale `uv.lock` under `--locked`. | Three conflicting statements of the floor, and no leg of the matrix reaches pytest | verified (run log) |
+| D13 | CI has not run a test since at least June 2026 (half fixed, `0ae6d0d`) | CI tests 3.9 (`.github/workflows/ci-call.yml:24`); `pyproject.toml:9` requires `>=3.10`; CLAUDE.md says 3.13 is required. Every leg of run 33395088563 failed during setup: 3.9 on uv refusing an interpreter below `requires-python`, 3.13 on a stale `uv.lock` under `--locked`. | Three conflicting statements of the floor, and no leg of the matrix reaches pytest. The floor, the matrix and the lock are fixed; nobody has yet watched a run go green, which needs a push to `main` or a manually dispatched run. | verified (run log) |
 | D14 | A fresh install cannot start the app (fixed, `0ae6d0d`) | `trame_controller.py:18` imports `pyvista.trame.ui`; pyvista's `trame/__init__.py` imports `trame_pyvista` unconditionally, and pyvista declares it only under its `jupyter` extra. The project depends on plain `pyvista>=0.46.5`. | `rutter-plan` fails to import on any resolution that picks pyvista 0.49; only the stale `uv.lock`, pinning 0.47.1, hides it | verified (3.11 and 3.14 installs) |
 | D15 | The declared Python floor is impossible (fixed, `0ae6d0d`) | `pyproject.toml:9` requires `>=3.10`; `orientation_codes.py:3` imports `enum.StrEnum`, added in 3.11 | On 3.10 the package does not import; 25 test modules fail to collect | verified (measured) |
 | D16 | `ruff check` does not run the configured rule set (fixed, `c8566ed`) | The installed ruff enables 415 rules with no config at all, and `[tool.ruff.lint]` uses `extend-select`, which adds to that default rather than replacing it | 497 findings in `src` under the documented lint command; with `select` in place of `extend-select`, zero | verified (measured) |
@@ -421,7 +432,8 @@ previous commit.
    *(Done — see Status.)*
 2. **Fix the verified defects.** Start with D1 and D2: pinning the compile cache
    also makes runs reproducible, and D2 makes the importable `run()` safe. Then
-   D3–D13, each with a regression test.
+   D3–D13, each with a regression test. *(Done, apart from D13's second half —
+   see Status.)*
 3. **Delete dead code,** after the keep/delete decisions.
 4. **Unify configuration.** Settings for every stage, `jax_env`, no import-time
    environment reads below the CLI.

@@ -22,7 +22,7 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (557 currently green)
+uv run --python 3.13 pytest -q            # tests (671 currently green)
 uv sync --python 3.13                     # set up venv
 
 # Phase-2 output parity against a baseline commit, on a subject written on the
