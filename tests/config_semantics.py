@@ -81,8 +81,29 @@ def semantics_for(path: str) -> dict[str, Any]:
     return out
 
 
+def scene_for(path: str) -> dict[str, dict[str, Any]]:
+    """The scene nodes a config produces, keyed by node id.
+
+    Node creation currently keys off ``transform or scene_tags``, so tagging an
+    asset that has neither — every probe *kind* asset — would invent a node.
+    Pinning the node set is what makes the tag migration checkable.
+    """
+    cfg = ConfigModel.from_yaml(ROOT / path)
+    return {
+        node.key: {
+            "asset": node.asset,
+            "tags": sorted(node.tags or ()),
+            "pose_source_probe": node.pose_source_probe,
+        }
+        for node in cfg.scene.nodes
+    }
+
+
 def all_semantics() -> dict[str, dict[str, Any]]:
-    return {path: semantics_for(path) for path in CONFIGS}
+    return {
+        path: {"specs": semantics_for(path), "scene": scene_for(path)}
+        for path in CONFIGS
+    }
 
 
 def write_golden() -> None:

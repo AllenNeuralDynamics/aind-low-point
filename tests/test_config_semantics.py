@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from tests.config_semantics import CONFIGS, GOLDEN, semantics_for
+from tests.config_semantics import CONFIGS, GOLDEN, scene_for, semantics_for
 
 
 @pytest.fixture(scope="module")
@@ -25,7 +25,7 @@ def golden() -> dict:
 
 @pytest.mark.parametrize("path", CONFIGS)
 def test_a_config_resolves_to_the_recorded_decisions(path: str, golden: dict) -> None:
-    assert semantics_for(path) == golden[path]
+    assert semantics_for(path) == golden[path]["specs"]
 
 
 def test_the_golden_file_covers_every_tracked_config(golden: dict) -> None:
@@ -97,3 +97,13 @@ def test_the_collision_pair_filter_is_just_probe_versus_collidable(path: str) ->
             if by_label != by_tag:
                 disagreements.append((a, b, by_label, by_tag))
     assert not disagreements, f"{path}: {disagreements[:5]}"
+
+
+@pytest.mark.parametrize("path", CONFIGS)
+def test_a_config_produces_the_recorded_scene_nodes(path: str, golden: dict) -> None:
+    """Which nodes exist, and what each is tagged.
+
+    A probe *kind* asset is a template with no placement; the nodes the planner
+    poses come from `plan.probes`. Tagging a template must not invent a node.
+    """
+    assert scene_for(path) == golden[path]["scene"]
