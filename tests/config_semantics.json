@@ -1,5 +1,10 @@
 {
   "examples/786864-config.yml": {
+    "fixtures": [
+      "cone",
+      "headframe",
+      "well"
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -969,6 +974,11 @@
     }
   },
   "examples/836656-config-T12.yml": {
+    "fixtures": [
+      "cone",
+      "headframe",
+      "well"
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -2141,6 +2151,11 @@
     }
   },
   "examples/836656-config.yml": {
+    "fixtures": [
+      "cone",
+      "headframe",
+      "well"
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -3313,6 +3328,11 @@
     }
   },
   "examples/837229-config.yml": {
+    "fixtures": [
+      "cone",
+      "headframe",
+      "well"
+    ],
     "scene": {
       "brain": {
         "asset": "brain",
@@ -4296,6 +4316,11 @@
     }
   },
   "examples/build5-template-config.yml": {
+    "fixtures": [
+      "headframe",
+      "probe-guard",
+      "well"
+    ],
     "scene": {
       "brain": {
         "asset": "brain",

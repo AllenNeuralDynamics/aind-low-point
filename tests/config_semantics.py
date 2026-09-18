@@ -19,6 +19,7 @@ from typing import Any
 from aind_rutter.common import Capability
 from aind_rutter.config import ConfigModel
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
+from aind_rutter.runtime.scene_geometry import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = Path(__file__).with_name("config_semantics.json")
@@ -99,9 +100,29 @@ def scene_for(path: str) -> dict[str, dict[str, Any]]:
     }
 
 
+def fixtures_for(path: str) -> list[str]:
+    """The optimizer's static-obstacle set, by the rule `fixture_node_keys` uses.
+
+    Probes thread *through* the implant via its bores, so an implant-tagged node
+    is excluded however else it is tagged. This is the consequence that must not
+    move when node tags gain the asset's tags.
+    """
+    include = FIXTURE_TAGS
+    exclude = FIXTURE_EXCLUDED_TAGS
+    return sorted(
+        node.key
+        for node in ConfigModel.from_yaml(ROOT / path).scene.nodes
+        if (set(node.tags or ()) & include) and not (set(node.tags or ()) & exclude)
+    )
+
+
 def all_semantics() -> dict[str, dict[str, Any]]:
     return {
-        path: {"specs": semantics_for(path), "scene": scene_for(path)}
+        path: {
+            "specs": semantics_for(path),
+            "scene": scene_for(path),
+            "fixtures": fixtures_for(path),
+        }
         for path in CONFIGS
     }
 

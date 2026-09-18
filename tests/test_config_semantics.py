@@ -15,7 +15,13 @@ import json
 
 import pytest
 
-from tests.config_semantics import CONFIGS, GOLDEN, scene_for, semantics_for
+from tests.config_semantics import (
+    CONFIGS,
+    GOLDEN,
+    fixtures_for,
+    scene_for,
+    semantics_for,
+)
 
 
 @pytest.fixture(scope="module")
@@ -107,3 +113,9 @@ def test_a_config_produces_the_recorded_scene_nodes(path: str, golden: dict) -> 
     poses come from `plan.probes`. Tagging a template must not invent a node.
     """
     assert scene_for(path) == golden[path]["scene"]
+
+
+@pytest.mark.parametrize("path", CONFIGS)
+def test_a_config_yields_the_recorded_fixture_set(path: str, golden: dict) -> None:
+    """What the optimizer treats as a static obstacle."""
+    assert fixtures_for(path) == golden[path]["fixtures"]
