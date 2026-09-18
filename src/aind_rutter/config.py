@@ -1999,12 +1999,23 @@ class ConfigModel(BaseModel):
                 f"plan.probes: targets '{conflicting_names}' ambiguous "
                 "(in both catalog and node targets)"
             )
-        # each calibration file must reference an existing reticle
-        for cal_id, cal in cal_files.items():
-            if cal.reticle not in reticle_names:
+        # A parallax directory needs its reticle declared. A single calibration
+        # file carries its own, and CalibrationSourceModel forbids naming one —
+        # so requiring a reticle of every source made `file:` unusable. Both
+        # wiring modes are checked; only `sources` went unchecked before.
+        calibration_sources = [
+            (f"files['{cal_id}']", cal) for cal_id, cal in cal_files.items()
+        ] + [
+            (f"sources[{i}]", src)
+            for i, src in enumerate(self.plan.calibrations.sources)
+        ]
+        for label, source in calibration_sources:
+            if source.directory is None:
+                continue
+            if source.reticle not in reticle_names:
                 err(
-                    f"plan.calibrations.files['{cal_id}']: "
-                    f"reticle '{cal.reticle}' not in plan.reticles"
+                    f"plan.calibrations.{label}: "
+                    f"reticle '{source.reticle}' not in plan.reticles"
                 )
 
         # probe_to_ref must point to a valid probe and cal file id
