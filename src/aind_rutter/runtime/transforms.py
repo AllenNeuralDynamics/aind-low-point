@@ -79,5 +79,8 @@ def resolve_transform_ref_cached(
         return None
     if ref.key:
         return resolve_transform_key_cached(ref.key, cache)
-    # Inline recipe: compile on the fly (not in cache by design)
-    return compile_recipe_to_chain(ref.inline).composed_transform  # type: ignore[arg-type]
+    # Inline recipe: compile on the fly (not in cache by design). Collapsed the
+    # way compile_all_transforms collapses a keyed one, so both branches of this
+    # function return the same type — callers read `.rotate_translate` off it.
+    rotation, translation = compile_recipe_to_chain(ref.inline).composed_transform
+    return AffineTransform(rotation, translation)
