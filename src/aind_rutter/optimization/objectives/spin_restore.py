@@ -38,6 +38,7 @@ from aind_rutter.optimization.objectives.layout import (
     SPIN_COS,
     SPIN_SIN,
     reduced_block,
+    reduced_var,
 )
 from aind_rutter.optimization.objectives.probe_static import JointWeights
 from aind_rutter.optimization.pipeline.contracts import (
@@ -143,7 +144,7 @@ def make_batched_spin_restore_partial(
             [sdf_surface_points[int(kind_np[k])] @ Rs[k].T + ts[k] for k in range(K)]
         )  # (K, Nsurf, 3)
         arc_i = arc_aps[arc_idx[i]]
-        ml_i = y[reduced_block(n_arcs, i) + ML]
+        ml_i = y[reduced_var(n_arcs, i, ML)]
         tgt_i, piv_i = target_LPS[i], pivot_local[i]
         ki = kind_id[i]
         grid_i, org_i, sp_i = sdf_grids[ki], sdf_origins[ki], sdf_spacings[ki]

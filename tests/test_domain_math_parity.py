@@ -226,3 +226,51 @@ def test_the_named_shank_tip_survives_rotation() -> None:
         [0.0, 1.0, 0.0],
         atol=1e-12,
     )
+
+
+def test_the_layout_helpers_add_no_work_to_a_traced_kernel() -> None:
+    """The helpers replaced index arithmetic inside jitted code, so they have to
+    trace to the same graph rather than merely the same answer.
+
+    `spin_restore` walks probes with a `lax.fori_loop`, so its probe index is
+    traced and every scalar op in that body is real.
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from aind_rutter.optimization.objectives.layout import (
+        ML,
+        SPIN_COS,
+        SPIN_SIN,
+        reduced_block,
+        reduced_var,
+    )
+
+    n_arcs = 3
+    y = jnp.arange(n_arcs + 12, dtype=jnp.float32)
+    traced = jnp.int32(2)
+
+    def block_then_offset(y, i):
+        """What the four multi-slot sites do: one block, then offsets."""
+        off = reduced_block(n_arcs, i)
+        return y[off], y[off + SPIN_COS], y[off + SPIN_SIN]
+
+    def multi_slot_literal(y, i):
+        off = n_arcs + 3 * i
+        return y[off], y[off + 1], y[off + 2]
+
+    assert str(jax.make_jaxpr(block_then_offset)(y, traced)) == str(
+        jax.make_jaxpr(multi_slot_literal)(y, traced)
+    )
+
+    def single_slot(y, i):
+        """What `spin_restore` does for `ml`. `reduced_var` skips the `+ 0`,
+        which XLA does not fold."""
+        return y[reduced_var(n_arcs, i, ML)]
+
+    def single_slot_literal(y, i):
+        return y[n_arcs + 3 * i]
+
+    assert str(jax.make_jaxpr(single_slot)(y, traced)) == str(
+        jax.make_jaxpr(single_slot_literal)(y, traced)
+    )

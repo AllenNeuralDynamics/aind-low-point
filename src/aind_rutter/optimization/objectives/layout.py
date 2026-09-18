@@ -38,6 +38,22 @@ def reduced_block(n_arcs: int, probe_index):
     return n_arcs + REDUCED_PER_PROBE_VARS * probe_index
 
 
+def reduced_var(n_arcs: int, probe_index, slot: int = ML):
+    """Index of a single reduced variable.
+
+    For **one** slot only. Reading several, take ``reduced_block`` once and add
+    the offsets — calling this per slot recomputes ``stride * index`` each time,
+    because nothing shares it between calls while tracing.
+
+    The ``slot == 0`` test resolves at trace time, since ``slot`` is a Python
+    int. It is there because ``reduced_block(...) + ML`` emits a scalar add that
+    XLA does not fold, inside `spin_restore`'s ``fori_loop`` where the probe
+    index is traced.
+    """
+    base = reduced_block(n_arcs, probe_index)
+    return base if slot == 0 else base + slot
+
+
 def full_block(n_arcs: int, probe_index):
     """Index of this probe's first full-layout variable."""
     return n_arcs + PHASE1_PER_PROBE_VARS * probe_index
