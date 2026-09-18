@@ -77,7 +77,6 @@ from aind_rutter.optimization.pipeline.enumeration import (
     build_or_load_atlas,
 )
 from aind_rutter.optimization.pipeline.payloads import (
-    check_payload_path,
     read_pool,
     read_seed_cache,
     write_pool,
@@ -100,61 +99,11 @@ from aind_rutter.optimization.pipeline.restore import (
     setup_runtime,
     spins_deg_from_reduced,
 )
-from aind_rutter.optimization.pipeline.settings import PipelineSettings
+from aind_rutter.optimization.pipeline.settings import Phase1Settings
 from aind_rutter.planning import AP_LIMIT_DEG
 
-# Values Phase 2 also reads. Resolved through the shared model so the two phases
-# cannot disagree about the subject, the well mode or the coverage weighting.
-_SHARED = PipelineSettings()
-
-STAGE1 = int(_os.environ.get("STAGE1", "500"))
-STAGE2 = int(_os.environ.get("STAGE2", "500"))
-N_SPINS = int(_os.environ.get("N_SPINS", "16"))
-RESTORE_ROUNDS = int(_os.environ.get("RESTORE_ROUNDS", "4"))
-CHUNK = int(_os.environ.get("CHUNK", "256"))
-RESTORE_CHUNK = int(_os.environ.get("RESTORE_CHUNK", "128"))
-PIPELINE_DEPTH = int(_os.environ.get("PIPELINE_DEPTH", "2"))
-LIMIT = int(_os.environ.get("LIMIT", "0"))
-MAX_ARCS = int(_os.environ.get("MAX_ARCS", "3"))
-MAX_PPA = int(_os.environ.get("MAX_PROBES_PER_ARC", "4"))
-# ONLY_NARCS=N restricts this invocation to a single n_arcs group. Lets a bash
-# loop run one group per PROCESS (fresh GPU each time) so the BFC allocator can't
-# fragment across groups — the cause of the cross-group restore OOM. The resume
-# logic (records keyed by n_arcs) accumulates groups across invocations.
-ONLY_NARCS = int(_os.environ.get("ONLY_NARCS", "0"))
-BF16 = _os.environ.get("BF16_STORE", "1") == "1"
-PROGRESS_EVERY = int(_os.environ.get("PROGRESS_EVERY", "25"))
-OUT = _os.environ.get("OUT", "scratch/mrv_pool_results.json.gz")
-# Seed cache is SUBJECT-SPECIFIC (enumerated candidates depend on the subject's
-# config); default keys off the config stem so subjects never share seeds.
-_CFG_STEM = _os.path.splitext(
-    _os.path.basename(_os.environ.get("CONFIG", "examples/836656-config-T12.yml"))
-)[0]
-SEED_CACHE = _os.environ.get("SEED_CACHE", f"scratch/mrv_seeds_{_CFG_STEM}.json.gz")
-
-# Tuned-optimizer knobs (defaults = the THROUGHPUT preset).
-WELL_MODE = _SHARED.well  # thick|thin
-# Coverage normalization: divide each probe's coverage by its achievable ceiling
-# (so shank-count / area / σ / density weigh equally), blend average vs worst
-# region by COV_ALPHA in [0,1] (0 = pure average, 1 = pure minimax laggard), and
-# apply per-target priority weights (from the target spec's ``coverage_weight``,
-# overridable via COVERAGE_WEIGHTS env). COV_WEIGHT is the overall coverage gain
-# vs clearance in the full stage (coverage is now a [0,1] scalar, count-free).
-COV_NORM = _SHARED.cov_norm
-COV_ALPHA = _SHARED.cov_alpha
-COV_WEIGHT = _SHARED.cov_weight
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]
-COARSE_N = int(
-    _os.environ.get("COARSE_N", "1000")
-)  # coarse surf count (5000 = single-fidelity)
-REDUCED_FINE = int(
-    _os.environ.get("REDUCED_FINE", "50")
-)  # fine @5000 steps ending the reduced stage
-FULL_FINE = int(
-    _os.environ.get("FULL_FINE", "50")
-)  # fine @5000 steps ending the full stage
-TWO_FIDELITY = COARSE_N < 5000
 
 
 @dataclass
@@ -260,6 +209,7 @@ def restore_group(
     n_arcs,
     cands: list[MRVCand],
     *,
+    settings: Phase1Settings,
     probes,
     holes,
     sdf_by_name,
@@ -285,7 +235,9 @@ def restore_group(
         seed_rows.append(y0)
     seeds = np.stack(seed_rows)
     B = len(cands)
-    initial_pairs = cast(Any, [(c.ha, c.aa) for c in cands[: min(RESTORE_CHUNK, B)]])
+    initial_pairs = cast(
+        Any, [(c.ha, c.aa) for c in cands[: min(settings.restore_chunk, B)]]
+    )
     bs0 = build_batched_probe_static(
         initial_pairs,
         probes,
@@ -295,13 +247,17 @@ def restore_group(
         head_pitch_deg=head_pitch_deg,
     )
     restore = make_batched_spin_restore_partial(
-        bs0, weights, n_spins=N_SPINS, n_rounds=RESTORE_ROUNDS, fixtures=fixtures
+        bs0,
+        weights,
+        n_spins=settings.n_spins,
+        n_rounds=settings.restore_rounds,
+        fixtures=fixtures,
     )
     obj_b, _ = make_batched_reduced_objective(bs0, weights, fixtures)
     obj_b = cast(Any, obj_b)
     out: list[np.ndarray] = []
-    for lo in range(0, B, RESTORE_CHUNK):
-        hi = min(lo + RESTORE_CHUNK, B)
+    for lo in range(0, B, settings.restore_chunk):
+        hi = min(lo + settings.restore_chunk, B)
         bs = (
             bs0
             if lo == 0
@@ -330,10 +286,23 @@ def make_runner(vgrad_cw) -> Callable:
 
 
 def _kernel(
-    st0, n_arcs, cov, well_soft, brain_sdf, grid_dtype, ceilings=None, cov_weights=None
+    st0,
+    n_arcs,
+    cov,
+    well_soft,
+    brain_sdf,
+    grid_dtype,
+    *,
+    settings: Phase1Settings,
+    ceilings=None,
+    cov_weights=None,
 ) -> tuple[Callable, ArglistBuilder, Callable]:
     """Build (vobj, build_arglist, run) for one fidelity's template statics."""
-    weights = Phase1Weights(cov_alpha=COV_ALPHA) if COV_NORM else Phase1Weights()
+    weights = (
+        Phase1Weights(cov_alpha=settings.cov_alpha)
+        if settings.cov_norm
+        else Phase1Weights()
+    )
     vobj, _vg, barg = make_batched_phase1_chunked(
         st0,
         n_arcs,
@@ -362,6 +331,7 @@ def run_group(  # noqa: C901
     n_arcs: int,
     cands: list[MRVCand],
     *,
+    settings: Phase1Settings,
     probes,
     holes,
     sdf_fine,
@@ -382,6 +352,7 @@ def run_group(  # noqa: C901
     spins = restore_group(
         n_arcs,
         cands,
+        settings=settings,
         probes=probes,
         holes=holes,
         sdf_by_name=sdf_fine,
@@ -402,7 +373,7 @@ def run_group(  # noqa: C901
                 sdf_by_name=sdf_fine,
             )
         )
-        if TWO_FIDELITY:
+        if settings.two_fidelity:
             st_c.append(
                 _build_probe_static(
                     probes,
@@ -425,9 +396,9 @@ def run_group(  # noqa: C901
     # Per-region normalization: ceilings (achievable per-probe coverage) +
     # per-target priority weights are per-probe-fixed (target/σ/density/geometry),
     # so compute once per group from any candidate's statics. Only active when
-    # COV_NORM is set; otherwise pass None ⇒ legacy plain-sum coverage.
+    # settings.cov_norm is set; otherwise pass None ⇒ legacy plain-sum coverage.
     ceilings, cov_weights = None, None
-    if COV_NORM:
+    if settings.cov_norm:
         from aind_rutter.optimization.objectives.coverage import (
             coverage_ceiling_per_probe,
         )
@@ -435,18 +406,27 @@ def run_group(  # noqa: C901
         ceilings = tuple(float(c) for c in coverage_ceiling_per_probe(st_f[0], cov))
         cov_weights = tuple(float(p.coverage_weight) for p in probes)
         if _group_log_once[0]:
+            alpha, gain = settings.cov_alpha, settings.cov_weight
             print(
                 f"  coverage NORMALIZED; ceilings={[round(c, 3) for c in ceilings]}, "
-                f"weights={[round(w, 3) for w in cov_weights]}, α={COV_ALPHA}, "
-                f"gain λ_cov={COV_WEIGHT}",
+                f"weights={[round(w, 3) for w in cov_weights]}, α={alpha}, "
+                f"gain λ_cov={gain}",
                 flush=True,
             )
             _group_log_once[0] = False
-    grid_dtype = jnp.bfloat16 if BF16 else jnp.float32
+    grid_dtype = jnp.bfloat16 if settings.bf16_store else jnp.float32
     vobj, barg_f, run_f = _kernel(
-        st_f[0], n_arcs, cov, well_soft, brain_sdf, grid_dtype, ceilings, cov_weights
+        st_f[0],
+        n_arcs,
+        cov,
+        well_soft,
+        brain_sdf,
+        grid_dtype,
+        settings=settings,
+        ceilings=ceilings,
+        cov_weights=cov_weights,
     )
-    if TWO_FIDELITY:
+    if settings.two_fidelity:
         _vo, barg_c, run_c = _kernel(
             st_c[0],
             n_arcs,
@@ -454,14 +434,15 @@ def run_group(  # noqa: C901
             well_soft,
             brain_sdf,
             grid_dtype,
-            ceilings,
-            cov_weights,
+            settings=settings,
+            ceilings=ceilings,
+            cov_weights=cov_weights,
         )
     else:
         barg_c, run_c, st_c = barg_f, run_f, st_f
 
     n_rows = x0.shape[0]
-    n_pad = (-n_rows) % CHUNK
+    n_pad = (-n_rows) % settings.chunk
     if n_pad:
         st_f = st_f + [st_f[-1]] * n_pad
         st_c = st_c + [st_c[-1]] * n_pad
@@ -469,33 +450,35 @@ def run_group(  # noqa: C901
     n_tot = x0.shape[0]
     x0_dev = jnp.asarray(x0, jnp.float32)
 
-    rc, rf = STAGE1 - REDUCED_FINE, REDUCED_FINE
-    fc, ff = STAGE2 - FULL_FINE, FULL_FINE
-    n_chunks = n_tot // CHUNK
-    fid = f"coarse{COARSE_N}→fine" if TWO_FIDELITY else "fine"
+    rc, rf = settings.stage1 - settings.reduced_fine, settings.reduced_fine
+    fc, ff = settings.stage2 - settings.full_fine, settings.full_fine
+    n_chunks = n_tot // settings.chunk
+    fid = f"coarse{settings.coarse_n}→fine" if settings.two_fidelity else "fine"
     print(
-        f"  rprop {fid} (chunk={CHUNK}, reduced {rc}c+{rf}f → "
+        f"  rprop {fid} (chunk={settings.chunk}, reduced {rc}c+{rf}f → "
         f"full {fc}c+{ff}f, {n_chunks} chunks)...",
         flush=True,
     )
     t0 = time.time()
     x_out = np.zeros_like(x0)  # full@end pose
     x_red = np.zeros_like(x0)  # reduced@end pose (cull checkpoint)
-    for ci, s in enumerate(range(0, n_tot, CHUNK)):
-        cargs_f = barg_f(st_f[s : s + CHUNK])
-        cargs_c = barg_c(st_c[s : s + CHUNK]) if TWO_FIDELITY else cargs_f
-        x = x0_dev[s : s + CHUNK]
+    for ci, s in enumerate(range(0, n_tot, settings.chunk)):
+        cargs_f = barg_f(st_f[s : s + settings.chunk])
+        cargs_c = (
+            barg_c(st_c[s : s + settings.chunk]) if settings.two_fidelity else cargs_f
+        )
+        x = x0_dev[s : s + settings.chunk]
         if rc > 0:
             x = run_c(x, cargs_c, lo_r, hi_r, 0.0, rc)  # reduced coarse
         if rf > 0:
             x = run_f(x, cargs_f, lo_r, hi_r, 0.0, rf)  # reduced fine finish
-        x_red[s : s + CHUNK] = np.asarray(x)
+        x_red[s : s + settings.chunk] = np.asarray(x)
         if fc > 0:
-            x = run_c(x, cargs_c, lo, hi, COV_WEIGHT, fc)  # full coarse
+            x = run_c(x, cargs_c, lo, hi, settings.cov_weight, fc)  # full coarse
         if ff > 0:
-            x = run_f(x, cargs_f, lo, hi, COV_WEIGHT, ff)  # full fine finish
-        x_out[s : s + CHUNK] = np.asarray(x)
-        if (ci + 1) % PROGRESS_EVERY == 0 or ci + 1 == n_chunks:
+            x = run_f(x, cargs_f, lo, hi, settings.cov_weight, ff)  # full fine finish
+        x_out[s : s + settings.chunk] = np.asarray(x)
+        if (ci + 1) % settings.progress_every == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
             print(
                 f"    chunk {ci + 1}/{n_chunks}  {el:.0f}s  "
@@ -514,11 +497,17 @@ def run_group(  # noqa: C901
     clr_red = np.empty(n_tot, np.float32)  # reduced@end clearance (checkpoint)
     x_dev = jnp.asarray(x_out, jnp.float32)
     xr_dev = jnp.asarray(x_red, jnp.float32)
-    for s in range(0, n_tot, CHUNK):
-        cargs = barg_f(st_f[s : s + CHUNK])
-        obj[s : s + CHUNK] = np.asarray(vobj(x_dev[s : s + CHUNK], *cargs))
-        clr[s : s + CHUNK] = np.asarray(clear_b(x_dev[s : s + CHUNK], *cargs))
-        clr_red[s : s + CHUNK] = np.asarray(clear_b(xr_dev[s : s + CHUNK], *cargs))
+    for s in range(0, n_tot, settings.chunk):
+        cargs = barg_f(st_f[s : s + settings.chunk])
+        obj[s : s + settings.chunk] = np.asarray(
+            vobj(x_dev[s : s + settings.chunk], *cargs)
+        )
+        clr[s : s + settings.chunk] = np.asarray(
+            clear_b(x_dev[s : s + settings.chunk], *cargs)
+        )
+        clr_red[s : s + settings.chunk] = np.asarray(
+            clear_b(xr_dev[s : s + settings.chunk], *cargs)
+        )
     return (
         st_f[:n_rows],
         x_out[:n_rows],
@@ -557,57 +546,62 @@ def make_phase1_pool_record(
     )
 
 
-def save_results(records: list[Phase1PoolRecord]) -> None:
+def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> None:
     payload: Phase1PoolPayload = dict(
         records=records,
-        stage1=STAGE1,
-        stage2=STAGE2,
-        n_spins=N_SPINS,
-        max_arcs=MAX_ARCS,
-        max_ppa=MAX_PPA,
+        stage1=settings.stage1,
+        stage2=settings.stage2,
+        n_spins=settings.n_spins,
+        max_arcs=settings.max_arcs,
+        max_ppa=settings.max_probes_per_arc,
         minimizer="rprop",
-        well=WELL_MODE,
-        coarse_n=COARSE_N,
-        reduced_fine=REDUCED_FINE,
-        full_fine=FULL_FINE,
+        well=settings.well,
+        coarse_n=settings.coarse_n,
+        reduced_fine=settings.reduced_fine,
+        full_fine=settings.full_fine,
     )
-    write_pool(OUT, payload)
+    write_pool(settings.out, payload)
 
 
 def load_or_seed_groups(
     enum_factory: Callable[[], Enumerator],
+    settings: Phase1Settings,
 ) -> dict[int, list[MRVCand]]:
-    """Enumerate+seed the MRV pool once, cache grouped-by-n_arcs to SEED_CACHE.
-    On restart (cache present, no LIMIT) just reload — the seed CSP is ~14 min."""
-    if SEED_CACHE and not LIMIT and _os.path.exists(SEED_CACHE):
+    """Enumerate and seed the MRV pool once, cached grouped by arc count.
+
+    On a restart with the cache present and no candidate cap, this just reloads:
+    the seed CSP takes about 14 minutes.
+    """
+    if (
+        settings.seed_cache
+        and not settings.limit
+        and _os.path.exists(settings.seed_cache)
+    ):
         try:
             cached_by_arcs = {
                 n_arcs: [_cand_from_record(r) for r in records]
-                for n_arcs, records in read_seed_cache(SEED_CACHE).items()
+                for n_arcs, records in read_seed_cache(settings.seed_cache).items()
             }
         except ValueError as e:
             print(f"seed cache unusable, re-seeding: {e}", flush=True)
         else:
             print(
-                f"loaded seeds from {SEED_CACHE}: groups "
+                f"loaded seeds from {settings.seed_cache}: groups "
                 + ", ".join(f"{k}:{len(v)}" for k, v in sorted(cached_by_arcs.items())),
                 flush=True,
             )
             return cached_by_arcs
 
-    print(
-        f"enumerating MRV pool (arcs<={MAX_ARCS}, probes/arc<={MAX_PPA})...", flush=True
-    )
+    arcs, per_arc = settings.max_arcs, settings.max_probes_per_arc
+    print(f"enumerating MRV pool (arcs<={arcs}, probes/arc<={per_arc})...", flush=True)
     enum = enum_factory()
     t0 = time.time()
     raw = enum.enumerate()
     print(f"  {len(raw)} discrete candidates in {time.time() - t0:.1f}s", flush=True)
-    if LIMIT:
-        raw = raw[:LIMIT]
+    if settings.limit:
+        raw = raw[: settings.limit]
     t0 = time.time()
-    seed_workers = int(
-        _os.environ.get("SEED_WORKERS", str(min(_os.cpu_count() or 1, 16)))
-    )
+    seed_workers = settings.seed_workers
     if seed_workers > 1 and len(raw) > seed_workers:
         # Seeding is independent per candidate and CPU-bound (numpy CSP backtrack
         # over tiny arrays — GIL-held, so threads don't help) but parallelises
@@ -639,33 +633,44 @@ def load_or_seed_groups(
     for c in cands:
         by_arcs.setdefault(c.n_arcs, []).append(c)
     print("  groups " + ", ".join(f"{k}:{len(v)}" for k, v in sorted(by_arcs.items())))
-    if SEED_CACHE and not LIMIT:
+    if settings.seed_cache and not settings.limit:
         write_seed_cache(
-            SEED_CACHE,
+            settings.seed_cache,
             {n_arcs: [_seed_record(c) for c in g] for n_arcs, g in by_arcs.items()},
         )
-        print(f"  cached seeds → {SEED_CACHE}", flush=True)
+        print(f"  cached seeds → {settings.seed_cache}", flush=True)
     return by_arcs
 
 
-def main() -> int:
+def run(settings: Phase1Settings) -> int:
+    """Build the Phase-1 pool described by ``settings``.
+
+    Importable, so a caller in Python constructs the settings directly rather
+    than through the environment. Resumable: ``settings.out`` is reloaded and
+    the arc-count groups already in it are skipped.
+    """
     # Explicit, because no import configures the compile cache any more.
     configure_compile_cache()
-    check_payload_path(OUT)
-    if SEED_CACHE:
-        check_payload_path(SEED_CACHE)
     opt = setup_runtime()
     _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, _fbvh = setup(opt)
     brain = opt.brain_sdf()
 
     # Tuned optimizer: thick well (soft side only; FCL uses true mesh) + coarse SDF.
-    well_soft = opt.thick_well_fixture(well_thin) if WELL_MODE == "thick" else well_thin
-    sdf_coarse = opt.probe_sdfs(COARSE_N) if TWO_FIDELITY else sdf_fine
+    well_soft = (
+        opt.thick_well_fixture(well_thin) if settings.well == "thick" else well_thin
+    )
+    sdf_coarse = (
+        opt.probe_sdfs(settings.coarse_n) if settings.two_fidelity else sdf_fine
+    )
+    fidelity = (
+        f"coarse{settings.coarse_n}→fine" if settings.two_fidelity else "fine-only"
+    )
+    reduced_coarse = settings.stage1 - settings.reduced_fine
+    full_coarse = settings.stage2 - settings.full_fine
     print(
-        f"config: well={WELL_MODE} "
-        f"{'coarse' + str(COARSE_N) + '→fine' if TWO_FIDELITY else 'fine-only'} "
-        f"reduced {STAGE1 - REDUCED_FINE}c+{REDUCED_FINE}f → "
-        f"full {STAGE2 - FULL_FINE}c+{FULL_FINE}f → {OUT}",
+        f"config: well={settings.well} {fidelity} "
+        f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
+        f"full {full_coarse}c+{settings.full_fine}f → {settings.out}",
         flush=True,
     )
 
@@ -682,31 +687,31 @@ def main() -> int:
             atlas_payload.atlas,
             atlas_payload.probe_names,
             ml_margin_deg=0.0,
-            max_arcs=MAX_ARCS,
-            max_probes_per_arc=MAX_PPA,
+            max_arcs=settings.max_arcs,
+            max_probes_per_arc=settings.max_probes_per_arc,
             ap_range=ap_range,
         )
 
-    by_arcs = load_or_seed_groups(_enum_factory)
+    by_arcs = load_or_seed_groups(_enum_factory, settings)
 
-    if ONLY_NARCS:
-        by_arcs = {k: v for k, v in by_arcs.items() if k == ONLY_NARCS}
+    if settings.only_narcs:
+        by_arcs = {k: v for k, v in by_arcs.items() if k == settings.only_narcs}
         print(
-            f"  ONLY_NARCS={ONLY_NARCS}: "
+            f"  settings.only_narcs={settings.only_narcs}: "
             + (f"{len(next(iter(by_arcs.values())))} cands" if by_arcs else "no cands")
         )
 
     # Resume: reload any previously-saved records and skip those n_arcs groups.
     records: list[Phase1PoolRecord] = []
     done_narcs: set = set()
-    if _os.path.exists(OUT):
-        # An unreadable pool aborts the run: save_results rewrites OUT with every
-        # group, so carrying on would discard the groups it already holds.
-        records = list(read_pool(OUT)["records"])
+    if _os.path.exists(settings.out):
+        # An unreadable pool aborts the run: save_results rewrites the file with
+        # every group, so carrying on would discard the groups it already holds.
+        records = list(read_pool(settings.out)["records"])
         done_narcs = {r["n_arcs"] for r in records}
         if done_narcs:
             print(
-                f"resuming from {OUT}: {len(records)} records, "
+                f"resuming from {settings.out}: {len(records)} records, "
                 f"done groups {sorted(done_narcs)}",
                 flush=True,
             )
@@ -714,13 +719,16 @@ def main() -> int:
     # Largest group first: the hungriest spin-restore runs on the cleanest GPU.
     for n_arcs in sorted(by_arcs, key=lambda k: -len(by_arcs[k])):
         if n_arcs in done_narcs:
-            print(f"\n[n_arcs={n_arcs}] already in {OUT}, skipping", flush=True)
+            print(
+                f"\n[n_arcs={n_arcs}] already in {settings.out}, skipping", flush=True
+            )
             continue
         g = by_arcs[n_arcs]
         print(f"\n[n_arcs={n_arcs}] {len(g)} cands", flush=True)
         statics_flat, x_out, x_red, obj, clr, clr_red = run_group(
             n_arcs,
             g,
+            settings=settings,
             probes=probes,
             holes=holes,
             sdf_fine=sdf_fine,
@@ -744,15 +752,20 @@ def main() -> int:
             )
         # Incremental save + free this group's GPU buffers before the next group
         # compiles its own kernels (cross-group accumulation caused the OOM).
-        save_results(records)
-        print(f"  saved {len(records)} records → {OUT}", flush=True)
+        save_results(records, settings)
+        print(f"  saved {len(records)} records → {settings.out}", flush=True)
         del statics_flat, x_out, x_red, obj, clr, clr_red
         gc.collect()
         jax.clear_caches()
 
-    save_results(records)
-    print(f"\nsaved {len(records)} records → {OUT}")
+    save_results(records, settings)
+    print(f"\nsaved {len(records)} records → {settings.out}")
     return 0
+
+
+def main() -> int:
+    """Console entry point: settings from the environment, then `run`."""
+    return run(Phase1Settings())
 
 
 if __name__ == "__main__":

@@ -65,10 +65,14 @@ def test_every_stage_still_accepts_the_bare_subject(module: str, name: str) -> N
 
 @pytest.mark.parametrize("setting", TRUTHY)
 def test_phase_one_reads_the_same_true_values_as_phase_two(setting: str) -> None:
-    """`COV_NORM=true` used to normalize Phase 2's coverage and not Phase 1's."""
+    """`COV_NORM=true` used to normalize Phase 2's coverage and not Phase 1's.
+
+    Both stages now take it from `PipelineSettings`, so the parsing is shared by
+    construction; this checks the spellings a caller may actually write.
+    """
     value = _read(
-        "__import__('aind_rutter.optimization.pipeline.phase1_pool',"
-        " fromlist=['COV_NORM']).COV_NORM",
+        "__import__('aind_rutter.optimization.pipeline.settings',"
+        " fromlist=['Phase1Settings']).Phase1Settings().cov_norm",
         {"COV_NORM": setting},
     )
     assert value == "True"
@@ -77,8 +81,8 @@ def test_phase_one_reads_the_same_true_values_as_phase_two(setting: str) -> None
 @pytest.mark.parametrize("setting", FALSY)
 def test_phase_one_reads_the_same_false_values_as_phase_two(setting: str) -> None:
     value = _read(
-        "__import__('aind_rutter.optimization.pipeline.phase1_pool',"
-        " fromlist=['COV_NORM']).COV_NORM",
+        "__import__('aind_rutter.optimization.pipeline.settings',"
+        " fromlist=['Phase1Settings']).Phase1Settings().cov_norm",
         {"COV_NORM": setting},
     )
     assert value == "False"
@@ -87,10 +91,10 @@ def test_phase_one_reads_the_same_false_values_as_phase_two(setting: str) -> Non
 @pytest.mark.parametrize("setting", TRUTHY + FALSY)
 def test_the_two_phases_agree_on_every_spelling(setting: str) -> None:
     both = _read(
-        "(__import__('aind_rutter.optimization.pipeline.phase1_pool',"
-        " fromlist=['COV_NORM']).COV_NORM,"
+        "(__import__('aind_rutter.optimization.pipeline.settings',"
+        " fromlist=['Phase1Settings']).Phase1Settings().cov_norm,"
         " __import__('aind_rutter.optimization.pipeline.settings',"
-        " fromlist=['PipelineSettings']).PipelineSettings().cov_norm)",
+        " fromlist=['Phase2Settings']).Phase2Settings().cov_norm)",
         {"COV_NORM": setting},
     )
     first, second = both.strip("()").split(",")
@@ -103,7 +107,8 @@ def test_a_value_neither_phase_can_parse_is_refused() -> None:
         [
             sys.executable,
             "-c",
-            "import aind_rutter.optimization.pipeline.phase1_pool",
+            "from aind_rutter.optimization.pipeline.settings import "
+            "Phase1Settings; Phase1Settings()",
         ],
         capture_output=True,
         text=True,

@@ -24,10 +24,11 @@ object built inside ``main``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
@@ -71,6 +72,102 @@ class PipelineSettings(BaseSettings):
     cov_norm: bool = Field(False, validation_alias=_env("COV_NORM"))
     cov_alpha: float = Field(0.2, validation_alias=_env("COV_ALPHA"))
     cov_weight: float = Field(1.0, validation_alias=_env("COV_WEIGHT"))
+
+
+class Phase1Settings(PipelineSettings):
+    """Inputs to the Phase-1 pool build.
+
+    Defaults are the THROUGHPUT preset; ``dev/POOL_RUN_CONFIGS.md`` says what
+    each lever was measured to be worth.
+    """
+
+    # Optimization schedule. The two stages run the same compiled kernel, so
+    # their step counts are runtime arguments rather than separate compiles.
+    stage1: int = Field(500, validation_alias=_env("RUTTER_STAGE1", "STAGE1"))
+    stage2: int = Field(500, validation_alias=_env("RUTTER_STAGE2", "STAGE2"))
+    n_spins: int = Field(16, validation_alias=_env("RUTTER_N_SPINS", "N_SPINS"))
+    restore_rounds: int = Field(
+        4, validation_alias=_env("RUTTER_RESTORE_ROUNDS", "RESTORE_ROUNDS")
+    )
+    # Coarse surf count, then the fine steps that finish each stage. Running the
+    # bulk coarse and finishing fine is a homotopy: it is both faster and finds
+    # more feasible candidates. coarse_n at or above 5000 collapses to all-fine.
+    coarse_n: int = Field(1000, validation_alias=_env("RUTTER_COARSE_N", "COARSE_N"))
+    reduced_fine: int = Field(
+        50, validation_alias=_env("RUTTER_REDUCED_FINE", "REDUCED_FINE")
+    )
+    full_fine: int = Field(50, validation_alias=_env("RUTTER_FULL_FINE", "FULL_FINE"))
+
+    # Batch shapes. VRAM is ~9.5 MB per candidate plus a ~2.2 GB baseline.
+    chunk: int = Field(256, validation_alias=_env("RUTTER_CHUNK", "CHUNK"))
+    restore_chunk: int = Field(
+        128, validation_alias=_env("RUTTER_RESTORE_CHUNK", "RESTORE_CHUNK")
+    )
+    pipeline_depth: int = Field(
+        2, validation_alias=_env("RUTTER_PIPELINE_DEPTH", "PIPELINE_DEPTH")
+    )
+    bf16_store: bool = Field(
+        True, validation_alias=_env("RUTTER_BF16_STORE", "BF16_STORE")
+    )
+
+    # Enumeration caps. Defaults reproduce the historical 3-arc pool; the
+    # kinematic maxima are 8 each.
+    max_arcs: int = Field(3, validation_alias=_env("RUTTER_MAX_ARCS", "MAX_ARCS"))
+    max_probes_per_arc: int = Field(
+        4, validation_alias=_env("RUTTER_MAX_PROBES_PER_ARC", "MAX_PROBES_PER_ARC")
+    )
+    only_narcs: int = Field(
+        0,
+        validation_alias=_env("RUTTER_ONLY_NARCS", "ONLY_NARCS"),
+        description="Build only this arc-count group; 0 builds all of them.",
+    )
+    limit: int = Field(
+        0,
+        validation_alias=_env("RUTTER_LIMIT", "LIMIT"),
+        description="Cap candidates for a smoke test; disables the seed cache.",
+    )
+    seed_workers: int = Field(
+        default_factory=lambda: min(os.cpu_count() or 1, 16),
+        validation_alias=_env("RUTTER_SEED_WORKERS", "SEED_WORKERS"),
+    )
+
+    # I/O.
+    out: Path = Field(
+        Path("scratch/mrv_pool_results.json.gz"),
+        validation_alias=_env("RUTTER_OUT", "OUT"),
+        description="Where the pool is written; resumable, groups are skipped.",
+    )
+    seed_cache: Path | None = Field(
+        None,
+        validation_alias=_env("RUTTER_SEED_CACHE", "SEED_CACHE"),
+        description="Enumerate+seed cache; defaults to one named for the config.",
+    )
+    progress_every: int = Field(
+        25, validation_alias=_env("RUTTER_PROGRESS_EVERY", "PROGRESS_EVERY")
+    )
+
+    @property
+    def two_fidelity(self) -> bool:
+        """Whether a coarse pass runs at all."""
+        return self.coarse_n < 5000
+
+    @model_validator(mode="after")
+    def _seed_cache_follows_the_config(self) -> "Phase1Settings":
+        """Name the cache after the subject, since it is subject-specific.
+
+        Sharing one cache between subjects silently seeds the wrong atlas.
+        """
+        if self.seed_cache is None:
+            stem = Path(self.config).stem
+            object.__setattr__(
+                self, "seed_cache", Path(f"scratch/mrv_seeds_{stem}.json.gz")
+            )
+        return self
+
+    @field_validator("out")
+    @classmethod
+    def _json_payload(cls, path: Path) -> Path:
+        return check_payload_path(path)
 
 
 class Phase2Settings(PipelineSettings):
