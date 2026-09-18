@@ -72,7 +72,6 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.thick_well:MARGIN@import",
     "aind_rutter.optimization.pipeline.thick_well:XLA_PYTHON_CLIENT_PREALLOCATE@import",
     "aind_rutter.optimization.sdf.build:AIND_LOW_POINT_CACHE_DIR@function",
-    "aind_rutter.optimization.sdf.build:RUTTER_BODY_CLEARANCE@import",
     "aind_rutter.optimization.sdf.envelope:AIND_LOW_POINT_CACHE_DIR@function",
 }
 

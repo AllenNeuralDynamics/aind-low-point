@@ -39,9 +39,6 @@ DEFAULT_PAD_MM: float = 2.0
 # Fixed so every process queries clearance at the same surface points; an
 # unseeded draw gives each worker slightly different constraints.
 SURFACE_SAMPLE_SEED: int = 0
-# Probe body clearance samples: "c2f" adds coarse-to-fine samples (see
-# surface_samples) to each probe SDF; "uniform" keeps only ``surface_points``.
-BODY_CLEARANCE_SAMPLES = os.environ.get("RUTTER_BODY_CLEARANCE", "c2f")
 
 
 @dataclass(frozen=True)
@@ -71,7 +68,7 @@ class ProbeSDF:
 
     ``clearance`` holds the coarse-to-fine body samples that the body-body
     clearance queries instead of ``surface_points`` (probes only; ``None`` for
-    fixtures or with ``RUTTER_BODY_CLEARANCE=uniform``).
+    fixtures).
     """
 
     grid: NDArray[np.floating]  # (Nx, Ny, Nz) float32
@@ -293,17 +290,11 @@ def build_probe_sdf_from_alpha_wrap(
     if strip_shanks_first:
         centers, halves = extract_shank_obbs(raw_mesh)
         halves = floor_shank_half_extents(halves)
-        if BODY_CLEARANCE_SAMPLES == "c2f":
-            from aind_rutter.optimization.sdf.surface_samples import (
-                build_clearance_samples,
-            )
+        from aind_rutter.optimization.sdf.surface_samples import (
+            build_clearance_samples,
+        )
 
-            clearance = build_clearance_samples(envelope, use_cache=use_cache)
-        elif BODY_CLEARANCE_SAMPLES != "uniform":
-            raise ValueError(
-                f"RUTTER_BODY_CLEARANCE must be 'c2f' or 'uniform', "
-                f"got {BODY_CLEARANCE_SAMPLES!r}"
-            )
+        clearance = build_clearance_samples(envelope, use_cache=use_cache)
     else:
         # Fixtures have no shanks.
         centers = np.zeros((0, 3), dtype=np.float64)
