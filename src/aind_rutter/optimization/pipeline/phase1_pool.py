@@ -651,8 +651,10 @@ def run(settings: Phase1Settings) -> int:
     """
     # Explicit, because no import configures the compile cache any more.
     configure_compile_cache()
-    opt = setup_runtime()
-    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, _fbvh = setup(opt)
+    opt = setup_runtime(settings)
+    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, _fbvh = setup(
+        settings, opt
+    )
     brain = opt.brain_sdf()
 
     # Tuned optimizer: thick well (soft side only; FCL uses true mesh) + coarse SDF.
@@ -675,7 +677,7 @@ def run(settings: Phase1Settings) -> int:
     )
 
     def _enum_factory() -> Enumerator:
-        atlas_payload = build_or_load_atlas()
+        atlas_payload = build_or_load_atlas(settings)
         # rig AP = subject AP + head_pitch (head nose-down) → rig-reachable subject
         # window = rig[±AP_LIMIT] − head_pitch (mirrors phase1_bounds /
         # _ap_bounds_deg). See dev memory rig_ap_sign_convention. ML is invariant.

@@ -20,12 +20,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Every module that resolves the subject, and the name it exposes it under.
-SUBJECT_READERS = {
-    "aind_rutter.optimization.pipeline.restore": "CONFIG",
-    "aind_rutter.optimization.pipeline.enumeration": "CONFIG",
-    "aind_rutter.optimization.pipeline.emit": "CONFIG",
-}
+# Every settings class a stage is handed. They all inherit the subject from
+# `PipelineSettings`, which is the point — the stages used to read the bare name
+# each for themselves and could be sent to different subjects.
+SUBJECT_READERS = [
+    "PipelineSettings",
+    "Phase1Settings",
+    "Phase2Settings",
+    "EmitSettings",
+]
 TRUTHY = ["1", "true", "TRUE", "yes", "on"]
 FALSY = ["0", "false", "no", "off"]
 
@@ -45,22 +48,25 @@ def _read(expression: str, env: dict[str, str]) -> str:
     return result.stdout.strip()
 
 
-@pytest.mark.parametrize(("module", "name"), sorted(SUBJECT_READERS.items()))
-def test_every_stage_prefers_the_prefixed_subject(module: str, name: str) -> None:
-    """RUTTER_CONFIG wins over CONFIG, in the stages as in Phase 2's settings."""
-    value = _read(
-        f"__import__({module!r}, fromlist=[{name!r}]).{name}",
-        {"CONFIG": "plain.yml", "RUTTER_CONFIG": "prefixed.yml"},
+def _subject(cls: str, env: dict[str, str]) -> str:
+    return _read(
+        "__import__('aind_rutter.optimization.pipeline.settings',"
+        f" fromlist=[{cls!r}]).{cls}().config",
+        env,
     )
-    assert value == "prefixed.yml"
 
 
-@pytest.mark.parametrize(("module", "name"), sorted(SUBJECT_READERS.items()))
-def test_every_stage_still_accepts_the_bare_subject(module: str, name: str) -> None:
-    value = _read(
-        f"__import__({module!r}, fromlist=[{name!r}]).{name}", {"CONFIG": "plain.yml"}
-    )
-    assert value == "plain.yml"
+@pytest.mark.parametrize("cls", SUBJECT_READERS)
+def test_every_stage_prefers_the_prefixed_subject(cls: str) -> None:
+    """RUTTER_CONFIG wins over CONFIG. `CONFIG` is set for unrelated reasons in
+    many environments, so the prefixed spelling has to be the one that counts."""
+    env = {"CONFIG": "plain.yml", "RUTTER_CONFIG": "prefixed.yml"}
+    assert _subject(cls, env) == "prefixed.yml"
+
+
+@pytest.mark.parametrize("cls", SUBJECT_READERS)
+def test_every_stage_still_accepts_the_bare_subject(cls: str) -> None:
+    assert _subject(cls, {"CONFIG": "plain.yml"}) == "plain.yml"
 
 
 @pytest.mark.parametrize("setting", TRUTHY)

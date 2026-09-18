@@ -98,3 +98,37 @@ def test_a_constructor_argument_beats_the_environment(monkeypatch) -> None:
     monkeypatch.setenv("STAGE1", "999")
     assert Phase1Settings(stage1=10).stage1 == 10
     assert Phase1Settings().stage1 == 999
+
+
+def test_every_stage_has_a_settings_class() -> None:
+    """The point of step 4: each stage is told, not configured by import order."""
+    from aind_rutter.optimization.pipeline import emit, phase1_pool, phase2_ipopt
+
+    for module in (phase1_pool, phase2_ipopt, emit):
+        assert callable(module.run), module.__name__
+        assert callable(module.main), module.__name__
+
+
+def test_the_stage_settings_share_one_subject() -> None:
+    """A stage that resolved the subject for itself could be sent elsewhere."""
+    from aind_rutter.optimization.pipeline.settings import (
+        EmitSettings,
+        Phase2Settings,
+        PipelineSettings,
+    )
+
+    subject = "examples/837229-config.yml"
+    resolved = {
+        cls(config=subject).config
+        for cls in (PipelineSettings, Phase1Settings, Phase2Settings, EmitSettings)
+    }
+    assert len(resolved) == 1
+
+
+def test_the_caches_are_named_for_the_subject() -> None:
+    """Atlas and seed caches are subject-specific; sharing one seeds the wrong
+    geometry."""
+    a = Phase1Settings(config="examples/836656-config.yml")
+    b = Phase1Settings(config="examples/837229-config.yml")
+    assert a.atlas_cache != b.atlas_cache
+    assert a.seed_cache != b.seed_cache

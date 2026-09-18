@@ -19,7 +19,15 @@ used to fall through to False now fails loudly at construction.
 Variables read before ``jax`` and ``numpy`` import — ``PLATFORM``, ``POOL``,
 ``THREADS`` and ``GPU_MEM_FRACTION`` — are deliberately absent. They must be in
 the environment before the stage module imports, so they cannot come from an
-object built inside ``main``.
+object built inside ``main``. The same goes for ``JAX_PLATFORMS`` and the
+``XLA_PYTHON_CLIENT_*`` pair.
+
+Two result-changing values are still read where they are used rather than here:
+``THREADING_MARGIN_MM`` in ``geometry.holes`` and ``RETRO_DENSITY`` in
+``pipeline.probe_setup``. Both sit below the pipeline layer, so surfacing them
+would mean passing settings down into ``geometry`` and ``objectives``; that is a
+layering change rather than a configuration one. ``tests/architecture`` keeps
+them visible in the meantime.
 """
 
 from __future__ import annotations
@@ -72,6 +80,55 @@ class PipelineSettings(BaseSettings):
     cov_norm: bool = Field(False, validation_alias=_env("COV_NORM"))
     cov_alpha: float = Field(0.2, validation_alias=_env("COV_ALPHA"))
     cov_weight: float = Field(1.0, validation_alias=_env("COV_WEIGHT"))
+
+    n_surf: int = Field(
+        5000,
+        validation_alias=_env("RUTTER_N_SURF", "N_SURF"),
+        description="Surface points per probe SDF; the clearance query set.",
+    )
+    well_margin: float = Field(
+        0.5,
+        validation_alias=_env("RUTTER_WELL_MARGIN", "MARGIN"),
+        description="mm the solidified well cone is grown by, inside and out.",
+    )
+    atlas_cache: Path | None = Field(
+        None,
+        validation_alias=_env("RUTTER_ATLAS_CACHE", "ATLAS_CACHE"),
+        description="Visibility atlas cache; defaults to one named for the config.",
+    )
+
+    @model_validator(mode="after")
+    def _caches_follow_the_config(self) -> "PipelineSettings":
+        """Name each cache after the subject, since both are subject-specific.
+
+        Sharing one between subjects silently reuses the wrong geometry.
+        """
+        if self.atlas_cache is None:
+            stem = Path(self.config).stem
+            object.__setattr__(
+                self, "atlas_cache", Path(f"scratch/atlas_{stem}.json.gz")
+            )
+        return self
+
+
+class EmitSettings(PipelineSettings):
+    """Inputs to plan emission, which turns a handoff into plan-only YAML."""
+
+    handoff: Path = Field(
+        Path("scratch/phase2_handoff.json"),
+        validation_alias=_env("RUTTER_HANDOFF", "HANDOFF"),
+        description="Phase-2 handoff to emit from.",
+    )
+    plans: int = Field(
+        15,
+        validation_alias=_env("RUTTER_EMIT_N", "N"),
+        description="How many of the ranked feasible plans to write.",
+    )
+    outdir: Path = Field(
+        Path("scratch/plans"),
+        validation_alias=_env("RUTTER_OUTDIR", "OUTDIR"),
+        description="Directory receiving plans/, the tree and the manifest.",
+    )
 
 
 class Phase1Settings(PipelineSettings):
@@ -153,10 +210,6 @@ class Phase1Settings(PipelineSettings):
 
     @model_validator(mode="after")
     def _seed_cache_follows_the_config(self) -> "Phase1Settings":
-        """Name the cache after the subject, since it is subject-specific.
-
-        Sharing one cache between subjects silently seeds the wrong atlas.
-        """
         if self.seed_cache is None:
             stem = Path(self.config).stem
             object.__setattr__(

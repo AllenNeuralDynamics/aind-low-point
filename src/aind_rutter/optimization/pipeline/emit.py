@@ -18,7 +18,6 @@ Run:
 from __future__ import annotations
 
 import copy
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,19 +27,12 @@ import yaml
 from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
 from aind_rutter.optimization.pipeline.payloads import read_handoff
-from aind_rutter.optimization.pipeline.settings import PipelineSettings
+from aind_rutter.optimization.pipeline.settings import EmitSettings
 from aind_rutter.runtime import (
     build_plan_state_from_config,
     planning_state_to_plan_model,
 )
 from aind_rutter.runtime.export import reorder_plan_for_rig
-
-_SHARED = PipelineSettings()  # one resolution of the subject for every stage
-CONFIG = _SHARED.config
-HOLES = _SHARED.holes
-HANDOFF = os.environ.get("HANDOFF", "scratch/phase2_handoff.json")
-N = int(os.environ.get("N", "15"))
-OUTDIR = os.environ.get("OUTDIR", "scratch/plans")
 
 
 def _hole_path(hole, probe_order):
@@ -134,8 +126,9 @@ def _emit_manifest(meta, probe_order, path, fcl_desc):
     Path(path).write_text("\n".join(lines) + "\n")
 
 
-def main() -> int:
-    cfg = ConfigModel.from_yaml(CONFIG)
+def run(settings: EmitSettings) -> int:
+    """Write the top ranked plans of a handoff as plan-only YAML."""
+    cfg = ConfigModel.from_yaml(settings.config)
     # Emission is pure-symbolic: it only writes plan parameters (arc/ml/spin/
     # offsets/depth) from the handoff x-vector into a PlanningModel. It needs NO
     # meshes/SDFs/BVHs — only the base PlanningState (built mesh-free from the
@@ -145,19 +138,19 @@ def main() -> int:
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
 
-    H = read_handoff(HANDOFF)
+    H = read_handoff(settings.handoff)
     ranked = H.get("ranked", [])  # MMR-ranked feasible plans
     fcl_tol = H.get("config", {}).get("fcl_tol", 0.2)
     fcl_desc = f"-{fcl_tol:g}"
     probe_order = sorted(ranked[0]["hole"].keys()) if ranked else []
-    out = Path(OUTDIR)
+    out = Path(settings.outdir)
     plans_dir = out / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
-    n_emit = min(N, len(ranked))
+    n_emit = min(settings.plans, len(ranked))
     print(f"{len(ranked)} feasible plans in handoff; emitting {n_emit} + tree/manifest")
 
     meta = []
-    for i, r in enumerate(ranked[:N]):
+    for i, r in enumerate(ranked[: settings.plans]):
         n_arcs = r["n_arcs"]
         # Lightweight statics: _apply_x_to_plan_state reads only .name and
         # .arc_idx (the pose values come from the x-vector), both in the handoff.
@@ -208,6 +201,11 @@ def main() -> int:
     print(f"\nwrote {n_emit} plans → {plans_dir}/")
     print(f"wrote {out}/tree.txt + {out}/manifest.md")
     return 0
+
+
+def main() -> int:
+    """Console entry point: settings from the environment, then `run`."""
+    return run(EmitSettings())
 
 
 if __name__ == "__main__":

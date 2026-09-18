@@ -27,7 +27,6 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 import time
 from collections.abc import Sequence
-from pathlib import Path
 
 from aind_rutter.optimization.enumeration.atlas import Atlas
 from aind_rutter.optimization.enumeration.seed_emission import emit_seed
@@ -48,12 +47,6 @@ from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 # depends on the subject's targets + implant placement, so its cache is keyed off
 # the config stem — different subjects NEVER share an atlas. Override ATLAS_CACHE
 # to force a path.
-_SHARED = PipelineSettings()  # one resolution of the subject for every stage
-CONFIG = _SHARED.config
-HOLES = _SHARED.holes
-ATLAS_CACHE = _os.environ.get(
-    "ATLAS_CACHE", f"scratch/atlas_{Path(CONFIG).stem}.json.gz"
-)
 
 # Arc / per-arc caps are KINEMATIC (16° angular exclusion over the AP/ML
 # range), not hardware counts — no rail limit, the rig takes >4 per arc.
@@ -68,8 +61,9 @@ GLOBAL_CAP = 1_000_000
 # --------------------------------------------------------------------------
 # Atlas (build once, cache).
 # --------------------------------------------------------------------------
-def build_or_load_atlas() -> AtlasCachePayload:
-    cache = check_payload_path(ATLAS_CACHE)
+def build_or_load_atlas(settings: PipelineSettings) -> AtlasCachePayload:
+    """The visibility atlas for ``settings.config``, built once and cached."""
+    cache = check_payload_path(settings.atlas_cache)
     if cache.exists():
         try:
             return read_atlas_cache(cache)
@@ -82,7 +76,7 @@ def build_or_load_atlas() -> AtlasCachePayload:
         OptimizationRuntime,
     )
 
-    opt = OptimizationRuntime.from_config_path(CONFIG, HOLES)
+    opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
     t0 = time.time()
     atlas = build_visibility_atlas(
         opt.probes, opt.holes, n_top=128, n_spin=72, verbose=False

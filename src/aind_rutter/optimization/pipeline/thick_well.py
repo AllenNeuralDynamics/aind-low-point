@@ -33,7 +33,7 @@ and the FCL ground-truth mesh are untouched, so this is low-risk by
 construction — FCL still gates feasibility.
 
 Run (validation):  JAX_PLATFORMS=cpu uv run --python 3.13 -m scripts.thick_well_sdf
-Env:  MARGIN=0.5
+Env:  MARGIN=0.5 (or RUTTER_WELL_MARGIN)
 """
 
 from __future__ import annotations
@@ -49,7 +49,9 @@ from scipy.spatial import cKDTree
 
 from aind_rutter.optimization.objectives.phase1 import FixtureSDFData
 
-MARGIN = float(_os.environ.get("MARGIN", "0.5"))
+# The solidified cone is grown by this much inside and out. A caller with
+# settings passes `well_margin`; this is the value they default to.
+DEFAULT_MARGIN = 0.5
 
 
 def fit_well_cone(mesh, *, n_slices: int = 10) -> dict:
@@ -139,8 +141,8 @@ def make_thick_well_sdf(
     mesh,
     fixture_sdf,
     *,
-    margin: float = MARGIN,
-    outer_margin: float = MARGIN,
+    margin: float = DEFAULT_MARGIN,
+    outer_margin: float = DEFAULT_MARGIN,
     cone=None,
 ):
     """Return a copy of ``fixture_sdf`` with the body (the conical annulus)
@@ -192,16 +194,19 @@ def make_thick_well_sdf(
 
 
 def main() -> int:
+    """Diagnostic: report the fitted cones and what solidifying the well buys."""
     from aind_rutter.config import ConfigModel
     from aind_rutter.optimization.jax_env import configure_compile_cache
     from aind_rutter.optimization.pipeline.phase1_geometry import (
         build_fixture_sdf_data,
     )
+    from aind_rutter.optimization.pipeline.settings import PipelineSettings
     from aind_rutter.runtime import build_runtime_from_config
 
     configure_compile_cache()
 
-    cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
+    settings = PipelineSettings()
+    cfg = ConfigModel.from_yaml(settings.config)
     rt = build_runtime_from_config(cfg)
     mesh = rt.asset_catalog.get_geometry("well").raw
     well = next(f for f in build_fixture_sdf_data(rt) if f.name == "well")
@@ -209,19 +214,25 @@ def main() -> int:
     cone = fit_well_cone(mesh)
     print(
         f"inner cone: r(z) = {cone['cone_a']:+.3f}·z + {cone['cone_b']:.3f} "
-        f"(+margin {MARGIN}), resid {cone['fit_resid']:.2f}mm; "
+        f"(+margin {settings.well_margin}), resid {cone['fit_resid']:.2f}mm; "
         f"lumen {cone['cone_a'] * cone['z_lo'] + cone['cone_b']:.2f}"
         f"→{cone['cone_a'] * cone['z_hi'] + cone['cone_b']:.2f}mm"
     )
     print(
         f"outer cone: r(z) = {cone['outer_a']:+.3f}·z + {cone['outer_b']:.3f} "
-        f"(−margin {MARGIN}), resid {cone['outer_resid']:.2f}mm; "
+        f"(−margin {settings.well_margin}), resid {cone['outer_resid']:.2f}mm; "
         f"wall {cone['outer_a'] * cone['z_lo'] + cone['outer_b']:.2f}"
         f"→{cone['outer_a'] * cone['z_hi'] + cone['outer_b']:.2f}mm; "
         f"band z∈[{cone['z_lo']:.2f},{cone['z_hi']:.2f}]"
     )
 
-    thick = make_thick_well_sdf(mesh, well, cone=cone)
+    thick = make_thick_well_sdf(
+        mesh,
+        well,
+        cone=cone,
+        margin=settings.well_margin,
+        outer_margin=settings.well_margin,
+    )
     g0 = np.asarray(well.grid)
     g1 = np.asarray(thick.grid)
     print(
