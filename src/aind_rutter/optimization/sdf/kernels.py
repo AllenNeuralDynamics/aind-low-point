@@ -159,90 +159,6 @@ def pose_from_optimizer_vars(
     return R, pose_tip
 
 
-def _cubic_kernel(t: Array, y0: Array, y1: Array, y2: Array, y3: Array) -> Array:
-    """Catmull-Rom cubic interpolation of 4 samples at fractional ``t``.
-
-    Samples ``y0..y3`` are at integer offsets ``{-1, 0, 1, 2}`` relative
-    to ``floor(query)``. ``t`` ∈ [0, 1] is the fractional position past
-    ``y1``. Result is C¹ continuous.
-    """
-    t2 = t * t
-    t3 = t2 * t
-    return 0.5 * (
-        2.0 * y1
-        + (-y0 + y2) * t
-        + (2.0 * y0 - 5.0 * y1 + 4.0 * y2 - y3) * t2
-        + (-y0 + 3.0 * y1 - 3.0 * y2 + y3) * t3
-    )
-
-
-def tricubic_sdf(
-    grid: Array,
-    origin: Array,
-    spacing: Array,
-    query_local: Array,
-    out_of_bounds_value: Array = jnp.array(1e3),
-) -> Array:
-    """Tricubic (Catmull-Rom) SDF interpolation. C¹ continuous gradient.
-
-    Uses 64 grid samples per query (4³) vs trilinear's 8. The natural
-    cost ratio is ~8× per query; in practice JAX/XLA fuses the gathers
-    so the wall-time delta is smaller. The payoff is a smooth gradient
-    everywhere — trilinear's gradient is piecewise constant per voxel
-    and jumps at voxel faces, which the optimizer's line search can
-    chatter on.
-
-    In-bounds requires one cell margin from each face: the 4-sample
-    stencil per axis needs ``i0 ∈ [1, N-3]`` where ``i0 = floor(query)``.
-    Out-of-bounds queries return ``out_of_bounds_value``.
-    """
-    grid = jnp.asarray(grid)
-    Nx, Ny, Nz = grid.shape
-    coords = (query_local - origin) / spacing  # voxel units
-    i0 = jnp.floor(coords).astype(jnp.int32)
-    f = coords - i0  # fractional in [0, 1)
-
-    in_bounds = (
-        (i0[..., 0] >= 1)
-        & (i0[..., 0] <= Nx - 3)
-        & (i0[..., 1] >= 1)
-        & (i0[..., 1] <= Ny - 3)
-        & (i0[..., 2] >= 1)
-        & (i0[..., 2] <= Nz - 3)
-    )
-    ix = jnp.clip(i0[..., 0], 1, Nx - 3)
-    iy = jnp.clip(i0[..., 1], 1, Ny - 3)
-    iz = jnp.clip(i0[..., 2], 1, Nz - 3)
-    fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
-
-    def _along_z(dx, dy):
-        return _cubic_kernel(
-            fz,
-            grid[ix + dx, iy + dy, iz - 1],
-            grid[ix + dx, iy + dy, iz],
-            grid[ix + dx, iy + dy, iz + 1],
-            grid[ix + dx, iy + dy, iz + 2],
-        )
-
-    def _along_y(dx):
-        return _cubic_kernel(
-            fy,
-            _along_z(dx, -1),
-            _along_z(dx, 0),
-            _along_z(dx, 1),
-            _along_z(dx, 2),
-        )
-
-    interp = _cubic_kernel(
-        fx,
-        _along_y(-1),
-        _along_y(0),
-        _along_y(1),
-        _along_y(2),
-    )
-    return jnp.where(in_bounds, interp, out_of_bounds_value)
-
-
 def obb_sdf(
     query_local: Array,  # (..., 3) in box-local frame
     half_extents: Array,  # (3,) box half-extents (must be > 0)
@@ -489,7 +405,6 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     *,
     beta: float = 20.0,
     top_k: int = 16,
-    interp: str = "trilinear",
     n_real_p: Array | None = None,
     n_real_f: Array | None = None,
 ) -> tuple[Array, Array]:
@@ -506,11 +421,10 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     are stacked into a padded table to share a vmap axis. Both ``None`` ⇒
     unchanged (un-padded constant grid).
     """
-    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     kw_p = {} if n_real_p is None else {"n_real": n_real_p}
     kw_f = {} if n_real_f is None else {"n_real": n_real_f}
 
-    d_p_in_f = sdf_lookup(
+    d_p_in_f = trilinear_sdf(
         sdf_f_grid,
         sdf_f_origin,
         sdf_f_spacing,
@@ -519,7 +433,9 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     )
 
     local_f_in_p = (surface_f - t_p) @ R_p
-    d_f_in_p = sdf_lookup(sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p, **kw_p)
+    d_f_in_p = trilinear_sdf(
+        sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p, **kw_p
+    )
 
     distances = jnp.concatenate([d_p_in_f.reshape(-1), d_f_in_p.reshape(-1)])
     hard_min = jnp.min(distances)
@@ -862,7 +778,6 @@ def body_shank_corners_pair_clearance(
     *,
     beta: float = 20.0,
     top_k: int = 8,
-    interp: str = "trilinear",
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
     n_real_a: Array | None = None,
@@ -881,7 +796,6 @@ def body_shank_corners_pair_clearance(
     "no-collision" sentinel so they never win the min/soft-min. ``None`` ⇒
     no padding (legacy ragged tables), identical to before.
     """
-    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     kw_a = {} if n_real_a is None else {"n_real": n_real_a}
     kw_b = {} if n_real_b is None else {"n_real": n_real_b}
     Sa = shank_centers_a.shape[0]
@@ -892,7 +806,7 @@ def body_shank_corners_pair_clearance(
             R_a, t_a, shank_centers_a, shank_halves_a
         )
         ca_in_b = (corners_a_world - t_b) @ R_b
-        d_corners_a_in_b = sdf_lookup(
+        d_corners_a_in_b = trilinear_sdf(
             sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b, **kw_b
         ).reshape(-1)
         if shank_mask_a is not None:
@@ -904,7 +818,7 @@ def body_shank_corners_pair_clearance(
             R_b, t_b, shank_centers_b, shank_halves_b
         )
         cb_in_a = (corners_b_world - t_a) @ R_a
-        d_corners_b_in_a = sdf_lookup(
+        d_corners_b_in_a = trilinear_sdf(
             sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a, **kw_a
         ).reshape(-1)
         if shank_mask_b is not None:
@@ -933,7 +847,6 @@ def body_body_pair_clearance(
     *,
     beta: float = 20.0,
     top_k: int = 16,
-    interp: str = "trilinear",
     n_real_a: Array | None = None,
     n_real_b: Array | None = None,
 ) -> tuple[Array, Array]:
@@ -948,13 +861,16 @@ def body_body_pair_clearance(
     Python pair loop was responsible for ~50% of the objective wall (per
     2026-05-23 jax.profiler trace).
     """
-    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
     kw_a = {} if n_real_a is None else {"n_real": n_real_a}
     kw_b = {} if n_real_b is None else {"n_real": n_real_b}
     local_b_in_a = (world_surface_b - t_a) @ R_a
-    d_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a, **kw_a)
+    d_b_in_a = trilinear_sdf(
+        sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a, **kw_a
+    )
     local_a_in_b = (world_surface_a - t_b) @ R_b
-    d_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b, **kw_b)
+    d_a_in_b = trilinear_sdf(
+        sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b, **kw_b
+    )
     pool = jnp.concatenate([d_b_in_a.reshape(-1), d_a_in_b.reshape(-1)])
     return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
 
@@ -1247,7 +1163,6 @@ def dual_rep_pair_clearance(
     top_k_body_body: int = 16,
     top_k_body_shank: int = 8,
     top_k_shank_shank: int = 8,
-    interp: str = "trilinear",
 ) -> PairClearance:
     """All four dual-rep probe-pair clearance categories in one call.
 
@@ -1274,7 +1189,6 @@ def dual_rep_pair_clearance(
         world_surface_b,
         beta=beta,
         top_k=top_k_body_body,
-        interp=interp,
     )
     body_shank_corners = body_shank_corners_pair_clearance(
         R_a,
@@ -1293,7 +1207,6 @@ def dual_rep_pair_clearance(
         shank_halves_b,
         beta=beta,
         top_k=top_k_body_shank,
-        interp=interp,
     )
     body_shank_obb, shank_shank = shank_only_pair_clearance(
         R_a,
@@ -1335,7 +1248,6 @@ def dual_rep_fixture_clearance(
     beta: float = 20.0,
     top_k_body: int = 16,
     top_k_obb: int = 8,
-    interp: str = "trilinear",
     n_real_p: Array | None = None,
     n_real_f: Array | None = None,
     shank_mask: Array | None = None,
@@ -1367,7 +1279,6 @@ def dual_rep_fixture_clearance(
         fx_surface,
         beta=beta,
         top_k=top_k_body,
-        interp=interp,
         n_real_p=n_real_p,
         n_real_f=n_real_f,
     )
@@ -1406,7 +1317,6 @@ def pairwise_signed_clearance_dual(
     top_k_body_body: int = 16,
     top_k_body_shank: int = 8,
     top_k_shank_shank: int = 8,
-    interp: str = "trilinear",
 ) -> tuple[
     tuple[Array, Array],
     tuple[Array, Array],
@@ -1428,13 +1338,10 @@ def pairwise_signed_clearance_dual(
     Hard mins are exposed for diagnostics and feasibility checks (use
     these in lex keys and hard constraints).
 
-    ``interp ∈ {"trilinear", "tricubic"}`` selects the body-SDF
-    interpolator. **Default is trilinear**: empirically the soft-min
-    top-k aggregation across 16 samples absorbs trilinear's C⁰ voxel-
-    edge gradient discontinuities, so tricubic's smoothness gain
-    doesn't translate to better convergence here — but tricubic is
-    ~5× slower per pair-clearance call. OBB SDFs are closed-form
-    regardless.
+    The body SDF is looked up trilinearly. Soft-min top-k aggregation
+    across 16 samples absorbs trilinear's C⁰ voxel-edge gradient
+    discontinuities, so a C¹ tricubic lookup bought no convergence at
+    ~5× the cost per pair. OBB SDFs are closed-form regardless.
 
     β=20/mm default → 50 µm smoothing window. Per-category top_k caps
     the bias at ``log(top_k)/β`` (~0.14 mm body-body, ~0.10 mm shank).
@@ -1467,7 +1374,6 @@ def pairwise_signed_clearance_dual(
         top_k_body_body=top_k_body_body,
         top_k_body_shank=top_k_body_shank,
         top_k_shank_shank=top_k_shank_shank,
-        interp=interp,
     )
 
 
@@ -1493,7 +1399,6 @@ def pairwise_signed_clearance_dual_world(
     top_k_body_body: int = 16,
     top_k_body_shank: int = 8,
     top_k_shank_shank: int = 8,
-    interp: str = "trilinear",
 ) -> tuple[
     tuple[Array, Array],
     tuple[Array, Array],
@@ -1506,13 +1411,11 @@ def pairwise_signed_clearance_dual_world(
     redundant transforms across a probe set with K probes' pairs
     (CSE doesn't catch the duplication — HLO inspection 2026-05-23).
     """
-    sdf_lookup = tricubic_sdf if interp == "tricubic" else trilinear_sdf
-
     # 1+2: body-body (per-sample, not min-reduced).
     local_in_a = (world_surface_b - t_a) @ R_a
-    d_body_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a)
+    d_body_b_in_a = trilinear_sdf(sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_in_a)
     local_in_b = (world_surface_a - t_b) @ R_b
-    d_body_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b)
+    d_body_a_in_b = trilinear_sdf(sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_in_b)
     body_body_pool = jnp.concatenate(
         [d_body_b_in_a.reshape(-1), d_body_a_in_b.reshape(-1)], axis=0
     )
@@ -1534,7 +1437,9 @@ def pairwise_signed_clearance_dual_world(
     body_shank_chunks = []
     if Sa > 0:
         ca_in_b = (corners_a_world - t_b) @ R_b
-        d_corners_a_in_b = sdf_lookup(sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b)
+        d_corners_a_in_b = trilinear_sdf(
+            sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b
+        )
         body_shank_chunks.append(d_corners_a_in_b.reshape(-1))
         d_body_b_vs_a_obbs = jax.vmap(
             lambda c, h: _obb_sdf_world_to_local(world_surface_b, R_a, t_a, c, h)
@@ -1542,7 +1447,9 @@ def pairwise_signed_clearance_dual_world(
         body_shank_chunks.append(d_body_b_vs_a_obbs.reshape(-1))
     if Sb > 0:
         cb_in_a = (corners_b_world - t_a) @ R_a
-        d_corners_b_in_a = sdf_lookup(sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a)
+        d_corners_b_in_a = trilinear_sdf(
+            sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a
+        )
         body_shank_chunks.append(d_corners_b_in_a.reshape(-1))
         d_body_a_vs_b_obbs = jax.vmap(
             lambda c, h: _obb_sdf_world_to_local(world_surface_a, R_b, t_b, c, h)
