@@ -1,0 +1,3508 @@
+{
+  "examples/786864-config.yml": {
+    "brain": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "cone": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "cone",
+        "fixture"
+      ]
+    },
+    "headframe": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "headframe",
+        "static"
+      ]
+    },
+    "implant": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "implant"
+      ]
+    },
+    "probe:2.1": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.1-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.4": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:pipette": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "retro-targets": {
+      "asset_tags": [
+        "retro-target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": null,
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "structure:BLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CA1": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:MD": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PL": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:RSP": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:VM": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "target:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:1": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:10": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:11": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:12": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:13": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:2": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:3": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:4": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:5": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:6": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:7": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:8": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:9": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "well": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "well"
+      ]
+    }
+  },
+  "examples/836656-config-T12.yml": {
+    "brain": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "cone": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "cone",
+        "fixture"
+      ]
+    },
+    "headframe": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "headframe",
+        "static"
+      ]
+    },
+    "implant": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "implant"
+      ]
+    },
+    "probe:2.1": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.1-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.4": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:pipette": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-dovetail": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "retro-targets": {
+      "asset_tags": [
+        "retro-target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": null,
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "structure:BLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CA1": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:MD": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PL": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:RSP": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:VM": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "target:L:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:1": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:10": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:11": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:12": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:13": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:2": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:3": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:4": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:5": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:6": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:7": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:8": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:9": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "well": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "well"
+      ]
+    }
+  },
+  "examples/836656-config.yml": {
+    "brain": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "cone": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "cone",
+        "fixture"
+      ]
+    },
+    "headframe": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "headframe",
+        "static"
+      ]
+    },
+    "implant": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "implant"
+      ]
+    },
+    "probe:2.1": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.1-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.4": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:pipette": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-dovetail": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "retro-targets": {
+      "asset_tags": [
+        "retro-target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": null,
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "structure:BLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CA1": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:MD": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PL": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:RSP": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:VM": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "target:L:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:R:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:1": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:10": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:11": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:12": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:13": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:2": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:3": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:4": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:5": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:6": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:7": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:8": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:9": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "well": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "well"
+      ]
+    }
+  },
+  "examples/837229-config.yml": {
+    "brain": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "cone": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "cone",
+        "fixture"
+      ]
+    },
+    "headframe": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "headframe",
+        "static"
+      ]
+    },
+    "implant": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "implant"
+      ]
+    },
+    "probe:2.1": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.1-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.4": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:pipette": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-dovetail": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "retro-targets": {
+      "asset_tags": [
+        "retro-target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": null,
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "static"
+      ]
+    },
+    "structure:BLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CA1": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:CLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:MD": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PL": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:RSP": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:VM": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "target:L:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CA1": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:CLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:RSP": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:L:VM": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": 3.9,
+      "chem_shift": true,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:1": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:10": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:11": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:12": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:13": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:2": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:3": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:4": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:5": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:6": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:7": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:8": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "target:hole:9": {
+      "asset_tags": [
+        "hole"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": [
+        "hole",
+        "static",
+        "target"
+      ]
+    },
+    "well": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "well"
+      ]
+    }
+  },
+  "examples/build5-template-config.yml": {
+    "brain": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": null,
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "brain",
+        "static"
+      ]
+    },
+    "headframe": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "headframe",
+        "static"
+      ]
+    },
+    "implant": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "implant"
+      ]
+    },
+    "probe-guard": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "probe-guard"
+      ]
+    },
+    "probe:2.1": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:2.4": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-alpha": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "probe:quadbase-dovetail": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "probe",
+      "collision_mask": [
+        "fixture",
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "structure:ACA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:ACB": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:BLA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:GPe": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:LHA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:MD": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:ORB": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PL": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:PVT": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:SI": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:SNr": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:SUB": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "structure:VTA": {
+      "asset_tags": [
+        "structure"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "static",
+        "structure"
+      ]
+    },
+    "target:L:ACA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:ACB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:GPe": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:LHA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:ORB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:PVT": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:SI": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:SNr": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:SUB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:L:VTA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:ACA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:ACB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:BLA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:GPe": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:LHA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:MD": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:ORB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:PL": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:PVT": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:SI": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:SNr": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:SUB": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "target:R:VTA": {
+      "asset_tags": [
+        "structure",
+        "target"
+      ],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": false,
+      "collision_group": "static",
+      "collision_mask": [],
+      "kind": "points",
+      "renderable": true,
+      "scene_tags": []
+    },
+    "well": {
+      "asset_tags": [],
+      "chem_ppm": null,
+      "chem_shift": false,
+      "collidable": true,
+      "collision_group": "fixture",
+      "collision_mask": [
+        "probe"
+      ],
+      "kind": "mesh",
+      "renderable": true,
+      "scene_tags": [
+        "fixture",
+        "well"
+      ]
+    }
+  }
+}
