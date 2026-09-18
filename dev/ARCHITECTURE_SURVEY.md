@@ -17,7 +17,7 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Steps 1 and 2 of the
+The survey below is a snapshot of commit `a5420cc`. Steps 1 to 3 of the
 proposed sequence have since landed.
 
 **Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
@@ -32,10 +32,71 @@ numbering. D13 is half done: the Python floor, the CI matrix and the lock are
 fixed, and what remains is watching a run go green, which needs a push to `main`
 or a manually dispatched run.
 
-The suite went from 499 tests to 671. Two findings under "Tests and
+**Step 3** deleted the dead code, once decisions 7 to 9 were answered: delete
+the Jupyter/K3D frontend, delete unused capability rather than maintain it, and
+nothing outside the repo imports this package. `src/` lost 2,809 lines and gained
+507, and the module count went from 87 to 84. What went, and why:
+
+| gone | commit |
+|---|---|
+| the Jupyter/K3D frontend, with `k3d` and `ipyevents` | `8b6d4ea` |
+| per-candidate objectives, chunked spin restore, `probe_kinematics`, the non-batched pairwise clearance family, the abandoned headstage hull | `b4482aa` |
+| `objectives/density.py` and the numpy capsule/oval primitives the jax kernels replaced | `f05212b` |
+| `tricubic_sdf` and the `interp` parameter threaded through eleven signatures | `7aae1d5` |
+| `CollisionOverlay`, `StoreSubscriber`, `as_transformable`, `Scene.by_tag`, `planning.Probe`, the legacy pivot callback, `coupled_axes` | `6065d48` |
+| Phase 1's FCL top-K, which production already disabled | `f1dd474` |
+| the `moment_restart` and `adam_const` minimizers, their comparison moved to `dev/POOL_RUN_CONFIGS.md` | `ea50fa6`, `ed06cfd` |
+| `RUTTER_BODY_CLEARANCE=uniform` | `0f92a54` |
+
+Two survey entries were **wrong**, and are kept rather than deleted. The Phase-2
+process pool is not unused capability: it carries a VRAM preflight and MPS
+support, is measured at about 2× the thread pool, and ran the 837772 re-run.
+`NodeInstance.locked_axes` was not speculative dead code either — its consumer
+existed and read around it. `runtime/build.py` computed which axes a calibrated
+probe locks, the trame sliders grayed themselves from their own state variable,
+and both slider handlers restated the condition inline. The four copies
+disagreed: `build.py` locked on `calibrated` alone while the other three required
+a calibration to be loaded, so a probe declaring `calibrated` with no calibration
+file got grayed-out controls that were live. `locked_axes_for` is now the only
+statement of it (`2d10499`).
+
+**The config vocabulary rework** was not in the original sequence. It came out of
+decision 8: the survey listed `OptionsModel` and "the unused `Capability` flags"
+as dead code, and asking whether integration would solve a real problem turned up
+that the flag vocabularies had lost coherence. Six mechanisms answered variants of
+one question — `Kind`, `Role`, `Capability`, asset `tags`, `scene_tags`, and
+`collision.group`/`mask`. `Role` was the broken one, asked both what a feature is
+*for* and where its coordinates came *from*, which are independent: an annotation
+centroid and a bore centre are both targets and only the first is water-localized.
+
+The split now is **closed enums for classifications, tags for groupings**,
+because a mistyped tag loads silently while a mistyped enum is refused:
+
+| was | is | commit |
+|---|---|---|
+| `role` + `chem_shift_policy` + `chem_shift_apply_by_role` | `mr_signal: water\|fat\|none`, required whenever `imaging` is set | `5a3eee3` |
+| `caps` (6 flags, 1 read) | `collidable: bool` | `3be090c` |
+| `collision.group` / `collision.mask` label lists | a rule: both collidable, at least one `role: probe` | `3be090c` |
+| `RECORDING_GEOMETRY` as the only source | a probe asset declares `recording`, the table as defaults | `8f690b4` |
+| asset `tags`, written and never read | unioned onto the generated scene node | `e871665` |
+| `OptionsModel` | gone | `e871665` |
+
+Every migration was verified rather than asserted: behaviour computed from the
+pre-migration configs and from the migrated ones agrees on every chemical-shift
+decision and ppm, every collidability, and all 169 collision pairs.
+`tests/config_semantics.json` pins that, and `scripts/upgrade_config.py` brings an
+older config forward, accepting the result only if none of it moves.
+
+The suite went 499 → 671 (step 2) → 730. Two findings under "Tests and
 documentation" are fixed by step 1 and are marked where they appear. Everything
-else stands as written. The six decisions that gated step 2 are answered at the
-end; the keep/delete decisions that gate step 3 are still open.
+else stands as written.
+
+**What is left.** Steps 4 to 7, and one gated step: retiring `caps`, `collision`,
+`chem_shift_policy`, `chem_shift_apply_by_role` and the `role` prefix inference
+from the models. Those stay until the configs on `/mnt/vast` and in `scratch/`
+have been through `scripts/upgrade_config.py`, because once they go
+`extra="forbid"` refuses a config still carrying them and the migrations can no
+longer read them to derive the replacements. Decisions 10 to 16 remain open.
 
 ## The package today
 
@@ -434,7 +495,8 @@ previous commit.
    also makes runs reproducible, and D2 makes the importable `run()` safe. Then
    D3–D13, each with a regression test. *(Done, apart from D13's second half —
    see Status.)*
-3. **Delete dead code,** after the keep/delete decisions.
+3. **Delete dead code,** after the keep/delete decisions. *(Done — see
+   Status. The config vocabulary rework came out of it.)*
 4. **Unify configuration.** Settings for every stage, `jax_env`, no import-time
    environment reads below the CLI.
 5. **Consolidate duplicated domain math** behind parity tests: pose, pivot,
@@ -552,7 +614,22 @@ Recorded 2026-09-17, with the evidence each rests on. Step 2 proceeds on these.
    Phase-2 solve is not bitwise identical across; if that is unwelcome, the
    alternative is a 3.13 floor and a single leg until 3.14 is installable.
 
-### Before step 3 (dead code)
+### Before step 3 (dead code) — answered
+
+**7. Delete the Jupyter/K3D frontend.** It had no constructor anywhere and no
+test, so it could drift from the runtime unnoticed.
+
+**8. Delete unused capability rather than maintain it** — with two exceptions
+found by asking, per the question below, whether integration would solve a real
+problem. The Phase-2 process pool and `NodeInstance.locked_axes` stay; see
+Status. `OptionsModel` and the `Capability` flags led to the config vocabulary
+rework rather than a straight deletion.
+
+**9. Nothing outside this repo imports it**, so no move needs a compatibility
+shim.
+
+The list below is the question as it was asked.
+
 
 7. Keep or delete the Jupyter/K3D frontend, along with its `k3d` and `ipyevents`
    dependencies and docs?

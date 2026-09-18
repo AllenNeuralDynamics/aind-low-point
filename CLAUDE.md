@@ -15,19 +15,35 @@ PyVista (web app, `app.py` + `trame_controller.py`).
   builds fail (`python-fcl` has them now).
 - **Models are the source of truth.** When tests disagree with `config.py`,
   fix the tests.
+- **Classifications are enums, groupings are tags.** A config states
+  `mr_signal`, `role`, `kind` and `collidable` as closed fields, so a
+  misspelling is refused at load; `tags`/`scene_tags` are open and only draw a
+  warning on a near miss. `mr_signal` decides chemical shift and is required on
+  every asset and target whenever `imaging` is set. See `dev/VOCABULARY.md`.
+- **What a config resolves to is pinned.** `tests/config_semantics.json` records
+  every tracked config's per-asset chemical-shift decision and ppm and
+  collidability, plus its scene nodes, fixture set and collision pairs.
+  Regenerate with `uv run --python 3.13 python -m tests.config_semantics` only
+  when a behaviour change is the point.
 
 ## Commands
 
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (671 currently green)
+uv run --python 3.13 pytest -q            # tests (730 currently green)
 uv sync --python 3.13                     # set up venv
 
 # Phase-2 output parity against a baseline commit, on a subject written on the
 # spot. Exits non-zero on any difference. Add --config/--holes/--poses for a
 # real subject, --platform gpu to run on the card.
 uv run --python 3.13 python scripts/parity_phase2.py --baseline HEAD~1
+
+# Bring a config forward to the current schema. Rewrites the YAML text and
+# keeps it only if behaviour is unchanged. Run before taking a version that
+# deletes the fields the migrations read.
+uv run --python 3.13 python scripts/upgrade_config.py --list
+uv run --python 3.13 python scripts/upgrade_config.py --dry-run examples/*.yml
 ```
 
 `tests/architecture/` holds the structural rules — import cycles, dependency
@@ -77,7 +93,7 @@ flat→subpackages (the old flat `optimization/*.py` module names are gone):
   (`pose_from_optimizer_vars`), `holes`, `recording`,
   `headstages`, `probes`
 - `objectives/` — `reduced_jax` (`threading_g_matrix`), `phase1`, `phase2`,
-  `fcl_validator`, `coverage`, `density`, `batched_reduced`, `batched_static`,
+  `fcl_validator`, `coverage`, `batched_reduced`, `batched_static`,
   `spin_restore`, `probe_static` (`JointWeights`), `variables`,
   `clearance_metrics`
 - `sdf/` — `kernels` (`arc_angles_to_rotation`, `trilinear_sdf`), `build`,
@@ -106,7 +122,9 @@ traps — trust that doc, not the docstrings).
 - `dev/COORDINATES.md` — LPS canonical rule, where conversions happen, frame
   composition, working in non-AIND template spaces.
 - `dev/CONFIG_MODEL.md` — Pydantic model taxonomy, validation pipeline,
-  template merge rules, tags vs scene_tags, plan-only YAML, gotchas.
+  template merge rules, plan-only YAML, gotchas.
+- `dev/VOCABULARY.md` — which config fields are closed enums and which are open
+  tags, and why; the fat/water physics behind `mr_signal`.
 - `dev/PIPELINE.md` — **the placement-optimizer pipeline**, read-verified
   stage-by-stage (atlas → enumerate → spin restore → L-BFGS → ADAM rerank →
   Phase 2 → FCL → handoff), the legacy code, and the L-BFGS-vs-ADAM caveat.
@@ -114,6 +132,9 @@ traps — trust that doc, not the docstrings).
   notes (some superseded — defer to PIPELINE.md on what's live).
 
 End-user docs are in `docs/source/` (Sphinx). Don't bloat them with internals.
+`docs/source/configuration.rst` is the guide someone writing a config for a new
+subject reads; `tests/test_docs_configuration.py` loads its worked example, so it
+cannot drift from the models.
 
 ## Code style
 
