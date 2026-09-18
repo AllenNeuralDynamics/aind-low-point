@@ -33,10 +33,18 @@ class MRSignal(str, Enum):
 
 
 class Role(str, Enum):
+    """What an asset is, as against where its coordinates came from.
+
+    `PROBE` and `FIXTURE` replace identifying those by key prefix: a probe was
+    whatever was keyed ``probe:*``, so a subject could not name a mesh freely.
+    """
+
     GEOMETRY = "geometry"
     TARGET = "target"
     LANDMARK = "landmark"
     ANATOMY = "anatomy"
+    PROBE = "probe"
+    FIXTURE = "fixture"
 
 
 class Kind(str, Enum):

@@ -48,11 +48,14 @@ EXTENSION_DEFAULTS: dict[str, dict[str, str]] = {
 # Role inference from key prefix
 # -----------------------------------------------------------------------------
 
+# Only for configs that predate stating `role`. Declaring it is what lets a
+# subject name a mesh anything it likes.
 ROLE_PREFIX_DEFAULTS: list[tuple[str, Role]] = [
     ("structure:", Role.ANATOMY),
     ("brain", Role.ANATOMY),
     ("target:", Role.TARGET),
     ("landmark:", Role.LANDMARK),
+    ("probe:", Role.PROBE),
 ]
 
 

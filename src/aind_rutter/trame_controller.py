@@ -35,6 +35,7 @@ from aind_rutter.commands import (
     SetProbePositionBearingShank,
     SetProbeTarget,
 )
+from aind_rutter.common import Role
 from aind_rutter.core import MeshTransformable
 from aind_rutter.planning import (
     PoseResolver,
@@ -1901,7 +1902,10 @@ class TrameController:
         best_name: str | None = None
         best_dist = float("inf")
         for nid, node in self.render_adapter.scene.nodes.items():
-            if not nid.startswith("probe:") or not node.enabled:
+            if not node.enabled:
+                continue
+            spec = self.assets.assets.get(node.asset_key)
+            if spec is None or spec.role is not Role.PROBE:
                 continue
             geom = self.assets.get_geometry(node.asset_key)
             if not isinstance(geom, MeshTransformable):
