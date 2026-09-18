@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     FilePath,
     PrivateAttr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -1619,17 +1620,27 @@ class ConfigModel(BaseModel):
     options: OptionsModel = Field(default_factory=OptionsModel)
 
     @classmethod
-    def from_yaml(cls, path: "str | Path") -> "ConfigModel":
-        """Load a ConfigModel from a YAML file with OmegaConf interpolation."""
+    def from_yaml(
+        cls, path: "str | Path", *, require_mr_signal: bool = True
+    ) -> "ConfigModel":
+        """Load a ConfigModel from a YAML file with OmegaConf interpolation.
+
+        ``require_mr_signal=False`` loads a config written before that field
+        existed. Only the upgrade path passes it: a config loaded this way
+        resolves chemical shift from ``role``, which cannot tell an annotation
+        centroid from a bore centre.
+        """
         from omegaconf import OmegaConf
 
         raw = OmegaConf.load(path)
         resolved = OmegaConf.to_container(raw, resolve=True)
-        return cls.model_validate(resolved)
+        return cls.model_validate(
+            resolved, context={"require_mr_signal": require_mr_signal}
+        )
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
-    def _xref_and_expand_templates(self):  # noqa: C901
+    def _xref_and_expand_templates(self, info: ValidationInfo):  # noqa: C901
         errors: list[str] = []
 
         # ---------- Expand bulk specs first ----------
@@ -1873,7 +1884,11 @@ class ConfigModel(BaseModel):
         # downstream notices, so a config that has an image must say, per
         # feature, which resonance localized it. A config without an `imaging`
         # block — an atlas-based plan — has no image and says nothing.
+        require_mr_signal = (info.context or {}).get("require_mr_signal", True)
+
         def _check_mr_signal(spec, where_prefix: str):
+            if not require_mr_signal:
+                return
             if self.imaging is None or spec.mr_signal is not None:
                 return
             err(

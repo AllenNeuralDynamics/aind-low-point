@@ -77,6 +77,22 @@ A probe *kind* asset (`probe:2.1`) is geometry the planner instances, not a
 placement. It carries `auto_scene: false` so that tagging it does not generate
 a scene node; the nodes that get posed come from `plan.probes`.
 
+## Upgrading a config written before `mr_signal`
+
+```bash
+uv run --python 3.13 python scripts/upgrade_config_mr_signal.py \
+    --dry-run examples/*_out.yml
+```
+
+`water` is derived from what the old `role` rule resolves to for that very
+file, so the decision cannot move; the script re-reads the result and restores
+the original if any key's answer changed. `fat` is assigned by key and is
+documentation only — `fat` and `none` behave identically. The superseded
+`chem_shift_policy` and `chem_shift_apply_by_role` are removed.
+
+`ConfigModel.from_yaml(path, require_mr_signal=False)` loads an un-upgraded
+config. Only the upgrade path passes it.
+
 ## Changing any of this
 
 `tests/config_semantics.json` records what all five tracked configs resolve to
