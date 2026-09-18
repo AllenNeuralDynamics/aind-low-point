@@ -47,9 +47,6 @@ class Scene:
     def remove(self, node_id: str):
         self.nodes.pop(node_id, None)
 
-    def by_tag(self, tag: str):
-        return [n for n in self.nodes.values() if tag in n.tags]
-
 
 def resolve_base_pose(scene: Scene, id: str) -> Optional[TransformChain]:
     node = scene.nodes.get(id)

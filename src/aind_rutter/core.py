@@ -14,7 +14,6 @@ from typing import (
     Tuple,
     TypeAlias,
     TypeVar,
-    overload,
     runtime_checkable,
 )
 
@@ -153,20 +152,6 @@ class PointsTransformable(SupportsRigidTransform[FloatNx3]):
 
     def transformed(self, R: Float3x3, t: Float3) -> FloatNx3:
         return apply_rotate_translate(self._raw, R, t)
-
-
-@overload
-def as_transformable(x: trimesh.Trimesh) -> MeshTransformable: ...
-@overload
-def as_transformable(x: FloatNx3) -> PointsTransformable: ...
-def as_transformable(x):
-    if isinstance(x, MeshTransformable) or isinstance(x, PointsTransformable):
-        return x
-    if isinstance(x, trimesh.Trimesh):
-        return MeshTransformable(x)
-    if isinstance(x, np.ndarray):
-        return PointsTransformable(x)
-    raise TypeError(f"Unsupported type {type(x)}")
 
 
 @dataclass(frozen=True)

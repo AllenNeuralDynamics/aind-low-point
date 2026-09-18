@@ -6,9 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
-    Callable,
     Optional,
-    Set,
     Tuple,
 )
 from warnings import warn
@@ -190,7 +188,6 @@ class Kinematics:
     Rig-wide kinematics parameters.
     - arc_angles: shared AP tilt per arc id (deg)
     - limits: mechanical/operational joint limits
-    - coupled_axes: which DOFs are shared by all probes on the same arc
       (names match ProbePose fields: ap_deg, ml_deg, spin_deg, x_mm, y_mm, z_mm)
     - subject_from_rig: rotation taking rig-frame vectors to subject
       anatomical LPS. Default identity. Encodes the mounted mouse's head
@@ -207,9 +204,6 @@ class Kinematics:
         default_factory=dict
     )  # e.g., {"a": 12.0, "b": -8.0}
     limits: PoseLimits = field(default_factory=PoseLimits)
-    coupled_axes: Set[str] = field(
-        default_factory=lambda: {"ap_deg"}
-    )  # today: AP tilt is arc-coupled
     subject_from_rig: AffineTransform = field(default_factory=AffineTransform.identity)
 
     # convenience helpers
@@ -240,10 +234,6 @@ class Kinematics:
 
     def clamp_xyz(self, tip_lps: np.ndarray) -> np.ndarray:
         return self.limits.clamp_xyz(tip_lps)
-
-    def is_axis_coupled(self, axis_name: str) -> bool:
-        """UI can call this to gray controls; mechanics layer just declares policy."""
-        return axis_name in self.coupled_axes
 
 
 def kinematic_violations(
@@ -507,16 +497,6 @@ class ProbePose:
 
 
 # run time
-@dataclass(slots=True)
-class Probe:
-    probe_type: str
-    pose: ProbePose
-
-
-# get_pivot_for_asset: asset_key -> local-space pivot (LPS mm) or None
-GetPivotFn = Callable[[str], Optional[np.ndarray]]
-
-
 @dataclass
 class PoseResolver:
     scene: Scene
@@ -527,13 +507,6 @@ class PoseResolver:
     # recommended for callers (rendering / collisions) — without it
     # multi-shank probes fall back to the kind-keyed approximation.
     catalog: Optional["AssetCatalog"] = None
-    # Legacy callback hook. Kept for backward compatibility but should
-    # be left at the default ``None``-returning function: pivot is now
-    # baked into ``ProbePose.tip`` via the ``catalog`` route, and
-    # double-wrapping here would shift the probe twice. Non-probe
-    # assets that need an asset-level pivot can still use this; for
-    # probe assets pass ``catalog`` instead.
-    get_pivot_for_asset: GetPivotFn = lambda _key: None
 
     # ---- final world transform = base ∘ dynamic ----
     def world_chain_for_node(self, node: "NodeInstance") -> TransformChain:
@@ -557,21 +530,6 @@ class PoseResolver:
         if not probe_name:
             return TransformChain.new([AffineTransform.identity()])
 
-        dyn = self._probe_chain(probe_name)
-
-        # If the asset needs rotation about a local pivot (e.g., tip),
-        # wrap the dynamic pose with +pivot / -pivot translations.
-        # Probe pivots come through ``catalog`` and are already baked
-        # into ``ProbePose.tip``; this path is now only used by other
-        # asset types that opt in via ``get_pivot_for_asset``.
-        pivot = self.get_pivot_for_asset(node.asset_key)
-        if pivot is not None:
-            T_p = AffineTransform(
-                rotation=np.eye(3), translation=np.asarray(pivot, float)
-            )
-            T_m = AffineTransform(
-                rotation=np.eye(3), translation=-np.asarray(pivot, float)
-            )
-            return TransformChain.new([T_p, *dyn.elements, T_m])
-
-        return dyn
+        # The pivot is baked into ``ProbePose.tip`` via ``catalog``, so the
+        # dynamic chain needs no ±pivot wrap.
+        return self._probe_chain(probe_name)

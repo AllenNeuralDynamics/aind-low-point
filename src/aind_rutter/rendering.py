@@ -54,17 +54,11 @@ class OverlayState:
     # node_id -> list of overlays currently active
     by_node: dict[str, List[OverlaySpec]] = field(default_factory=dict)
 
-    def set(self, node_id: str, *specs: OverlaySpec) -> None:
-        self.by_node[node_id] = list(specs)
-
     def set_for_source(self, node_ids: list[str], spec: OverlaySpec) -> None:
         for nid in node_ids:
             lst = [s for s in self.by_node.get(nid, []) if s.source != spec.source]
             lst.append(spec)
             self.by_node[nid] = lst
-
-    def add(self, node_id: str, spec: OverlaySpec) -> None:
-        self.by_node.setdefault(node_id, []).append(spec)
 
     def clear_source(self, source: str, node_ids: list[str] = []) -> None:
         if not node_ids:
@@ -76,18 +70,6 @@ class OverlayState:
                 self.by_node[nid] = kept
             else:
                 self.by_node.pop(nid)
-
-    def clear_node(self, node_id: str) -> None:
-        self.by_node.pop(node_id, None)
-
-    def clear_all(self) -> None:
-        self.by_node.clear()
-
-
-@dataclass(frozen=True)
-class CollisionOverlayStyle:
-    default_color: int = 0xFF0000  # red
-    default_alpha: float = 0.65
 
 
 def _blend_over(base_rgb: int, over_rgb: int, alpha: float) -> int:
@@ -140,19 +122,6 @@ class OverlayResolver:
             wireframe=base_vm.wireframe,
             visible=base_vm.visible,
             point_size=base_vm.point_size,
-        )
-
-
-@dataclass
-class CollisionOverlay:
-    overlay_color: int = 0xFF0000  # red
-    overlay_alpha: float = 0.65  # mix-in strength
-
-    def color_for(self, base_color: int, colliding: bool) -> int:
-        return (
-            _blend_over(base_color, self.overlay_color, self.overlay_alpha)
-            if colliding
-            else base_color
         )
 
 

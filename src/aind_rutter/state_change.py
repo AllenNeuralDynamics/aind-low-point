@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
 from typing import Any, Callable, List
 
 from aind_rutter.commands import PlanningCommand, apply_planning_command
@@ -119,18 +118,3 @@ class AsyncLatestWorker:
         self._shutdown = True
         self._ready.set()
         self._thread.join(timeout=2.0)
-
-
-@dataclass
-class StoreSubscriber:
-    store: PlanStore
-    on_event: Callable[[PlanningState, List[str]], None]
-
-    def __post_init__(self):
-        self._unsubscribe = self.store.subscribe(self.on_event)
-
-    def dispose(self):
-        try:
-            self._unsubscribe()
-        except Exception:
-            pass
