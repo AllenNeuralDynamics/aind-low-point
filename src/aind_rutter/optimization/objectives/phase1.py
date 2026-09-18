@@ -44,6 +44,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
+from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -297,34 +298,7 @@ PACKED_PER_CAND_KEYS: frozenset[str] = frozenset(
 )
 
 
-def _weights_key(w: Phase1Weights) -> tuple:
-    return tuple(
-        float(getattr(w, f))
-        for f in (
-            "lambda_thread",
-            "lambda_clearance",
-            "lambda_kinematic",
-            "lambda_bounds",
-            "lambda_margin_clear",
-            "lambda_margin_thread",
-            "lambda_clearance_fixture",
-            "lambda_margin_clear_fixture",
-            "tau_clear_mm",
-            "tau_thread_gunits",
-            "min_clearance_mm",
-            "threading_oval_tolerance",
-            "min_arc_ap_sep_deg",
-            "min_intra_arc_ml_sep_deg",
-            "comfortable_ap_deg",
-            "comfortable_ml_deg",
-            "softmin_beta",
-            "shaft_length_mm",
-            "lambda_brain",
-            "brain_margin_mm",
-            "cov_alpha",
-            "softmin_beta_cov",
-        )
-    ) + (int(w.top_k_body_body), int(w.top_k_body_shank), int(w.top_k_shank_shank))
+_weights_key = weights_cache_key
 
 
 def _signature(statics, n_arcs: int, weights: Phase1Weights) -> tuple:

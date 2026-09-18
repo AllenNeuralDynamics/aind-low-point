@@ -28,6 +28,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
+from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.sdf.kernels import (
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
@@ -49,21 +50,7 @@ def cache_stats() -> dict:
     return {**_CACHE_STATS, "entries": len(_JIT_CACHE)}
 
 
-def _weights_key(weights) -> tuple:
-    """Hashable representation of the joint-reranker weights."""
-    return (
-        float(weights.lambda_thread),
-        float(weights.lambda_arc_ap),
-        float(weights.lambda_ml),
-        float(weights.lambda_bounds),
-        float(weights.lambda_clearance),
-        float(weights.min_arc_ap_sep_deg),
-        float(weights.min_intra_arc_ml_sep_deg),
-        float(weights.comfortable_ap_deg),
-        float(weights.comfortable_ml_deg),
-        float(weights.threading_oval_tolerance),
-        float(weights.min_clearance_mm),
-    )
+_weights_key = weights_cache_key
 
 
 def _signature(statics, n_arcs: int, weights) -> tuple:

@@ -23,7 +23,7 @@ Shares all geometry/density kernels with Phase 1 — no duplicate code.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Hashable
 
 import jax
@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
     coverage_per_probe_over_probes,
@@ -234,19 +235,7 @@ _JIT_CACHE: dict[Hashable, dict] = {}
 _CACHE_STATS = {"hits": 0, "misses": 0}
 
 
-def _weights_key(w: Phase2Weights) -> tuple:
-    """Every weight, by name.
-
-    Read from the dataclass rather than a hand-written list, because a weight
-    left out of the key is baked into the traced kernel and then silently reused
-    at a different value. Floats round to 6 decimals so that float noise in a
-    recomputed weight does not force a recompile.
-    """
-    return tuple(
-        (f.name, round(value, 6) if isinstance(value, float) else value)
-        for f in fields(w)
-        for value in (getattr(w, f.name),)
-    )
+_weights_key = weights_cache_key
 
 
 def _signature(statics, n_arcs, weights, fixtures, brain_sdf=None):
