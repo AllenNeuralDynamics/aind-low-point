@@ -23,6 +23,7 @@ from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
     RecordingGeometry,
     get_recording_geometry,
+    pivot_from_shank_tips,
 )
 
 
@@ -115,17 +116,11 @@ def _build_probe_static(
         except KeyError:
             geom = fallback_geom
         tips = np.asarray(p.shank_tips_local, dtype=np.float64)
-        if tips.shape[0] > 0:
-            pivot = np.array(
-                [
-                    float(tips[:, 0].mean()),
-                    float(tips[:, 1].mean()),
-                    float(geom.active_center_mm),
-                ],
-                dtype=np.float64,
-            )
-        else:
-            pivot = np.array([0.0, 0.0, float(geom.active_center_mm)], dtype=np.float64)
+        pivot = (
+            np.asarray(p.pivot_local, dtype=np.float64)
+            if getattr(p, "pivot_local", None) is not None
+            else pivot_from_shank_tips(p.kind, tips, center_mm=geom.active_center_mm)
+        )
         hole_id = ha.probe_to_hole[p.name]
         arc_idx = aa.probe_to_arc_idx[p.name]
         hole = holes_by_id[hole_id]

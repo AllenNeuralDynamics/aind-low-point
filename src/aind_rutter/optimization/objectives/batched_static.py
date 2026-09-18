@@ -39,6 +39,7 @@ from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
     RecordingGeometry,
     get_recording_geometry,
+    pivot_from_shank_tips,
 )
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 
@@ -234,17 +235,13 @@ def build_batched_probe_static(
         except KeyError:
             geom = fallback_geom
         tips = np.asarray(p.shank_tips_local, dtype=np.float32)
-        if tips.shape[0] > 0:
-            pivot = np.array(
-                [
-                    float(tips[:, 0].mean()),
-                    float(tips[:, 1].mean()),
-                    float(geom.active_center_mm),
-                ],
-                dtype=np.float32,
-            )
-        else:
-            pivot = np.array([0.0, 0.0, float(geom.active_center_mm)], dtype=np.float32)
+        pivot = (
+            np.asarray(p.pivot_local, dtype=np.float32)
+            if getattr(p, "pivot_local", None) is not None
+            else pivot_from_shank_tips(
+                p.kind, tips, center_mm=geom.active_center_mm
+            ).astype(np.float32)
+        )
         probe_target[i] = np.asarray(p.target_LPS, dtype=np.float32)
         probe_pivot[i] = pivot
         nsh = min(tips.shape[0], SH)

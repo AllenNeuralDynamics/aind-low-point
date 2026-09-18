@@ -44,3 +44,6 @@ class ProbeStaticInfo:
     # coverage in the normalized objective's weighted SUM (the fairness floor
     # stays unweighted). 1.0 ⇒ no preference.
     coverage_weight: float = 1.0
+    # Kinematic pivot in the probe's local frame. None means "derive it from the
+    # shank tips", which is what a caller building this by hand gets.
+    pivot_local: NDArray[np.floating] | None = field(default=None, compare=False)

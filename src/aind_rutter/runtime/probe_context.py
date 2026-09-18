@@ -11,7 +11,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.core import MeshTransformable
-from aind_rutter.planning import ProbePlan, resolve_target_LPS
+from aind_rutter.optimization.geometry.recording import pivot_from_shank_tips
+from aind_rutter.planning import ProbePlan, probe_asset_key, resolve_target_LPS
 from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.shanks import detect_shank_tips_local
 
@@ -29,6 +30,7 @@ class ProbeContext:
     shank_tips_local: NDArray[np.float64]
     collision_mesh: "trimesh.Trimesh | None"
     coverage_weight: float
+    pivot_local: NDArray[np.float64] | None = None
     target_points_LPS: NDArray[np.float64] | None = None
 
 
@@ -96,13 +98,24 @@ def probe_context_from_runtime(
         target_points_LPS=target_points_LPS,
     )
 
-    geometry = runtime.asset_catalog.get_geometry(f"probe:{plan.kind}")
+    asset_key = probe_asset_key(plan.kind)
+    geometry = runtime.asset_catalog.get_geometry(asset_key)
     if isinstance(geometry, MeshTransformable):
         collision_mesh = geometry.raw
         shank_tips_local = detect_shank_tips_local(collision_mesh)
     else:
         collision_mesh = None
         shank_tips_local = np.zeros((1, 3), dtype=np.float64)
+
+    # A configured pivot wins. The app has always honoured AssetSpec.pivot_LPS
+    # while the optimizer recomputed its own, so a config that set one moved the
+    # drawn probe and not the optimized one.
+    spec = runtime.asset_catalog.assets.get(asset_key)
+    pivot_local = (
+        np.asarray(spec.pivot_LPS, dtype=np.float64)
+        if spec is not None and spec.pivot_LPS is not None
+        else pivot_from_shank_tips(plan.kind, shank_tips_local)
+    )
 
     return ProbeContext(
         name=name,
@@ -112,6 +125,7 @@ def probe_context_from_runtime(
         if target_points_LPS is None
         else np.asarray(target_points_LPS, dtype=np.float64),
         shank_tips_local=shank_tips_local,
+        pivot_local=pivot_local,
         collision_mesh=collision_mesh,
         coverage_weight=coverage_weight_for_probe(
             runtime, name, plan, environ=coverage_environ

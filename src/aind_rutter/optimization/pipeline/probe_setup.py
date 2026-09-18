@@ -195,4 +195,5 @@ def _probe_static_info(
         collision_mesh=context.collision_mesh,
         target_points=target_points,
         coverage_weight=context.coverage_weight,
+        pivot_local=context.pivot_local,
     )
