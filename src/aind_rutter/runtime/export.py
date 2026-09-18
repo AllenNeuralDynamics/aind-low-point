@@ -191,23 +191,14 @@ def export_plan_geometry(
     # sorted by arc then ML-descending. Cosmetic; does not change poses, and
     # leaves the caller's state — which may be a live session — untouched.
     plan_state = reorder_plan_for_rig(plan_state)
-    brain_mesh = None
-    if scene is not None:
-        from aind_rutter.scene import resolve_base_geometry
+    from aind_rutter.runtime.scene_geometry import brain_world_mesh
+    from aind_rutter.runtime.shanks import (
+        detect_shank_tips_local,
+        named_shank_tip_world,
+    )
 
-        # Find the scene node carrying this brain asset.
-        for k, n in scene.nodes.items():
-            if n.asset_key == brain_asset_key:
-                wrap = resolve_base_geometry(catalog, scene, k)
-                if wrap is not None:
-                    brain_mesh = wrap.raw
-                break
-    if brain_mesh is None:
-        brain_spec = catalog.assets.get(brain_asset_key)
-        if brain_spec is not None and brain_spec.mesh is not None:
-            brain_mesh = brain_spec.mesh.raw
-
-    from aind_rutter.runtime.shanks import detect_shank_tips_local
+    # A catalog with no scene means the brain is authored directly in LPS.
+    brain_mesh = brain_world_mesh(catalog, scene, brain_asset_key, fallback_to_raw=True)
 
     # Head-tilt offset between subject-anatomical AP and rig-mechanical AP, from
     # the single shared extractor (the optimizer/adapter use the same one) so the
@@ -231,13 +222,9 @@ def export_plan_geometry(
             if spec is not None and spec.mesh is not None
             else np.zeros((0, 3), dtype=np.float64)
         )
-        named_idx = max(0, int(plan.position_bearing_shank) - 1)
-        if local_tips.shape[0] > 0:
-            named_idx = min(named_idx, local_tips.shape[0] - 1)
-            named_local = np.asarray(local_tips[named_idx], dtype=np.float64)
-        else:
-            named_local = np.zeros(3, dtype=np.float64)
-        tip_lps = np.asarray(pose.tip, dtype=np.float64) + R @ named_local
+        tip_lps = named_shank_tip_world(
+            pose.tip, R, local_tips, plan.position_bearing_shank
+        )
         tip_ras = convert_coordinate_system(tip_lps, "LPS", "RAS")
 
         target_ras = None

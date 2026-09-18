@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import numpy as np
 import trimesh
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.cluster.hierarchy import fclusterdata
 
 
@@ -87,3 +87,29 @@ def detect_shank_tips_local(
     # Sort for stable output (helps tests + visual diff)
     order = np.lexsort(centroids[:, :3].T[::-1])
     return centroids[order]
+
+
+def named_shank_tip_world(
+    pose_tip: ArrayLike,
+    rotation: ArrayLike,
+    local_tips: ArrayLike,
+    shank_number: int,
+) -> NDArray[np.float64]:
+    """World LPS position of the position-bearing shank's tip.
+
+    ``pose.tip`` is the world position of the probe's canonical local origin,
+    which is the first shank. ``shank_number`` is the 1-based position the
+    config calls ``position_bearing_shank``; it is clamped to the shanks the
+    mesh actually has, and a mesh with no detected tips reads back ``pose_tip``
+    unchanged.
+
+    The app's readout and the rig export both need this, and both had their own
+    copy — a disagreement here means the number on screen is not the number
+    handed to the rig.
+    """
+    tip = np.asarray(pose_tip, dtype=np.float64)
+    tips = np.asarray(local_tips, dtype=np.float64)
+    if tips.size == 0:
+        return tip
+    index = min(max(0, int(shank_number) - 1), tips.shape[0] - 1)
+    return tip + np.asarray(rotation, dtype=np.float64) @ tips[index]

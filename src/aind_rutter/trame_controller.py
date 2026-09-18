@@ -46,6 +46,8 @@ from aind_rutter.planning import (
 )
 from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_rutter.runtime import _depth_along_probe_axis, detect_shank_tips_local
+from aind_rutter.runtime.scene_geometry import brain_world_mesh
+from aind_rutter.runtime.shanks import named_shank_tip_world
 from aind_rutter.state_change import PlanStore
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
@@ -722,15 +724,12 @@ class TrameController:
         # ``pose.tip`` is the world position of the canonical-local
         # origin (= shank-1 in the AIND canonicalization); the named
         # shank's tip is offset by ``R @ shank_tips_local[N-1]``.
-        local_tips = self._shank_tips_local(f"probe:{plan.kind}")
-        named_idx = max(0, int(plan.position_bearing_shank) - 1)
-        named_idx = min(named_idx, max(0, len(local_tips) - 1))
-        named_local = (
-            np.asarray(local_tips[named_idx], dtype=np.float64)
-            if len(local_tips) > 0
-            else np.zeros(3, dtype=np.float64)
+        named_world_lps = named_shank_tip_world(
+            pose.tip,
+            R,
+            self._shank_tips_local(probe_asset_key(plan.kind)),
+            plan.position_bearing_shank,
         )
-        named_world_lps = np.asarray(pose.tip, dtype=np.float64) + R @ named_local
         tip_ras = convert_coordinate_system(named_world_lps, "LPS", "RAS")
         tip_str = f"{tip_ras[0]:+.2f}, {tip_ras[1]:+.2f}, {tip_ras[2]:+.2f} mm"
 
@@ -767,19 +766,9 @@ class TrameController:
         transform once and cache."""
         if self._brain_world_resolved:
             return self._brain_world_mesh
-        scene = self.render_adapter.scene
-        brain_id = None
-        for k, n in scene.nodes.items():
-            if n.asset_key == "brain":
-                brain_id = k
-                break
-        if brain_id is None:
-            self._brain_world_resolved = True
-            return None
-        from aind_rutter.scene import resolve_base_geometry
-
-        wrap = resolve_base_geometry(self.assets, scene, brain_id)
-        self._brain_world_mesh = wrap.raw if wrap is not None else None
+        self._brain_world_mesh = brain_world_mesh(
+            self.assets, self.render_adapter.scene
+        )
         self._brain_world_resolved = True
         return self._brain_world_mesh
 

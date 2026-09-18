@@ -158,3 +158,71 @@ def test_no_module_spells_the_reduced_stride_out() -> None:
         if pattern.search(line)
     ]
     assert not offenders, f"reduced stride written out at {offenders}"
+
+
+def test_the_named_shank_tip_is_derived_once() -> None:
+    """The app's Tip-RAS readout and the rig export both need this.
+
+    They had their own copies, so a disagreement meant the number on screen was
+    not the number handed to the rig.
+    """
+    from aind_rutter.runtime.shanks import named_shank_tip_world
+
+    rotation = np.eye(3)
+    tips = np.array([[0.0, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.5, 0.0]])
+    pose_tip = np.array([1.0, 2.0, 3.0])
+
+    # `position_bearing_shank` is a 1-based position, not an index.
+    np.testing.assert_allclose(
+        named_shank_tip_world(pose_tip, rotation, tips, 1), pose_tip
+    )
+    np.testing.assert_allclose(
+        named_shank_tip_world(pose_tip, rotation, tips, 3), pose_tip + tips[2]
+    )
+
+
+def test_a_shank_number_past_the_mesh_clamps() -> None:
+    """A four-shank number on a one-shank mesh reads the shank that exists."""
+    from aind_rutter.runtime.shanks import named_shank_tip_world
+
+    tips = np.array([[0.0, 0.0, 0.0]])
+    tip = np.array([1.0, 2.0, 3.0])
+    np.testing.assert_allclose(named_shank_tip_world(tip, np.eye(3), tips, 4), tip)
+
+
+def test_a_mesh_with_no_tips_reads_back_the_pose_tip() -> None:
+    from aind_rutter.runtime.shanks import named_shank_tip_world
+
+    tip = np.array([1.0, 2.0, 3.0])
+    np.testing.assert_allclose(
+        named_shank_tip_world(tip, np.eye(3), np.zeros((0, 3)), 2), tip
+    )
+
+
+def test_the_brain_mesh_falls_back_only_when_asked() -> None:
+    """The export can be handed a catalog with no scene, where the brain is
+    authored directly in LPS. The app always has a scene, and falling back to
+    the untransformed mesh there is the failure the helper exists to prevent:
+    a ray cast would compare a world-LPS tip against file coordinates."""
+    from types import SimpleNamespace
+
+    from aind_rutter.runtime.scene_geometry import brain_world_mesh
+
+    mesh = SimpleNamespace(raw="raw-mesh")
+    catalog = SimpleNamespace(assets={"brain": SimpleNamespace(mesh=mesh)})
+
+    assert brain_world_mesh(catalog, None, fallback_to_raw=True) == "raw-mesh"
+    assert brain_world_mesh(catalog, None) is None
+
+
+def test_the_named_shank_tip_survives_rotation() -> None:
+    """The offset is applied in world, so it turns with the probe."""
+    from aind_rutter.runtime.shanks import named_shank_tip_world
+
+    tips = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    quarter_turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    np.testing.assert_allclose(
+        named_shank_tip_world(np.zeros(3), quarter_turn, tips, 2),
+        [0.0, 1.0, 0.0],
+        atol=1e-12,
+    )

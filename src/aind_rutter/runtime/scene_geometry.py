@@ -8,9 +8,10 @@ from typing import Any
 
 import numpy as np
 
+from aind_rutter.assets import AssetCatalog
 from aind_rutter.core import Transformed
 from aind_rutter.runtime.build import RuntimeBundle
-from aind_rutter.scene import NodeInstance, resolve_base_geometry
+from aind_rutter.scene import NodeInstance, Scene, resolve_base_geometry
 
 FIXTURE_TAGS: frozenset[str] = frozenset({"fixture", "cone", "well", "headframe"})
 FIXTURE_EXCLUDED_TAGS: frozenset[str] = frozenset({"implant"})
@@ -150,3 +151,35 @@ def implant_world_geometry(
                 return geometry
     by_asset = world_geometries_for_asset(runtime, "implant")
     return by_asset[0] if by_asset else None
+
+
+def brain_world_mesh(
+    catalog: AssetCatalog,
+    scene: Scene | None,
+    asset_key: str = "brain",
+    *,
+    fallback_to_raw: bool = False,
+):
+    """The brain mesh in world LPS, or ``None``.
+
+    The catalog's ``mesh.raw`` sits in the asset's pre-scene frame — for an MRI
+    volume, the file's own frame, which can be tens of mm off world LPS when the
+    scene node carries a ``transform``. A ray cast against ``.raw`` compares a
+    probe tip in world LPS against a mesh in file coordinates and returns
+    nonsense, so the scene transform is applied here once.
+
+    ``fallback_to_raw`` returns that untransformed mesh when no scene node uses
+    the asset. The rig export wants it, because it can be handed a catalog with
+    no scene at all and the brain is then authored directly in LPS; the app does
+    not, because it always has a scene and a silent fall back to file
+    coordinates is the failure this function exists to prevent.
+    """
+    if scene is not None:
+        for key, node in scene.nodes.items():
+            if node.asset_key == asset_key:
+                wrapped = resolve_base_geometry(catalog, scene, key)
+                return None if wrapped is None else wrapped.raw
+    if not fallback_to_raw:
+        return None
+    spec = catalog.assets.get(asset_key)
+    return None if spec is None or spec.mesh is None else spec.mesh.raw
