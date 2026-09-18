@@ -42,7 +42,6 @@ from typing import Callable, Hashable
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import NDArray
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.coverage import (
@@ -112,58 +111,6 @@ PHASE1_PER_PROBE_VARS = 6  # (ml, sx, sy, off_R, off_A, depth)
 # ---------------------------------------------------------------------------
 # Layout helpers
 # ---------------------------------------------------------------------------
-
-
-def phase1_n_vars(n_arcs: int, n_probes: int) -> int:
-    """Phase 1 x-vector length: ``n_arcs + 6P``."""
-    return n_arcs + PHASE1_PER_PROBE_VARS * n_probes
-
-
-def phase1_unpack(x: NDArray, n_arcs: int, probe_idx: int) -> tuple[float, ...]:
-    """Return ``(ml, sx, sy, off_R, off_A, depth)`` for probe ``probe_idx``."""
-    off = n_arcs + PHASE1_PER_PROBE_VARS * probe_idx
-    return tuple(float(x[off + k]) for k in range(PHASE1_PER_PROBE_VARS))
-
-
-def reduced_to_phase1(reduced_y: NDArray, n_arcs: int, n_probes: int) -> NDArray:
-    """Lift a Stage 2 reduced y ``(arc_aps, (ml, sx, sy) × P)`` to a
-    Phase 1 x ``(arc_aps, (ml, sx, sy, 0, 0, 0) × P)``.
-    """
-    out = np.zeros(phase1_n_vars(n_arcs, n_probes), dtype=np.float64)
-    out[:n_arcs] = np.asarray(reduced_y[:n_arcs], dtype=np.float64)
-    for i in range(n_probes):
-        out_off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        red_off = n_arcs + 3 * i
-        out[out_off + 0] = float(reduced_y[red_off + 0])  # ml
-        out[out_off + 1] = float(reduced_y[red_off + 1])  # sx
-        out[out_off + 2] = float(reduced_y[red_off + 2])  # sy
-        # off_R, off_A, depth default to 0
-    return out
-
-
-def phase1_to_full_x(phase1_x: NDArray, n_arcs: int, n_probes: int) -> NDArray:
-    """Convert Phase 1 x ``(ml, sx, sy, off_R, off_A, depth) × P`` to the
-    scalar-spin full x ``(ml, spin_deg, off_R, off_A, depth) × P``.
-
-    Spin in degrees recovered via ``atan2(sy, sx)``. Used at the
-    handoff into the hard-constrained Phase 2 (which still uses scalar
-    spin until Patch B propagates fully there).
-    """
-    out = np.zeros(n_arcs + 5 * n_probes, dtype=np.float64)
-    out[:n_arcs] = np.asarray(phase1_x[:n_arcs], dtype=np.float64)
-    for i in range(n_probes):
-        in_off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        out_off = n_arcs + 5 * i
-        ml = float(phase1_x[in_off + 0])
-        sx = float(phase1_x[in_off + 1])
-        sy = float(phase1_x[in_off + 2])
-        spin = float(np.degrees(np.arctan2(sy, sx)))
-        out[out_off + 0] = ml
-        out[out_off + 1] = spin
-        out[out_off + 2] = float(phase1_x[in_off + 3])  # off_R
-        out[out_off + 3] = float(phase1_x[in_off + 4])  # off_A
-        out[out_off + 4] = float(phase1_x[in_off + 5])  # depth
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -987,100 +934,3 @@ def _pack_statics(
 
 def cache_stats() -> dict:
     return {**_CACHE_STATS, "entries": len(_JIT_CACHE)}
-
-
-def make_phase1_objective(
-    statics,
-    n_arcs: int,
-    coverage_data: tuple[CoverageData, ...] | None = None,
-    fixtures: tuple[FixtureSDFData, ...] = (),
-    weights: Phase1Weights = Phase1Weights(),
-    *,
-    coverage_n_samples: int = 41,
-    brain_sdf: "BrainSDFData | None" = None,
-    coverage_ceilings: "tuple[float, ...] | None" = None,
-    coverage_weights: "tuple[float, ...] | None" = None,
-) -> tuple[Callable[[NDArray], float], Callable[[NDArray], NDArray]]:
-    """Build ``(fun, jac)`` scipy callables for Phase 1's soft objective.
-
-    All terms — feasibility penalties, margin rewards, AND coverage —
-    are computed inside one JIT'd JAX kernel with analytic gradient.
-    Per-probe coverage data is supplied via ``coverage_data``; each
-    entry is either a :class:`~coverage_jax.GaussianCoverageData`
-    (single target with σ) or :class:`~coverage_jax.KdeCoverageData`
-    (pre-baked density grid from retro points). Mixed modes across
-    probes are fine — the per-probe mode is Python-static at trace
-    time.
-
-    When ``coverage_data is None``, coverage contributes nothing —
-    useful for testing the Phase 1 machinery without committing to a
-    density representation.
-
-    Parameters
-    ----------
-    statics
-        List of ``_ProbeStatic`` (from probe_static). Must have
-        ``sdf_data`` populated (α-wrap envelope + shank OBBs).
-    n_arcs
-        Number of arcs.
-    coverage_data
-        Tuple of length ``len(statics)`` — one CoverageData per probe.
-        Use :func:`coverage_jax.build_coverage_data_from_probe_context`
-        to construct each entry from a probe context.
-    weights
-        :class:`Phase1Weights` — see defaults; tuned for coverage ~17
-        to dominate the soft-penalty plus margin-reward signals.
-    coverage_n_samples
-        Simpson's-rule sample count per shank (default 41, matching
-        the numpy coverage path).
-    """
-    # Extend the cache signature with fixture grid shapes so distinct
-    # fixture sets don't collide.
-    fix_shapes = tuple(
-        tuple(int(d) for d in np.asarray(fx.grid).shape) for fx in fixtures
-    )
-    brain_shape = (
-        tuple(int(d) for d in np.asarray(brain_sdf.grid).shape)
-        if brain_sdf is not None
-        else None
-    )
-    # Ceilings are baked into the trace as constants, so distinct ceiling
-    # vectors must key distinct cached kernels.
-    ceil_key = (
-        tuple(round(float(c), 6) for c in coverage_ceilings)
-        if coverage_ceilings is not None
-        else None
-    )
-    # Per-target weights are also baked into the trace as constants → key them.
-    wcov_key = (
-        tuple(round(float(w), 6) for w in coverage_weights)
-        if coverage_weights is not None
-        else None
-    )
-    base_sig = _signature(statics, n_arcs, weights)
-    sig = base_sig + (fix_shapes, brain_shape, ceil_key, wcov_key)
-    if sig not in _JIT_CACHE:
-        _JIT_CACHE[sig] = _build_jit(
-            base_sig,
-            weights,
-            coverage_data=coverage_data,
-            fixtures=fixtures,
-            coverage_n_samples=coverage_n_samples,
-            brain_sdf=brain_sdf,
-            coverage_ceilings=coverage_ceilings,
-            coverage_weights=coverage_weights,
-        )
-        _CACHE_STATS["misses"] += 1
-    else:
-        _CACHE_STATS["hits"] += 1
-    jit_obj, jit_grad = _JIT_CACHE[sig]
-    packed = _pack_statics(statics, n_arcs)
-
-    def fun(x: NDArray) -> float:
-        return float(jit_obj(jnp.asarray(x, dtype=jnp.float32), **packed))
-
-    def jac(x: NDArray) -> NDArray:
-        g = jit_grad(jnp.asarray(x, dtype=jnp.float32), **packed)
-        return np.asarray(g, dtype=np.float64)
-
-    return fun, jac

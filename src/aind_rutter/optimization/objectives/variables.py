@@ -41,14 +41,6 @@ def build_y(
     return y
 
 
-def extract_spins(y: np.ndarray, n_arcs: int, n_probes: int) -> np.ndarray:
-    out = np.zeros(n_probes, dtype=np.float64)
-    for i in range(n_probes):
-        off = n_arcs + PHASE1_PER_PROBE_VARS * i
-        out[i] = np.degrees(np.arctan2(y[off + 2], y[off + 1]))
-    return out
-
-
 def _poses(st, x, n_arcs):
     """Reconstruct (Rs (P,3,3), ts (P,3), tips (P,maxsh,3), mask (P,maxsh))
     from a Phase 1 x at this candidate's statics."""

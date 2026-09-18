@@ -21,7 +21,6 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import NDArray
 
 from aind_rutter.optimization.enumeration.contracts import (
     ArcAssignment,
@@ -417,29 +416,3 @@ def build_batched_probe_static(
         SH=SH,
         W=W,
     )
-
-
-def initial_y_from_aa(
-    candidates: list[tuple[HoleAssignment, ArcAssignment]],
-    probes: list[ProbeStaticInfo],
-    *,
-    n_arcs: int = 3,
-) -> NDArray:
-    """Construct initial y vector for each candidate from its
-    ``ArcAssignment.arc_centroids_deg`` and zero ml/spin.
-
-    Shape: ``(B, n_arcs + 2*K)``. Phase 3 will replace this with a
-    proper warm-start builder that mirrors ``_build_starts``.
-    """
-    B = len(candidates)
-    K = len(probes)
-    # (ml, sx, sy) per probe under Patch B; default spin = 0° → (sx, sy) = (1, 0).
-    y0 = np.zeros((B, n_arcs + 3 * K), dtype=np.float32)
-    for b, (_ha, aa) in enumerate(candidates):
-        ap_seq = aa.arc_centroids_deg
-        for a in range(min(n_arcs, len(ap_seq))):
-            y0[b, a] = float(ap_seq[a])
-        for k in range(K):
-            y0[b, n_arcs + 3 * k + 1] = 1.0  # sx
-            y0[b, n_arcs + 3 * k + 2] = 0.0  # sy
-    return y0

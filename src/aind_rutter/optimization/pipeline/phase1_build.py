@@ -8,8 +8,7 @@ objective in BatchedProbeStatic form, we vmap the existing per-candidate
   - fixtures=[well] + coverage_data are closure-captured (shared)
 
 Correctness is free: it's literally the same function, so the batched
-value must equal the per-candidate ``make_phase1_objective`` looped over
-the batch.
+value must equal the per-candidate ``_objective`` looped over the batch.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ from aind_rutter.optimization.pipeline.contracts import (
     BatchedGradientFn,
     BatchedObjectiveFn,
     Phase1ChunkedFns,
-    Phase1ObjectiveFns,
 )
 from aind_rutter.optimization.sdf.clearance_sweep import (
     cast_fixture_grids,
@@ -45,55 +43,6 @@ from aind_rutter.optimization.sdf.clearance_sweep import (
 
 ARG_ORDER = list(PACKED_ARG_ORDER)
 PER_CAND = set(PACKED_PER_CAND_KEYS)
-
-
-def make_batched_phase1_objective(
-    statics_list,
-    n_arcs,
-    weights,
-    fixtures,
-    coverage_data=None,
-    brain_sdf=None,
-    coverage_ceilings=None,
-    coverage_weights=None,
-) -> Phase1ObjectiveFns:
-    """vmap the per-candidate _objective over `statics_list`. Returns
-    (batched_obj(x_B)->(B,), batched_grad(x_B)->(B,nvars))."""
-    base_sig = _signature(statics_list[0], n_arcs, weights)
-    jit_obj, _ = _build_jit(
-        base_sig,
-        weights,
-        coverage_data=coverage_data,
-        fixtures=fixtures,
-        brain_sdf=brain_sdf,
-        coverage_ceilings=coverage_ceilings,
-        coverage_weights=coverage_weights,
-    )
-
-    packs = [_pack_statics(s, n_arcs) for s in statics_list]
-    # Shared per-probe constants. Some keys (target/pivot/tips/shank_mask)
-    # are uniform arrays; the SDF keys are LISTS of per-probe arrays with
-    # heterogeneous shapes (different probe kinds) — pass those through
-    # as-is (broadcast via in_axes=None), do NOT stack.
-    shared = {k: packs[0][k] for k in ARG_ORDER if k not in PER_CAND}
-    stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
-
-    def obj_pos(x, *args):
-        return jit_obj(x, **dict(zip(ARG_ORDER, args)))
-
-    in_axes = (0,) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
-    vobj = jax.jit(jax.vmap(obj_pos, in_axes=in_axes))
-    vgrad = jax.jit(jax.vmap(jax.grad(obj_pos), in_axes=in_axes))
-
-    arglist = [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
-
-    def batched_obj(x_B):
-        return vobj(jnp.asarray(x_B, jnp.float32), *arglist)
-
-    def batched_grad(x_B):
-        return vgrad(jnp.asarray(x_B, jnp.float32), *arglist)
-
-    return batched_obj, batched_grad
 
 
 def make_batched_phase1_chunked(  # noqa: C901
@@ -107,8 +56,8 @@ def make_batched_phase1_chunked(  # noqa: C901
     coverage_ceilings=None,
     coverage_weights=None,
 ) -> Phase1ChunkedFns:
-    """Like make_batched_phase1_objective, but returns the reusable pieces
-    for VRAM-chunked evaluation: (vobj, vgrad, build_arglist).
+    """Build the reusable pieces for VRAM-chunked evaluation:
+    (vobj, vgrad, build_arglist).
 
     vobj/vgrad are compiled vmap functions taking (x, *arglist) — reuse
     them across same-sized chunks (compile once). build_arglist(statics)

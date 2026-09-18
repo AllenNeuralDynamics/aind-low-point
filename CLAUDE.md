@@ -74,7 +74,7 @@ flat→subpackages (the old flat `optimization/*.py` module names are gone):
 - `enumeration/` — `visibility_atlas`, `atlas`, `arc_placement`,
   `seed_emission` (`emit_seed`), `contracts` (`ArcAssignment`/`HoleAssignment`)
 - `geometry/` — `primitives` (`cap_basis`, `HoleSection`), `kinematics`
-  (`pose_from_optimizer_vars`), `probe_kinematics`, `holes`, `recording`,
+  (`pose_from_optimizer_vars`), `holes`, `recording`,
   `headstages`, `probes`
 - `objectives/` — `reduced_jax` (`threading_g_matrix`), `phase1`, `phase2`,
   `fcl_validator`, `coverage`, `density`, `batched_reduced`, `batched_static`,

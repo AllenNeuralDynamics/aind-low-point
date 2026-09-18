@@ -6,7 +6,6 @@ This module exports the infrastructure helpers that production scripts need:
   - :func:`build_fixture_sdf_data` / :func:`fixture_keys_from_runtime`
   - :func:`build_brain_sdf` / :func:`maybe_build_brain_sdf`
   - :func:`build_coverage_data`
-  - :func:`build_fixture_collision_objs` / :func:`final_feasibility_report`
 """
 
 from __future__ import annotations
@@ -17,11 +16,9 @@ from dataclasses import replace
 _os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-import fcl
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.geometry.headstages import make_fcl_bvh
 from aind_rutter.optimization.geometry.recording import (
     RECORDING_GEOMETRY,
     RecordingGeometry,
@@ -262,79 +259,6 @@ def maybe_build_brain_sdf(
     except Exception:
         return None
     return build_brain_sdf(runtime, compiled_transforms, asset_key=asset_key, **kw)
-
-
-def build_fixture_collision_objs(runtime) -> dict[str, fcl.CollisionObject]:
-    """Return ``{fixture_key: fcl.CollisionObject (in world LPS)}``."""
-    fixtures: dict[str, fcl.CollisionObject] = {}
-    for key in fixture_keys_from_runtime(runtime):
-        geometry = world_geometry_for_node(runtime, key)
-        if geometry is None:
-            continue
-        mesh = geometry.raw
-        if mesh is None:
-            continue
-        fixtures[key] = make_fcl_bvh(mesh)
-    return fixtures
-
-
-def final_feasibility_report(
-    probes: list,
-    statics: list,
-    final_pose: dict,
-    fixtures: dict[str, fcl.CollisionObject],
-) -> dict:
-    """Run a full-mesh + broadphase feasibility check."""
-    manager = fcl.DynamicAABBTreeCollisionManager()
-    objs_by_key: dict[str, fcl.CollisionObject] = {}
-
-    for st in statics:
-        if st.bvh_obj is None:
-            continue
-        R, t = final_pose[st.name]
-        st.bvh_obj.setTransform(
-            fcl.Transform(
-                np.ascontiguousarray(R, dtype=np.float64),
-                np.ascontiguousarray(t, dtype=np.float64),
-            )
-        )
-        manager.registerObject(st.bvh_obj)
-        objs_by_key[f"probe:{st.name}"] = st.bvh_obj
-
-    for key, obj in fixtures.items():
-        manager.registerObject(obj)
-        objs_by_key[key] = obj
-
-    manager.setup()
-
-    pair_results: list[tuple[str, str, float]] = []
-    keys_list = list(objs_by_key.keys())
-    dist_req = fcl.DistanceRequest(enable_signed_distance=True)
-    coll_req = fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
-    for i, ka in enumerate(keys_list):
-        for kb in keys_list[i + 1 :]:
-            if not ka.startswith("probe:") and not kb.startswith("probe:"):
-                continue
-            d_res = fcl.DistanceResult()
-            fcl.distance(objs_by_key[ka], objs_by_key[kb], dist_req, d_res)
-            d = float(d_res.min_distance)
-            if d > 0:
-                pair_results.append((ka, kb, d))
-            else:
-                c_res = fcl.CollisionResult()
-                fcl.collide(objs_by_key[ka], objs_by_key[kb], coll_req, c_res)
-                if c_res.contacts:
-                    pair_results.append((ka, kb, -1.0))
-                else:
-                    pair_results.append((ka, kb, 0.0))
-
-    overlaps = [(ka, kb, d) for ka, kb, d in pair_results if d < 0.0]
-    return {
-        "pair_clearances": pair_results,
-        "overlaps": overlaps,
-        "feasible": len(overlaps) == 0,
-        "min_clearance": min((d for _, _, d in pair_results), default=float("inf")),
-    }
 
 
 # ---------------------------------------------------------------------------

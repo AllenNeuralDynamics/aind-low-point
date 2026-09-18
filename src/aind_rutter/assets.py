@@ -11,8 +11,6 @@ from typing import (
     Union,
 )
 
-import trimesh
-
 from aind_rutter.common import Capability, Role
 from aind_rutter.core import (
     Float3,
@@ -67,14 +65,6 @@ class AssetSpec(BaseSpec):
     # (lines, volume, etc. could be added later)
 
     # PER-KIND HEADSTAGE BODY (for the placement optimizer)
-    # Convex hull of the canonical mesh's body region (above the shanks),
-    # in the same local LPS-mm frame as ``mesh``. ``None`` for non-probe
-    # assets and for probes whose mesh has no detectable body (pipettes,
-    # degenerate test fixtures). The placement optimizer wraps non-None
-    # hulls in an FCL Convex CollisionObject for fast pairwise distance
-    # checks between probes.
-    headstage_hull: Optional[trimesh.Trimesh] = None
-
     def __post_init__(self):
         # A few light invariants to catch common mistakes
         if self.kind == "mesh" and self.mesh is None and self.points is not None:

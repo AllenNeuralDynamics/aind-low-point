@@ -27,10 +27,7 @@ _LAZY_EXPORTS = {
     "section_oval_value": "aind_rutter.optimization.geometry",
     "segment_to_segment_dist": "aind_rutter.optimization.geometry",
     "shaft_section_oval_value": "aind_rutter.optimization.geometry",
-    "build_headstage_hull": "aind_rutter.optimization.geometry.headstages",
-    "detect_body_region": "aind_rutter.optimization.geometry.headstages",
     "make_fcl_bvh": "aind_rutter.optimization.geometry.headstages",
-    "make_fcl_convex": "aind_rutter.optimization.geometry.headstages",
     "Hole": "aind_rutter.optimization.geometry.holes",
     "find_hole_by_id": "aind_rutter.optimization.geometry.holes",
     "load_holes": "aind_rutter.optimization.geometry.holes",
@@ -83,12 +80,7 @@ if TYPE_CHECKING:  # static type-checkers see the real symbols
         segment_to_segment_dist,
         shaft_section_oval_value,
     )
-    from aind_rutter.optimization.geometry.headstages import (
-        build_headstage_hull,
-        detect_body_region,
-        make_fcl_bvh,
-        make_fcl_convex,
-    )
+    from aind_rutter.optimization.geometry.headstages import make_fcl_bvh
     from aind_rutter.optimization.geometry.holes import (
         Hole,
         find_hole_by_id,
@@ -128,11 +120,9 @@ __all__ = [
     "ProbeStaticInfo",
     "RECORDING_GEOMETRY",
     "RecordingGeometry",
-    "build_headstage_hull",
     "cap_basis",
     "capsule_capsule_dist",
     "coverage",
-    "detect_body_region",
     "find_hole_by_id",
     "gaussian_density",
     "gaussian_mixture_density",
@@ -140,7 +130,6 @@ __all__ = [
     "integrate_density_along_shank",
     "load_holes",
     "make_fcl_bvh",
-    "make_fcl_convex",
     "point_to_segment_dist",
     "pose_at_hole_best_fit",
     "pose_from_optimizer_vars",

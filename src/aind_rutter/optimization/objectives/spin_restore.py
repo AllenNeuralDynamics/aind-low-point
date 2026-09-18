@@ -31,12 +31,10 @@ import numpy as np
 
 from aind_rutter.optimization.objectives.batched_reduced import (
     _threading_g_for_probe,
-    make_batched_reduced_objective,
 )
 from aind_rutter.optimization.objectives.batched_static import BatchedProbeStatic
 from aind_rutter.optimization.objectives.probe_static import JointWeights
 from aind_rutter.optimization.pipeline.contracts import (
-    SpinRestoreFn,
     SpinRestoreWithLosses,
 )
 from aind_rutter.optimization.sdf.kernels import (
@@ -47,70 +45,6 @@ from aind_rutter.optimization.sdf.kernels import (
     shank_only_pair_clearance,
     spin_deg_from_sxy,
 )
-
-
-def make_batched_spin_restore_chunked(
-    probe_set_static: BatchedProbeStatic,
-    weights: JointWeights,
-    *,
-    n_spins: int = 8,
-    n_rounds: int = 2,
-    fixtures: tuple = (),
-) -> SpinRestoreFn:
-    """Build a chunkable spin-restore function.
-
-    Returns ``restore(y, *varying_arrays) -> y`` where ``varying_arrays``
-    is the tuple returned by ``obj_batched.extract_arrays(bs_chunk)``.
-    Same-shape chunks reuse one JIT compile (vs. a closure-capture variant
-    that bakes bs into the trace, forcing a full ~75s recompile per chunk).
-
-    ``probe_set_static`` provides the probe-set constants (probe
-    targets, pivots, shank tips, SDF tables) — these are identical
-    across all candidates and are closure-captured. The per-candidate
-    arrays (arc_idx, section geometry) flow as JIT runtime args.
-    """
-    obj_batched, _ = make_batched_reduced_objective(probe_set_static, weights, fixtures)
-    obj_jit = obj_batched.from_arrays  # type: ignore[attr-defined]
-    n_arcs = probe_set_static.n_arcs
-    K = probe_set_static.K
-
-    # Patch B: sweep (sx, sy) on the unit circle instead of scalar spin.
-    spin_angles = jnp.linspace(0.0, 2.0 * jnp.pi, n_spins, endpoint=False).astype(
-        jnp.float32
-    )
-    spin_xy_grid = jnp.stack(
-        [jnp.cos(spin_angles), jnp.sin(spin_angles)], axis=-1
-    )  # (n_spins, 2)
-
-    def _round_for_probe(y, i, varying):
-        sx_idx = n_arcs + 3 * i + 1
-        sy_idx = n_arcs + 3 * i + 2
-
-        def eval_at_sxy(sxy):
-            y_new = y.at[:, sx_idx].set(sxy[0]).at[:, sy_idx].set(sxy[1])
-            return obj_jit(y_new, *varying)
-
-        losses = jax.vmap(eval_at_sxy)(spin_xy_grid)
-        best_idx = jnp.argmin(losses, axis=0)
-        best_sxy = spin_xy_grid[best_idx]
-        return y.at[:, sx_idx].set(best_sxy[:, 0]).at[:, sy_idx].set(best_sxy[:, 1])
-
-    def restore(y, *varying):
-        # Nested lax.fori_loop (both rounds AND probes) so the traced graph is
-        # ONE copy of the per-probe body regardless of n_rounds*K — vs the old
-        # Python double-loop which unrolled K*n_rounds copies (n_rounds=64 was
-        # pathological). Round count is now a runtime trip count: free to raise.
-        # ``i`` is traced, so _round_for_probe's column indices (n_arcs+3i+1/2)
-        # are dynamic — a no-op vs static indices for in-bounds columns.
-        def probe_body(i, yc):
-            return _round_for_probe(yc, i, varying)
-
-        def round_body(_r, yc):
-            return jax.lax.fori_loop(0, K, probe_body, yc)
-
-        return jax.lax.fori_loop(0, n_rounds, round_body, y)
-
-    return jax.jit(restore)
 
 
 def make_batched_spin_restore_partial(
@@ -133,9 +67,8 @@ def make_batched_spin_restore_partial(
     Both loops are ``lax.fori_loop`` (dynamic probe index gathers the now-uniform
     per-kind SDF/OBB tables; the ``j==i`` self-pair is masked out).
 
-    Same ``restore(y, *varying)`` calling convention as
-    :func:`make_batched_spin_restore_chunked` (``varying`` from the reduced
-    objective's ``extract_arrays``). Exposes ``.spin_losses(y, i, *varying)`` →
+    ``varying`` comes from the reduced objective's ``extract_arrays``.
+    Exposes ``.spin_losses(y, i, *varying)`` →
     ``(n_spins,)`` for a single candidate, for argmin-parity testing.
     """
     K = static.K

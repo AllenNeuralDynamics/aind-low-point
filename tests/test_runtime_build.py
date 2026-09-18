@@ -108,4 +108,3 @@ def test_probe_pivot_is_derived_from_the_shank_tips(
     expected_y = SHANK_PITCH_MM * (n_shanks - 1) / 2
     np.testing.assert_allclose(pivot[:2], [0.0, expected_y], atol=1e-3)
     assert pivot[2] == pytest.approx(RECORDING_GEOMETRY[kind].active_center_mm)
-    assert spec.headstage_hull is not None

@@ -2,8 +2,8 @@
 JIT cache so the compile cost is paid **once** per (probe-set, weight,
 shape) signature — not per (H, A) candidate.
 
-Each call to :func:`make_jax_reduced_objective` packs the per-candidate
-varying static data (target_LPS, arc_idx, hole sections) into padded
+The builders here pack the per-candidate varying static data
+(target_LPS, arc_idx, hole sections) into padded
 ``jnp`` arrays and dispatches into the cached JIT. The closure-captured
 data (tips_local, pivot_local, per-probe SDF grids/surfaces) does NOT
 appear in the trace at all — it's passed as runtime args, so the trace
@@ -26,7 +26,6 @@ from typing import Callable, Hashable
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import NDArray
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.sdf.kernels import (
@@ -559,39 +558,3 @@ def _pack_statics(
     out["shank_obb_centers"] = tuple(shank_centers_tuple)
     out["shank_obb_halves"] = tuple(shank_halves_tuple)
     return out
-
-
-def make_jax_reduced_objective(
-    statics,
-    n_arcs: int,
-    weights,
-) -> tuple[Callable[[NDArray], float], Callable[[NDArray], NDArray]]:
-    """Build ``(fun, jac)`` scipy callables backed by the module-level
-    JIT cache. Compile once per (probe-set, weights, shape) signature;
-    reuse across all (H, A) candidates with the same signature."""
-    sig = _signature(statics, n_arcs, weights)
-    if sig not in _JIT_CACHE:
-        _JIT_CACHE[sig] = _build_jit(sig, weights)
-        _CACHE_STATS["misses"] += 1
-    else:
-        _CACHE_STATS["hits"] += 1
-    jit_obj, jit_grad = _JIT_CACHE[sig]
-
-    packed = _pack_statics(
-        statics,
-        n_arcs,
-        MAX_SHANKS_PAD,
-        MAX_SECTIONS_PAD,
-        has_sdf=sig[4],
-        sdf_grid_shape=sig[5],
-        n_surf=sig[7],
-    )
-
-    def fun(y: NDArray) -> float:
-        return float(jit_obj(jnp.asarray(y, dtype=jnp.float32), **packed))
-
-    def jac(y: NDArray) -> NDArray:
-        g = jit_grad(jnp.asarray(y, dtype=jnp.float32), **packed)
-        return np.asarray(g, dtype=np.float64)
-
-    return fun, jac
