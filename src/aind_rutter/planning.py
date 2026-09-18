@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -305,31 +306,61 @@ class PlanningState:
 
 
 # TODO: make node targets update with node pose
-def _resolve_target_LPS_from_plan(
+def resolve_target_LPS(
     plan: ProbePlan,
-    target_index: dict[str, np.ndarray],
+    target_index: Mapping[str, np.ndarray],
+    *,
     assets_fallback: Optional[dict[str, TransformedPoints]] = None,
+    points_LPS: Optional[np.ndarray] = None,
+    strict: bool = False,
 ) -> np.ndarray:
-    """Return a single (3,) LPS point for the plan's target."""
-    # Inline ad-hoc target
-    if plan.target_point_RAS is not None:
-        ras = np.asarray(plan.target_point_RAS, dtype=float)
-        return convert_coordinate_system(ras, "RAS", "LPS")
+    """The ``(3,)`` LPS point a probe plan aims at.
 
-    # Catalog target by key
+    A plan names its target one way or the other, never both: the config model's
+    target is a discriminated union, and ``SetProbeTarget`` refuses a command
+    that sets neither or both. Setting both is therefore a corrupted state
+    rather than a case to resolve, and it raises instead of picking a winner —
+    the app and the optimizer once picked different ones.
+
+    ``points_LPS`` overrides the plan with an already-resolved cloud, which is
+    how a per-probe target point set is passed in. ``strict`` decides what an
+    unresolvable target costs: the optimizer must not quietly aim at the origin,
+    while the app has to keep drawing.
+    """
+    if points_LPS is not None:
+        return np.asarray(points_LPS, dtype=np.float64).reshape(-1, 3).mean(0)
+
+    if plan.target_key and plan.target_point_RAS is not None:
+        raise ValueError(
+            f"probe plan names both target_key {plan.target_key!r} and an inline "
+            f"point {plan.target_point_RAS!r}; exactly one is allowed"
+        )
+
     if plan.target_key:
         pts = target_index.get(plan.target_key)
         if pts is None and assets_fallback is not None:
             tp = assets_fallback.get(plan.target_key)
             if tp is not None:
                 pts = tp.raw  # already in LPS if your assets pipeline canonicalized it
-        if pts is None:
-            warn(f"Missing target for key: {plan.target_key!r}; using origin.")
-            return np.zeros(3, dtype=float)
-        return pts if pts.ndim == 1 else pts.mean(axis=0)
+        if pts is not None:
+            pts = np.asarray(pts, dtype=np.float64)
+            return pts if pts.ndim == 1 else pts.reshape(-1, 3).mean(0)
+        if strict:
+            raise RuntimeError(f"No target in the index for key {plan.target_key!r}")
+        warn(f"Missing target for key: {plan.target_key!r}; using origin.")
+        return np.zeros(3, dtype=np.float64)
 
+    if plan.target_point_RAS is not None:
+        ras = np.asarray(plan.target_point_RAS, dtype=np.float64)
+        return convert_coordinate_system(ras, "RAS", "LPS")
+
+    if strict:
+        raise RuntimeError(
+            "Probe plan has no target_key or target_point_RAS; "
+            "a runtime target point is required."
+        )
     warn("ProbePlan has neither target_key nor target_point_RAS; using origin.")
-    return np.zeros(3, dtype=float)
+    return np.zeros(3, dtype=np.float64)
 
 
 def _resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
@@ -427,7 +458,7 @@ class ProbePose:
         ap_deg, ml_deg, spin_deg = _resolved_angles(probe_name, ps)
 
         # --- target + offsets (RAS→LPS) ---
-        tgt_LPS = _resolve_target_LPS_from_plan(
+        tgt_LPS = resolve_target_LPS(
             plan, ps.target_index, assets_fallback=assets_targets_fallback
         )
         off_RAS = np.array(

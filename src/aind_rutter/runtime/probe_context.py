@@ -8,11 +8,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from numpy.typing import NDArray
 
 from aind_rutter.core import MeshTransformable
-from aind_rutter.planning import ProbePlan
+from aind_rutter.planning import ProbePlan, resolve_target_LPS
 from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.shanks import detect_shank_tips_local
 
@@ -40,25 +39,18 @@ def resolve_plan_target_lps(
     target_points_LPS: NDArray[np.floating] | None = None,
     strict: bool = True,
 ) -> NDArray[np.float64]:
-    """Resolve a probe plan's target point in world LPS coordinates."""
-    if target_points_LPS is not None:
-        return np.asarray(target_points_LPS, dtype=np.float64).reshape(-1, 3).mean(0)
+    """Resolve a probe plan's target point in world LPS coordinates.
 
-    if plan.target_key is not None:
-        target_pts = target_index.get(plan.target_key)
-        if target_pts is not None:
-            return np.asarray(target_pts, dtype=np.float64).reshape(-1, 3).mean(0)
-
-    if plan.target_point_RAS is not None:
-        ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
-        return convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
-
-    if strict:
-        raise RuntimeError(
-            "Probe plan has no target_key or target_point_RAS; "
-            "a runtime target point is required."
-        )
-    return np.zeros(3, dtype=np.float64)
+    The optimizer's view of :func:`aind_rutter.planning.resolve_target_LPS`,
+    which the app shares. The two used to be separate implementations that
+    disagreed about which form of target wins.
+    """
+    return resolve_target_LPS(
+        plan,
+        target_index,
+        points_LPS=target_points_LPS,
+        strict=strict,
+    )
 
 
 def coverage_weight_for_probe(
