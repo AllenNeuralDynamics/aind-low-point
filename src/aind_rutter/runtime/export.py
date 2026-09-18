@@ -3,6 +3,7 @@ export_plan_geometry, and the _depth_along_probe_axis helper."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -102,35 +103,40 @@ def planning_state_to_plan_model(
     )
 
 
-def reorder_plan_for_rig(state: PlanningState) -> None:
-    """In-place rig-readability ordering of a PlanningState (cosmetic; pose
-    semantics unchanged).
+def reorder_plan_for_rig(state: PlanningState) -> PlanningState:
+    """Return a copy of ``state`` ordered for rig readability.
 
     - **Arcs relabelled by AP**: ``a`` is the most-positive-AP arc, ``b`` next,
       etc. (both ``kinematics.arc_angles`` keys and each probe's ``arc_id``).
     - **Probes ordered** by arc ascending (``a`` first) then ML descending
       (positive ML first) — the order an experimenter reads them off at the rig.
 
-    Mutates the underlying dicts in place (clear+update) so it works regardless
-    of dataclass field mutability.
+    Cosmetic: pose semantics are unchanged, only the labels and the order. The
+    input is left alone, because the relabelling is a property of the exported
+    document rather than of the session that produced it — renaming a live
+    session's arcs would change what the next save writes, and would do it
+    without a dispatch, so nothing watching the plan would hear about it.
     """
     arc_angles = dict(state.kinematics.arc_angles)
     order = sorted(arc_angles, key=lambda k: -arc_angles[k])  # most +AP first
     remap = {old: chr(ord("a") + i) for i, old in enumerate(order)}
-    state.kinematics.arc_angles.clear()
-    for old in order:
-        state.kinematics.arc_angles[remap[old]] = arc_angles[old]
-    for plan in state.probes.values():
-        if plan.arc_id in remap:
-            plan.arc_id = remap[plan.arc_id]
-    ordered = dict(
-        sorted(
-            state.probes.items(),
-            key=lambda kv: (kv[1].arc_id or "z", -float(kv[1].ml_local or 0.0)),
-        )
+    probes = {
+        name: replace(plan, arc_id=remap.get(plan.arc_id, plan.arc_id))
+        for name, plan in state.probes.items()
+    }
+    return replace(
+        state,
+        kinematics=replace(
+            state.kinematics,
+            arc_angles={remap[old]: arc_angles[old] for old in order},
+        ),
+        probes=dict(
+            sorted(
+                probes.items(),
+                key=lambda kv: (kv[1].arc_id or "z", -float(kv[1].ml_local or 0.0)),
+            )
+        ),
     )
-    state.probes.clear()
-    state.probes.update(ordered)
 
 
 def _depth_along_probe_axis(
@@ -182,8 +188,9 @@ def export_plan_geometry(
     The dict is yaml-serialisable. Intended for ``yaml.safe_dump``.
     """
     # Rig-readability ordering: arcs relabelled by AP (a = most +AP), probes
-    # sorted by arc then ML-descending. Cosmetic; does not change poses.
-    reorder_plan_for_rig(plan_state)
+    # sorted by arc then ML-descending. Cosmetic; does not change poses, and
+    # leaves the caller's state — which may be a live session — untouched.
+    plan_state = reorder_plan_for_rig(plan_state)
     brain_mesh = None
     if scene is not None:
         from aind_rutter.scene import resolve_base_geometry

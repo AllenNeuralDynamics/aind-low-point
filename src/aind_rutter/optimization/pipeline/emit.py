@@ -172,7 +172,7 @@ def main() -> int:
         )
         # Rig-readability ordering: arcs relabelled a=most-+AP, probes sorted by
         # arc then ML-descending. Cosmetic; pose semantics unchanged.
-        reorder_plan_for_rig(plan_state)
+        plan_state = reorder_plan_for_rig(plan_state)
         # PLAN-ONLY file (just the plan section) so it pairs with the base config
         # via ``--plan``. Filename encodes the hole assignment (matches the tree).
         plan_model = planning_state_to_plan_model(plan_state, cfg.plan)
