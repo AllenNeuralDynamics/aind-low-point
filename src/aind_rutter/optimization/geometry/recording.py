@@ -109,21 +109,18 @@ def recording_center_local_for_kind(kind: str) -> NDArray[np.floating]:
     return geom.array_center_local
 
 
-def pivot_from_shank_tips(
-    kind: str, shank_tips_local, *, center_mm: float | None = None
-) -> NDArray[np.floating]:
+def pivot_from_shank_tips(shank_tips_local, center_mm: float) -> NDArray[np.floating]:
     """The kinematic pivot in the probe's local frame.
 
-    ``(mean tip x, mean tip y, active_center_mm)``: the recording array's centre,
-    so ``past_target_mm = 0`` lands the bank on the target. The runtime computes
-    the same thing when it builds an ``AssetSpec``, and stores it as
-    ``pivot_LPS``; this is the fallback for a probe whose spec has none — an
-    unregistered kind, or a mesh with no detectable tips. ``center_mm`` overrides
-    the table lookup, for a caller carrying its own geometry for unknown kinds.
+    ``(mean tip x, mean tip y, center_mm)``: the recording array's centre, so
+    ``past_target_mm = 0`` lands the bank on the target. The centre is the
+    caller's, resolved from the probe's recording geometry — this used to look
+    it up from the built-in table when omitted, which meant one of the five
+    call sites silently got a different answer for an unregistered kind.
+
+    ``center_mm = 0`` puts the pivot at the tips, which is what a probe with no
+    recording array wants.
     """
-    if center_mm is None:
-        geom = RECORDING_GEOMETRY.get(kind)
-        center_mm = 0.0 if geom is None else float(geom.active_center_mm)
     center = float(center_mm)
     tips = np.asarray(shank_tips_local, dtype=np.float64)
     if tips.size == 0:

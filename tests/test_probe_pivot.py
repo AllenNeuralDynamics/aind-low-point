@@ -31,20 +31,30 @@ TIPS = np.array([[0.0, 0.0, 0.0], [0.0, SHANK_PITCH_MM, 0.0]])
 
 def test_the_formula_averages_the_tips_and_centres_the_bank() -> None:
     """The same derivation the runtime stores on the spec."""
-    kind = "quadbase-alpha"
-    derived = pivot_from_shank_tips(kind, TIPS)
-    assert derived[2] == pytest.approx(RECORDING_GEOMETRY[kind].active_center_mm)
+    center = RECORDING_GEOMETRY["quadbase-alpha"].active_center_mm
+    derived = pivot_from_shank_tips(TIPS, center)
+    assert derived[2] == pytest.approx(center)
     np.testing.assert_allclose(derived[:2], [0.0, SHANK_PITCH_MM / 2])
 
 
-def test_an_unknown_kind_falls_back_to_the_supplied_centre() -> None:
-    derived = pivot_from_shank_tips("not-a-kind", TIPS, center_mm=0.7)
-    assert derived[2] == pytest.approx(0.7)
+def test_the_centre_is_the_callers() -> None:
+    """The helper is pure geometry; it looks nothing up.
+
+    It used to consult the built-in table when the centre was omitted, so one
+    of five call sites got a different answer for an unregistered kind.
+    """
+    assert pivot_from_shank_tips(TIPS, 0.7)[2] == pytest.approx(0.7)
+
+
+def test_a_probe_with_no_array_pivots_on_its_tips() -> None:
+    """A centre of zero is what `recording: none` resolves to."""
+    assert pivot_from_shank_tips(TIPS, 0.0)[2] == pytest.approx(0.0)
 
 
 def test_a_mesh_with_no_tips_pivots_on_the_axis() -> None:
-    derived = pivot_from_shank_tips("2.1", np.zeros((0, 3)))
-    np.testing.assert_allclose(derived[:2], [0.0, 0.0])
+    center = RECORDING_GEOMETRY["2.1"].active_center_mm
+    derived = pivot_from_shank_tips(np.zeros((0, 3)), center)
+    np.testing.assert_allclose(derived, [0.0, 0.0, center])
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +83,9 @@ def test_the_optimizer_reads_a_configured_pivot(subject, tmp_path: Path) -> None
 def test_without_one_the_optimizer_derives_it(subject, tmp_path: Path) -> None:
     runtime = _runtime_with_pivot(subject, tmp_path, None)
     context = probe_context_from_runtime(runtime, "P1")
-    expected = pivot_from_shank_tips("2.1", context.shank_tips_local)
+    expected = pivot_from_shank_tips(
+        context.shank_tips_local, RECORDING_GEOMETRY["2.1"].active_center_mm
+    )
     np.testing.assert_allclose(context.pivot_local, expected)
 
 
@@ -142,4 +154,5 @@ def test_a_hand_built_probe_still_derives_its_pivot() -> None:
         SimpleNamespace(probe_to_hole={"p": 1}),
         SimpleNamespace(probe_to_arc_idx={"p": 0}, arc_centroids_deg=(0.0,)),
     )
-    np.testing.assert_allclose(static.pivot_local, pivot_from_shank_tips("2.1", TIPS))
+    expected = pivot_from_shank_tips(TIPS, RECORDING_GEOMETRY["2.1"].active_center_mm)
+    np.testing.assert_allclose(static.pivot_local, expected)

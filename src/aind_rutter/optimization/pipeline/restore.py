@@ -15,13 +15,14 @@ _os.environ.setdefault("JAX_PLATFORMS", "cuda")
 
 import numpy as np
 
+from aind_rutter.optimization.objectives.variables import PHASE1_PER_PROBE_VARS
 from aind_rutter.optimization.pipeline.runtime_adapter import (
     OptimizationRuntime,
 )
 from aind_rutter.optimization.pipeline.settings import PipelineSettings
 
-# Variables per probe in the full Phase-1 layout.
-PPV = 6
+# Variables per probe in the full Phase-1 layout, from the one definition.
+PPV = PHASE1_PER_PROBE_VARS
 
 
 def setup_runtime(settings: PipelineSettings) -> OptimizationRuntime:

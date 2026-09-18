@@ -117,16 +117,20 @@ def probe_context_from_runtime(
     # while the optimizer recomputed its own, so a config that set one moved the
     # drawn probe and not the optimized one.
     spec = runtime.asset_catalog.assets.get(asset_key)
+    recording = None if spec is None else spec.recording
+    # A probe with no recording array pivots on its tips, which is what a
+    # centre of zero gives.
+    center_mm = 0.0 if recording is None else float(recording.active_center_mm)
     pivot_local = (
         np.asarray(spec.pivot_LPS, dtype=np.float64)
         if spec is not None and spec.pivot_LPS is not None
-        else pivot_from_shank_tips(plan.kind, shank_tips_local)
+        else pivot_from_shank_tips(shank_tips_local, center_mm)
     )
 
     return ProbeContext(
         name=name,
         kind=plan.kind,
-        recording=None if spec is None else spec.recording,
+        recording=recording,
         target_LPS=target_lps,
         target_points_LPS=None
         if target_points_LPS is None

@@ -32,7 +32,10 @@ from aind_rutter.core import (
     MeshTransformable,
     PointsTransformable,
 )
-from aind_rutter.optimization.geometry.recording import RecordingGeometry
+from aind_rutter.optimization.geometry.recording import (
+    RecordingGeometry,
+    pivot_from_shank_tips,
+)
 from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
 from aind_rutter.runtime.calibration import _get_calibration_rt
 from aind_rutter.runtime.canonicalize import (
@@ -263,15 +266,10 @@ def _default_probe_pivot_local(
         return None
     tips = detect_shank_tips_local(geo)
     if tips.shape[0] == 0:
+        # No pivot rather than one on the axis: a caller with no tips should
+        # fall back deliberately, not silently target the probe's origin.
         return None
-    return np.array(
-        [
-            float(tips[:, 0].mean()),
-            float(tips[:, 1].mean()),
-            float(geom.active_center_mm),
-        ],
-        dtype=np.float64,
-    )
+    return pivot_from_shank_tips(tips, geom.active_center_mm)
 
 
 def resolve_collidable(m) -> bool:

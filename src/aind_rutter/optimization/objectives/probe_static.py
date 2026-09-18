@@ -118,7 +118,7 @@ def _build_probe_static(
         pivot = (
             np.asarray(p.pivot_local, dtype=np.float64)
             if getattr(p, "pivot_local", None) is not None
-            else pivot_from_shank_tips(p.kind, tips, center_mm=geom.active_center_mm)
+            else pivot_from_shank_tips(tips, geom.active_center_mm)
         )
         hole_id = ha.probe_to_hole[p.name]
         arc_idx = aa.probe_to_arc_idx[p.name]

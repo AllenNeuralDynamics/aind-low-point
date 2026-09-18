@@ -236,9 +236,7 @@ def build_batched_probe_static(
         pivot = (
             np.asarray(p.pivot_local, dtype=np.float32)
             if getattr(p, "pivot_local", None) is not None
-            else pivot_from_shank_tips(
-                p.kind, tips, center_mm=geom.active_center_mm
-            ).astype(np.float32)
+            else pivot_from_shank_tips(tips, geom.active_center_mm).astype(np.float32)
         )
         probe_target[i] = np.asarray(p.target_LPS, dtype=np.float32)
         probe_pivot[i] = pivot

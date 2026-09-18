@@ -35,7 +35,10 @@ from numpy.typing import NDArray
 from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.holes import Hole, pack_walls
-from aind_rutter.optimization.geometry.recording import get_recording_geometry
+from aind_rutter.optimization.geometry.recording import (
+    get_recording_geometry,
+    pivot_from_shank_tips,
+)
 from aind_rutter.optimization.sdf.kernels import arc_angles_to_rotation
 
 # ---------------------------------------------------------------------------
@@ -90,20 +93,9 @@ def _pack_section(section) -> dict[str, NDArray]:
 
 
 def _probe_centroid_local(probe) -> NDArray:
-    """Centroid of shank tips, in the probe's local frame."""
-    tips = np.asarray(probe.shank_tips_local, dtype=np.float64)
+    """The probe's kinematic pivot, in its local frame."""
     geom = probe.recording or get_recording_geometry(probe.kind)
-    if tips.shape[0] == 0:
-        # Degenerate — return active-center fallback
-        return np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
-    return np.array(
-        [
-            float(tips[:, 0].mean()),
-            float(tips[:, 1].mean()),
-            float(geom.active_center_mm),
-        ],
-        dtype=np.float64,
-    )
+    return pivot_from_shank_tips(probe.shank_tips_local, geom.active_center_mm)
 
 
 # ---------------------------------------------------------------------------
