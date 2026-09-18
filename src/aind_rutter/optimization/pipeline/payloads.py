@@ -116,7 +116,8 @@ class PoolRecord(_Model):
     objective: float
     min_clear: float
     min_clear_reduced: float
-    fcl: float
+    # Older pools carry Phase 1's own FCL check, which no stage reads.
+    fcl: float | None = None
     idx: int | None = None
 
 

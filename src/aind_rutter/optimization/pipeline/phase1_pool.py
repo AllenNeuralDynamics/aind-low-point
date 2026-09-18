@@ -24,7 +24,7 @@ Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 Env:  MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
-      STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128 FCL_TOPK=300
+      STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ from aind_rutter.optimization.objectives.batched_static import (
     build_batched_probe_static,
 )
 from aind_rutter.optimization.objectives.clearance_metrics import make_min_clear_one
-from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
 from aind_rutter.optimization.objectives.phase1 import Phase1Weights
 from aind_rutter.optimization.objectives.probe_static import (
     JointWeights,
@@ -117,7 +116,6 @@ RESTORE_ROUNDS = int(_os.environ.get("RESTORE_ROUNDS", "4"))
 CHUNK = int(_os.environ.get("CHUNK", "256"))
 RESTORE_CHUNK = int(_os.environ.get("RESTORE_CHUNK", "128"))
 PIPELINE_DEPTH = int(_os.environ.get("PIPELINE_DEPTH", "2"))
-FCL_TOPK = int(_os.environ.get("FCL_TOPK", "300"))
 LIMIT = int(_os.environ.get("LIMIT", "0"))
 MAX_ARCS = int(_os.environ.get("MAX_ARCS", "3"))
 MAX_PPA = int(_os.environ.get("MAX_PROBES_PER_ARC", "4"))
@@ -552,7 +550,6 @@ def make_phase1_pool_record(
     objective: float,
     min_clear: float,
     min_clear_reduced: float,
-    fcl: float,
 ) -> Phase1PoolRecord:
     return dict(
         n_arcs=n_arcs,
@@ -570,7 +567,6 @@ def make_phase1_pool_record(
         objective=float(objective),
         min_clear=float(min_clear),
         min_clear_reduced=float(min_clear_reduced),
-        fcl=float(fcl),
     )
 
 
@@ -672,9 +668,7 @@ def main() -> int:
     if SEED_CACHE:
         check_payload_path(SEED_CACHE)
     opt = setup_runtime()
-    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, fixture_bvhs = setup(
-        opt
-    )
+    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, _fbvh = setup(opt)
     brain = opt.brain_sdf()
 
     # Tuned optimizer: thick well (soft side only; FCL uses true mesh) + coarse SDF.
@@ -749,19 +743,6 @@ def main() -> int:
             brain_sdf=brain,
             head_pitch_deg=opt.head_pitch_deg,
         )
-        # FCL on the top-K by clearance (slow per-cand CPU check).
-        order = np.argsort(-clr)
-        topk = set(order[:FCL_TOPK].tolist())
-        fcl = np.full(len(g), np.nan)
-        for i in topk:
-            v = make_fcl_validator(
-                statics_flat[i],
-                n_arcs,
-                fixtures=tuple(fixtures),
-                fixture_bvhs=fixture_bvhs,
-            )
-            s = np.asarray(v.slacks(x_out[i].astype(np.float64)))
-            fcl[i] = float(s.min()) if s.size else 0.0
         for i, c in enumerate(g):
             records.append(
                 make_phase1_pool_record(
@@ -772,11 +753,8 @@ def main() -> int:
                     float(obj[i]),
                     float(clr[i]),
                     float(clr_red[i]),
-                    float(fcl[i]),
                 )
             )
-        nf = int(np.nansum(fcl >= -1e-4))
-        print(f"  FCL-feasible in top-{FCL_TOPK}: {nf}/{min(FCL_TOPK, len(g))}")
         # Incremental save + free this group's GPU buffers before the next group
         # compiles its own kernels (cross-group accumulation caused the OOM).
         save_results(records)

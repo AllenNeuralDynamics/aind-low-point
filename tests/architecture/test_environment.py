@@ -35,7 +35,6 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.phase1_pool:CHUNK@import",
     "aind_rutter.optimization.pipeline.phase1_pool:COARSE_N@import",
     "aind_rutter.optimization.pipeline.phase1_pool:CONFIG@import",
-    "aind_rutter.optimization.pipeline.phase1_pool:FCL_TOPK@import",
     "aind_rutter.optimization.pipeline.phase1_pool:FULL_FINE@import",
     "aind_rutter.optimization.pipeline.phase1_pool:JAX_PLATFORMS@import",
     "aind_rutter.optimization.pipeline.phase1_pool:LIMIT@import",

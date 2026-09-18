@@ -63,13 +63,17 @@ class Phase1PoolRecordRequired(TypedDict):
     objective: float
     min_clear: float
     min_clear_reduced: float
-    fcl: float
 
 
 class Phase1PoolRecord(Phase1PoolRecordRequired, total=False):
-    """Phase-1 record with optional legacy/provenance keys."""
+    """Phase-1 record with optional legacy/provenance keys.
+
+    ``fcl`` is written only by pools from before Phase 1 stopped running the
+    ground-truth check; Phase 2 runs it once, at the end.
+    """
 
     idx: int
+    fcl: float
 
 
 class Phase1PoolPayload(TypedDict):
