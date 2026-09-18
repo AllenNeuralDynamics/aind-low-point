@@ -21,7 +21,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: [3.9, 3.13]
+        # Quoted: YAML reads an unquoted 3.10 as the number 3.1.
+        python-version: ["3.11", "3.13"]
 
     if: >
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&

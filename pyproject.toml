@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aind-rutter"
 description = "Multi-probe insertion planning for in vivo neurophysiology"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
   { name = "Allen Institute for Neural Dynamics" },
   { name = "Galen Lynch", email = "galen@galenlynch.com" },
@@ -38,6 +38,9 @@ dependencies = [
   "shapely>=2.0.7",
   "SimpleITK>=2,<3",
   "trame>=3.12.0",
+  # pyvista.trame.ui imports trame_pyvista, which pyvista declares only under
+  # its `jupyter` extra; without this the web app cannot import.
+  "trame-pyvista>=0.1.7",
   "trame-vtk>=2.11.3",
   "trame-vuetify>=3.2.1",
   "trimesh[recommend]>=4,<5",
@@ -117,7 +120,6 @@ readme = { file = "README.md", content-type = "text/markdown" }
 
 [tool.ruff]
 line-length = 88
-target-version = "py313"
 extend-exclude = ["scripts/reference_k3d_notebook.py"]
 
 [tool.ruff.lint]

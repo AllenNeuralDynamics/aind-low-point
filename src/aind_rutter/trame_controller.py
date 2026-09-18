@@ -15,10 +15,10 @@ import pyvista as pv
 import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
-from pyvista.trame.ui import plotter_ui
 from trame.app import get_server
 from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import client, vuetify3
+from trame_pyvista.ui import plotter_ui
 
 from aind_rutter.assets import AssetCatalog
 from aind_rutter.ccf_ontology import CCFOntology

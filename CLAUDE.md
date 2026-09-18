@@ -10,8 +10,10 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 - **Internal canonical space is LPS millimeters.** RAS appears only at named
   user-facing boundaries (`point_RAS`, `offset_RAS`, `offsets_RA`) and is
   converted at the planning boundary. See `dev/COORDINATES.md`.
-- **Python 3.13 required.** `python-fcl` has no 3.14 wheel. Use
-  `uv run --python 3.13 ...` for everything.
+- **Develop on 3.13; the floor is 3.11.** Use `uv run --python 3.13 ...` for
+  everything. CI tests the floor and 3.13. 3.11 is what `enum.StrEnum` needs;
+  3.14 waits on cp314 wheels for `scikit-image` and `mesh2sdf`, whose source
+  builds fail (`python-fcl` has them now).
 - **Models are the source of truth.** When tests disagree with `config.py`,
   fix the tests.
 
