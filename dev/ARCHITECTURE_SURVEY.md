@@ -71,7 +71,7 @@ before the code around it moves.
 
 | # | defect | evidence | effect | status |
 |---|---|---|---|---|
-| D1 | The JAX compile-cache directory depends on import order | `_setup_compile_cache` sets `scratch/jax_p2_cache` (`phase2_ipopt.py:105-118`). The next import in `_init` loads `objectives.reduced_jax`, which resets it to `/tmp/aind_rutter_jax_cache` at import (`reduced_jax.py:39-44`). | Production Phase 2 uses `/tmp`, not the intended directory. Removing a redundant `_init` call switched which cached kernels loaded, the likely cause of the unexplained 13/40 trajectory shift. Testable by pinning the directory. | verified (traced) |
+| D1 | The JAX compile-cache directory depends on import order (fixed, see below) | `_setup_compile_cache` sets `scratch/jax_p2_cache` (`phase2_ipopt.py:105-118`). The next import in `_init` loads `objectives.reduced_jax`, which resets it to `/tmp/aind_rutter_jax_cache` at import (`reduced_jax.py:39-44`). | Production Phase 2 uses `/tmp`, not the intended directory. Removing a redundant `_init` call switched which cached kernels loaded, the likely cause of the unexplained 13/40 trajectory shift. Testable by pinning the directory. | verified (traced) |
 | D2 | The Phase-2 compile-cache key omits data compiled into the kernel | `_JIT_CACHE` is keyed on shapes, a weights tuple, ceilings and dtype (`phase2.py:895-900`). `_build_jit` also bakes in coverage targets, fixture and brain grid values, and `coverage_n_samples`. `_weights_key` omits `lambda_unit_circle` (`phase2.py:237-265`). | A second `run()` in one process, with the same shapes but a different subject or well mode, reuses stale kernels | verified |
 | D3 | `_init` resets `cov_data` but not the `cov_norm` cache | `phase2_ipopt.py:158` vs `:187` | A second `run()` reuses the previous subject's coverage ceilings | verified |
 | D4 | Loading a plan never swaps a probe's mesh when its kind changes | `apply_plan_model_to_state` dispatches `SetProbeKind` directly (`runtime/export.py:348`). Only `TrameController._on_probe_kind_change` swaps `node.asset_key`, and it returns early once the kinds match (`trame_controller.py:1234-1250`). | The rendered and collision mesh keep the old kind while readouts use the new one | verified code path; not reproduced |
@@ -115,7 +115,7 @@ variables that change results without appearing in any settings object:
 | `RUTTER_BODY_CLEARANCE` | `sdf/build.py:44`, at import |
 | `COVERAGE_WEIGHTS` | `runtime/probe_context.py:74` |
 | `RETRO_DENSITY` | `pipeline/probe_setup.py:48` |
-| `AIND_JAX_CACHE_DIR` | `objectives/reduced_jax.py:39`, at import |
+| `AIND_JAX_CACHE_DIR` | `optimization/jax_env.py`, on request (was `objectives/reduced_jax.py:39`, at import) |
 
 Other problems in the same area:
 

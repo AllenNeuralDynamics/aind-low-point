@@ -46,6 +46,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from aind_rutter.optimization.jax_env import configure_compile_cache
 from aind_rutter.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
 )
@@ -660,6 +661,8 @@ def load_or_seed_groups(
 
 
 def main() -> int:
+    # Explicit, because no import configures the compile cache any more.
+    configure_compile_cache()
     check_payload_path(OUT)
     if SEED_CACHE:
         check_payload_path(SEED_CACHE)

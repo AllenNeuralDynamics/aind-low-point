@@ -193,10 +193,13 @@ def make_thick_well_sdf(
 
 def main() -> int:
     from aind_rutter.config import ConfigModel
+    from aind_rutter.optimization.jax_env import configure_compile_cache
     from aind_rutter.optimization.pipeline.phase1_geometry import (
         build_fixture_sdf_data,
     )
     from aind_rutter.runtime import build_runtime_from_config
+
+    configure_compile_cache()
 
     cfg = ConfigModel.from_yaml("examples/836656-config-T12.yml")
     rt = build_runtime_from_config(cfg)

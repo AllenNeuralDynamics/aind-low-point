@@ -103,19 +103,15 @@ _G: dict = {}
 
 
 def _setup_compile_cache():
-    """Enable JAX's PERSISTENT (on-disk) compile cache, shared by every process.
+    """Enable JAX's persistent compile cache for this worker.
 
-    Without this, each spawned worker recompiles the Phase-2 graph from scratch
-    (~20s) — the parent warmup only ever warmed the parent's in-memory cache,
-    which a spawn()ed worker can't see. With a disk cache, a single warmup (in
-    ONE worker) writes the compiled executables to disk and all other workers
-    LOAD them — so the parent never needs a GPU context."""
-    import jax
+    A spawned worker cannot see the parent's in-memory cache, so without the
+    on-disk one every worker repays the whole compile. One warmup writes the
+    executables and the rest load them.
+    """
+    from aind_rutter.optimization.jax_env import configure_compile_cache
 
-    cache_dir = _os.environ.get("JAX_CACHE_DIR", "scratch/jax_p2_cache")
-    jax.config.update("jax_compilation_cache_dir", cache_dir)
-    jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
-    jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
+    configure_compile_cache()
 
 
 def _init(settings: Phase2Settings | None = None) -> None:

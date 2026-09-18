@@ -299,9 +299,13 @@ def stage_env(
         "PLATFORM": args.platform,
         "JAX_PLATFORMS": platform,
         "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
-        # Shared, so the second arm pays neither the SDF build nor the compile.
+        # Shared, so the second arm pays neither the SDF build nor the compile —
+        # and so a change to how the cache directory is chosen cannot be what the
+        # comparison measures. Both names are set because the two code
+        # generations either side of a change may read different ones.
         "AIND_LOW_POINT_CACHE_DIR": str(work / "sdf_cache"),
         "JAX_CACHE_DIR": str(work / "jax_cache"),
+        "AIND_JAX_CACHE_DIR": str(work / "jax_cache"),
     }
 
 

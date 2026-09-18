@@ -13,7 +13,8 @@ from tests.architecture.graph import module_graph
 
 ENV_READ_BASELINE = {
     "aind_rutter.optimization.geometry.holes:THREADING_MARGIN_MM@function",
-    "aind_rutter.optimization.objectives.reduced_jax:AIND_JAX_CACHE_DIR@import",
+    "aind_rutter.optimization.jax_env:AIND_JAX_CACHE_DIR@function",
+    "aind_rutter.optimization.jax_env:JAX_CACHE_DIR@function",
     "aind_rutter.optimization.pipeline.emit:CONFIG@import",
     "aind_rutter.optimization.pipeline.emit:HANDOFF@import",
     "aind_rutter.optimization.pipeline.emit:HOLES@import",
@@ -58,7 +59,6 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.phase1_pool:XLA_PYTHON_CLIENT_PREALLOCATE@import",
     "aind_rutter.optimization.pipeline.phase2_ipopt:<dynamic>@import",
     "aind_rutter.optimization.pipeline.phase2_ipopt:GPU_MEM_FRACTION@import",
-    "aind_rutter.optimization.pipeline.phase2_ipopt:JAX_CACHE_DIR@function",
     "aind_rutter.optimization.pipeline.phase2_ipopt:JAX_PLATFORMS@import",
     "aind_rutter.optimization.pipeline.phase2_ipopt:P2_HEADROOM_GB@function",
     "aind_rutter.optimization.pipeline.phase2_ipopt:P2_PER_WORKER_GB@function",

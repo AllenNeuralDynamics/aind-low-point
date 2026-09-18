@@ -21,7 +21,6 @@ and weights but different hole assignments share a cached XLA program.
 
 from __future__ import annotations
 
-import os
 from typing import Callable, Hashable
 
 import jax
@@ -30,25 +29,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
-
-# Persistent JAX compile cache. Each spawn-mode worker would otherwise
-# repay the ~20s XLA compile cost (the in-memory ``_JIT_CACHE`` below is
-# per-process). With the disk cache, the first worker to compile a given
-# signature writes it; subsequent workers (and re-runs) load in <1s.
-# Override path via the ``AIND_JAX_CACHE_DIR`` env var.
-_JAX_CACHE_DIR = os.environ.get("AIND_JAX_CACHE_DIR", "/tmp/aind_rutter_jax_cache")
-try:
-    os.makedirs(_JAX_CACHE_DIR, exist_ok=True)
-    jax.config.update("jax_compilation_cache_dir", _JAX_CACHE_DIR)
-    jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
-    jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
-except Exception:
-    # Disk cache is a perf optimization, not a correctness requirement.
-    # If JAX rejects the config (older version, etc.) we silently fall
-    # back to per-process in-memory caching.
-    pass
-
-from aind_rutter.optimization.sdf.kernels import (  # noqa: E402
+from aind_rutter.optimization.sdf.kernels import (
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
     pose_from_optimizer_vars,
