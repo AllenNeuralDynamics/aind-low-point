@@ -275,7 +275,7 @@ def build_coverage_data(
     fallback_geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
     for st in statics:
         parent = next(p for p in probes if p.name == st.name)
-        geom = RECORDING_GEOMETRY.get(parent.kind, fallback_geom)
+        geom = parent.recording or RECORDING_GEOMETRY.get(parent.kind, fallback_geom)
         active_range = geom.active_ranges_mm[0]
         cd = build_coverage_data_from_probe_context(parent, active_range)
         out.append(cd)

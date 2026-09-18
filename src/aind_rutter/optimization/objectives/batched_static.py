@@ -36,8 +36,8 @@ from aind_rutter.optimization.geometry.holes import (
 )
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
+    RECORDING_GEOMETRY,
     RecordingGeometry,
-    get_recording_geometry,
     pivot_from_shank_tips,
 )
 from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
@@ -229,10 +229,9 @@ def build_batched_probe_static(
     probe_tips_padded = np.zeros((K, SH, 3), dtype=np.float32)
     probe_shank_mask_per_k = np.zeros((K, SH), dtype=bool)
     for i, p in enumerate(probes):
-        try:
-            geom = get_recording_geometry(p.kind)
-        except KeyError:
-            geom = fallback_geom
+        # Config first, then the built-in table for the kind, then a
+        # stand-in: a caller that builds statics by hand states only a kind.
+        geom = p.recording or RECORDING_GEOMETRY.get(p.kind) or fallback_geom
         tips = np.asarray(p.shank_tips_local, dtype=np.float32)
         pivot = (
             np.asarray(p.pivot_local, dtype=np.float32)

@@ -1150,6 +1150,7 @@ class TestAutoSceneNodeGeneration:
                         "role": Role.GEOMETRY.value,
                         "loader": "trimesh",
                         "src": "/p.obj",
+                        "recording": {"active_ranges_mm": [[0.2, 3.065]]},
                     },
                 ],
                 "targets": [{"key": "target1", "source_key": "mesh1"}],

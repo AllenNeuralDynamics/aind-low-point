@@ -8,6 +8,8 @@ import numpy as np
 import trimesh
 from numpy.typing import NDArray
 
+from aind_rutter.optimization.geometry.recording import RecordingGeometry
+
 # ---------------------------------------------------------------------------
 # Per-probe static info input
 # ---------------------------------------------------------------------------
@@ -37,6 +39,9 @@ class ProbeStaticInfo:
     target_LPS: NDArray[np.floating]
     kind: str
     shank_tips_local: NDArray[np.floating]
+    # Resolved by the config, not looked up from the built-in table: a subject
+    # may use a probe the table has never heard of. ``None`` means no array.
+    recording: "RecordingGeometry | None" = None
     density_sigma_mm: float = 0.5
     collision_mesh: trimesh.Trimesh | None = field(default=None, compare=False)
     target_points: NDArray[np.floating] | None = field(default=None, compare=False)

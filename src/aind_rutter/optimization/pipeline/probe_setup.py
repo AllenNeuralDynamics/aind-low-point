@@ -191,6 +191,7 @@ def _probe_static_info(
         target_LPS=context.target_LPS,
         kind=context.kind,
         shank_tips_local=context.shank_tips_local,
+        recording=context.recording,
         density_sigma_mm=sigma,
         collision_mesh=context.collision_mesh,
         target_points=target_points,

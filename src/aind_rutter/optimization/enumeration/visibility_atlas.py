@@ -92,11 +92,10 @@ def _pack_section(section) -> dict[str, NDArray]:
 def _probe_centroid_local(probe) -> NDArray:
     """Centroid of shank tips, in the probe's local frame."""
     tips = np.asarray(probe.shank_tips_local, dtype=np.float64)
+    geom = probe.recording or get_recording_geometry(probe.kind)
     if tips.shape[0] == 0:
         # Degenerate — return active-center fallback
-        geom = get_recording_geometry(probe.kind)
         return np.array([0.0, 0.0, geom.active_center_mm], dtype=np.float64)
-    geom = get_recording_geometry(probe.kind)
     return np.array(
         [
             float(tips[:, 0].mean()),

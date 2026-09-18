@@ -11,7 +11,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.core import MeshTransformable
-from aind_rutter.optimization.geometry.recording import pivot_from_shank_tips
+from aind_rutter.optimization.geometry.recording import (
+    RecordingGeometry,
+    pivot_from_shank_tips,
+)
 from aind_rutter.planning import ProbePlan, probe_asset_key, resolve_target_LPS
 from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.shanks import detect_shank_tips_local
@@ -30,6 +33,9 @@ class ProbeContext:
     shank_tips_local: NDArray[np.float64]
     collision_mesh: "trimesh.Trimesh | None"
     coverage_weight: float
+    # Where this probe's electrodes are, as the config resolved it. ``None``
+    # means it has no recording array and targets with its tip.
+    recording: "RecordingGeometry | None" = None
     pivot_local: NDArray[np.float64] | None = None
     target_points_LPS: NDArray[np.float64] | None = None
 
@@ -120,6 +126,7 @@ def probe_context_from_runtime(
     return ProbeContext(
         name=name,
         kind=plan.kind,
+        recording=None if spec is None else spec.recording,
         target_LPS=target_lps,
         target_points_LPS=None
         if target_points_LPS is None

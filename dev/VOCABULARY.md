@@ -71,6 +71,21 @@ implicit.
 | `collidable` | gets an FCL body. A pair is tested when both sides are collidable and at least one is a `probe`; fixtures do not collide with each other. |
 | `static`, `dynamic` | whether the node's transform changes as a plan is edited |
 
+## Where a probe's electrodes are — `recording`
+
+| form | meaning |
+|---|---|
+| omitted | resolve from the built-in table by kind; a kind that is not in it is refused at load |
+| `recording: {active_ranges_mm: [[0.2, 3.065]], shank_pitch_mm: 0.25}` | this probe's active bank, one `(start, end)` in mm from the tip per shank |
+| `recording: none` | no recording array: the probe targets with its tip, as a pipette does |
+
+Before this, `RECORDING_GEOMETRY` in `optimization/geometry/recording.py` was
+the only source, so a new holder variant needed a code change — and three of
+its five entries were exactly that, the same NP 2.0 silicon under different
+holders. An unregistered kind also resolved silently to tip-on-target, which is
+the answer a pipette gets deliberately, so a mistyped kind was indistinguishable
+from a legitimate array-less probe.
+
 ## Asset templates
 
 A probe *kind* asset (`probe:2.1`) is geometry the planner instances, not a

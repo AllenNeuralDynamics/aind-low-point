@@ -185,7 +185,14 @@ class AssetFactory:
 
     @staticmethod
     def mesh_asset(key: str = "mesh_asset", **overrides) -> Dict[str, Any]:
-        """Create mesh asset specification."""
+        """Create mesh asset specification.
+
+        A probe asset gets a recording block, because a probe kind that is
+        neither in the built-in table nor declared is refused at validation —
+        these fixtures use invented kinds.
+        """
+        if key.startswith("probe:") and "recording" not in overrides:
+            overrides["recording"] = {"active_ranges_mm": [[0.2, 3.065]]}
         return AssetFactory.base_asset(
             key=key,
             kind=Kind.MESH.value,

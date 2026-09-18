@@ -19,6 +19,7 @@ from aind_rutter.core import (
     MeshTransformable,
     PointsTransformable,
 )
+from aind_rutter.optimization.geometry.recording import RecordingGeometry
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,11 @@ class AssetSpec(BaseSpec):
     # (lines, volume, etc. could be added later)
 
     # PER-KIND HEADSTAGE BODY (for the placement optimizer)
+    # Resolved recording geometry: from the asset's `recording:` block, else
+    # the built-in table for its kind. ``None`` means the probe has no array
+    # and targets with its tip, which only a config may declare.
+    recording: Optional["RecordingGeometry"] = None
+
     def __post_init__(self):
         # A few light invariants to catch common mistakes
         if self.kind == "mesh" and self.mesh is None and self.points is not None:

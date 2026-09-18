@@ -21,8 +21,8 @@ from aind_rutter.optimization.geometry.holes import (
 )
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.geometry.recording import (
+    RECORDING_GEOMETRY,
     RecordingGeometry,
-    get_recording_geometry,
     pivot_from_shank_tips,
 )
 
@@ -111,10 +111,9 @@ def _build_probe_static(
     fallback_geom = RecordingGeometry(active_ranges_mm=((0.2, 1.2),))
     out: list[_ProbeStatic] = []
     for p in probes:
-        try:
-            geom = get_recording_geometry(p.kind)
-        except KeyError:
-            geom = fallback_geom
+        # Config first, then the built-in table for the kind, then a
+        # stand-in: a caller that builds statics by hand states only a kind.
+        geom = p.recording or RECORDING_GEOMETRY.get(p.kind) or fallback_geom
         tips = np.asarray(p.shank_tips_local, dtype=np.float64)
         pivot = (
             np.asarray(p.pivot_local, dtype=np.float64)

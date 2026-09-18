@@ -29,6 +29,7 @@ from pydantic import (
 
 from aind_rutter.common import Capability, Kind, MRSignal, Role
 from aind_rutter.orientation_codes import OrientationCode
+from aind_rutter.planning import probe_asset_key
 
 # -----------------------------------------------------------------------------
 # Extension-based inference for kind and loader
@@ -124,6 +125,33 @@ class ImagingModel(BaseModel):
 
 ChemMode = Literal["on", "off", "auto"]
 
+# A probe with no recording array — a pipette — targets with its tip. Said out
+# loud so a mistyped kind cannot quietly mean the same thing.
+NO_RECORDING_ARRAY = "none"
+
+
+class RecordingModel(BaseModel):
+    """Where a probe's electrodes are, along each shank.
+
+    Distances are mm from the shank tip along the shank axis, one
+    ``(start, end)`` per shank the optimizer sums coverage across; shank order
+    matches ``runtime.shanks.detect_shank_tips_local``. Declaring this is what
+    lets a subject use a probe the built-in table has never heard of.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    active_ranges_mm: list[tuple[float, float]] = Field(..., min_length=1)
+    shank_pitch_mm: float = 0.25  # informational; the pivot comes from the mesh
+
+    @field_validator("active_ranges_mm")
+    @classmethod
+    def _ranges_ascend(cls, v):
+        for start, end in v:
+            if not end > start:
+                raise ValueError(f"active range ({start}, {end}) must have end > start")
+        return v
+
 
 class MaterialModel(BaseModel):
     model_config = {"extra": "forbid"}
@@ -182,6 +210,9 @@ class GeometrySourceModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     @model_validator(mode="after")
@@ -434,6 +465,9 @@ class BaseTemplateModel(GeometrySourceModel):
     chem_shift_ppm: Optional[float] = None
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
 
     @field_validator("caps", mode="before")
     @classmethod
@@ -531,6 +565,9 @@ class BaseSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     @field_validator("caps", mode="before")
@@ -701,6 +738,9 @@ class BulkAssetSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -799,6 +839,9 @@ class AtlasMeshPackSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1017,6 +1060,9 @@ class RangeTargetSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1133,6 +1179,9 @@ class DerivedTargetSpecModel(BaseModel):
 
     chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
+    # Unset resolves from the built-in table by kind; "none" declares a
+    # probe with no recording array.
+    recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1888,6 +1937,34 @@ class ConfigModel(BaseModel):
         # feature, which resonance localized it. A config without an `imaging`
         # block — an atlas-based plan — has no image and says nothing.
         require_mr_signal = (info.context or {}).get("require_mr_signal", True)
+
+        def _check_probe_recording():
+            """Every probe kind a plan uses must resolve to a recording array.
+
+            Unset falls back to the built-in table; a kind that is in neither
+            the table nor the config is a typo, and used to resolve silently to
+            tip-on-target — the same answer a pipette gets deliberately.
+            """
+            from aind_rutter.optimization.geometry.recording import (
+                RECORDING_GEOMETRY,
+            )
+
+            by_key = {str(a.key): a for a in self.assets}
+            for probe_name, decl in self.plan.probes.items():
+                spec = by_key.get(probe_asset_key(decl.kind))
+                if spec is None:
+                    continue  # the missing-asset check reports this already
+                if spec.recording is not None:
+                    continue  # explicit geometry, or explicitly array-less
+                if decl.kind not in RECORDING_GEOMETRY:
+                    err(
+                        f"plan.probes['{probe_name}']: probe kind "
+                        f"'{decl.kind}' has no recording geometry — give the "
+                        f"asset a `recording:` block, or "
+                        f"`recording: {NO_RECORDING_ARRAY}` if it has no array"
+                    )
+
+        _check_probe_recording()
 
         def _check_mr_signal(spec, where_prefix: str):
             if not require_mr_signal:

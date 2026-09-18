@@ -12,8 +12,9 @@ import trimesh
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
 from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
-from aind_rutter.common import Capability, Kind
+from aind_rutter.common import Capability, Kind, Role
 from aind_rutter.config import (
+    NO_RECORDING_ARRAY,
     AssetSpecModel,
     BaseSpecModel,
     CollisionPolicyModel,
@@ -31,6 +32,7 @@ from aind_rutter.core import (
     MeshTransformable,
     PointsTransformable,
 )
+from aind_rutter.optimization.geometry.recording import RecordingGeometry
 from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
 from aind_rutter.runtime.calibration import _get_calibration_rt
 from aind_rutter.runtime.canonicalize import (
@@ -251,15 +253,13 @@ def _default_probe_pivot_local(
     Returns ``None`` if the asset is not a probe, the kind isn't registered,
     or the mesh has no detectable shank tips.
     """
-    from aind_rutter.optimization.geometry.recording import RECORDING_GEOMETRY
     from aind_rutter.runtime.shanks import detect_shank_tips_local
 
-    if not isinstance(a.key, str) or not a.key.startswith("probe:"):
+    if not is_probe_spec(a):
         return None
     if not isinstance(geo, trimesh.Trimesh):
         return None
-    kind = a.key.split(":", 1)[1]
-    geom = RECORDING_GEOMETRY.get(kind)
+    geom = resolve_recording(a)
     if geom is None:
         return None
     tips = detect_shank_tips_local(geo)
@@ -273,6 +273,40 @@ def _default_probe_pivot_local(
         ],
         dtype=np.float64,
     )
+
+
+def is_probe_spec(a) -> bool:
+    """Whether this asset is a probe.
+
+    ``role: probe`` states it; the ``probe:`` key prefix is how configs that
+    predate the role said it, and they set ``role: geometry`` explicitly, so
+    inference never fires for them.
+    """
+    if a.role is Role.PROBE:
+        return True
+    return isinstance(a.key, str) and a.key.startswith("probe:")
+
+
+def resolve_recording(a) -> RecordingGeometry | None:
+    """The probe's recording geometry, or ``None`` when it has no array.
+
+    An explicit ``recording:`` block wins; otherwise the built-in table answers
+    for the kind. A kind in neither is refused at config validation, so nothing
+    here has to guess.
+    """
+    from aind_rutter.optimization.geometry.recording import RECORDING_GEOMETRY
+
+    declared = getattr(a, "recording", None)
+    if declared == NO_RECORDING_ARRAY:
+        return None
+    if declared is not None:
+        return RecordingGeometry(
+            active_ranges_mm=tuple(tuple(r) for r in declared.active_ranges_mm),
+            shank_pitch_mm=float(declared.shank_pitch_mm),
+        )
+    if not is_probe_spec(a) or not isinstance(a.key, str):
+        return None
+    return RECORDING_GEOMETRY.get(a.key.split(":", 1)[-1])
 
 
 def build_asset_spec(
@@ -307,6 +341,7 @@ def build_asset_spec(
 
     return AssetSpec(
         **base_kwargs,
+        recording=resolve_recording(a),
         source_path=Path(a.src) if a.src else None,
         loader=a.loader,
         mesh=mesh_tf,

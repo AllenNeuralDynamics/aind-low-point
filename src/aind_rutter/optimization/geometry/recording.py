@@ -68,8 +68,9 @@ class RecordingGeometry:
         return np.array([0.0, 0.0, self.active_center_mm], dtype=np.float64)
 
 
-# Default per-kind active-bank ranges. Overridable at optimizer-run
-# time if a different bank configuration is used.
+# Built-in defaults, for a probe whose asset declares no `recording:` block.
+# A config that declares one wins, which is what lets a subject use a probe
+# this table has never heard of without a code change.
 RECORDING_GEOMETRY: dict[str, RecordingGeometry] = {
     # NP 2.0 single-shank, bottom bank
     "2.1": RecordingGeometry(

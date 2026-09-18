@@ -172,6 +172,8 @@ assets:
     templates: [probe]
 
   - key: "probe:2.1-alpha"
+    recording:
+      active_ranges_mm: [[0.200, 3.065]]
     src: "${paths.model_path}/Centered_Newscale_2pt0.obj"
     templates: [probe]
 
@@ -184,6 +186,7 @@ assets:
     templates: [probe]
 
   - key: probe:pipette
+    recording: none
     src: "${paths.model_path}/injection_pipette.obj"
     templates: [probe]
 
