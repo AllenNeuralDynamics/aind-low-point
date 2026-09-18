@@ -21,7 +21,12 @@ import trimesh
 from aind_rutter.assets import AssetCatalog
 from aind_rutter.common import Capability
 from aind_rutter.core import MeshTransformable, Pair
-from aind_rutter.planning import PlanningState, PoseResolver
+from aind_rutter.planning import (
+    PlanningState,
+    PoseResolver,
+    probe_node_id,
+    reconcile_probe_assets,
+)
 from aind_rutter.scene import NodeInstance, Scene
 
 
@@ -90,6 +95,10 @@ class CollisionAdapter:
     scene: Scene
     assets: AssetCatalog
     include: Callable[[NodeInstance, AssetCatalog], bool] = default_include
+    # Which asset each registered node was built from. The backend's sync
+    # updates a known node's pose and keeps its geometry, so a node whose asset
+    # changed has to be dropped before it is synced again.
+    _asset_of: dict[str, str] = field(default_factory=dict)
 
     # ---- lifecycle wiring ----
     def rebuild(self, plan: PlanningState) -> None:
@@ -106,15 +115,24 @@ class CollisionAdapter:
     def on_store_change(
         self, plan: PlanningState, changed_probe_names: List[str]
     ) -> None:
+        reconcile_probe_assets(self.scene, plan, self.assets)
         resolver = self._make_resolver(plan)
         nodes: List[NodeInstance] = []
         for pname in changed_probe_names:
-            nid = f"probe:{pname}"
-            node = self.scene.nodes.get(nid)
+            node = self.scene.nodes.get(probe_node_id(pname))
             if node and self.include(node, self.assets):
                 nodes.append(node)
         if not nodes:
             return
+        self.remove_nodes(
+            [
+                n.key
+                for n in nodes
+                if self._asset_of.get(n.key, n.asset_key) != n.asset_key
+            ]
+        )
+        for node in nodes:
+            self._asset_of[node.key] = node.asset_key
         specs = [self._spec_for_node(n, resolver) for n in nodes]
         self.backend.sync([s for s in specs if s is not None])
 

@@ -32,6 +32,50 @@ if TYPE_CHECKING:
     from aind_rutter.assets import AssetCatalog
 
 
+def probe_asset_key(kind: str) -> str:
+    """The catalog key holding the mesh for a probe of this kind."""
+    return f"probe:{kind}"
+
+
+def probe_node_id(name: str) -> str:
+    """The scene node showing the probe of this name.
+
+    Spelled like an asset key and meaning something else entirely: this one is
+    keyed by the probe's name, that one by its kind.
+    """
+    return f"probe:{name}"
+
+
+def reconcile_probe_assets(
+    scene: Scene, plan: PlanningState, catalog: "AssetCatalog"
+) -> list[str]:
+    """Point every probe node at the asset for its plan's kind.
+
+    A probe node's ``asset_key`` restates ``ProbePlan.kind``, so a change to the
+    kind has to reach both. Reconciling where the geometry is consumed means a
+    dispatch is enough, whoever made it — a plan loaded from YAML swaps meshes
+    the same way the kind dropdown does.
+
+    Returns the ids of nodes whose asset changed, so a caller holding a handle
+    built from the old mesh can drop it. A kind with no asset in the catalog
+    leaves its node alone, since pointing it at nothing would fail at render.
+    """
+    changed: list[str] = []
+    for name, probe_plan in plan.probes.items():
+        node = scene.nodes.get(probe_node_id(name))
+        if node is None:
+            continue
+        key = probe_asset_key(probe_plan.kind)
+        if node.asset_key == key:
+            continue
+        if key not in catalog.assets:
+            warn(f"probe {name!r}: no asset {key!r}; keeping {node.asset_key!r}")
+            continue
+        node.asset_key = key
+        changed.append(node.key)
+    return changed
+
+
 # Plan for probe location
 @dataclass(slots=True)
 class ProbePlan:
@@ -400,7 +444,7 @@ class ProbePose:
         # only which shank's tip the GUI reports as the RAS readout.
         pivot_local: Optional[np.ndarray] = None
         if catalog is not None:
-            asset_key = f"probe:{plan.kind}"
+            asset_key = probe_asset_key(plan.kind)
             spec = catalog.assets.get(asset_key)
             if spec is not None and spec.pivot_LPS is not None:
                 pivot_local = np.asarray(spec.pivot_LPS, dtype=np.float64)

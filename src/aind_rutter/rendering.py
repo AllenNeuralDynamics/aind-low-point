@@ -23,7 +23,7 @@ from aind_rutter.core import (
     MeshTransformable,
     PointsTransformable,
 )
-from aind_rutter.planning import PlanningState, PoseResolver
+from aind_rutter.planning import PlanningState, PoseResolver, reconcile_probe_assets
 from aind_rutter.scene import NodeInstance, Scene
 
 
@@ -220,6 +220,9 @@ class RendererAdapter:
     scene: Scene
     assets: AssetCatalog
     overlays: OverlayResolver | None = None
+    # Which asset each drawn node was built from. A node whose asset changed
+    # needs its handle rebuilt, and update_mesh replaces points without faces.
+    _asset_of: dict[str, str] = field(default_factory=dict)
 
     # ----- public API -----
     def build(self, plan: PlanningState, coll: CollisionState | None = None) -> None:
@@ -235,6 +238,7 @@ class RendererAdapter:
         nodes: Iterable[NodeInstance],
         coll: CollisionState | None = None,
     ) -> None:
+        reconcile_probe_assets(self.scene, plan, self.assets)
         resolver = self._make_resolver(plan)
         hot = coll.hot if coll else frozenset()
         for node in nodes:
@@ -280,6 +284,12 @@ class RendererAdapter:
     ) -> None:
         if not node.enabled:
             return
+
+        # A node pointing at a different asset than the one it was drawn from
+        # has to be recreated: update_mesh takes new points but not new faces.
+        if self._asset_of.get(node.key, node.asset_key) != node.asset_key:
+            self.backend.remove([node.key])
+        self._asset_of[node.key] = node.asset_key
 
         # Material: override > spec default
         mat = self._resolve_material(node)

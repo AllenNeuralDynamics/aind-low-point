@@ -36,7 +36,12 @@ from aind_rutter.commands import (
     SetProbeTarget,
 )
 from aind_rutter.core import MeshTransformable
-from aind_rutter.planning import PoseResolver, ProbePose, kinematic_violations
+from aind_rutter.planning import (
+    PoseResolver,
+    ProbePose,
+    kinematic_violations,
+    probe_asset_key,
+)
 from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_rutter.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_rutter.state_change import PlanStore
@@ -1234,39 +1239,19 @@ class TrameController:
     def _on_probe_kind_change(self, probe_name: str, new_kind: str) -> None:
         """Swap the probe's mesh by changing its ``kind``.
 
-        Updates the scene node's ``asset_key`` to the new ``probe:<kind>``,
-        drops the renderer / collision handles for the old mesh, dispatches
-        SetProbeKind to update the planning state (which fires RenderHandler
-        to re-create the renderer node), and re-registers the collision
-        object with the new BVH.
+        Dispatching is all it takes to move the geometry: the render and
+        collision adapters reconcile each probe node with its plan's kind and
+        rebuild any handle they had built from the old mesh. What is left here
+        is the part the adapters do not cover — the overlays and the colour,
+        which depend on the new mesh's shank tips.
         """
-        new_asset_key = f"probe:{new_kind}"
-        if new_asset_key not in self.assets.assets:
+        if probe_asset_key(new_kind) not in self.assets.assets:
             return  # unknown probe type — defensive
         plan = self.store.state.probes.get(probe_name)
         if plan is None or plan.kind == new_kind:
             return
-        nid = f"probe:{probe_name}"
-        scene = self.render_adapter.scene
-        node = scene.nodes.get(nid)
-        if node is None:
-            return
 
-        # Mutate scene node so the renderer / collision adapter see the
-        # new geometry on their next pass.
-        node.asset_key = new_asset_key
-
-        # Drop existing handles so they get recreated with the new mesh.
-        self.render_adapter.backend.remove([nid])
-        self.collision_handler.adapter.remove_nodes([nid])
-
-        # Update planning state — fires RenderHandler which calls
-        # sync_nodes → _upsert_node → has_node=False → create_mesh with the
-        # new geometry.
         self.store.dispatch(SetProbeKind(name=probe_name, kind=new_kind))
-
-        # Re-register collision object with the new BVH (sync handles
-        # missing-node case by creating).
         self.collision_handler.adapter.on_store_change(self.store.state, [probe_name])
 
         # Re-run collision detection now that the BVH for this probe is
