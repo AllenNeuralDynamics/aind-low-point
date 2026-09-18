@@ -58,6 +58,7 @@ materials:
 asset_templates:
   hardware:
     kind: mesh
+    mr_signal: none
     role: geometry
     loader: trimesh
     canonicalization_ref: "obj-wavefront"
@@ -68,6 +69,7 @@ asset_templates:
       mask: [probe]
   structure:
     kind: mesh
+    mr_signal: water
     role: anatomy
     loader: trimesh
     material_ref: structure
@@ -77,6 +79,7 @@ asset_templates:
       mask: []
   probe:
     kind: mesh
+    mr_signal: none
     role: geometry
     loader: trimesh
     canonicalization_ref: "probe-mesh"
@@ -89,6 +92,7 @@ asset_templates:
 target_templates:
   structure:
     reducer: mesh_center_mass
+    mr_signal: water
     material_ref: structure_target
     tags: [structure, target]
     collision:
@@ -96,11 +100,11 @@ target_templates:
       mask: []
   hole:
     loader: trimesh
+    mr_signal: fat
     canonicalization_ref: "obj-wavefront"
     reducer: mesh_centroid
     material: { color: "#FF00FF", opacity: 0.5 }  # FIX: was missing #
     tags: [hole]
-    chem_shift_policy: "off"
     collision:
       group: static
       mask: []
@@ -127,6 +131,7 @@ assets:
 
   - key: headframe
     src: "${paths.model_path}/TenRunHeadframe.obj"
+    mr_signal: fat
     templates: [hardware]
     material: { color: "#E7DDFF", opacity: 1.0 }
     scene_tags: [static, fixture, headframe]
@@ -143,6 +148,7 @@ assets:
 
   - key: implant
     src: "${paths.model_path}/0283-300-04.obj"
+    mr_signal: fat
     templates: [hardware]
     material_ref: implant
     transform: implant_to_lps
@@ -150,6 +156,7 @@ assets:
 
   - key: retro-targets
     kind: points
+    mr_signal: water
     src: "${paths.annotations_path}/OldRabiesTracing/${paths.mouse}_rabies_pts_from_698928_LPS.csv"
     loader: csv_points
     role: anatomy

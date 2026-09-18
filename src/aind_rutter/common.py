@@ -14,6 +14,24 @@ class Capability(IntFlag):
     SAVABLE = 32
 
 
+class MRSignal(str, Enum):
+    """Which resonance a feature's coordinates were localized from.
+
+    Fat and water resonate about 3.5 ppm apart, so a scanner reconstructing at
+    the water frequency places fat-derived signal some millimetres off along the
+    readout axis. The canonical frame here is the headframe's, and the headframe
+    is found from vaseline — so ``FAT`` features define the frame and ``WATER``
+    features are translated into it.
+
+    ``NONE`` is geometry the image never saw: CAD assumed rigid to the headframe
+    (the cone, the well) or placed by the planner (the probes).
+    """
+
+    WATER = "water"
+    FAT = "fat"
+    NONE = "none"
+
+
 class Role(str, Enum):
     GEOMETRY = "geometry"
     TARGET = "target"

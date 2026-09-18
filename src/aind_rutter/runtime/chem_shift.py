@@ -11,7 +11,7 @@ from aind_mri_utils.chemical_shift import (
     compute_chemical_shift,
 )
 
-from aind_rutter.common import Role
+from aind_rutter.common import MRSignal, Role
 from aind_rutter.config import BaseSpecModel, ConfigModel
 from aind_rutter.core import AffineTransform
 
@@ -71,12 +71,20 @@ class ChemShiftContext:
 
 
 def _should_apply_chem(asset_model: BaseSpecModel, chem: ChemShiftContext) -> bool:
+    """Whether this feature must be translated into the headframe frame.
+
+    The correction moves water-localized geometry into the frame the vaseline
+    fiducials define; fat-localized geometry already sits in it, and geometry the
+    image never saw has nothing to correct.
+    """
     if not chem.enabled:
         return False
+    if asset_model.mr_signal is not None:
+        return asset_model.mr_signal is MRSignal.WATER
+    # Configs that predate `mr_signal` state it as a role plus an override.
     mode = asset_model.chem_shift_policy  # "on"|"off"|"auto"
     if mode == "on":
         return True
     if mode == "off":
         return False
-    # "auto": follow role defaults
     return asset_model.role in chem.apply_by_role

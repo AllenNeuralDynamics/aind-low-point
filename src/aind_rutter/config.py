@@ -26,7 +26,7 @@ from pydantic import (
     model_validator,
 )
 
-from aind_rutter.common import Capability, Kind, Role
+from aind_rutter.common import Capability, Kind, MRSignal, Role
 from aind_rutter.orientation_codes import OrientationCode
 
 # -----------------------------------------------------------------------------
@@ -177,6 +177,7 @@ class GeometrySourceModel(BaseModel):
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     @model_validator(mode="after")
@@ -428,6 +429,7 @@ class BaseTemplateModel(GeometrySourceModel):
     # Chem-shift hints (optional, ignored if not applicable)
     chem_shift_ppm: Optional[float] = None
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
 
     @field_validator("caps", mode="before")
     @classmethod
@@ -524,6 +526,7 @@ class BaseSpecModel(BaseModel):
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     @field_validator("caps", mode="before")
@@ -693,6 +696,7 @@ class BulkAssetSpecModel(BaseModel):
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -790,6 +794,7 @@ class AtlasMeshPackSpecModel(BaseModel):
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1007,6 +1012,7 @@ class RangeTargetSpecModel(BaseModel):
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1122,6 +1128,7 @@ class DerivedTargetSpecModel(BaseModel):
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
     chem_shift_policy: ChemMode = "auto"
+    mr_signal: Optional[MRSignal] = None
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
@@ -1862,16 +1869,31 @@ class ConfigModel(BaseModel):
                     f"material_ref '{mref}' not found"
                 )
 
+        # Chemical shift displaces geometry by millimetres and nothing
+        # downstream notices, so a config that has an image must say, per
+        # feature, which resonance localized it. A config without an `imaging`
+        # block — an atlas-based plan — has no image and says nothing.
+        def _check_mr_signal(spec, where_prefix: str):
+            if self.imaging is None or spec.mr_signal is not None:
+                return
+            err(
+                f"{where_prefix} '{_where_key(spec)}': mr_signal is required "
+                f"when `imaging` is set — one of "
+                f"{', '.join(m.value for m in MRSignal)}. See dev/VOCABULARY.md."
+            )
+
         for a in self.assets:
             _check_material_ref(a, "asset")
             _check_spec_kind(a, "asset")
             _check_spec_role(a, "asset")
             _check_asset_spec_src_loader(a)
+            _check_mr_signal(a, "asset")
         for t in self.targets:
             _check_material_ref(t, "target")
             _check_spec_kind(t, "target", allowable={Kind.POINTS})
             _check_spec_role(t, "target", allowable={Role.TARGET})
             _check_target_spec_single_source_and_caps(t)
+            _check_mr_signal(t, "target")
 
         for name, tmpl in self.asset_templates.items():
             if tmpl.material_ref and tmpl.material_ref not in self.materials:
