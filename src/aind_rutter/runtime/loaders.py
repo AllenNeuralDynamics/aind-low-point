@@ -100,6 +100,27 @@ def _load_trimesh(path: str) -> trimesh.Trimesh:
 
 
 @register_loader
+def numpy_points(path: str) -> NDArray[np.float64]:
+    """Load an ``(N, 3)`` point cloud from a ``.npy`` array.
+
+    ``allow_pickle`` stays off: a pickled ``.npy`` runs arbitrary code when it is
+    read, nothing in this package writes one, and a config's ``src`` is a path
+    the package will open without asking. Rows with a non-finite coordinate are
+    dropped, as in :func:`csv_points`, so one bad point cannot poison a reducer.
+    """
+    array = np.load(path, allow_pickle=False)
+    points = np.asarray(array)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(
+            f"{path}: expected an (N, 3) point array, got shape {points.shape}"
+        )
+    if points.dtype.kind not in "fiu":
+        raise ValueError(f"{path}: expected numeric points, got dtype {points.dtype}")
+    points = points.astype(np.float64, copy=False)
+    return points[np.isfinite(points).all(axis=1)]
+
+
+@register_loader
 def csv_points(path: str, max_points: int | None = None) -> NDArray[np.float64]:
     """Load an (N,3) point cloud from a CSV with x, y, z columns.
 
