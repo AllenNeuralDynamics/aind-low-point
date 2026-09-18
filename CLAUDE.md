@@ -1,8 +1,7 @@
 # CLAUDE.md — Rutter (`aind-rutter`)
 
 Multi-probe insertion planning for AIND: an interactive planner and a
-constrained-optimization solver over one runtime. Two frontends share that
-common runtime: K3D + ipywidgets (Jupyter, `controllers.py`) and Trame +
+constrained-optimization solver over one runtime. The frontend is Trame +
 PyVista (web app, `app.py` + `trame_controller.py`).
 
 ## Invariants
@@ -53,10 +52,8 @@ src/aind_rutter/
 ├── state_change.py        # PlanStore, AsyncLatestWorker
 ├── rendering.py           # RendererAdapter, RenderBackend protocol, overlays
 ├── collisions.py          # CollisionAdapter, CollisionHandler (sync + async paths)
-├── k3d_backend.py         # K3DBackend (Jupyter)
 ├── pyvista_backend.py     # PyVistaBackend + DebouncedFlush (trame)
 ├── fcl_backend.py         # FCLBackend (per-pair callback, group/mask filter)
-├── controllers.py         # ProbeWidgetController (K3D + ipywidgets)
 ├── trame_controller.py    # TrameController (Vuetify3 + PyVista)
 ├── app.py                 # build_trame_app() factory
 ├── ccf_ontology.py        # Allen CCF structures + search

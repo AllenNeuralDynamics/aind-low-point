@@ -17,14 +17,12 @@ readme = "README.md"
 version = "0.1.0"
 
 # Core dependencies — everything needed for loading, visualising,
-# and interactively editing plans (the trame app, Jupyter K3D
-# controllers, config + asset loading, runtime). Excludes the
-# placement-optimizer stack; install ``[optimization]`` for that.
+# and interactively editing plans (the trame app, config + asset
+# loading, runtime). Excludes the placement-optimizer stack; install
+# ``[optimization]`` for that.
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
-  "ipyevents>=2,<3",
-  "k3d>=2,<3",
   "mapbox-earcut>=2.0.0",
   "numpy>=1.20,<3",
   "omegaconf>=2,<3",

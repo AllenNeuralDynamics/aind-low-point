@@ -113,8 +113,6 @@ FRONTEND_MODULES = {
     "aind_rutter.app",
     "aind_rutter.cli",
     "aind_rutter.ccf_overlay",
-    "aind_rutter.controllers",
-    "aind_rutter.k3d_backend",
     "aind_rutter.pyvista_backend",
     "aind_rutter.rendering",
     "aind_rutter.trame_controller",

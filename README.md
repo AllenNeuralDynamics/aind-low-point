@@ -22,9 +22,8 @@ answer.
 
 ## Two ways in
 
-**Plan by hand.** A browser app (trame + PyVista) or a Jupyter widget (K3D +
-ipywidgets) for placing probes directly, with live collision feedback and CCF
-region overlays.
+**Plan by hand.** A browser app (trame + PyVista) for placing probes
+directly, with live collision feedback and CCF region overlays.
 
 **Solve.** An offline pipeline enumerates candidate assignments of probes to
 arcs and bores, scores every one of them with a batched relaxation on the GPU,

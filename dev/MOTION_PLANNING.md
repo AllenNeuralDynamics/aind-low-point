@@ -86,8 +86,8 @@ optimize against the fast SDF, then **validate the final trajectory with FCL**
 before anything is sent to hardware. See `dev/PIPELINE.md`.
 
 **Visualization for dry-runs:** `rendering.py` (`RendererAdapter`,
-`RenderBackend`), `k3d_backend.py`, `pyvista_backend.py`. A planned trajectory can
-be animated/inspected in the existing viewers before execution.
+`RenderBackend`), `pyvista_backend.py`. A planned trajectory can be
+animated/inspected in the existing viewer before execution.
 
 ---
 

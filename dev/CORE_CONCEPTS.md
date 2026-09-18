@@ -35,7 +35,7 @@ confusion.
               │ subscribed to by
               ▼
 ┌─ Adapters ─────────────────────┐  "make it visible / detect overlap"
-│  RendererAdapter (→PyVista/K3D)│   listen for planning changes,
+│  RendererAdapter (→PyVista)    │   listen for planning changes,
 │  CollisionAdapter (→FCL)       │   walk the scene, update the
 │                                │   chosen backend.
 └────────────────────────────────┘
@@ -131,8 +131,7 @@ the planning layer knowing what backend exists.
 
 - `RendererAdapter` — given a scene + planning state, computes each
   node's world transform and pushes it to a `RenderBackend`
-  (`pyvista_backend.py` for trame, `k3d_backend.py` for Jupyter). Also
-  handles material overrides and the **overlay system** — additional
+  (`pyvista_backend.py`). Also handles material overrides and the **overlay system** — additional
   per-node tint / alpha contributions stacked by priority (collisions
   paint a red tint; selection or hover would paint others).
 - `CollisionAdapter` — given a scene + planning state, builds
@@ -147,17 +146,14 @@ The split between adapter and handler exists so adapters can be tested
 in isolation against fake backends, and so the async-collision worker
 can drive the adapter without going through the subscriber path.
 
-### Frontends (`controllers.py`, `trame_controller.py`, `app.py`)
+### Frontend (`trame_controller.py`, `app.py`)
 
-Two parallel UIs, same runtime:
-
-- `ProbeWidgetController` — ipywidgets + K3D, for Jupyter notebooks.
 - `TrameController` — Vuetify3 components + PyVista (via VTK.js in the
   browser), for the web app. `app.py:build_trame_app(cfg)` is the
   factory that wires up the runtime, store, adapters, async worker,
   and controller into a ready-to-serve trame app.
 
-Frontends own:
+The frontend owns:
 - The widgets and event handlers (slider drags, keyboard shortcuts).
 - The readout strings (tip RAS, depth, kinematic status, collisions).
 - The view-state that isn't planning state (camera, visibility toggles,
@@ -237,8 +233,8 @@ Common questions, in order of how often they come up:
 
 **"Why isn't the planning state just the scene?"**
 Because planning is independent of *how* you visualize and *what* you
-collide against. The same planning state drives the K3D Jupyter UI and
-the trame web app with zero changes — only the frontend + adapter swap.
+collide against. A second frontend would need no change to the planning
+state — only its own adapter and controller.
 
 **"Why are catalogs and scenes separate?"**
 Because one asset can have many placements (the probe mesh asset is

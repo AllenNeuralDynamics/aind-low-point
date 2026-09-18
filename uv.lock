@@ -3,10 +3,10 @@ revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version >= '3.13' and sys_platform != 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.12.*' and sys_platform != 'linux'",
+    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version < '3.12' and sys_platform != 'linux'",
 ]
 
@@ -63,8 +63,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aind-anatomical-utils" },
     { name = "aind-mri-utils" },
-    { name = "ipyevents" },
-    { name = "k3d" },
     { name = "mapbox-earcut" },
     { name = "numpy" },
     { name = "omegaconf" },
@@ -144,11 +142,9 @@ requires-dist = [
     { name = "cma", marker = "extra == 'optimization'", specifier = ">=4.4.4" },
     { name = "coacd", marker = "extra == 'optimization'", specifier = ">=1.0.11" },
     { name = "cyipopt", marker = "extra == 'optimization'", specifier = ">=1.7.0" },
-    { name = "ipyevents", specifier = ">=2,<3" },
     { name = "jax", marker = "sys_platform != 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },
     { name = "jaxlib", marker = "extra == 'optimization'", specifier = ">=0.4.30" },
-    { name = "k3d", specifier = ">=2,<3" },
     { name = "libigl", marker = "extra == 'optimization'", specifier = ">=2.5,<3" },
     { name = "mapbox-earcut", specifier = ">=2.0.0" },
     { name = "mesh2sdf", marker = "extra == 'optimization'", specifier = ">=1.1.0" },
@@ -891,15 +887,6 @@ wheels = [
 ]
 
 [[package]]
-name = "deepcomparer"
-version = "0.4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4b/33/84a4de3c7081ea7132d6dcae54243ec56f1a77bb7f30f184f0fe7813ea73/deepcomparer-0.4.0.tar.gz", hash = "sha256:c99a1fd328b350bbdfcf597f61e1cfb76d150c38dedf46ec709bf5eeeb7b88de", size = 3230, upload-time = "2023-01-01T12:07:18.925Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/63/815fc0dacdd898cfa9e9145982fbac94160581170e6a5dc51cc0abe8b43c/deepcomparer-0.4.0-py3-none-any.whl", hash = "sha256:89d92f2c14e0d7afc9451739fc1228a46028054182b1387a5710a7ad2cf4d46b", size = 3612, upload-time = "2023-01-01T12:07:17.718Z" },
-]
-
-[[package]]
 name = "docstring-parser"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1219,18 +1206,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ipyevents"
-version = "2.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ipywidgets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/85/d8/254c3d2ed96b2c562d3a0365909a20a5faa40c5d55ca2b403cdf008a9c90/ipyevents-2.0.2.tar.gz", hash = "sha256:26e878b0c5854bc8b6bd6a2bd2c89b314ebe86fda642f4d2434051545bab258f", size = 227253, upload-time = "2023-08-21T03:37:00.823Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/49/5692d363a82838282f5c33a787922f07115d7ba4b452391e51db95c9d247/ipyevents-2.0.2-py3-none-any.whl", hash = "sha256:60c2a9e992bdc41e8577aa27e57b124efafa48a59a3bff886029fe5700d546b3", size = 101789, upload-time = "2023-08-21T03:36:59.22Z" },
-]
-
-[[package]]
 name = "ipykernel"
 version = "6.30.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1494,23 +1469,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b9/7d/160595ca88ee87ac6ba95d82177d29ec60aaa63821d3077babb22ce031a5/jupyterlab_widgets-3.0.15.tar.gz", hash = "sha256:2920888a0c2922351a9202817957a68c07d99673504d6cd37345299e971bb08b", size = 213149, upload-time = "2025-05-05T12:32:31.004Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/43/6a/ca128561b22b60bd5a0c4ea26649e68c8556b82bc70a0c396eebc977fe86/jupyterlab_widgets-3.0.15-py3-none-any.whl", hash = "sha256:d59023d7d7ef71400d51e6fee9a88867f6e65e10a4201605d2d7f3e8f012a31c", size = 216571, upload-time = "2025-05-05T12:32:29.534Z" },
-]
-
-[[package]]
-name = "k3d"
-version = "2.17.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "deepcomparer" },
-    { name = "ipywidgets" },
-    { name = "msgpack" },
-    { name = "numpy" },
-    { name = "traitlets" },
-    { name = "traittypes" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/96/fa/fed52aae3928bc646a1490663514c8b44a0653ddd75a97d26c585e904f32/k3d-2.17.0.tar.gz", hash = "sha256:7dd41fe72a51065d302f04761502f965378693f12bf3a831152b61ce00050c4c", size = 11861032, upload-time = "2025-07-09T14:18:45.083Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/2e/05a28556829cfa9d660736e9e73a089ea3ccc2c4db0d0e095fb36003e93b/k3d-2.17.0-py3-none-any.whl", hash = "sha256:b4cf6833e48e11a534d22d454ace83a5f19e2cea434547c3ee968ca109c78a01", size = 28160687, upload-time = "2025-07-09T14:18:12.818Z" },
 ]
 
 [[package]]
@@ -3762,8 +3720,8 @@ version = "9.1.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version >= '3.13' and sys_platform != 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.12.*' and sys_platform != 'linux'",
 ]
 dependencies = [
@@ -3978,18 +3936,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/eb/79/72064e6a701c2183016abbbfedaba506d81e30e232a68c9f0d6f6fcd1574/traitlets-5.14.3.tar.gz", hash = "sha256:9ed0579d3502c94b4b3732ac120375cda96f923114522847de4b3bb98b96b6b7", size = 161621, upload-time = "2024-04-19T11:11:49.746Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl", hash = "sha256:b74e89e397b1ed28cc831db7aea759ba6640cb3de13090ca145426688ff1ac4f", size = 85359, upload-time = "2024-04-19T11:11:46.763Z" },
-]
-
-[[package]]
-name = "traittypes"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "traitlets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/71/0578e44d2110f93c2136eb705f5b11e706e1e8ea3acaaaeac043bd40d8fd/traittypes-0.2.1.tar.gz", hash = "sha256:be6fa26294733e7489822ded4ae25da5b4824a8a7a0e0c2dccfde596e3489bd6", size = 13544, upload-time = "2018-06-16T07:34:00.929Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/d1/8d5bd662703cc1764d986f6908a608777305946fa634d34c470cd4a1e729/traittypes-0.2.1-py2.py3-none-any.whl", hash = "sha256:1340af133810b6eee1a2eb2e988f862b0d12b6c2d16f282aaf3207b782134c2e", size = 8550, upload-time = "2018-06-16T07:33:59.594Z" },
 ]
 
 [[package]]

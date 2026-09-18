@@ -36,14 +36,13 @@ aind-rutter follows a layered architecture with clear separation between:
               ▼               ▼               ▼
     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
     │RendererAdapt │  │CollisionAdapt│  │  PlanStore   │
-    │ (K3D|PyVista)│  │   (FCL)      │  │  (Redux-ish) │
+    │  (PyVista)   │  │   (FCL)      │  │  (Redux-ish) │
     └──────────────┘  └──────────────┘  └──────────────┘
               │               │               │
               └───────────────┼───────────────┘
                               ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │  Frontend  (ProbeWidgetController for Jupyter,               │
-    │             TrameController for the web app)                 │
+    │  Frontend  (TrameController for the web app)                 │
     └─────────────────────────────────────────────────────────────┘
 
 
@@ -65,10 +64,8 @@ Module Organization
     ├── build_runtime.py    # Config → RuntimeBundle factory + loaders + save_plan_to_config
     ├── rendering.py        # Renderer adapter + RenderBackend protocol + overlay system
     ├── collisions.py       # Collision adapter + CollisionHandler (sync + async paths)
-    ├── k3d_backend.py      # K3D rendering backend (Jupyter)
     ├── pyvista_backend.py  # PyVista rendering backend + DebouncedFlush (trame)
     ├── fcl_backend.py      # FCL collision backend (per-pair callback, group/mask)
-    ├── controllers.py      # ProbeWidgetController (K3D + ipywidgets)
     ├── trame_controller.py # TrameController (Vuetify3 + PyVista)
     ├── app.py              # build_trame_app() factory
     ├── ccf_ontology.py     # Allen CCF ontology (bundled JSON, search)
@@ -508,7 +505,7 @@ Adapters connect the domain to external systems.
 RendererAdapter (``rendering.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Bridges domain objects to a render backend (K3D or PyVista). Pushes a 4×4
+Bridges domain objects to a render backend. Pushes a 4×4
 ``model_matrix`` per node so the renderer applies the transform on the GPU
 side; the underlying vertex buffers stay in canonical LPS layout:
 
@@ -516,7 +513,7 @@ side; the underlying vertex buffers stay in canonical LPS layout:
 
     @dataclass
     class RendererAdapter:
-        plot: k3d.Plot
+        plot: pv.Plotter
         catalog: AssetCatalog
         scene: Scene
         overlays: Optional[OverlayResolver]
@@ -685,27 +682,8 @@ Commands encapsulate state mutations. They are frozen dataclasses; a single
         ...
 
 
-Frontends
----------
-
-Two parallel UI implementations share all of the runtime above. Pick one
-based on the deployment target.
-
-Jupyter (``controllers.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``ProbeWidgetController`` — ipywidgets sliders + K3D plot for in-notebook use.
-
-.. code-block:: python
-
-    @dataclass
-    class ProbeWidgetController:
-        store: PlanStore
-        assets: AssetCatalog
-        plot: k3d.Plot
-        render_adapter: RendererAdapter
-        collision_handler: CollisionHandler
-        overlays_resolver: OverlayResolver
+Frontend
+--------
 
 Trame web app (``trame_controller.py`` + ``app.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

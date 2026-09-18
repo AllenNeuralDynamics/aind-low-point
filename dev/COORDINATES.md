@@ -49,8 +49,8 @@ After these, every coordinate inside the runtime is LPS mm.
 
 The renderer doesn't care about anatomical labels — it gets a 4×4
 `model_matrix` from `RendererAdapter._upsert_node` (built by `_rt_to_matrix`
-from a composed `(R, t)`). K3D and PyVista apply the matrix as a
-GPU-side / actor-side transform; the underlying vertex buffers stay in their
+from a composed `(R, t)`). PyVista applies the matrix as an
+actor-side transform; the underlying vertex buffers stay in their
 canonical LPS layout.
 
 ## Frame composition

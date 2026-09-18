@@ -160,8 +160,6 @@ Backend-agnostic adapter that pushes a 4×4 `model_matrix` to renderers.
 
 ## Backend implementations
 
-- `k3d_backend.py` — `K3DBackend(plot)`. Sets `h.model_matrix` on K3D handles.
-  Used by the Jupyter / ipywidgets controller.
 - `pyvista_backend.py` — `PyVistaBackend(plotter)`. Sets `actor.user_matrix` on
   PyVista actors. Includes `DebouncedFlush` (asyncio `call_later`-based) used
   by trame to coalesce browser pushes.
@@ -170,15 +168,7 @@ Backend-agnostic adapter that pushes a 4×4 `model_matrix` to renderers.
   group/mask filter. Replaces the previous `defaultCollisionCallback` which
   silently dropped pairs after hitting the global accumulator limit.
 
-## Frontends
-
-Two parallel UI implementations sharing all of the above:
-
-### Jupyter — `controllers.py`
-
-`ProbeWidgetController` — ipywidgets sliders + K3D plot for notebook use.
-Has keyboard nav helpers, an arc-assign dropdown, and a target-snap dropdown.
-Calls `store.dispatch(...)` directly.
+## Frontend
 
 ### Trame web — `trame_controller.py` + `app.py`
 
@@ -227,7 +217,7 @@ PlanStore
    ▼  notify subscribers
    ├── RenderHandler  (sync, ~ms)
    │     └── RendererAdapter.sync_nodes()
-   │           └── RenderBackend (K3D | PyVista) — pushes model_matrix
+   │           └── RenderBackend (PyVista) — pushes model_matrix
    │
    └── AsyncLatestWorker  (off-thread, latest-only)
          ├── prepare(plan, ids)   on main thread → (node_id, fcl.Transform)[]
