@@ -34,7 +34,7 @@ from numpy.typing import NDArray
 
 from aind_rutter.domain.probe_kinds import get_recording_geometry, pivot_from_shank_tips
 from aind_rutter.optimization.assignment.atlas import Atlas, AtlasEntry, PoseAnchor
-from aind_rutter.optimization.clearance.kernels import arc_angles_to_rotation
+from aind_rutter.optimization.clearance.poses import arc_angles_to_rotation
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.holes import Hole, pack_walls
 

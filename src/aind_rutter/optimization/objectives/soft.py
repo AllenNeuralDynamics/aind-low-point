@@ -43,15 +43,17 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
+)
+from aind_rutter.optimization.clearance.grids import trilinear_sdf
+from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
-    smooth_abs,
     spin_deg_from_sxy,
-    trilinear_sdf,
     unit_circle_penalty,
 )
+from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.clearance.sweep import (
     build_padded_fixture_table,
     build_padded_probe_tables,

@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 
-from aind_rutter.optimization.clearance.kernels import arc_angles_to_rotation
+from aind_rutter.optimization.clearance.poses import arc_angles_to_rotation
 
 
 @pytest.mark.parametrize(

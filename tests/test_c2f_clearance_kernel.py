@@ -8,11 +8,13 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.optimization.clearance.kernels import (
-    body_body_pair_clearance_c2f,
-    body_shank_box_clearance_c2f,
+from aind_rutter.optimization.clearance.grids import (
     trilinear_sdf,
     trilinear_sdf_stacked,
+)
+from aind_rutter.optimization.clearance.pairs import (
+    body_body_pair_clearance_c2f,
+    body_shank_box_clearance_c2f,
 )
 from aind_rutter.optimization.clearance.samples import (
     SampleParams,

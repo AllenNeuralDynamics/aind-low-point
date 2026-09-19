@@ -1,19 +1,21 @@
-"""Signed-distance field builders and JAX clearance kernels."""
+"""Signed-distance fields and the JAX clearance terms over them."""
 
+from aind_rutter.optimization.clearance.aggregate import (
+    FixtureClearance,
+    PairClearance,
+    dual_rep_fixture_clearance,
+    dual_rep_pair_clearance,
+    pairwise_signed_clearance_dual,
+    pairwise_signed_clearance_dual_world,
+)
 from aind_rutter.optimization.clearance.envelope import (
     build_alpha_wrap_envelope,
     extract_shank_obbs,
     floor_shank_half_extents,
     strip_shanks,
 )
-from aind_rutter.optimization.clearance.kernels import (
-    FixtureClearance,
-    PairClearance,
+from aind_rutter.optimization.clearance.poses import (
     arc_angles_to_rotation,
-    dual_rep_fixture_clearance,
-    dual_rep_pair_clearance,
-    pairwise_signed_clearance_dual,
-    pairwise_signed_clearance_dual_world,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
     unit_circle_penalty,

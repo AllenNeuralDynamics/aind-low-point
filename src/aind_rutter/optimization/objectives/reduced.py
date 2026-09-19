@@ -17,12 +17,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import dual_rep_fixture_clearance
+from aind_rutter.optimization.clearance.pairs import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
-    dual_rep_fixture_clearance,
-    pose_from_optimizer_vars,
     shank_only_pair_clearance,
+)
+from aind_rutter.optimization.clearance.poses import (
+    pose_from_optimizer_vars,
     spin_deg_from_sxy,
     unit_circle_penalty,
 )

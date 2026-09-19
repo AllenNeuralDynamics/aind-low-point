@@ -41,12 +41,12 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import dual_rep_fixture_clearance
+from aind_rutter.optimization.clearance.pairs import (
     body_body_pair_clearance,
     body_body_pair_clearance_c2f,
     body_shank_box_clearance_c2f,
     body_shank_corners_pair_clearance,
-    dual_rep_fixture_clearance,
     shank_only_pair_clearance,
     shank_shank_pair_clearance,
 )

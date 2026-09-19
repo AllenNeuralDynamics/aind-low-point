@@ -511,7 +511,7 @@ def coverage_ceiling_per_probe(
     """
     from scipy.optimize import minimize
 
-    from aind_rutter.optimization.clearance.kernels import pose_from_optimizer_vars
+    from aind_rutter.optimization.clearance.poses import pose_from_optimizer_vars
 
     bounds = [
         (-ap_bound_deg, ap_bound_deg),

@@ -9,7 +9,7 @@ interpolate, getting a continuous signed distance and (via finite-diff
 on the grid or analytic on the interp formula) a smooth gradient.
 
 This module just builds and caches the grids. Lookup happens in
-:mod:`aind_rutter.optimization.clearance.kernels` (separate to keep JAX
+:mod:`aind_rutter.optimization.clearance.grids` (separate to keep JAX
 imports out of the path that just needs a grid).
 
 Generation uses ``libigl``'s pseudonormal SDF — typically 0.2–0.3 μs
@@ -50,7 +50,7 @@ class ProbeSDF:
     ``world_local_pt = origin + i * spacing`` for each integer index
     ``i`` along the three axes. Look up at a continuous local-frame
     point ``p`` by trilinear or tricubic interpolation in
-    :mod:`aind_rutter.optimization.clearance.kernels`.
+    :mod:`aind_rutter.optimization.clearance.grids`.
 
     Outside the grid bbox the SDF should be treated as ``+spacing * 10``
     or similar large positive — the probe is "definitely far" — since

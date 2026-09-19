@@ -27,14 +27,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import (
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
+)
+from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
-    smooth_abs,
     spin_deg_from_sxy,
     unit_circle_penalty,
 )
+from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.layout import (

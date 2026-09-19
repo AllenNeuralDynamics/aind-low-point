@@ -11,7 +11,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.clearance.kernels import pose_from_optimizer_vars
+from aind_rutter.optimization.clearance.poses import pose_from_optimizer_vars
 from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS

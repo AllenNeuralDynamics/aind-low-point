@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import (
     dual_rep_fixture_clearance,
     dual_rep_pair_clearance,
+)
+from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )

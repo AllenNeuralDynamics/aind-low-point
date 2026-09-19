@@ -31,18 +31,20 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.aggregate import (
     SLACK_GAIN_BODY_BODY,
     SLACK_GAIN_BODY_SHANK_CORNERS,
     SLACK_GAIN_FIXTURE_BODY,
     FixtureClearance,
     PairClearance,
+)
+from aind_rutter.optimization.clearance.grids import trilinear_sdf
+from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
-    smooth_abs,
     spin_deg_from_sxy,
-    trilinear_sdf,
     unit_circle_penalty,
 )
+from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.clearance.sweep import (
     build_padded_fixture_table,
     cast_fixture_grids,

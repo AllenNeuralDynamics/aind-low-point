@@ -25,7 +25,7 @@ from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.pose import ProbePose
 from aind_rutter.domain.probe_kinds import recording_center_local_for_kind
 from aind_rutter.domain.rig import Kinematics
-from aind_rutter.optimization.clearance.kernels import (
+from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars as pose_jax,
 )
 from aind_rutter.optimization.geometry.kinematics import (
