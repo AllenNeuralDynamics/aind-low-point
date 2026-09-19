@@ -29,6 +29,9 @@ from aind_rutter.optimization.pipeline.payloads import (
 from aind_rutter.optimization.pipeline.records import AtlasCachePayload
 
 _FILE_ONLY = {"kind", "schema_version"}
+# Written onto a record by the diagnostics path and popped into the payload's
+# `config` before the write, because both are identical across candidates.
+_IN_MEMORY_ONLY = {"slack_labels", "fcl_pair_names"}
 
 
 def _pool_record(idx: int | None = None) -> dict[str, Any]:
@@ -290,18 +293,21 @@ def _fields(model: Any, drop: set[str]) -> tuple[set[str], set[str]]:
 
 
 @pytest.mark.parametrize(
-    ("typed_dict", "model", "drop"),
+    ("typed_dict", "model", "drop", "td_drop"),
     [
-        (contracts.Phase1PoolRecord, PoolRecord, set()),
-        (contracts.Phase1PoolPayload, PoolFile, _FILE_ONLY),
-        (contracts.Phase2ResultRecord, HandoffRecord, set()),
-        (contracts.Phase2HandoffPayload, HandoffFile, _FILE_ONLY),
+        (contracts.Phase1PoolRecord, PoolRecord, set(), set()),
+        (contracts.Phase1PoolPayload, PoolFile, _FILE_ONLY, set()),
+        (contracts.Phase2ResultRecord, HandoffRecord, set(), _IN_MEMORY_ONLY),
+        (contracts.Phase2HandoffPayload, HandoffFile, _FILE_ONLY, set()),
     ],
 )
 def test_file_models_match_the_in_memory_contracts(
-    typed_dict: type, model: type, drop: set[str]
+    typed_dict: type, model: type, drop: set[str], td_drop: set[str]
 ) -> None:
-    assert _fields(model, drop) == _keys(typed_dict)
+    """``drop`` names fields only the file carries, ``td_drop`` keys only the
+    in-memory record carries. Anything else must appear on both sides."""
+    required, optional = _keys(typed_dict)
+    assert _fields(model, drop) == (required - td_drop, optional - td_drop)
     get_type_hints(typed_dict)  # the contract itself still resolves
 
 
