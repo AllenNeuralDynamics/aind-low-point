@@ -4,21 +4,6 @@ Things found but not fixed, with enough to act on. A fix deletes its entry.
 
 ## Defects
 
-### The camera aims where the brain is not
-
-`web/controller.py:1938` (`recenter_view`) frames on
-`brain_spec.mesh.raw` — the asset's **pre-scene** mesh. A brain whose scene node
-carries `transform: headframe_to_lps` is drawn tens of mm from there, so the
-camera's focal point and its bounds refit both miss it. Startup calls this
-through `apply_default_view`, so the first thing a user sees can be empty space.
-
-`scripts/render_plan_figure.py:brain_bounds` has the same flaw.
-
-**Fix:** `build.queries.brain_world_mesh(catalog, scene)`, which applies
-the scene transform; it already backs the depth and over-insertion readouts.
-Leave `fallback_to_raw` off — falling back to file coordinates is the failure
-this replaces.
-
 ### The bore file default is unreachable
 
 `PipelineSettings.holes` defaults to `scratch/0283-300-04.holes.yml`, which is

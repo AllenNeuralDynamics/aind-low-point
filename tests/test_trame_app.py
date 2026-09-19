@@ -85,3 +85,65 @@ def test_a_missing_plan_file_does_not_stop_the_build(
         subject, plan_path=tmp_path / "absent.yml", apply_plan_on_start=True
     ).state
     assert state.probes == ["P1", "P2"]
+
+
+def test_recenter_frames_the_brain_where_the_scene_puts_it(
+    subject: SyntheticSubject,
+) -> None:
+    """The synthetic brain's node carries ``headframe_to_lps``, so its world
+    centroid is not its mesh centroid. Framing the mesh aims the camera at a
+    place nothing is drawn."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from aind_rutter.build import build_runtime_from_config
+    from aind_rutter.build.queries import brain_world_mesh
+    from aind_rutter.web.controller import TrameController
+
+    bundle = build_runtime_from_config(ConfigModel.from_yaml(subject.config))
+    world = brain_world_mesh(bundle.asset_catalog, bundle.scene)
+    raw = bundle.asset_catalog.assets["brain"].mesh.raw
+    assert not np.allclose(world.centroid, raw.centroid), "transform is a no-op"
+
+    # recenter_view reads the catalog, the scene and the plotter and nothing
+    # else, so the collision and overlay collaborators stay out of it.
+    controller = TrameController(
+        store=None,
+        assets=bundle.asset_catalog,
+        plotter=pv.Plotter(off_screen=True),
+        render_adapter=SimpleNamespace(scene=bundle.scene),
+        collision_handler=None,
+        overlays_resolver=None,
+    )
+    controller.recenter_view()
+
+    focal = np.asarray(controller.plotter.camera.focal_point, dtype=np.float64)
+    np.testing.assert_allclose(focal, world.centroid, atol=1e-6)
+
+
+def test_recenter_falls_back_when_the_scene_has_no_brain(
+    subject: SyntheticSubject,
+) -> None:
+    """Never onto the untransformed mesh: an unplaced brain has no world
+    position to frame, so the whole scene is the honest answer."""
+    from types import SimpleNamespace
+
+    from aind_rutter.build import build_runtime_from_config
+    from aind_rutter.domain.scene import Scene
+    from aind_rutter.web.controller import TrameController
+
+    bundle = build_runtime_from_config(ConfigModel.from_yaml(subject.config))
+    empty = Scene(nodes={})
+    plotter = pv.Plotter(off_screen=True)
+    before = tuple(plotter.camera.focal_point)
+    controller = TrameController(
+        store=None,
+        assets=bundle.asset_catalog,
+        plotter=plotter,
+        render_adapter=SimpleNamespace(scene=empty),
+        collision_handler=None,
+        overlays_resolver=None,
+    )
+    controller.recenter_view()
+    assert tuple(controller.plotter.camera.focal_point) == before

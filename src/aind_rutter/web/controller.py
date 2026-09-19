@@ -1949,12 +1949,16 @@ class TrameController:
         Bound to the ``c`` keyboard shortcut and the "Recenter" button
         in the Display tab. Also called at startup from
         :meth:`apply_default_view`.
+
+        Frames the brain where the scene puts it, not where its file does: a
+        brain whose node carries a ``transform`` is drawn tens of mm from its
+        own mesh coordinates, and both the focal point and the bounds refit
+        would miss it.
         """
-        brain_spec = self.assets.assets.get("brain")
-        if brain_spec is None or brain_spec.mesh is None:
+        brain = self._get_brain_world_mesh()
+        if brain is None:
             self.plotter.reset_camera()
             return
-        brain = brain_spec.mesh.raw
         centroid = np.asarray(brain.centroid, dtype=np.float64)
         # trimesh `bounds` is ((xmin, ymin, zmin), (xmax, ymax, zmax)) —
         # different from PyVista's flat (xmin, xmax, ymin, ymax, zmin,
