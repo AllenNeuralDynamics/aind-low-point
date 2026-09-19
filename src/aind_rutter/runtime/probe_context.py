@@ -10,14 +10,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_rutter.core import MeshTransformable
-from aind_rutter.optimization.geometry.recording import (
-    RecordingGeometry,
-    pivot_from_shank_tips,
-)
-from aind_rutter.planning import ProbePlan, probe_asset_key, resolve_target_LPS
+from aind_rutter.domain.plan import ProbePlan, probe_asset_key, resolve_target_LPS
+from aind_rutter.domain.pose import detect_shank_tips_local
+from aind_rutter.domain.probe_kinds import RecordingGeometry, pivot_from_shank_tips
+from aind_rutter.domain.transforms import MeshTransformable
 from aind_rutter.runtime.build import RuntimeBundle
-from aind_rutter.runtime.shanks import detect_shank_tips_local
 
 if TYPE_CHECKING:
     import trimesh
@@ -49,7 +46,7 @@ def resolve_plan_target_lps(
 ) -> NDArray[np.float64]:
     """Resolve a probe plan's target point in world LPS coordinates.
 
-    The optimizer's view of :func:`aind_rutter.planning.resolve_target_LPS`,
+    The optimizer's view of :func:`aind_rutter.domain.plan.resolve_target_LPS`,
     which the app shares. The two used to be separate implementations that
     disagreed about which form of target wins.
     """

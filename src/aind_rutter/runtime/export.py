@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from aind_rutter.scene import Scene
+    from aind_rutter.domain.scene import Scene
     from aind_rutter.state_change import PlanStore
 
 import numpy as np
@@ -16,7 +16,6 @@ import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 
-from aind_rutter.assets import AssetCatalog
 from aind_rutter.config import (
     CatalogTargetRefModel,
     ConfigModel,
@@ -25,7 +24,9 @@ from aind_rutter.config import (
     PlanningModel,
     ProbeDeclModel,
 )
-from aind_rutter.planning import PlanningState, ProbePlan, ProbePose
+from aind_rutter.domain.catalog import AssetCatalog
+from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.pose import ProbePose
 from aind_rutter.runtime.scene_geometry import head_pitch_deg_from_subject_from_rig
 
 
@@ -191,11 +192,8 @@ def export_plan_geometry(
     # sorted by arc then ML-descending. Cosmetic; does not change poses, and
     # leaves the caller's state — which may be a live session — untouched.
     plan_state = reorder_plan_for_rig(plan_state)
+    from aind_rutter.domain.pose import detect_shank_tips_local, named_shank_tip_world
     from aind_rutter.runtime.scene_geometry import brain_world_mesh
-    from aind_rutter.runtime.shanks import (
-        detect_shank_tips_local,
-        named_shank_tip_world,
-    )
 
     # A catalog with no scene means the brain is authored directly in LPS.
     brain_mesh = brain_world_mesh(catalog, scene, brain_asset_key, fallback_to_raw=True)
@@ -318,7 +316,7 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
     Arc angles are dispatched first so any probe bound to that arc
     sees the new AP via the inner reducer's resolved-angles helper.
     """
-    from aind_rutter.commands import (
+    from aind_rutter.domain.commands import (
         AssignProbeArc,
         SetArcAngle,
         SetProbeCalibrated,

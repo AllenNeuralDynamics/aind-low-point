@@ -11,9 +11,9 @@ from aind_mri_utils.chemical_shift import (
     compute_chemical_shift,
 )
 
-from aind_rutter.common import MRSignal
 from aind_rutter.config import BaseSpecModel, ConfigModel
-from aind_rutter.core import AffineTransform
+from aind_rutter.domain.enums import MRSignal
+from aind_rutter.domain.transforms import AffineTransform
 
 
 @dataclass(frozen=True)

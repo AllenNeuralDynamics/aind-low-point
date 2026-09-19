@@ -16,15 +16,12 @@ from typing import (
 import numpy as np
 from aind_mri_utils.plots import hex_string_to_int
 
-from aind_rutter.assets import AssetCatalog
 from aind_rutter.collisions import CollisionState
-from aind_rutter.core import (
-    Material,
-    MeshTransformable,
-    PointsTransformable,
-)
-from aind_rutter.planning import PlanningState, PoseResolver, reconcile_probe_assets
-from aind_rutter.scene import NodeInstance, Scene
+from aind_rutter.domain.catalog import AssetCatalog, Material
+from aind_rutter.domain.plan import PlanningState, reconcile_probe_assets
+from aind_rutter.domain.pose import PoseResolver
+from aind_rutter.domain.scene import NodeInstance, Scene
+from aind_rutter.domain.transforms import MeshTransformable, PointsTransformable
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ from aind_rutter.config import (
     TranslateTxOpModel,
     _TxOpBase,
 )
-from aind_rutter.core import AffineTransform, TransformChain
+from aind_rutter.domain.transforms import AffineTransform, TransformChain
 
 CompiledTransforms = dict[str, AffineTransform]
 

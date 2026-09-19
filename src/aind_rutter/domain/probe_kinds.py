@@ -15,7 +15,7 @@ Conventions
   identical; if a particular configuration only records from a subset,
   shorten the list to those shanks.
 - The shank order matches what
-  :func:`runtime.shanks.detect_shank_tips_local` returns (lex-sorted
+  :func:`domain.pose.detect_shank_tips_local` returns (lex-sorted
   by xy in canonical probe frame).
 """
 

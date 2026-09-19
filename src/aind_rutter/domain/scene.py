@@ -9,13 +9,8 @@ from typing import (
     Set,
 )
 
-from aind_rutter.assets import AssetCatalog
-from aind_rutter.core import (
-    AffineTransform,
-    Material,
-    TransformChain,
-    Transformed,
-)
+from aind_rutter.domain.catalog import AssetCatalog, Material
+from aind_rutter.domain.transforms import AffineTransform, TransformChain, Transformed
 
 
 @dataclass(slots=True)

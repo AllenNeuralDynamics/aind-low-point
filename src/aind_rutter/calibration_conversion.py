@@ -25,7 +25,7 @@ from aind_mri_utils.reticle_calibrations import (
 )
 from numpy.typing import ArrayLike, NDArray
 
-from aind_rutter.core import AffineTransform
+from aind_rutter.domain.transforms import AffineTransform
 
 
 def _bregma_RAS_to_subject_LPS(p: NDArray[np.floating]) -> NDArray[np.floating]:

@@ -1,13 +1,10 @@
-"""Tests for ``aind_rutter.optimization.geometry.recording``."""
+"""Tests for ``aind_rutter.domain.probe_kinds``."""
 
 from __future__ import annotations
 
 import pytest
 
-from aind_rutter.optimization.geometry.recording import (
-    RECORDING_GEOMETRY,
-    get_recording_geometry,
-)
+from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, get_recording_geometry
 
 # -- recording geometry table ----------------------------------------------
 

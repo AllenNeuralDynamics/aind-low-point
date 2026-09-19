@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_rutter.assets import AssetCatalog
-from aind_rutter.core import AffineTransform
-from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.domain.catalog import AssetCatalog
+from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.rig import Kinematics
+from aind_rutter.domain.transforms import AffineTransform
 from aind_rutter.runtime.export import export_plan_geometry, reorder_plan_for_rig
 
 # Deliberately not in AP order, so relabelling is not the identity: by AP the

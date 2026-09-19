@@ -10,10 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aind_rutter.optimization.geometry.recording import (
-    RECORDING_GEOMETRY,
-    pivot_from_shank_tips,
-)
+from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, pivot_from_shank_tips
 
 TIPS = np.array([[0.0, 0.0, 0.0], [0.0, 0.25, 0.0], [0.5, 0.0, 0.0]])
 
@@ -166,7 +163,7 @@ def test_the_named_shank_tip_is_derived_once() -> None:
     They had their own copies, so a disagreement meant the number on screen was
     not the number handed to the rig.
     """
-    from aind_rutter.runtime.shanks import named_shank_tip_world
+    from aind_rutter.domain.pose import named_shank_tip_world
 
     rotation = np.eye(3)
     tips = np.array([[0.0, 0.0, 0.0], [0.0, 0.25, 0.0], [0.0, 0.5, 0.0]])
@@ -183,7 +180,7 @@ def test_the_named_shank_tip_is_derived_once() -> None:
 
 def test_a_shank_number_past_the_mesh_clamps() -> None:
     """A four-shank number on a one-shank mesh reads the shank that exists."""
-    from aind_rutter.runtime.shanks import named_shank_tip_world
+    from aind_rutter.domain.pose import named_shank_tip_world
 
     tips = np.array([[0.0, 0.0, 0.0]])
     tip = np.array([1.0, 2.0, 3.0])
@@ -191,7 +188,7 @@ def test_a_shank_number_past_the_mesh_clamps() -> None:
 
 
 def test_a_mesh_with_no_tips_reads_back_the_pose_tip() -> None:
-    from aind_rutter.runtime.shanks import named_shank_tip_world
+    from aind_rutter.domain.pose import named_shank_tip_world
 
     tip = np.array([1.0, 2.0, 3.0])
     np.testing.assert_allclose(
@@ -217,7 +214,7 @@ def test_the_brain_mesh_falls_back_only_when_asked() -> None:
 
 def test_the_named_shank_tip_survives_rotation() -> None:
     """The offset is applied in world, so it turns with the probe."""
-    from aind_rutter.runtime.shanks import named_shank_tip_world
+    from aind_rutter.domain.pose import named_shank_tip_world
 
     tips = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     quarter_turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])

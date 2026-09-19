@@ -38,7 +38,7 @@ OBJECTIVES_TO_PIPELINE_BASELINE = {
 # `build_runtime` entries are re-export shims that the target layout deletes.
 PRIVATE_IMPORT_BASELINE = {
     ("aind_rutter.build_runtime", "aind_rutter.runtime"),
-    ("aind_rutter.commands", "aind_rutter.planning"),
+    ("aind_rutter.domain.commands", "aind_rutter.domain.pose"),
     (
         "aind_rutter.optimization.objectives.phase1",
         "aind_rutter.optimization.objectives.reduced_jax",

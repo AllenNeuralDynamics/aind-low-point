@@ -14,16 +14,18 @@ import pytest
 from tests.architecture.graph import import_in_subprocess, module_graph
 
 JAX_FREE_MODULES = [
-    "aind_rutter.commands",
     "aind_rutter.config",
-    "aind_rutter.core",
+    "aind_rutter.domain.commands",
+    "aind_rutter.domain.plan",
+    "aind_rutter.domain.pose",
+    "aind_rutter.domain.probe_kinds",
+    "aind_rutter.domain.transforms",
     "aind_rutter.optimization.pipeline.contracts",
     "aind_rutter.optimization.pipeline.handoff",
     "aind_rutter.optimization.pipeline.payloads",
     "aind_rutter.optimization.pipeline.phase2_diagnostics",
     "aind_rutter.optimization.pipeline.selection",
     "aind_rutter.optimization.pipeline.settings",
-    "aind_rutter.planning",
 ]
 
 

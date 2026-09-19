@@ -32,13 +32,10 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_rutter.domain.probe_kinds import get_recording_geometry, pivot_from_shank_tips
 from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.holes import Hole, pack_walls
-from aind_rutter.optimization.geometry.recording import (
-    get_recording_geometry,
-    pivot_from_shank_tips,
-)
 from aind_rutter.optimization.sdf.kernels import arc_angles_to_rotation
 
 # ---------------------------------------------------------------------------

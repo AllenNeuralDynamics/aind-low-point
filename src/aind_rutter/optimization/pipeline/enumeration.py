@@ -28,6 +28,7 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import time
 from collections.abc import Sequence
 
+from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 from aind_rutter.optimization.enumeration.atlas import Atlas
 from aind_rutter.optimization.enumeration.seed_emission import emit_seed
 from aind_rutter.optimization.pipeline.contracts import (
@@ -41,7 +42,6 @@ from aind_rutter.optimization.pipeline.payloads import (
     write_atlas_cache,
 )
 from aind_rutter.optimization.pipeline.settings import PipelineSettings
-from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
 
 # Subject is config-driven (generalizes across subjects). The visibility atlas
 # depends on the subject's targets + implant placement, so its cache is keyed off
@@ -72,9 +72,7 @@ def build_or_load_atlas(settings: PipelineSettings) -> AtlasCachePayload:
     from aind_rutter.optimization.enumeration.visibility_atlas import (
         build_visibility_atlas,
     )
-    from aind_rutter.optimization.pipeline.runtime_adapter import (
-        OptimizationRuntime,
-    )
+    from aind_rutter.optimization.pipeline.runtime_adapter import OptimizationRuntime
 
     opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
     t0 = time.time()

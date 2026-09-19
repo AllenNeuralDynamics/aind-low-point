@@ -16,7 +16,8 @@ from aind_rutter.config import (
     PlanningModel,
     ProbeDeclModel,
 )
-from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
+from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.rig import Kinematics
 from aind_rutter.state_change import PlanStore
 from tests.config_factories import (
     AssetFactory,

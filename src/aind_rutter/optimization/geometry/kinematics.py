@@ -9,7 +9,7 @@ Wraps the rig kinematics in a few thin functions:
   re-applied via the existing dispatch path.
 - :func:`shank_capsules_from_pose` — given ``(R, pose_tip_world)`` and
   per-probe-asset shank-tip positions in the local frame (from
-  :func:`runtime.shanks.detect_shank_tips_local`), build one
+  :func:`domain.pose.detect_shank_tips_local`), build one
   :class:`Capsule` per shank in world LPS-mm.
 - :func:`pose_at_hole_best_fit` — static
   pose that perfectly aligns the probe's shaft with a given hole's

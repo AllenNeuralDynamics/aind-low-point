@@ -6,7 +6,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from aind_rutter.core import AffineTransform
+from aind_rutter.domain.transforms import AffineTransform
 from aind_rutter.optimization.geometry import HoleSection
 from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.pipeline.runtime_adapter import (

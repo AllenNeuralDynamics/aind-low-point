@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from aind_rutter.common import MRSignal
 from aind_rutter.config import ConfigModel
+from aind_rutter.domain.enums import MRSignal
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
 
 IMAGING = {"magnet_frequency_MHz": 599.0, "chem_shift_ppm_default": 3.9}

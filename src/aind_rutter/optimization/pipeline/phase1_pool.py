@@ -45,6 +45,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from aind_rutter.domain.rig import AP_LIMIT_DEG
 from aind_rutter.optimization.jax_env import configure_compile_cache
 from aind_rutter.optimization.objectives.batched_reduced import (
     make_batched_reduced_objective,
@@ -108,7 +109,6 @@ from aind_rutter.optimization.pipeline.restore import (
     spins_deg_from_reduced,
 )
 from aind_rutter.optimization.pipeline.settings import Phase1Settings
-from aind_rutter.planning import AP_LIMIT_DEG
 
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]

@@ -3,7 +3,6 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_rutter.common import Kind, Role
 from aind_rutter.config import (
     AssetSpecModel,
     ConfigModel,
@@ -11,6 +10,7 @@ from aind_rutter.config import (
     TargetSpecModel,
     TransformRecipeModel,
 )
+from aind_rutter.domain.enums import Kind, Role
 from tests.config_factories import AssetFactory, ConfigFactory, TargetFactory
 
 

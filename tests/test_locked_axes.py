@@ -11,13 +11,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aind_rutter.planning import (
+from aind_rutter.domain.plan import (
     CALIBRATION_LOCKED_AXES,
-    Kinematics,
     PlanningState,
     ProbePlan,
     locked_axes_for,
 )
+from aind_rutter.domain.rig import Kinematics
 
 
 class _Calibration:

@@ -14,7 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from aind_rutter.config import ConfigModel
-from aind_rutter.optimization.geometry.recording import RECORDING_GEOMETRY
+from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY
 from aind_rutter.runtime.build import resolve_recording
 
 RANGES = [[0.2, 3.065], [0.2, 3.065]]

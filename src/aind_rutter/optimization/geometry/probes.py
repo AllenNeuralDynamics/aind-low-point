@@ -8,7 +8,7 @@ import numpy as np
 import trimesh
 from numpy.typing import NDArray
 
-from aind_rutter.optimization.geometry.recording import RecordingGeometry
+from aind_rutter.domain.probe_kinds import RecordingGeometry
 
 # ---------------------------------------------------------------------------
 # Per-probe static info input

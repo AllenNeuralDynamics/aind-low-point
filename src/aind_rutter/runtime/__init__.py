@@ -25,6 +25,7 @@ The flat ``aind_rutter.build_runtime`` module re-exports everything
 here for backward compatibility.
 """
 
+from aind_rutter.domain.pose import detect_shank_tips_local
 from aind_rutter.runtime.build import (
     RuntimeBundle,
     _base_spec_kwargs_from_model,
@@ -37,10 +38,7 @@ from aind_rutter.runtime.build import (
     load_resource,
     resolve_material_for_spec,
 )
-from aind_rutter.runtime.calibration import (
-    _get_calibration_rt,
-    _load_calibration_bank,
-)
+from aind_rutter.runtime.calibration import _get_calibration_rt, _load_calibration_bank
 from aind_rutter.runtime.canonicalize import (
     CanonicalizationRuntime,
     _apply_canonicalization_mesh,
@@ -107,7 +105,6 @@ from aind_rutter.runtime.scene_geometry import (
     world_geometries_for_nodes,
     world_geometry_for_node,
 )
-from aind_rutter.runtime.shanks import detect_shank_tips_local
 from aind_rutter.runtime.transforms import (
     CompiledTransforms,
     _op_to_affine,

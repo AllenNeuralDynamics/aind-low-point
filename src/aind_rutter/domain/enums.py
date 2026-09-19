@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 
 class MRSignal(str, Enum):
@@ -64,3 +64,54 @@ KNOWN_SCENE_TAGS: frozenset[str] = frozenset(
         "dynamic",
     }
 )
+
+
+class OrientationCode(StrEnum):
+    LPS = "LPS"
+    LPI = "LPI"
+    LAS = "LAS"
+    LAI = "LAI"
+    RPS = "RPS"
+    RPI = "RPI"
+    RAS = "RAS"
+    RAI = "RAI"
+    LSP = "LSP"
+    LSA = "LSA"
+    LIP = "LIP"
+    LIA = "LIA"
+    RSP = "RSP"
+    RSA = "RSA"
+    RIP = "RIP"
+    RIA = "RIA"
+    PLS = "PLS"
+    PLI = "PLI"
+    PRS = "PRS"
+    PRI = "PRI"
+    ALS = "ALS"
+    ALI = "ALI"
+    ARS = "ARS"
+    ARI = "ARI"
+    PSL = "PSL"
+    PSR = "PSR"
+    PIL = "PIL"
+    PIR = "PIR"
+    ASL = "ASL"
+    ASR = "ASR"
+    AIL = "AIL"
+    AIR = "AIR"
+    SLP = "SLP"
+    SLA = "SLA"
+    SRP = "SRP"
+    SRA = "SRA"
+    ILP = "ILP"
+    ILA = "ILA"
+    IRP = "IRP"
+    IRA = "IRA"
+    SPL = "SPL"
+    SPR = "SPR"
+    SAL = "SAL"
+    SAR = "SAR"
+    IPL = "IPL"
+    IPR = "IPR"
+    IAL = "IAL"
+    IAR = "IAR"

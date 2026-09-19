@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import (
     Any,
@@ -11,15 +12,30 @@ from typing import (
     Union,
 )
 
-from aind_rutter.common import Role
-from aind_rutter.core import (
+from aind_rutter.domain.enums import Role
+from aind_rutter.domain.probe_kinds import RecordingGeometry
+from aind_rutter.domain.transforms import (
     Float3,
     FloatAABB,
-    Material,
     MeshTransformable,
     PointsTransformable,
 )
-from aind_rutter.optimization.geometry.recording import RecordingGeometry
+
+
+@dataclass(frozen=True, slots=True)
+class Material:
+    """How a spec is drawn, before any per-node override."""
+
+    name: str
+    color_hex_str: str = "#C8C8C8"
+    opacity: float = 1.0
+    wireframe: bool = False
+    visible: bool = True
+    point_size: float = 5.0
+
+    def replace(self, **kw) -> "Material":
+        """Return a new Material with the given fields overridden."""
+        return dc_replace(self, **kw)
 
 
 @dataclass(frozen=True)

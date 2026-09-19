@@ -43,7 +43,7 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (835 currently green)
+uv run --python 3.13 pytest -q            # tests (837 currently green)
 uv sync --python 3.13                     # set up venv
 
 # Phase-2 output parity against a baseline commit, on a subject written on the
@@ -62,13 +62,16 @@ violating it.
 
 ```
 src/aind_rutter/
-├── core.py                # AffineTransform, TransformChain, Material, *Transformable
-├── common.py              # Role, Kind, MRSignal enums; KNOWN_SCENE_TAGS
-├── orientation_codes.py   # OrientationCode (48 RAS-style codes)
-├── assets.py              # AssetSpec, TargetSpec, AssetCatalog
-├── scene.py               # NodeInstance, Scene
-├── planning.py            # ProbePlan, Kinematics, PlanningState, ProbePose, PoseResolver
-├── commands.py            # Planning commands + apply_planning_command
+├── domain/                # the planning domain (imports no config, optimizer or UI)
+│   ├── transforms.py      # AffineTransform, TransformChain, *Transformable
+│   ├── enums.py           # Role, Kind, MRSignal, OrientationCode; KNOWN_SCENE_TAGS
+│   ├── catalog.py         # AssetSpec, TargetSpec, AssetCatalog, Material
+│   ├── scene.py           # NodeInstance, Scene
+│   ├── rig.py             # JointRange, PoseLimits, Kinematics, AP/ML_LIMIT_DEG
+│   ├── plan.py            # ProbePlan, PlanningState, resolve_target_LPS, locked axes
+│   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection
+│   ├── probe_kinds.py     # RecordingGeometry per probe kind
+│   └── commands.py        # Planning commands + apply_planning_command
 ├── config.py              # All Pydantic models, validation, template expansion
 ├── build_runtime.py       # Thin re-export shim → runtime/ (see below)
 ├── state_change.py        # PlanStore, AsyncLatestWorker

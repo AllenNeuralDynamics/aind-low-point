@@ -18,16 +18,12 @@ import fcl
 import numpy as np
 import trimesh
 
-from aind_rutter.assets import AssetCatalog
-from aind_rutter.common import Role
-from aind_rutter.core import MeshTransformable, Pair
-from aind_rutter.planning import (
-    PlanningState,
-    PoseResolver,
-    probe_node_id,
-    reconcile_probe_assets,
-)
-from aind_rutter.scene import NodeInstance, Scene
+from aind_rutter.domain.catalog import AssetCatalog
+from aind_rutter.domain.enums import Role
+from aind_rutter.domain.plan import PlanningState, probe_node_id, reconcile_probe_assets
+from aind_rutter.domain.pose import PoseResolver
+from aind_rutter.domain.scene import NodeInstance, Scene
+from aind_rutter.domain.transforms import MeshTransformable, Pair
 
 
 ## Collision detection

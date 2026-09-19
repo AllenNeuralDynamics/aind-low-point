@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.runtime.shanks import detect_shank_tips_local
+from aind_rutter.domain.pose import detect_shank_tips_local
 
 
 def _shank_mesh(

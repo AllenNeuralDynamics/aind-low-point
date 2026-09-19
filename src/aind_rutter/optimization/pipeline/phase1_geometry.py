@@ -19,23 +19,17 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.geometry.recording import (
-    RECORDING_GEOMETRY,
-    RecordingGeometry,
-)
+from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, RecordingGeometry
+from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
 from aind_rutter.optimization.objectives.coverage import (
     GaussianCoverageData,
     build_coverage_data_from_probe_context,
 )
-from aind_rutter.optimization.objectives.phase1 import (
-    BrainSDFData,
-    FixtureSDFData,
-)
+from aind_rutter.optimization.objectives.phase1 import BrainSDFData, FixtureSDFData
 from aind_rutter.optimization.sdf import (
     build_probe_sdf,
     build_probe_sdf_from_alpha_wrap,
 )
-from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
 from aind_rutter.runtime.scene_geometry import (
     fixture_node_keys,
     world_geometry_for_node,

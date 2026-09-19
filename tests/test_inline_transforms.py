@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from aind_rutter.config import ConfigModel, TransformRefModel
-from aind_rutter.core import AffineTransform
+from aind_rutter.domain.transforms import AffineTransform
 from aind_rutter.runtime.build import build_runtime_from_config
 from aind_rutter.runtime.transforms import (
     compile_all_transforms,

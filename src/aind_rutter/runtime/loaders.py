@@ -13,7 +13,7 @@ from aind_anatomical_utils.slicer import read_slicer_fcsv
 from aind_mri_utils.meshes import mask_to_trimesh
 from numpy.typing import NDArray
 
-from aind_rutter.core import Float3, FloatNx3
+from aind_rutter.domain.transforms import Float3, FloatNx3
 
 GeometryOut = Union[
     trimesh.Trimesh,  # surface mesh

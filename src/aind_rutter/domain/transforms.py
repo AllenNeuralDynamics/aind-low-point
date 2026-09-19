@@ -1,9 +1,8 @@
-"""Building blocks of different parts of the run time"""
+"""Rigid transforms and the geometry they move."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from dataclasses import replace as dc_replace
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -180,17 +179,3 @@ class Transformed(Generic[W, RawT_co]):
 
 TransformedMesh: TypeAlias = Transformed[MeshTransformable, trimesh.Trimesh]
 TransformedPoints: TypeAlias = Transformed[PointsTransformable, FloatNx3]
-
-
-@dataclass(frozen=True, slots=True)
-class Material:
-    name: str
-    color_hex_str: str = "#C8C8C8"
-    opacity: float = 1.0
-    wireframe: bool = False
-    visible: bool = True
-    point_size: float = 5.0
-
-    def replace(self, **kw) -> "Material":
-        """Return a new Material with the given fields overridden."""
-        return dc_replace(self, **kw)

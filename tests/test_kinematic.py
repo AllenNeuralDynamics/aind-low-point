@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-from aind_rutter.planning import (
-    Kinematics,
-    PlanningState,
-    PoseLimits,
-    ProbePlan,
-    kinematic_violations,
-)
+from aind_rutter.domain.plan import PlanningState, ProbePlan, kinematic_violations
+from aind_rutter.domain.rig import Kinematics, PoseLimits
 
 
 def _state(arc_angles: dict[str, float], probes: dict[str, ProbePlan]) -> PlanningState:

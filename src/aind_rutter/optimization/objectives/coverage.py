@@ -29,7 +29,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.planning import AP_LIMIT_DEG, ML_LIMIT_DEG
+from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
 
 _DEFAULT_KDE_SPACING_MM = 0.1
 _DEFAULT_KDE_PAD_SIGMAS = 4.0

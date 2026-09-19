@@ -28,14 +28,14 @@ from pydantic import (
     model_validator,
 )
 
-from aind_rutter.common import (
+from aind_rutter.domain.enums import (
     KNOWN_SCENE_TAGS,
     Kind,
     MRSignal,
+    OrientationCode,
     Role,
 )
-from aind_rutter.orientation_codes import OrientationCode
-from aind_rutter.planning import probe_asset_key
+from aind_rutter.domain.plan import probe_asset_key
 
 # -----------------------------------------------------------------------------
 # Extension-based inference for kind and loader
@@ -177,7 +177,7 @@ class RecordingModel(BaseModel):
 
     Distances are mm from the shank tip along the shank axis, one
     ``(start, end)`` per shank the optimizer sums coverage across; shank order
-    matches ``runtime.shanks.detect_shank_tips_local``. Declaring this is what
+    matches ``domain.pose.detect_shank_tips_local``. Declaring this is what
     lets a subject use a probe the built-in table has never heard of.
     """
 
@@ -1842,9 +1842,7 @@ class ConfigModel(BaseModel):
             the table nor the config is a typo, and used to resolve silently to
             tip-on-target — the same answer a pipette gets deliberately.
             """
-            from aind_rutter.optimization.geometry.recording import (
-                RECORDING_GEOMETRY,
-            )
+            from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY
 
             by_key = {str(a.key): a for a in self.assets}
             for probe_name, decl in self.plan.probes.items():

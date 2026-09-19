@@ -15,7 +15,7 @@ from aind_rutter.config import (
     CalibrationsModel,
     CalibrationSourceModel,
 )
-from aind_rutter.core import AffineTransform
+from aind_rutter.domain.transforms import AffineTransform
 
 
 def _load_calibration_bank(

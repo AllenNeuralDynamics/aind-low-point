@@ -3,16 +3,21 @@ from __future__ import annotations
 import numpy as np
 import trimesh
 
-from aind_rutter.assets import AssetCatalog, AssetSpec
-from aind_rutter.core import AffineTransform, MeshTransformable, TransformChain
-from aind_rutter.planning import Kinematics, PlanningState
+from aind_rutter.domain.catalog import AssetCatalog, AssetSpec
+from aind_rutter.domain.plan import PlanningState
+from aind_rutter.domain.rig import Kinematics
+from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
+from aind_rutter.domain.transforms import (
+    AffineTransform,
+    MeshTransformable,
+    TransformChain,
+)
 from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.scene_geometry import (
     fixture_node_keys,
     implant_world_geometry,
     world_geometry_for_node,
 )
-from aind_rutter.scene import NodeInstance, Scene, resolve_base_geometry
 
 
 def _runtime_with_scene_nodes() -> RuntimeBundle:

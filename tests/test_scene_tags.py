@@ -14,8 +14,8 @@ import warnings
 
 import pytest
 
-from aind_rutter.common import KNOWN_SCENE_TAGS
 from aind_rutter.config import ConfigModel
+from aind_rutter.domain.enums import KNOWN_SCENE_TAGS
 from aind_rutter.runtime.scene_geometry import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 
 

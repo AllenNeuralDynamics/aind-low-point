@@ -20,11 +20,11 @@ from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import client, vuetify3
 from trame_pyvista.ui import plotter_ui
 
-from aind_rutter.assets import AssetCatalog
 from aind_rutter.ccf_ontology import CCFOntology
 from aind_rutter.ccf_overlay import CCFOverlayManager
 from aind_rutter.collisions import CollisionHandler
-from aind_rutter.commands import (
+from aind_rutter.domain.catalog import AssetCatalog
+from aind_rutter.domain.commands import (
     AssignProbeArc,
     SetArcAngle,
     SetProbeCalibrated,
@@ -35,19 +35,17 @@ from aind_rutter.commands import (
     SetProbePositionBearingShank,
     SetProbeTarget,
 )
-from aind_rutter.common import Role
-from aind_rutter.core import MeshTransformable
-from aind_rutter.planning import (
-    PoseResolver,
-    ProbePose,
+from aind_rutter.domain.enums import Role
+from aind_rutter.domain.plan import (
     kinematic_violations,
     locked_axes_for,
     probe_asset_key,
 )
+from aind_rutter.domain.pose import PoseResolver, ProbePose, named_shank_tip_world
+from aind_rutter.domain.transforms import MeshTransformable
 from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
 from aind_rutter.runtime import _depth_along_probe_axis, detect_shank_tips_local
 from aind_rutter.runtime.scene_geometry import brain_world_mesh
-from aind_rutter.runtime.shanks import named_shank_tip_world
 from aind_rutter.state_change import PlanStore
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
@@ -909,9 +907,7 @@ class TrameController:
         )
 
         from aind_rutter.calibration_conversion import newscale_to_lps
-        from aind_rutter.optimization.geometry.recording import (
-            recording_center_local_for_kind,
-        )
+        from aind_rutter.domain.probe_kinds import recording_center_local_for_kind
 
         if not state.probe:
             return
@@ -991,7 +987,7 @@ class TrameController:
             return False, bool(plan.calibrated), "—", "—", "—"
         try:
             from aind_rutter.calibration_conversion import lps_to_newscale
-            from aind_rutter.planning import ProbePose
+            from aind_rutter.domain.pose import ProbePose
 
             pose = ProbePose.from_planning_state(
                 self.store.state, probe_name, catalog=self.assets

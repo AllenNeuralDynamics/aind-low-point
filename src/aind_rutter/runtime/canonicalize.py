@@ -18,8 +18,8 @@ from aind_rutter.config import (
     SourceSpace,
     TransformRefModel,
 )
-from aind_rutter.core import AffineTransform, TransformChain
-from aind_rutter.orientation_codes import OrientationCode
+from aind_rutter.domain.enums import OrientationCode
+from aind_rutter.domain.transforms import AffineTransform, TransformChain
 from aind_rutter.runtime.transforms import (
     CompiledTransforms,
     compile_recipe_to_chain,

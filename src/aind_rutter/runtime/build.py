@@ -11,8 +11,6 @@ import numpy as np
 import trimesh
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
-from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
-from aind_rutter.common import Kind, Role
 from aind_rutter.config import (
     NO_RECORDING_ARRAY,
     AssetSpecModel,
@@ -24,18 +22,18 @@ from aind_rutter.config import (
     TargetSpecModel,
     _merge_dict_shallow,
 )
-from aind_rutter.core import (
+from aind_rutter.domain.catalog import AssetCatalog, AssetSpec, Material, TargetSpec
+from aind_rutter.domain.enums import Kind, Role
+from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.probe_kinds import RecordingGeometry, pivot_from_shank_tips
+from aind_rutter.domain.rig import Kinematics
+from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
+from aind_rutter.domain.transforms import (
     AffineTransform,
     Float3,
-    Material,
     MeshTransformable,
     PointsTransformable,
 )
-from aind_rutter.optimization.geometry.recording import (
-    RecordingGeometry,
-    pivot_from_shank_tips,
-)
-from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
 from aind_rutter.runtime.calibration import _get_calibration_rt
 from aind_rutter.runtime.canonicalize import (
     CanonicalizationRuntime,
@@ -45,13 +43,9 @@ from aind_rutter.runtime.canonicalize import (
     _resolve_scene_node_transform,
 )
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
-from aind_rutter.runtime.loaders import (
-    GeometryOut,
-    load_geometry,
-)
+from aind_rutter.runtime.loaders import GeometryOut, load_geometry
 from aind_rutter.runtime.reducers import _REDUCER_REGISTRY, EmptyReductionError
 from aind_rutter.runtime.transforms import compile_all_transforms
-from aind_rutter.scene import NodeInstance, Scene, resolve_base_geometry
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +201,7 @@ def _default_probe_pivot_local(
     Returns ``None`` if the asset is not a probe, the kind isn't registered,
     or the mesh has no detectable shank tips.
     """
-    from aind_rutter.runtime.shanks import detect_shank_tips_local
+    from aind_rutter.domain.pose import detect_shank_tips_local
 
     if not is_probe_spec(a):
         return None
@@ -241,7 +235,7 @@ def resolve_recording(a) -> RecordingGeometry | None:
     for the kind. A kind in neither is refused at config validation, so nothing
     here has to guess.
     """
-    from aind_rutter.optimization.geometry.recording import RECORDING_GEOMETRY
+    from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY
 
     declared = getattr(a, "recording", None)
     if declared == NO_RECORDING_ARRAY:

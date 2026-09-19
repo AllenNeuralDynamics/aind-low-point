@@ -8,10 +8,12 @@ import fcl
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_rutter.optimization.enumeration.contracts import (
-    ArcAssignment,
-    HoleAssignment,
+from aind_rutter.domain.probe_kinds import (
+    RECORDING_GEOMETRY,
+    RecordingGeometry,
+    pivot_from_shank_tips,
 )
+from aind_rutter.optimization.enumeration.contracts import ArcAssignment, HoleAssignment
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.headstages import make_fcl_bvh
 from aind_rutter.optimization.geometry.holes import (
@@ -20,11 +22,6 @@ from aind_rutter.optimization.geometry.holes import (
     threading_margin_mm,
 )
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.geometry.recording import (
-    RECORDING_GEOMETRY,
-    RecordingGeometry,
-    pivot_from_shank_tips,
-)
 
 
 @dataclass(frozen=True)

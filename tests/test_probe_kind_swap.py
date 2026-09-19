@@ -13,17 +13,17 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from aind_rutter.assets import AssetCatalog, AssetSpec
-from aind_rutter.core import MeshTransformable
-from aind_rutter.planning import (
-    Kinematics,
+from aind_rutter.domain.catalog import AssetCatalog, AssetSpec
+from aind_rutter.domain.plan import (
     PlanningState,
     ProbePlan,
     probe_asset_key,
     probe_node_id,
     reconcile_probe_assets,
 )
-from aind_rutter.scene import NodeInstance, Scene
+from aind_rutter.domain.rig import Kinematics
+from aind_rutter.domain.scene import NodeInstance, Scene
+from aind_rutter.domain.transforms import MeshTransformable
 
 PROBE = "P1"
 OLD_KIND = "2.1"

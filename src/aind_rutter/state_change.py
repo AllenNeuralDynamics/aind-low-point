@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, List
 
-from aind_rutter.commands import PlanningCommand, apply_planning_command
-from aind_rutter.planning import PlanningState
+from aind_rutter.domain.commands import PlanningCommand, apply_planning_command
+from aind_rutter.domain.plan import PlanningState
 
 Subscriber = Callable[[PlanningState, List[str]], None]
 
