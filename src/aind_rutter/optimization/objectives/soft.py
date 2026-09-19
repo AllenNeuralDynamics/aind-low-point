@@ -64,9 +64,7 @@ from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSE
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
-    coverage_per_probe_over_probes,
     coverage_total_over_probes,
-    normalized_coverage_objective,
 )
 from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
 from aind_rutter.optimization.objectives.rewards import (
@@ -77,10 +75,17 @@ from aind_rutter.optimization.objectives.sdf_inputs import (
     BrainSDFData,
     FixtureSDFData,
 )
+from aind_rutter.optimization.objectives.terms import (
+    arc_angles_of,
+    comfort_bound_penalty,
+    ml_of,
+    ml_pair_separation,
+    normalized_coverage,
+    spin_components_of,
+)
 from aind_rutter.optimization.objectives.threading import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
-    _softplus_squared,
     threading_g_matrix,
 )
 
@@ -393,7 +398,7 @@ def _build_jit(  # noqa: C901
         # constant for callers that don't pass it ⇒ byte-identical to the
         # pre-cov_weight kernel; pass a traced value to share ONE compiled
         # kernel across the reduced (0) and full (1) ADAM stages.
-        arc_aps = x[:n_arcs]
+        arc_aps = arc_angles_of(x, n_arcs)
 
         # Pose + threading per probe, vmapped over probes — one
         # pose_from_optimizer_vars + threading_g_matrix subgraph instead of
@@ -486,16 +491,13 @@ def _build_jit(  # noqa: C901
             j_arc_ap = jnp.float32(0.0)
 
         # Intra-arc ML separation
-        ml_vals = jnp.stack(
-            [x[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
-        )
-        ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
+        ml_vals = ml_of(x, n_arcs, n_probes)
+        ml_diff = ml_pair_separation(ml_vals)
         short_ml = jnp.maximum(0.0, min_intra_ml - ml_diff)
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds (smooth_abs ⇒ comfortable-range pull-back).
-        j_bounds = _softplus_squared(smooth_abs(arc_aps) - cap)
-        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - cml)
+        j_bounds = comfort_bound_penalty(arc_aps, ml_vals, cap, cml)
 
         # Probe-probe clearance, vmapped over the static pair list — ONE dual-rep
         # subgraph instead of C(P,2) Python-unrolled copies (the unrolled loop is
@@ -599,17 +601,14 @@ def _build_jit(  # noqa: C901
         # of-achievable and a soft-min floor protects the worst region; else
         # it's the legacy plain sum across probes.
         if coverage_data is not None and cov_ceilings is not None:
-            cov_pp = coverage_per_probe_over_probes(
+            coverage_total = normalized_coverage(
                 Rs,
                 ts,
                 tips_local,
                 shank_mask,
                 coverage_data,
-                n_samples=coverage_n_samples,
-            )
-            coverage_total = normalized_coverage_objective(
-                cov_pp,
                 cov_ceilings,
+                n_samples=coverage_n_samples,
                 alpha=cov_alpha,
                 softmin_beta=beta_cov,
                 weights=cov_weights,
@@ -630,8 +629,7 @@ def _build_jit(  # noqa: C901
 
         # Unit-circle pull on (sx, sy). x layout is
         # (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P) — stride 6.
-        sx_arr = x[n_arcs + 1 :: PHASE1_PER_PROBE_VARS][:n_probes]
-        sy_arr = x[n_arcs + 2 :: PHASE1_PER_PROBE_VARS][:n_probes]
+        sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (

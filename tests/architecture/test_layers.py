@@ -42,14 +42,6 @@ SOLVER_TO_PIPELINE_BASELINE = {
 PRIVATE_IMPORT_BASELINE = {
     ("aind_rutter.domain.commands", "aind_rutter.domain.pose"),
     (
-        "aind_rutter.optimization.objectives.soft",
-        "aind_rutter.optimization.objectives.threading",
-    ),
-    (
-        "aind_rutter.optimization.objectives.constrained",
-        "aind_rutter.optimization.objectives.threading",
-    ),
-    (
         "aind_rutter.optimization.search.spin_restore",
         "aind_rutter.optimization.objectives.reduced",
     ),

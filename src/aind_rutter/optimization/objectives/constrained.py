@@ -53,8 +53,6 @@ from aind_rutter.optimization.clearance.sweep import (
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
-    coverage_per_probe_over_probes,
-    normalized_coverage_objective,
     probe_coverage,
 )
 from aind_rutter.optimization.objectives.evaluate import (
@@ -68,17 +66,23 @@ from aind_rutter.optimization.objectives.slack_layout import (
     padding_mask,
 )
 from aind_rutter.optimization.objectives.soft import (
-    PHASE1_PER_PROBE_VARS,
     BrainSDFData,
     FixtureSDFData,
     pack_statics,
     saturating_reward_mean,
     saturating_reward_worst,
 )
+from aind_rutter.optimization.objectives.terms import (
+    arc_angles_of,
+    comfort_bound_penalty,
+    ml_of,
+    ml_pair_separation,
+    normalized_coverage,
+    spin_components_of,
+)
 from aind_rutter.optimization.objectives.threading import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
-    _softplus_squared,
 )
 from aind_rutter.optimization.pipeline.records import Phase2Problem
 
@@ -307,7 +311,7 @@ def _build_jit(  # noqa: C901
         w_normals=None,
         w_offsets=None,
     ):
-        arc_aps = x[:n_arcs]
+        arc_aps = arc_angles_of(x, n_arcs)
         Rs, ts = poses_from_x(
             x,
             n_arcs,
@@ -322,17 +326,14 @@ def _build_jit(  # noqa: C901
         coverage_total = jnp.float32(0.0)
         if coverage_data is not None:
             if cov_ceilings is not None:
-                cov_pp = coverage_per_probe_over_probes(
+                coverage_total = normalized_coverage(
                     Rs,
                     ts,
                     tips_local,
                     shank_mask,
                     coverage_data,
-                    n_samples=coverage_n_samples,
-                )
-                coverage_total = normalized_coverage_objective(
-                    cov_pp,
                     cov_ceilings,
+                    n_samples=coverage_n_samples,
                     alpha=cov_alpha,
                     softmin_beta=beta_cov,
                     weights=cov_weights,
@@ -349,11 +350,8 @@ def _build_jit(  # noqa: C901
                     )
 
         # Soft bounds: pull-back from comfort range (smooth_abs).
-        ml_vals = jnp.stack(
-            [x[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
-        )
-        j_bounds = _softplus_squared(smooth_abs(arc_aps) - cap)
-        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - cml)
+        ml_vals = ml_of(x, n_arcs, n_probes)
+        j_bounds = comfort_bound_penalty(arc_aps, ml_vals, cap, cml)
 
         # Margin bonuses: saturating per-pair (clear) and per-tuple (thread).
         # Mirror Phase 1's computation but skip the soft penalty terms.
@@ -440,8 +438,7 @@ def _build_jit(  # noqa: C901
         )
 
         # Unit-circle pull on (sx, sy). x stride = PHASE1_PER_PROBE_VARS = 6.
-        sx_arr = x[n_arcs + 1 :: PHASE1_PER_PROBE_VARS][:n_probes]
-        sy_arr = x[n_arcs + 2 :: PHASE1_PER_PROBE_VARS][:n_probes]
+        sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
         j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
 
         return (
@@ -481,7 +478,7 @@ def _build_jit(  # noqa: C901
         w_normals=None,
         w_offsets=None,
     ):
-        arc_aps = x[:n_arcs]
+        arc_aps = arc_angles_of(x, n_arcs)
         Rs, ts = poses_from_x(
             x,
             n_arcs,
@@ -588,10 +585,8 @@ def _build_jit(  # noqa: C901
 
         # Intra-arc ML separation: smooth_abs(ml_diff) − min_ml_sep,
         # but only over same-arc pairs (others get +LARGE so the solver ignores).
-        ml_vals = jnp.stack(
-            [x[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
-        )
-        ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
+        ml_vals = ml_of(x, n_arcs, n_probes)
+        ml_diff = ml_pair_separation(ml_vals)
         ml_slack = ml_diff - min_intra_ml
         # Take upper triangle to avoid duplicates; mask off non-same-arc.
         iu, ju = np.triu_indices(n_probes, k=1)

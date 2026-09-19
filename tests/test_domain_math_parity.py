@@ -271,3 +271,57 @@ def test_the_layout_helpers_add_no_work_to_a_traced_kernel() -> None:
     assert str(jax.make_jaxpr(single_slot)(y, traced)) == str(
         jax.make_jaxpr(single_slot_literal)(y, traced)
     )
+
+
+def test_the_shared_objective_terms_trace_as_the_arithmetic_they_replaced() -> None:
+    """Phase 1 and Phase 2 spelled these out separately, so each was a place the
+    two could drift. Both callers are jitted, which makes "same answer" too weak
+    a check: the replacement has to emit the same graph."""
+    import jax
+    import jax.numpy as jnp
+
+    from aind_rutter.optimization.clearance.smooth import smooth_abs
+    from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
+    from aind_rutter.optimization.objectives.terms import (
+        arc_angles_of,
+        comfort_bound_penalty,
+        ml_of,
+        ml_pair_separation,
+        spin_components_of,
+    )
+    from aind_rutter.optimization.objectives.threading import softplus_squared
+
+    n_arcs, n_probes = 3, 4
+    x = jnp.arange(n_arcs + PHASE1_PER_PROBE_VARS * n_probes, dtype=jnp.float32)
+
+    def literal(x):
+        arc_aps = x[:n_arcs]
+        ml_vals = jnp.stack(
+            [x[n_arcs + PHASE1_PER_PROBE_VARS * i] for i in range(n_probes)]
+        )
+        ml_diff = smooth_abs(ml_vals[:, None] - ml_vals[None, :])
+        j_bounds = softplus_squared(smooth_abs(arc_aps) - 45.0)
+        j_bounds = j_bounds + softplus_squared(smooth_abs(ml_vals) - 30.0)
+        sx = x[n_arcs + 1 :: PHASE1_PER_PROBE_VARS][:n_probes]
+        sy = x[n_arcs + 2 :: PHASE1_PER_PROBE_VARS][:n_probes]
+        return arc_aps, ml_vals, ml_diff, j_bounds, sx, sy
+
+    def shared(x):
+        arc_aps = arc_angles_of(x, n_arcs)
+        ml_vals = ml_of(x, n_arcs, n_probes)
+        ml_diff = ml_pair_separation(ml_vals)
+        j_bounds = comfort_bound_penalty(arc_aps, ml_vals, 45.0, 30.0)
+        sx, sy = spin_components_of(x, n_arcs, n_probes)
+        return arc_aps, ml_vals, ml_diff, j_bounds, sx, sy
+
+    assert str(jax.make_jaxpr(shared)(x)) == str(jax.make_jaxpr(literal)(x))
+    for a, b in zip(literal(x), shared(x)):
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+
+
+def test_the_spin_slots_come_from_the_layout_not_from_literals() -> None:
+    """The replaced lines indexed ``n_arcs + 1`` and ``n_arcs + 2``; those are
+    the layout's named slots, and a layout change must move them together."""
+    from aind_rutter.optimization.objectives import layout
+
+    assert (layout.SPIN_COS, layout.SPIN_SIN) == (1, 2)

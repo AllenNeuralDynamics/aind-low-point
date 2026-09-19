@@ -39,7 +39,7 @@ from aind_rutter.optimization.objectives.threading import (
 )
 
 
-def _softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
+def softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
     """smooth(relu(x))^2 — penalty for positive ``values``."""
     sp = jnp.log1p(jnp.exp(-jnp.abs(values))) + jnp.maximum(values, 0.0)
     return jnp.sum(sp * sp)
@@ -267,8 +267,8 @@ def make_batched_reduced_objective(  # noqa: C901
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds
-        j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
-        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
+        j_bounds = softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
+        j_bounds = j_bounds + softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
         # Dual-rep clearance via 3-helper split (matches per-cand
         # reduced_objective_jax for shared XLA cache + per-call perf).

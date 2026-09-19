@@ -99,7 +99,7 @@ def _signature(statics, n_arcs: int, weights) -> tuple:
     )
 
 
-def _softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
+def softplus_squared(values: jnp.ndarray) -> jnp.ndarray:
     sp = jnp.maximum(0.0, values) + jnp.log1p(jnp.exp(-jnp.abs(values)))
     return jnp.sum(sp * sp)
 
@@ -347,8 +347,8 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds
-        j_bounds = _softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
-        j_bounds = j_bounds + _softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
+        j_bounds = softplus_squared(smooth_abs(arc_aps) - comfortable_ap)
+        j_bounds = j_bounds + softplus_squared(smooth_abs(ml_vals) - comfortable_ml)
 
         # Dual-rep clearance, three categories. Body-body is computed
         # ONCE across all P pairs via ``jax.vmap`` (single XLA kernel
