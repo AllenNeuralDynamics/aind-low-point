@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_rutter.build_runtime import export_plan_geometry
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.rig import Kinematics
 from aind_rutter.domain.transforms import AffineTransform
+from aind_rutter.plan_io.rig_export import export_plan_geometry
 
 HEAD_PITCH_DEG = 14.0
 

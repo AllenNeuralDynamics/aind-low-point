@@ -80,7 +80,12 @@ src/aind_rutter/
 │   ├── templates.py       # the template merge
 │   ├── resolve.py         # effective canonicalization and transform
 │   └── root.py            # ConfigModel and its cross-reference validation
-├── build_runtime.py       # Thin re-export shim → runtime/ (see below)
+├── build/                 # config → runtime (see below)
+├── plan_io/               # reading a plan back out
+│   ├── roundtrip.py       # planning_state_to_plan_model, save_plan_to_config
+│   ├── replay.py          # apply_plan_model_to_state
+│   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
+│   └── cli_csv.py         # the rutter-plan-csv entry point
 ├── state_change.py        # PlanStore, AsyncLatestWorker
 ├── rendering.py           # RendererAdapter, RenderBackend protocol, overlays
 ├── collisions.py          # CollisionAdapter, CollisionHandler (sync + async paths)
@@ -94,12 +99,12 @@ src/aind_rutter/
 
 The top-level tree above is partial. Two big subpackages are not shown:
 
-**`runtime/`** — config→runtime build and the planning/rig boundary:
-`build` (loaders, `build_runtime_from_config`, `save_plan_to_config`),
-`loaders`, `reducers`, `export` (rig-facing pose emit), `canonicalize`,
-`chem_shift`, `calibration`, `scene_geometry` (`head_pitch_deg_*`),
-`probe_context`, `shanks`, `transforms`. (`build_runtime.py` at the top level is
-just a re-export shim.)
+**`build/`** — turning a validated `ConfigModel` into a `RuntimeBundle`:
+`assemble` (`build_runtime_from_config`), `loaders`, `reducers`, `canonicalize`,
+`chem_shift`, `calibration` (the bank plus the NewScale frame), `queries`
+(`head_pitch_deg_*`, fixture sets), `transforms`, `probe_context`. Its
+`__init__` exports only `build_runtime_from_config` and `RuntimeBundle`;
+everything else comes from its submodule.
 
 **`optimization/`** — the placement-optimizer package, reorganized
 flat→subpackages (the old flat `optimization/*.py` module names are gone):

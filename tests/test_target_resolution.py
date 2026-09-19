@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from aind_rutter.build.probe_context import resolve_plan_target_lps
 from aind_rutter.domain.plan import ProbePlan, resolve_target_LPS
-from aind_rutter.runtime.probe_context import resolve_plan_target_lps
 
 # RAS (1, 2, 3) is LPS (-1, -2, 3): L = -R, P = -A, S = S.
 INLINE_RAS = (1.0, 2.0, 3.0)

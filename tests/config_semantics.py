@@ -15,11 +15,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from aind_rutter.build.assemble import resolve_collidable
+from aind_rutter.build.chem_shift import ChemShiftContext, _should_apply_chem
+from aind_rutter.build.queries import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 from aind_rutter.collisions import pair_bits
 from aind_rutter.config import ConfigModel
-from aind_rutter.runtime.build import resolve_collidable
-from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
-from aind_rutter.runtime.scene_geometry import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = Path(__file__).with_name("config_semantics.json")

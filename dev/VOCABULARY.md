@@ -57,7 +57,7 @@ implicit.
 
 | tag | acted on by |
 |---|---|
-| `probe` | the kinematic pivot (`runtime/build.py`), the collision pair filter, the trame probe lists |
+| `probe` | the kinematic pivot (`build/assemble.py`), the collision pair filter, the trame probe lists |
 | `well` | the thick-well SDF substitution (`pipeline/thick_well.py`) |
 | `implant` | excluded from the optimizer's fixture set — probes thread *through* its bores |
 | `fixture`, `cone`, `headframe` | included in the optimizer's fixture set |

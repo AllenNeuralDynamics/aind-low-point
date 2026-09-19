@@ -156,8 +156,8 @@ def test_a_loaded_plan_moves_the_mesh(monkeypatch: pytest.MonkeyPatch) -> None:
     fails if the swap goes back to living in the kind dropdown.
     """
     from aind_rutter.config import PlanningModel
+    from aind_rutter.plan_io.replay import apply_plan_model_to_state
     from aind_rutter.rendering import RendererAdapter, RenderHandler
-    from aind_rutter.runtime.export import apply_plan_model_to_state
     from aind_rutter.state_change import PlanStore
 
     scene, catalog = _scene(), _catalog(OLD_KIND, NEW_KIND)

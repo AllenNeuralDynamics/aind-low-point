@@ -15,7 +15,7 @@ from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.rig import Kinematics
 from aind_rutter.domain.transforms import AffineTransform
-from aind_rutter.runtime.export import export_plan_geometry, reorder_plan_for_rig
+from aind_rutter.plan_io.rig_export import export_plan_geometry, reorder_plan_for_rig
 
 # Deliberately not in AP order, so relabelling is not the identity: by AP the
 # order is z (+20), x (-5), y (-40), which becomes a, b, c.

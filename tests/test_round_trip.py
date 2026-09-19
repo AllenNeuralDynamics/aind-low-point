@@ -3,11 +3,6 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_rutter.build_runtime import (
-    apply_plan_model_to_state,
-    planning_state_to_plan_model,
-    save_plan_to_config,
-)
 from aind_rutter.config import (
     CatalogTargetRefModel,
     ConfigModel,
@@ -18,6 +13,11 @@ from aind_rutter.config import (
 )
 from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.rig import Kinematics
+from aind_rutter.plan_io.replay import apply_plan_model_to_state
+from aind_rutter.plan_io.roundtrip import (
+    planning_state_to_plan_model,
+    save_plan_to_config,
+)
 from aind_rutter.state_change import PlanStore
 from tests.config_factories import (
     AssetFactory,

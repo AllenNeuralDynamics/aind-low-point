@@ -1,107 +1,21 @@
-"""Plan export and round-trip: planning_state_to_plan_model, save_plan_to_config,
-export_plan_geometry, and the _depth_along_probe_axis helper."""
+"""The rig-facing per-probe summary, and the arc ordering it is read in."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
-
-if TYPE_CHECKING:
-    from aind_rutter.domain.scene import Scene
-    from aind_rutter.state_change import PlanStore
+from typing import Any, Optional
 
 import numpy as np
 import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 
-from aind_rutter.config import (
-    CatalogTargetRefModel,
-    ConfigModel,
-    InlineTargetRefModel,
-    NodeTargetRefModel,
-    PlanningModel,
-    ProbeDeclModel,
-)
+from aind_rutter.build.queries import head_pitch_deg_from_subject_from_rig
 from aind_rutter.domain.catalog import AssetCatalog
-from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.plan import PlanningState
 from aind_rutter.domain.pose import ProbePose
-from aind_rutter.runtime.scene_geometry import head_pitch_deg_from_subject_from_rig
-
-
-def _reconstruct_target_ref(
-    probe: ProbePlan,
-    original_probes: dict[str, ProbeDeclModel],
-    probe_name: str,
-) -> "CatalogTargetRefModel | NodeTargetRefModel | InlineTargetRefModel":
-    """Reconstruct a TargetRef from a ProbePlan.
-
-    Priority:
-    1. If target_point_RAS is set → InlineTargetRefModel
-    2. If target_key matches the original → reuse original TargetRef (preserves kind)
-    3. Otherwise → CatalogTargetRefModel
-    """
-    if probe.target_point_RAS is not None:
-        return InlineTargetRefModel(point_RAS=list(probe.target_point_RAS))
-    orig = original_probes.get(probe_name)
-    if (
-        orig is not None
-        and hasattr(orig.target, "key")
-        and probe.target_key == orig.target.key
-    ):
-        return orig.target
-    if probe.target_key is None:
-        return CatalogTargetRefModel(key="")
-    return CatalogTargetRefModel(key=probe.target_key)
-
-
-def planning_state_to_plan_model(
-    state: PlanningState,
-    original: PlanningModel,
-) -> PlanningModel:
-    """Convert a mutated PlanningState back to a PlanningModel.
-
-    Parameters
-    ----------
-    state
-        The runtime planning state (possibly mutated by commands).
-    original
-        The original PlanningModel from the config (used to preserve
-        calibrations, reticles, and target ref kinds).
-
-    Returns
-    -------
-    PlanningModel
-        A new PlanningModel reflecting the current state.
-    """
-    probes: dict[str, ProbeDeclModel] = {}
-    for name, plan in state.probes.items():
-        target_ref = _reconstruct_target_ref(plan, original.probes, name)
-        orig_decl = original.probes.get(name)
-        probes[name] = ProbeDeclModel(
-            kind=plan.kind,
-            arc=plan.arc_id,
-            slider_ml=plan.ml_local,
-            spin=plan.spin,
-            ap_local=plan.ap_local,
-            bind_ap_to_arc=plan.bind_ap_to_arc,
-            target=target_ref,
-            past_target_mm=plan.past_target_mm,
-            offsets_RA=list(plan.offsets_RA),
-            position_bearing_shank=plan.position_bearing_shank,
-            calibrated=plan.calibrated,
-            auto_scene=orig_decl.auto_scene if orig_decl else True,
-            scene_tags=orig_decl.scene_tags if orig_decl else ["probe", "dynamic"],
-        )
-
-    return PlanningModel(
-        arcs=dict(state.kinematics.arc_angles),
-        subject_from_rig=original.subject_from_rig,
-        probes=probes,
-        reticles=original.reticles,
-        calibrations=original.calibrations,
-    )
+from aind_rutter.domain.scene import Scene
 
 
 def reorder_plan_for_rig(state: PlanningState) -> PlanningState:
@@ -140,7 +54,7 @@ def reorder_plan_for_rig(state: PlanningState) -> PlanningState:
     )
 
 
-def _depth_along_probe_axis(
+def depth_along_probe_axis(
     tip_lps: np.ndarray,
     probe_axis_world: np.ndarray,
     brain_mesh: trimesh.Trimesh,
@@ -192,8 +106,8 @@ def export_plan_geometry(
     # sorted by arc then ML-descending. Cosmetic; does not change poses, and
     # leaves the caller's state — which may be a live session — untouched.
     plan_state = reorder_plan_for_rig(plan_state)
+    from aind_rutter.build.queries import brain_world_mesh
     from aind_rutter.domain.pose import detect_shank_tips_local, named_shank_tip_world
-    from aind_rutter.runtime.scene_geometry import brain_world_mesh
 
     # A catalog with no scene means the brain is authored directly in LPS.
     brain_mesh = brain_world_mesh(catalog, scene, brain_asset_key, fallback_to_raw=True)
@@ -239,7 +153,7 @@ def export_plan_geometry(
         if brain_mesh is not None:
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
             # Depth measured from the named shank's tip along the shaft.
-            depth = _depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
+            depth = depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
 
         # Subject-anatomical angles: (ap, ml, spin) as stored on the plan.
         # ap=0, ml=0, spin=0 means the probe is vertical in subject LPS.
@@ -297,138 +211,3 @@ def export_plan_geometry(
         },
         "probes": probes_out,
     }
-
-
-def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[str]:
-    """Apply a loaded :class:`PlanningModel` to a live :class:`PlanStore`.
-
-    Issues per-arc and per-probe planning commands through ``store.dispatch``
-    so the controller's subscribers (renderer, collisions, readouts)
-    fan out the resulting changes the same way they would for any
-    user-initiated edit.
-
-    Probes named in ``plan.probes`` that aren't already in the store's
-    state are skipped with a warning printed to stdout — adding/removing
-    probes is a config-level concern (the optimizer plumbing assumes
-    a fixed probe roster) and not something a plan-only YAML should
-    silently do. Returns the list of probe names actually touched.
-
-    Arc angles are dispatched first so any probe bound to that arc
-    sees the new AP via the inner reducer's resolved-angles helper.
-    """
-    from aind_rutter.domain.commands import (
-        AssignProbeArc,
-        SetArcAngle,
-        SetProbeCalibrated,
-        SetProbeKind,
-        SetProbeLocalAngles,
-        SetProbeOffsetsRA,
-        SetProbePastTarget,
-        SetProbePositionBearingShank,
-        SetProbeTarget,
-    )
-
-    for arc_id, ap_deg in plan.arcs.items():
-        store.dispatch(SetArcAngle(arc_id=str(arc_id), ap_deg=float(ap_deg)))
-
-    touched: list[str] = []
-    for name, decl in plan.probes.items():
-        if name not in store.state.probes:
-            print(f"apply_plan_model_to_state: skipping unknown probe {name!r}")
-            continue
-        # Kind first — switching kind affects what's a valid pose.
-        store.dispatch(SetProbeKind(name=name, kind=str(decl.kind)))
-        store.dispatch(
-            AssignProbeArc(
-                name=name,
-                arc_id=decl.arc,
-                bind_ap_to_arc=bool(decl.bind_ap_to_arc),
-            )
-        )
-        store.dispatch(
-            SetProbeLocalAngles(
-                name=name,
-                ap_local=(float(decl.ap_local) if decl.ap_local is not None else None),
-                ml_local=float(decl.slider_ml),
-                spin=float(decl.spin),
-            )
-        )
-        store.dispatch(
-            SetProbeOffsetsRA(
-                name=name,
-                R_mm=float(decl.offsets_RA[0]),
-                A_mm=float(decl.offsets_RA[1]),
-            )
-        )
-        store.dispatch(
-            SetProbePastTarget(name=name, past_target_mm=float(decl.past_target_mm))
-        )
-        store.dispatch(
-            SetProbePositionBearingShank(
-                name=name,
-                position_bearing_shank=int(decl.position_bearing_shank),
-            )
-        )
-        store.dispatch(SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated)))
-        # Target is always last — it can clear a stale target_key while
-        # setting a new RAS-only target without an intervening invalid
-        # state, since SetProbeTarget rejects "neither set" in one shot.
-        target_key = None
-        target_pt_RAS = None
-        if hasattr(decl.target, "key"):
-            target_key = str(decl.target.key) if decl.target.key else None
-        if hasattr(decl.target, "point_RAS"):
-            pts = decl.target.point_RAS
-            if pts is not None and len(pts) == 3:
-                target_pt_RAS = (
-                    float(pts[0]),
-                    float(pts[1]),
-                    float(pts[2]),
-                )
-        if target_key is not None or target_pt_RAS is not None:
-            store.dispatch(
-                SetProbeTarget(
-                    name=name,
-                    target_key=target_key,
-                    target_point_RAS=target_pt_RAS,
-                )
-            )
-        touched.append(name)
-    return touched
-
-
-def save_plan_to_config(
-    state: PlanningState,
-    original_config: ConfigModel,
-) -> ConfigModel:
-    """Produce a new ConfigModel with the plan section updated from state.
-
-    Everything except ``plan`` is preserved from the original config.
-    The returned model can be serialized to YAML via
-    ``model.model_dump(mode="json")``.
-
-    Parameters
-    ----------
-    state
-        The runtime planning state.
-    original_config
-        The original ConfigModel (used as the base for non-plan sections).
-
-    Returns
-    -------
-    ConfigModel
-        A new ConfigModel ready for serialization.
-    """
-    new_plan = planning_state_to_plan_model(state, original_config.plan)
-    data = original_config.model_dump(mode="json")
-    data["plan"] = new_plan.model_dump(mode="json")
-
-    # Strip auto-generated scene nodes so the validator can re-generate
-    # them for the (possibly changed) set of probes / assets.
-    explicit_keys = original_config.scene._explicit_node_keys
-    if explicit_keys is not None:
-        data["scene"]["nodes"] = [
-            n for n in data["scene"]["nodes"] if n["key"] in explicit_keys
-        ]
-
-    return ConfigModel.model_validate(data)

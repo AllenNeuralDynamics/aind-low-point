@@ -37,7 +37,6 @@ OBJECTIVES_TO_PIPELINE_BASELINE = {
 # Modules reaching into another module's private names. The `runtime` and
 # `build_runtime` entries are re-export shims that the target layout deletes.
 PRIVATE_IMPORT_BASELINE = {
-    ("aind_rutter.build_runtime", "aind_rutter.runtime"),
     ("aind_rutter.domain.commands", "aind_rutter.domain.pose"),
     (
         "aind_rutter.optimization.objectives.phase1",
@@ -91,19 +90,10 @@ PRIVATE_IMPORT_BASELINE = {
         "aind_rutter.optimization.sdf.surface_samples",
         "aind_rutter.optimization.sdf.build",
     ),
-    ("aind_rutter.runtime", "aind_rutter.runtime.build"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.calibration"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.canonicalize"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.chem_shift"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.export"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.loaders"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.reducers"),
-    ("aind_rutter.runtime", "aind_rutter.runtime.transforms"),
-    ("aind_rutter.runtime.build", "aind_rutter.runtime.calibration"),
-    ("aind_rutter.runtime.build", "aind_rutter.runtime.canonicalize"),
-    ("aind_rutter.runtime.build", "aind_rutter.runtime.chem_shift"),
-    ("aind_rutter.runtime.build", "aind_rutter.runtime.reducers"),
-    ("aind_rutter.trame_controller", "aind_rutter.runtime"),
+    ("aind_rutter.build.assemble", "aind_rutter.build.calibration"),
+    ("aind_rutter.build.assemble", "aind_rutter.build.canonicalize"),
+    ("aind_rutter.build.assemble", "aind_rutter.build.chem_shift"),
+    ("aind_rutter.build.assemble", "aind_rutter.build.reducers"),
 }
 
 # Modules whose job is drawing or driving a UI. The optimizer never imports one.

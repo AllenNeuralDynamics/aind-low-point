@@ -14,7 +14,7 @@ moment they cross into the runtime.
 
 ### File → canonical (build time)
 
-`build_runtime.py` `_load_geo()` runs every loaded asset/target through:
+`build/assemble.py` `_load_geo()` runs every loaded asset/target through:
 
 1. **Loader** (`trimesh`, `sitk_volume`, `csv_points`, …) — returns geometry
    in whatever coordinates the file uses.

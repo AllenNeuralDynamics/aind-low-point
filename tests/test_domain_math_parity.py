@@ -203,7 +203,7 @@ def test_the_brain_mesh_falls_back_only_when_asked() -> None:
     a ray cast would compare a world-LPS tip against file coordinates."""
     from types import SimpleNamespace
 
-    from aind_rutter.runtime.scene_geometry import brain_world_mesh
+    from aind_rutter.build.queries import brain_world_mesh
 
     mesh = SimpleNamespace(raw="raw-mesh")
     catalog = SimpleNamespace(assets={"brain": SimpleNamespace(mesh=mesh)})

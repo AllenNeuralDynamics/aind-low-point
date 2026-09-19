@@ -20,6 +20,7 @@ from trame.ui.vuetify3 import SinglePageLayout
 from trame.widgets import client, vuetify3
 from trame_pyvista.ui import plotter_ui
 
+from aind_rutter.build.queries import brain_world_mesh
 from aind_rutter.ccf_ontology import CCFOntology
 from aind_rutter.ccf_overlay import CCFOverlayManager
 from aind_rutter.collisions import CollisionHandler
@@ -41,11 +42,15 @@ from aind_rutter.domain.plan import (
     locked_axes_for,
     probe_asset_key,
 )
-from aind_rutter.domain.pose import PoseResolver, ProbePose, named_shank_tip_world
+from aind_rutter.domain.pose import (
+    PoseResolver,
+    ProbePose,
+    detect_shank_tips_local,
+    named_shank_tip_world,
+)
 from aind_rutter.domain.transforms import MeshTransformable
+from aind_rutter.plan_io.rig_export import depth_along_probe_axis
 from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
-from aind_rutter.runtime import _depth_along_probe_axis, detect_shank_tips_local
-from aind_rutter.runtime.scene_geometry import brain_world_mesh
 from aind_rutter.state_change import PlanStore
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
@@ -738,7 +743,7 @@ class TrameController:
             probe_axis = R @ np.array([0.0, 0.0, 1.0])
             # Depth is the distance from the named shank's tip down to
             # the nearest brain-surface intersection along the shaft.
-            depth = _depth_along_probe_axis(named_world_lps, probe_axis, brain_mesh)
+            depth = depth_along_probe_axis(named_world_lps, probe_axis, brain_mesh)
             if depth is not None:
                 depth_str = f"{depth:.2f} mm"
             n_over, n_total = self._count_overinserted_shanks(
@@ -906,7 +911,7 @@ class TrameController:
             convert_coordinate_system,
         )
 
-        from aind_rutter.calibration_conversion import newscale_to_lps
+        from aind_rutter.build.calibration import newscale_to_lps
         from aind_rutter.domain.probe_kinds import recording_center_local_for_kind
 
         if not state.probe:
@@ -986,7 +991,7 @@ class TrameController:
         if not has:
             return False, bool(plan.calibrated), "—", "—", "—"
         try:
-            from aind_rutter.calibration_conversion import lps_to_newscale
+            from aind_rutter.build.calibration import lps_to_newscale
             from aind_rutter.domain.pose import ProbePose
 
             pose = ProbePose.from_planning_state(
@@ -1596,7 +1601,7 @@ class TrameController:
         import yaml
 
         from aind_rutter.config import PlanningModel
-        from aind_rutter.runtime.export import apply_plan_model_to_state
+        from aind_rutter.plan_io.replay import apply_plan_model_to_state
 
         if isinstance(content, (bytes, bytearray)):
             text = content.decode("utf-8")

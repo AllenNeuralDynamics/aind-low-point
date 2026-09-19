@@ -128,7 +128,7 @@ def points_in_region_center_mass(
     )
     if lookup.shape != pts.shape:
         raise ValueError(f"lookup_points {lookup.shape} must match points {pts.shape}")
-    from aind_rutter.runtime.loaders import ccf_region_point_mask
+    from aind_rutter.build.loaders import ccf_region_point_mask
 
     sel = ccf_region_point_mask(
         annotation_path,

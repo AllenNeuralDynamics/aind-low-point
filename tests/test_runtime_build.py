@@ -11,11 +11,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from aind_rutter.build.assemble import RuntimeBundle, build_runtime_from_config
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY
 from aind_rutter.domain.transforms import MeshTransformable, PointsTransformable
-from aind_rutter.runtime.build import RuntimeBundle, build_runtime_from_config
 from tests.synthetic_subject import (
     BRAIN_CENTER_LPS,
     HEAD_PITCH_DEG,

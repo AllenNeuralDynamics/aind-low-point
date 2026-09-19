@@ -13,11 +13,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from aind_rutter.build.probe_context import probe_context_from_runtime
 from aind_rutter.domain.scene import resolve_base_geometry
 from aind_rutter.optimization.geometry import HoleSection
 from aind_rutter.optimization.geometry.holes import Hole, HoleWall
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.runtime.probe_context import probe_context_from_runtime
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
         return hit
     import SimpleITK as sitk
 
-    from aind_rutter.runtime.loaders import csv_points, voxel_values_at
+    from aind_rutter.build.loaders import csv_points, voxel_values_at
 
     retro_t = resolve_base_geometry(catalog, scene, opts.retro_asset_key)
     if retro_t is None:
@@ -147,7 +147,7 @@ def _resolve_masked_retro_points(
 ) -> np.ndarray:
     """Retro points (corrected scene-LPS) inside the per-probe CCF region AND
     the brain, by direct voxel lookup against the SOURCE volumes."""
-    from aind_rutter.runtime.loaders import ccf_region_label_ids, ccf_region_membership
+    from aind_rutter.build.loaders import ccf_region_label_ids, ccf_region_membership
 
     catalog = runtime.asset_catalog
     sspec = catalog.get_spec(opts.per_probe_mask_fmt.format(probe=probe_name))

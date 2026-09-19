@@ -91,7 +91,7 @@ Key validation pipeline runs in `_xref_and_expand_templates` (model_validator
 mode="after"): expand bulk specs → check template refs → apply templates →
 cross-reference all keys → collect all errors before raising.
 
-## Build runtime — `build_runtime.py`
+## Build runtime — `build/assemble.py`
 
 Factory layer. `build_runtime_from_config(cfg) -> RuntimeBundle`.
 

@@ -263,7 +263,7 @@ Loading dispatches one `SetArcAngle` per arc and a sequence of per-probe
 commands (`SetProbeKind`, `AssignProbeArc`, `SetProbeLocalAngles`,
 `SetProbeOffsetsRA`, `SetProbePastTarget`, `SetProbeTarget`,
 `SetProbePositionBearingShank`, `SetProbeCalibrated`) through
-`apply_plan_model_to_state(plan, store)` (`runtime/export.py`). Probes
+`apply_plan_model_to_state(plan, store)` (`plan_io/replay.py`). Probes
 not in the current state are skipped with a stdout warning.
 
 The geometric **Export plan** button (`export_plan_geometry`) is a
@@ -302,7 +302,7 @@ hand-off to physical execution. It's read-only; there's no loader for it.
 |---|---|---|
 | "Unknown template" raised on valid YAML | `_check_template_ref` ordering | `config/root.py` |
 | Template values not appearing in expanded spec | `model_fields_set` not respected → use `passthrough_kwargs` | `config/models_catalog.py` |
-| Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build_runtime.py` registry |
+| Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build/loaders.py` registry |
 | Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check `_resolve_target_LPS_from_plan` fallback path | `planning.py:151` |
 | Probe orientation off | Wrong `canonicalization_ref` for probe mesh (LSA vs ASR) | example config + `canonicalizations` block |
 | Collisions silently missing pairs | This was the `defaultCollisionCallback` bug — fixed in `fcl_backend.py` | `fcl_backend.py` (per-pair callback) |

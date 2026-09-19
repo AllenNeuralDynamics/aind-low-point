@@ -20,7 +20,7 @@ from aind_rutter.config import (
 )
 from aind_rutter.domain.enums import OrientationCode
 from aind_rutter.domain.transforms import AffineTransform, TransformChain
-from aind_rutter.runtime.transforms import (
+from aind_rutter.build.transforms import (
     CompiledTransforms,
     compile_recipe_to_chain,
     resolve_transform_key_cached,

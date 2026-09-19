@@ -11,7 +11,7 @@ import numpy as np
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
 from aind_rutter.domain.transforms import Transformed
-from aind_rutter.runtime.build import RuntimeBundle
+from aind_rutter.build.assemble import RuntimeBundle
 
 FIXTURE_TAGS: frozenset[str] = frozenset({"fixture", "cone", "well", "headframe"})
 FIXTURE_EXCLUDED_TAGS: frozenset[str] = frozenset({"implant"})

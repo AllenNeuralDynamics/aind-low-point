@@ -13,10 +13,10 @@ from dataclasses import dataclass
 
 import pytest
 
+from aind_rutter.build.assemble import resolve_collidable
 from aind_rutter.collisions import pair_bits
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.enums import Role
-from aind_rutter.runtime.build import resolve_collidable
 from tests.config_semantics import CONFIGS
 
 

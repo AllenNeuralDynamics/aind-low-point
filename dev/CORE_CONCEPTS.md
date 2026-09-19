@@ -161,7 +161,7 @@ The frontend owns:
 
 They translate user input into commands and dispatch them.
 
-### Configuration (`config.py`, `runtime/build.py`)
+### Configuration (`config/`, `build/assemble.py`)
 
 The whole catalog + scene + planning state is built from a single YAML
 via Pydantic models in `config.py`. The build pipeline:

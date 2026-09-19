@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 import yaml
 
+from aind_rutter.build.assemble import build_runtime_from_config
+from aind_rutter.build.loaders import load_geometry, numpy_points
 from aind_rutter.config import ConfigModel
-from aind_rutter.runtime.build import build_runtime_from_config
-from aind_rutter.runtime.loaders import load_geometry, numpy_points
 from tests.synthetic_subject import write_subject
 
 POINTS = np.array([[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]])

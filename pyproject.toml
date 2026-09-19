@@ -78,7 +78,7 @@ rutter-plan = "aind_rutter.cli:main"
 rutter-phase1 = "aind_rutter.optimization.pipeline.phase1_pool:main"
 rutter-phase2 = "aind_rutter.optimization.pipeline.phase2_ipopt:main"
 rutter-emit = "aind_rutter.optimization.pipeline.emit:main"
-rutter-plan-csv = "aind_rutter.runtime.plan_csv:main"
+rutter-plan-csv = "aind_rutter.plan_io.cli_csv:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-rutter/"

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pyvista as pv
 
-from aind_rutter.build_runtime import build_runtime_from_config
+from aind_rutter.build.assemble import build_runtime_from_config
 from aind_rutter.collisions import (
     CollisionAdapter,
     CollisionHandler,
@@ -134,7 +134,7 @@ def build_trame_app(
 
     on_save = None
     if save_path is not None:
-        from aind_rutter.build_runtime import save_plan_to_config
+        from aind_rutter.plan_io.roundtrip import save_plan_to_config
 
         def on_save():
             updated = save_plan_to_config(store.state, cfg)
@@ -147,7 +147,7 @@ def build_trame_app(
 
     on_export_plan = None
     if export_plan_path is not None:
-        from aind_rutter.build_runtime import export_plan_geometry
+        from aind_rutter.plan_io.rig_export import export_plan_geometry
 
         src_str = str(source_config_path) if source_config_path is not None else None
 
@@ -165,10 +165,8 @@ def build_trame_app(
     on_load_plan = None
     if plan_path is not None:
         from aind_rutter.config import PlanningModel
-        from aind_rutter.runtime.export import (
-            apply_plan_model_to_state,
-            planning_state_to_plan_model,
-        )
+        from aind_rutter.plan_io.replay import apply_plan_model_to_state
+        from aind_rutter.plan_io.roundtrip import planning_state_to_plan_model
 
         def on_save_plan():
             import yaml

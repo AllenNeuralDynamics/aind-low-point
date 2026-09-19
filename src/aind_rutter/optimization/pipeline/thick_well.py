@@ -195,13 +195,13 @@ def make_thick_well_sdf(
 
 def main() -> int:
     """Diagnostic: report the fitted cones and what solidifying the well buys."""
+    from aind_rutter.build.assemble import build_runtime_from_config
     from aind_rutter.config import ConfigModel
     from aind_rutter.optimization.jax_env import configure_compile_cache
     from aind_rutter.optimization.pipeline.phase1_geometry import (
         build_fixture_sdf_data,
     )
     from aind_rutter.optimization.pipeline.settings import PipelineSettings
-    from aind_rutter.runtime import build_runtime_from_config
 
     configure_compile_cache()
 

@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from aind_rutter.build.assemble import resolve_recording
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY
-from aind_rutter.runtime.build import resolve_recording
 
 RANGES = [[0.2, 3.065], [0.2, 3.065]]
 
@@ -108,8 +108,8 @@ def test_the_resolved_geometry_reaches_the_probe_context(tmp_path) -> None:
     """End to end: what the optimizer reads comes from the config."""
     import yaml
 
-    from aind_rutter.runtime.build import build_runtime_from_config
-    from aind_rutter.runtime.probe_context import probe_context_from_runtime
+    from aind_rutter.build.assemble import build_runtime_from_config
+    from aind_rutter.build.probe_context import probe_context_from_runtime
     from tests.synthetic_subject import write_subject
 
     subject = write_subject(tmp_path)

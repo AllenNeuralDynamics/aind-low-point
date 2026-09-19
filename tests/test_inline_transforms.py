@@ -13,13 +13,13 @@ import numpy as np
 import pytest
 import yaml
 
-from aind_rutter.config import ConfigModel, TransformRefModel
-from aind_rutter.domain.transforms import AffineTransform
-from aind_rutter.runtime.build import build_runtime_from_config
-from aind_rutter.runtime.transforms import (
+from aind_rutter.build.assemble import build_runtime_from_config
+from aind_rutter.build.transforms import (
     compile_all_transforms,
     resolve_transform_ref_cached,
 )
+from aind_rutter.config import ConfigModel, TransformRefModel
+from aind_rutter.domain.transforms import AffineTransform
 from tests.synthetic_subject import write_subject
 
 SHIFT_MM = (1.0, -2.0, 0.5)

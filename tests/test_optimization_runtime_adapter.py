@@ -6,6 +6,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from aind_rutter.build.assemble import RuntimeBundle
 from aind_rutter.domain.transforms import AffineTransform
 from aind_rutter.optimization.geometry import HoleSection
 from aind_rutter.optimization.geometry.holes import Hole
@@ -14,7 +15,6 @@ from aind_rutter.optimization.pipeline.runtime_adapter import (
     head_pitch_deg_from_runtime,
     transform_holes_to_lps,
 )
-from aind_rutter.runtime import RuntimeBundle
 
 
 def test_head_pitch_deg_from_runtime_reads_subject_from_rig() -> None:

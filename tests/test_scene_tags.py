@@ -14,9 +14,9 @@ import warnings
 
 import pytest
 
+from aind_rutter.build.queries import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.enums import KNOWN_SCENE_TAGS
-from aind_rutter.runtime.scene_geometry import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
 
 
 def _config(**asset_over):

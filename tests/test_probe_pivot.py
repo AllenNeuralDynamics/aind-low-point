@@ -15,11 +15,11 @@ import numpy as np
 import pytest
 import yaml
 
+from aind_rutter.build.assemble import build_runtime_from_config
+from aind_rutter.build.probe_context import probe_context_from_runtime
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, pivot_from_shank_tips
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.runtime.build import build_runtime_from_config
-from aind_rutter.runtime.probe_context import probe_context_from_runtime
 from tests.synthetic_subject import SHANK_PITCH_MM, write_subject
 
 CONFIGURED_PIVOT = [0.25, -0.5, 2.0]

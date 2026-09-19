@@ -11,14 +11,14 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from aind_rutter.config import AssetSpecModel, DerivedTargetSpecModel
-from aind_rutter.runtime.loaders import (
+from aind_rutter.build.loaders import (
     ccf_annotation_region,
     ccf_region_membership,
     ccf_region_point_mask,
     ccf_region_voxel_points,
     voxel_values_at,
 )
+from aind_rutter.config import AssetSpecModel, DerivedTargetSpecModel
 
 
 def _write_lateralized_volume(path: str, label: int = 685) -> None:
@@ -146,7 +146,7 @@ class TestVoxelCore:
 
     def test_membership_helper_matches_point_mask(self, tmp_path):
         """The two callers (reducer one-shot vs optimizer cached) share the rule."""
-        from aind_rutter.runtime.loaders import ccf_region_label_ids
+        from aind_rutter.build.loaders import ccf_region_label_ids
 
         p = str(tmp_path / "lat.nii.gz")
         _write_lateralized_volume(p)

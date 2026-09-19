@@ -61,7 +61,8 @@ Module Organization
     ├── commands.py         # Command pattern for state mutations
     ├── state_change.py     # PlanStore + AsyncLatestWorker
     ├── config/             # Pydantic models for YAML parsing + validation
-    ├── build_runtime.py    # Config → RuntimeBundle factory + loaders + save_plan_to_config
+    ├── build/              # Config → RuntimeBundle factory, loaders, reducers
+    ├── plan_io/            # Plan round-trip, replay and rig export
     ├── rendering.py        # Renderer adapter + RenderBackend protocol + overlay system
     ├── collisions.py       # Collision adapter + CollisionHandler (sync + async paths)
     ├── pyvista_backend.py  # PyVista rendering backend + DebouncedFlush (trame)
@@ -394,7 +395,7 @@ Computes world transforms for scene nodes:
             return TransformChain.new([*base.elements, *dyn.elements])
 
 
-Build Runtime (``build_runtime.py``)
+Build Runtime (``build/assemble.py``)
 ------------------------------------
 
 Transforms configuration into runtime objects.
@@ -725,7 +726,7 @@ Data Flow Summary
             ▼
     ┌───────────────┐
     │RuntimeBundle  │  Loaded geometry, resolved transforms
-    │(build_runtime)│  AssetCatalog, Scene, PlanningState
+    │   (build/)    │  AssetCatalog, Scene, PlanningState
     └───────┬───────┘
             │
     ┌───────┴───────┐
@@ -754,7 +755,7 @@ Adding a New Loader
 
 .. code-block:: python
 
-    from aind_rutter.build_runtime import register_loader
+    from aind_rutter.build.loaders import register_loader
 
     @register_loader("my_custom_loader")
     def my_loader(path: Path, **kwargs) -> trimesh.Trimesh:
@@ -775,7 +776,7 @@ Adding a New Reducer
 
 .. code-block:: python
 
-    from aind_rutter.build_runtime import register_reducer
+    from aind_rutter.build.reducers import register_reducer
 
     @register_reducer("bbox_center")
     def bbox_center(source: SourceGeo) -> np.ndarray:
