@@ -126,4 +126,4 @@ If you want the entire planning frame to be a different anatomical space
 - `pivot_LPS` on `BaseSpec` — local-asset-space pivot used for tip rotation,
   not a world-frame coordinate.
 - `Float3` etc. — type aliases. They're shape annotations, not frame tags.
-- `caps & Capability.RENDERABLE` — capability bitflags, unrelated to coords.
+- `pair_bits` group/mask integers — collision bookkeeping, unrelated to coords.

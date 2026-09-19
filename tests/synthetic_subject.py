@@ -138,25 +138,17 @@ def _config(meshes: Path) -> dict:
         "asset_templates": {
             "hardware": {
                 "kind": "mesh",
-                "role": "geometry",
+                "role": "fixture",
+                "collidable": True,
                 "loader": "trimesh",
                 "material": {"color": "#E7DDFF", "opacity": 1.0},
-                "caps": ["renderable", "collidable"],
-                "collision": {"group": "fixture", "mask": ["probe"]},
             },
             "probe": {
                 "kind": "mesh",
-                "role": "geometry",
+                "role": "probe",
+                "collidable": True,
                 "loader": "trimesh",
                 "material": {"color": "#66DD66", "opacity": 1.0},
-                "caps": [
-                    "renderable",
-                    "movable",
-                    "collidable",
-                    "selectable",
-                    "savable",
-                ],
-                "collision": {"group": "probe", "mask": ["fixture", "probe"]},
             },
         },
         "target_templates": {
@@ -164,7 +156,6 @@ def _config(meshes: Path) -> dict:
                 "reducer": "mesh_center_mass",
                 "material_ref": "structure",
                 "tags": ["structure", "target"],
-                "collision": {"group": "static", "mask": []},
             }
         },
         "assets": [
@@ -175,7 +166,6 @@ def _config(meshes: Path) -> dict:
                 "loader": "trimesh",
                 "src": "${paths.mesh_path}/brain.obj",
                 "material_ref": "structure",
-                "caps": ["renderable"],
                 "transform": "headframe_to_lps",
                 "scene_tags": ["static"],
             },
@@ -199,7 +189,6 @@ def _config(meshes: Path) -> dict:
                 "role": "anatomy",
                 "loader": "csv_points",
                 "src": "${paths.mesh_path}/retro_points.csv",
-                "caps": ["renderable"],
                 "material": {"color": "#FF4444", "opacity": 0.6, "point_size": 3.0},
                 "transform": "headframe_to_lps",
                 "scene_tags": ["static"],

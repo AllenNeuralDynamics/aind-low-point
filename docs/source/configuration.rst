@@ -1003,20 +1003,23 @@ by 1.6 mm of insertion depth for a 2.1.
 Upgrading an older config
 -------------------------
 
-A config written against an earlier schema is brought forward with:
+``caps``, ``collision``, ``chem_shift_policy``, ``chem_shift_apply_by_role`` and
+``options`` have been removed from the models. A config that still states one is
+refused at load, with a message naming what replaced it.
+
+Bringing such a config forward needs the last version that can still read those
+fields, commit ``e7e345c``:
 
 .. code-block:: bash
 
-    uv run --python 3.13 python scripts/upgrade_config.py --list
+    git worktree add /tmp/rutter-e7e345c e7e345c
+    cd /tmp/rutter-e7e345c
     uv run --python 3.13 python scripts/upgrade_config.py --dry-run path/to/*.yml
 
 It rewrites the YAML text, so comments and ``${...}`` interpolations survive, and
 accepts the result only if the config's behaviour is unchanged — the same
 chemical-shift decision and ppm for every key, the same collidability, the same
 collision pairs. Otherwise the original is restored and the differing key named.
-
-Run it **before** taking a version that removes the fields it reads: the
-migrations derive the new fields from the old ones.
 
 
 Complete Example

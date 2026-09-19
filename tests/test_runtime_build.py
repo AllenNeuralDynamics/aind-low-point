@@ -70,13 +70,6 @@ def test_scene_carries_a_node_per_asset_and_per_probe(runtime: RuntimeBundle) ->
     assert {"probe:P1", "probe:P2"} <= nodes
 
 
-def test_collision_labels_get_distinct_bits(runtime: RuntimeBundle) -> None:
-    bits = runtime.collision_labels.label_to_bit
-    assert set(bits) == {"fixture", "probe", "static"}
-    assert len(set(bits.values())) == 3
-    assert all(bit and bit & (bit - 1) == 0 for bit in bits.values())
-
-
 def test_plan_state_reproduces_the_declared_probes(runtime: RuntimeBundle) -> None:
     probes = runtime.plan_state.probes
     assert set(probes) == {"P1", "P2"}

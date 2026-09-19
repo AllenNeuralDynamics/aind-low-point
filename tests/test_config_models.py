@@ -187,10 +187,8 @@ class TestTargetSpecModel:
 
     def test_target_not_collidable_by_default(self):
         """Test that targets cannot be collidable by default."""
-        from aind_rutter.common import Capability
-
         target_data = TargetFactory.explicit_target()
-        target_data["caps"] = [Capability.RENDERABLE, Capability.COLLIDABLE]
+        target_data["collidable"] = True
 
         with pytest.raises(ValidationError, match="targets should not be collidable"):
             TargetSpecModel(**target_data)

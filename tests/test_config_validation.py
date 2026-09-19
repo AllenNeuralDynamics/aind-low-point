@@ -1910,7 +1910,7 @@ class TestCombinedInference:
             {
                 "asset_templates": {
                     "structure:*": {
-                        "caps": ["RENDERABLE"],
+                        "tags": ["structure"],
                     }
                 },
                 "assets": [

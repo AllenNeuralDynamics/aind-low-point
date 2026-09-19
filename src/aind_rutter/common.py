@@ -2,16 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum, IntFlag
-
-
-class Capability(IntFlag):
-    RENDERABLE = 1
-    MOVABLE = 2
-    COLLIDABLE = 4
-    SELECTABLE = 8
-    DEFORMABLE = 16
-    SAVABLE = 32
+from enum import Enum
 
 
 class MRSignal(str, Enum):
@@ -35,8 +26,9 @@ class MRSignal(str, Enum):
 class Role(str, Enum):
     """What an asset is, as against where its coordinates came from.
 
-    `PROBE` and `FIXTURE` replace identifying those by key prefix: a probe was
-    whatever was keyed ``probe:*``, so a subject could not name a mesh freely.
+    `PROBE` and `FIXTURE` are what the collision pair filter reads; a probe
+    used to be whatever was keyed ``probe:*``, so a subject could not name a
+    mesh freely.
     """
 
     GEOMETRY = "geometry"

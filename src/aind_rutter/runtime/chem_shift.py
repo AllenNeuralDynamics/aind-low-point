@@ -11,7 +11,7 @@ from aind_mri_utils.chemical_shift import (
     compute_chemical_shift,
 )
 
-from aind_rutter.common import MRSignal, Role
+from aind_rutter.common import MRSignal
 from aind_rutter.config import BaseSpecModel, ConfigModel
 from aind_rutter.core import AffineTransform
 
@@ -21,7 +21,6 @@ class ChemShiftContext:
     enabled: bool
     magnet_MHz: float
     default_ppm: float = 3.7
-    apply_by_role: set[Role] = field(default_factory=set)
     # transforms to apply to geometry in image/LPS space
     image: Optional[sitk.Image] = None
     # lazy cache: ppm -> AffineTransform (observed → corrected)
@@ -65,7 +64,6 @@ class ChemShiftContext:
             enabled=True,
             magnet_MHz=im.magnet_frequency_MHz,
             default_ppm=im.chem_shift_ppm_default,
-            apply_by_role=set(im.chem_shift_apply_by_role),
             image=brain_image,
         )
 
@@ -77,14 +75,4 @@ def _should_apply_chem(asset_model: BaseSpecModel, chem: ChemShiftContext) -> bo
     fiducials define; fat-localized geometry already sits in it, and geometry the
     image never saw has nothing to correct.
     """
-    if not chem.enabled:
-        return False
-    if asset_model.mr_signal is not None:
-        return asset_model.mr_signal is MRSignal.WATER
-    # Configs that predate `mr_signal` state it as a role plus an override.
-    mode = asset_model.chem_shift_policy  # "on"|"off"|"auto"
-    if mode == "on":
-        return True
-    if mode == "off":
-        return False
-    return asset_model.role in chem.apply_by_role
+    return chem.enabled and asset_model.mr_signal is MRSignal.WATER

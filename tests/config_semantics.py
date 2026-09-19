@@ -1,10 +1,9 @@
 """What a config resolves to, independent of how the config spells it.
 
-The flag vocabularies — `Role`, `Capability`, asset tags, scene tags and the
-collision group/mask labels — are being collapsed onto scene tags. Every one of
-them feeds a decision the pipeline makes per asset, and those decisions must not
-move. This module computes them from a validated `ConfigModel`; the golden file
-beside it pins today's answers.
+Every field a config states — `mr_signal`, `role`, `collidable`, asset tags and
+scene tags — feeds a decision the pipeline makes per asset, and those decisions
+must not move when the config layer is rearranged. This module computes them
+from a validated `ConfigModel`; the golden file beside it pins today's answers.
 
 Chemical shift is the one that has to be exactly right: a flipped decision
 displaces geometry by the fat/water offset and nothing downstream notices.
@@ -16,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from aind_rutter.collisions import pair_bits
 from aind_rutter.config import ConfigModel
 from aind_rutter.runtime.build import resolve_collidable
 from aind_rutter.runtime.chem_shift import ChemShiftContext, _should_apply_chem
@@ -48,7 +48,6 @@ def _chem_context(cfg: ConfigModel) -> ChemShiftContext:
         enabled=True,
         magnet_MHz=im.magnet_frequency_MHz,
         default_ppm=im.chem_shift_ppm_default,
-        apply_by_role=set(im.chem_shift_apply_by_role),
         image=None,
     )
 
@@ -111,12 +110,25 @@ def fixtures_for(path: str) -> list[str]:
     )
 
 
-def pairs_for(path: str) -> list[list[str]]:
-    """The pairs the collision backend tests, by the rule that replaced labels."""
-    from scripts.upgrade_config import colliding_pairs
+class _PairSpec:
+    """`pair_bits` reads a runtime spec; a config model leaves `collidable` unset."""
 
-    cfg = ConfigModel.from_yaml(ROOT / path)
-    return [list(pair) for pair in sorted(colliding_pairs(cfg))]
+    def __init__(self, spec: Any) -> None:
+        self.collidable = resolve_collidable(spec)
+        self.role = spec.role
+
+
+def pairs_for(path: str) -> list[list[str]]:
+    """The pairs the collision backend tests, read through the rule itself."""
+    specs = [*(cfg := ConfigModel.from_yaml(ROOT / path)).assets, *cfg.targets]
+    bits = {str(s.key): pair_bits(_PairSpec(s)) for s in specs}
+    out = set()
+    for i, a in enumerate(specs):
+        for b in specs[i + 1 :]:
+            (ga, ma), (gb, mb) = bits[str(a.key)], bits[str(b.key)]
+            if (ma & gb) and (mb & ga):
+                out.add(tuple(sorted((str(a.key), str(b.key)))))
+    return [list(pair) for pair in sorted(out)]
 
 
 def all_semantics() -> dict[str, dict[str, Any]]:

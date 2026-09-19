@@ -20,6 +20,10 @@ PyVista (web app, `app.py` + `trame_controller.py`).
   misspelling is refused at load; `tags`/`scene_tags` are open and only draw a
   warning on a near miss. `mr_signal` decides chemical shift and is required on
   every asset and target whenever `imaging` is set. See `dev/VOCABULARY.md`.
+  The fields these replaced — `caps`, `collision`, `chem_shift_policy`,
+  `chem_shift_apply_by_role`, `options` — are refused by name; `e7e345c` is the
+  last commit whose `scripts/upgrade_config.py` can migrate a config that has
+  them.
 - **Every pipeline stage is told, not configured by import order.**
   `phase1_pool.run(Phase1Settings())`, `phase2_ipopt.run(recs, Phase2Settings())`
   and `emit.run(EmitSettings())` take typed settings; constructor arguments
@@ -39,19 +43,13 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 ```bash
 ruff check                                # lint
 ruff format                               # format
-uv run --python 3.13 pytest -q            # tests (844 currently green)
+uv run --python 3.13 pytest -q            # tests (835 currently green)
 uv sync --python 3.13                     # set up venv
 
 # Phase-2 output parity against a baseline commit, on a subject written on the
 # spot. Exits non-zero on any difference. Add --config/--holes/--poses for a
 # real subject, --platform gpu to run on the card.
 uv run --python 3.13 python scripts/parity_phase2.py --baseline HEAD~1
-
-# Bring a config forward to the current schema. Rewrites the YAML text and
-# keeps it only if behaviour is unchanged. Run before taking a version that
-# deletes the fields the migrations read.
-uv run --python 3.13 python scripts/upgrade_config.py --list
-uv run --python 3.13 python scripts/upgrade_config.py --dry-run examples/*.yml
 ```
 
 `tests/architecture/` holds the structural rules — import cycles, dependency
@@ -65,7 +63,7 @@ violating it.
 ```
 src/aind_rutter/
 ├── core.py                # AffineTransform, TransformChain, Material, *Transformable
-├── common.py              # Capability (IntFlag), Role, Kind enums
+├── common.py              # Role, Kind, MRSignal enums; KNOWN_SCENE_TAGS
 ├── orientation_codes.py   # OrientationCode (48 RAS-style codes)
 ├── assets.py              # AssetSpec, TargetSpec, AssetCatalog
 ├── scene.py               # NodeInstance, Scene

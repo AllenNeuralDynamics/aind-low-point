@@ -6,7 +6,7 @@ import trimesh
 from aind_rutter.assets import AssetCatalog, AssetSpec
 from aind_rutter.core import AffineTransform, MeshTransformable, TransformChain
 from aind_rutter.planning import Kinematics, PlanningState
-from aind_rutter.runtime.build import CollisionLabelIndex, RuntimeBundle
+from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.scene_geometry import (
     fixture_node_keys,
     implant_world_geometry,
@@ -53,7 +53,6 @@ def _runtime_with_scene_nodes() -> RuntimeBundle:
         asset_catalog=catalog,
         targets_pts={},
         scene=scene,
-        collision_labels=CollisionLabelIndex(label_to_bit={}, bit_to_label={}),
         plan_state=PlanningState(kinematics=Kinematics(), probes={}),
     )
 

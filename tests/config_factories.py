@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Dict, List
 
-from aind_rutter.common import Capability, Kind, Role
+from aind_rutter.common import Kind, Role
 
 
 class ConfigFactory:
@@ -177,7 +177,6 @@ class AssetFactory:
             "role": Role.GEOMETRY.value,
             "src": Path("/path/to/asset.obj"),
             "loader": "trimesh_loader",
-            "caps": [Capability.RENDERABLE.value],
             "templates": [],
         }
         asset.update(overrides)
@@ -259,7 +258,6 @@ class TargetFactory:
             "key": key,
             "kind": Kind.POINTS.value,
             "role": Role.TARGET.value,
-            "caps": [Capability.RENDERABLE.value],
             "templates": [],
         }
         target.update(overrides)

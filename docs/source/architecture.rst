@@ -52,7 +52,7 @@ Module Organization
 .. code-block:: text
 
     src/aind_rutter/
-    ├── common.py           # Shared enums (Kind, Role, Capability)
+    ├── common.py           # Shared enums (Kind, Role, MRSignal)
     ├── orientation_codes.py # OrientationCode StrEnum (48 RAS-style codes)
     ├── core.py             # Transform primitives, geometry wrappers, Material
     ├── assets.py           # Runtime catalog specs (AssetSpec, TargetSpec)
@@ -193,10 +193,8 @@ Common fields for all catalog items:
         metadata: dict[str, Any]
         tags: set[str]
 
-        # Capabilities (bitflags)
-        caps: Capability             # RENDERABLE | COLLIDABLE | ...
-        collidable_group: int        # Collision group bitmask
-        collidable_mask: int         # What groups this collides with
+        # Collision
+        collidable: bool             # Whether it gets an FCL body
 
         # UI hints
         pivot_LPS: Optional[Float3]  # Rotation center
@@ -793,22 +791,6 @@ Then use in config:
       - key: target:center
         source_key: my_mesh
         reducer: bbox_center
-
-Adding a New Capability
-~~~~~~~~~~~~~~~~~~~~~~~
-
-Extend the ``Capability`` IntFlag in ``common.py``:
-
-.. code-block:: python
-
-    class Capability(IntFlag):
-        RENDERABLE = 1
-        MOVABLE = 2
-        COLLIDABLE = 4
-        SELECTABLE = 8
-        DEFORMABLE = 16
-        SAVABLE = 32
-        MY_NEW_CAP = 64  # Must be power of 2
 
 Adding a New Command
 ~~~~~~~~~~~~~~~~~~~~

@@ -89,7 +89,6 @@ def test_a_config_can_point_an_asset_at_a_npy_file(tmp_path: Path) -> None:
             "key": "npy-points",
             "role": "anatomy",
             "src": str(source),
-            "caps": ["renderable"],
             "scene_tags": ["static"],
         }
     )

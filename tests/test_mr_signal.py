@@ -36,7 +36,6 @@ def _context(cfg: ConfigModel) -> ChemShiftContext:
         enabled=True,
         magnet_MHz=im.magnet_frequency_MHz,
         default_ppm=im.chem_shift_ppm_default,
-        apply_by_role=set(im.chem_shift_apply_by_role),
         image=None,
     )
 

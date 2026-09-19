@@ -13,7 +13,7 @@ Come back here for per-file detail.
 | File | Purpose |
 |---|---|
 | `__init__.py` | Empty package marker. |
-| `common.py` | `Capability` (IntFlag), `Role` (str Enum), `Kind` (str Enum). |
+| `common.py` | `Role`, `Kind`, `MRSignal` (str Enums), `KNOWN_SCENE_TAGS`. |
 | `orientation_codes.py` | `OrientationCode` StrEnum covering all 48 RAS-style codes. Used by canonicalization. |
 
 ## Core data primitives — `core.py`
@@ -30,7 +30,8 @@ Frozen dataclasses; transforms compose through `TransformChain`.
 ## Asset catalog — `assets.py`
 
 - `BaseSpec` — common fields: key, kind, role, default_material, metadata, tags,
-  caps (Capability), collidable_group/mask, pivot_LPS.
+  collidable, pivot_LPS. Which *pairs* get tested is a rule over `collidable`
+  and `role`, not a per-asset label: see `collisions.pair_bits`.
 - `AssetSpec(BaseSpec)` — adds `mesh: MeshTransformable | None` and
   `points: PointsTransformable | None`. Geometry is **post-load, in canonical
   LPS mm**.

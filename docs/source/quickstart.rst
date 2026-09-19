@@ -90,7 +90,7 @@ For multiple similar structures, use templates and bulk declarations:
     # Define a template that matches all structure:* keys
     asset_templates:
       "structure:*":
-        caps: [RENDERABLE]
+        mr_signal: water
         transform: headframe_to_lps
 
     target_templates:

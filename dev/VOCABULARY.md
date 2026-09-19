@@ -73,7 +73,7 @@ and each other; fixtures do not hit each other.
 
 That replaced per-asset `collision.group` / `collision.mask` label lists
 compiled to bitmasks. Across every tracked config those labels only ever
-expressed the two patterns the rule states.
+expressed the two patterns the rule states, so the filter became a rule.
 
 State it on the template, not on each asset — `role: probe` and
 `collidable: true` on the `probe` template, and every probe asset is then a
@@ -117,29 +117,29 @@ A probe *kind* asset (`probe:2.1`) is geometry the planner instances, not a
 placement. It carries `auto_scene: false` so that tagging it does not generate
 a scene node; the nodes that get posed come from `plan.probes`.
 
-## Upgrading a config to the current schema
+## Upgrading a config written before this vocabulary
+
+`caps`, `collision`, `chem_shift_policy`, `chem_shift_apply_by_role` and
+`options` are gone from the models, and `from_yaml` refuses a config that still
+states one, naming what replaced it. The migration tool that derives the
+replacements is `scripts/upgrade_config.py` **as of commit `e7e345c`** — the
+last version whose models can still read the old fields. To bring a config
+forward:
 
 ```bash
-uv run --python 3.13 python scripts/upgrade_config.py --list
-uv run --python 3.13 python scripts/upgrade_config.py --dry-run examples/*_out.yml
+git worktree add /tmp/rutter-e7e345c e7e345c
+cd /tmp/rutter-e7e345c
+uv run --python 3.13 python scripts/upgrade_config.py --dry-run path/to/*.yml
 ```
 
 Each migration rewrites the YAML text, so comments and `${...}` interpolations
-survive. A run is accepted only if the config's behaviour is unchanged — the
-same chemical-shift decision and ppm per key, the same collidability, the same
-set of colliding pairs — and the original is restored otherwise.
-
-**Run it before taking a version that deletes the superseded fields.** The
-migrations read the old fields to derive the new ones, so a config can only be
-upgraded while the code still understands it.
+survive, and a run is accepted only if the config's behaviour is unchanged —
+the same chemical-shift decision and ppm per key, the same collidability, the
+same set of colliding pairs. Otherwise the original is restored.
 
 For `mr_signal`, `water` is derived from what the old `role` rule resolves to
 for that very file, so the decision cannot move. `fat` is assigned by key and
-is documentation only — `fat` and `none` behave identically. The superseded
-`chem_shift_policy` and `chem_shift_apply_by_role` are removed.
-
-`ConfigModel.from_yaml(path, require_mr_signal=False)` loads an un-upgraded
-config. Only the upgrade path passes it.
+is documentation only — `fat` and `none` behave identically.
 
 ## Changing any of this
 

@@ -7,7 +7,7 @@ import trimesh
 from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
 from aind_rutter.core import MeshTransformable, PointsTransformable
 from aind_rutter.planning import Kinematics, PlanningState, ProbePlan
-from aind_rutter.runtime.build import CollisionLabelIndex, RuntimeBundle
+from aind_rutter.runtime.build import RuntimeBundle
 from aind_rutter.runtime.probe_context import (
     coverage_weight_for_probe,
     probe_context_from_runtime,
@@ -45,7 +45,6 @@ def _runtime_with_probe() -> RuntimeBundle:
         asset_catalog=catalog,
         targets_pts={"target:test": target_points},
         scene=Scene(),
-        collision_labels=CollisionLabelIndex(label_to_bit={}, bit_to_label={}),
         plan_state=plan_state,
     )
 

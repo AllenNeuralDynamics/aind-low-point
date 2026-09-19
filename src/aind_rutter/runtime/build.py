@@ -5,19 +5,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import trimesh
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
 from aind_rutter.assets import AssetCatalog, AssetSpec, TargetSpec
-from aind_rutter.common import Capability, Kind, Role
+from aind_rutter.common import Kind, Role
 from aind_rutter.config import (
     NO_RECORDING_ARRAY,
     AssetSpecModel,
     BaseSpecModel,
-    CollisionPolicyModel,
     ConfigModel,
     HeadMountModel,
     MaterialModel,
@@ -90,17 +89,6 @@ def _build_subject_from_rig(model: HeadMountModel) -> AffineTransform:
     return AffineTransform(rotation=R)
 
 
-def _compile_collision_labels(labels_in_use: Iterable[str]) -> dict[str, int]:
-    """
-    Assign each collision label a bit. Bit 0 is reserved for 'NONE' (unused).
-    """
-    labels = [lab for lab in dict.fromkeys(labels_in_use) if lab]  # unique, drop falsy
-    mapping: dict[str, int] = {}
-    for i, lab in enumerate(labels, start=1):  # start bits at 1
-        mapping[lab] = 1 << i
-    return mapping
-
-
 def _material_from_model(m: MaterialModel) -> Material:
     return Material(
         name=m.name,
@@ -129,60 +117,24 @@ def resolve_material_for_spec(
 
 
 @dataclass(frozen=True)
-class CollisionLabelIndex:
-    label_to_bit: dict[str, int]
-    bit_to_label: dict[int, str]
-
-
-@dataclass(frozen=True)
 class RuntimeBundle:
     # Catalog after loading/canonicalizing
     asset_catalog: AssetCatalog  # runtime AssetSpec (with Mesh/PointsTransformable)
     targets_pts: dict[str, np.ndarray]  # key -> (N,3) points in LPS mm
     # Scene ready to render
     scene: Scene
-    # Collision label bits (for adapters)
-    collision_labels: CollisionLabelIndex
     plan_state: PlanningState
-
-
-def _capabilities_from_list(lst) -> Capability:
-    val = Capability(0)
-    for c in lst or []:
-        if isinstance(c, Capability):
-            val |= c
-        elif isinstance(c, int):
-            val |= Capability(c)
-        elif isinstance(c, str):
-            val |= Capability[c.upper()]
-        else:
-            val |= Capability(int(c))
-    return val
-
-
-def _collision_bits(
-    policy: CollisionPolicyModel, label_to_bit: dict[str, int]
-) -> tuple[int, int]:
-    group_bits = label_to_bit.get(policy.group or "", 0)
-    mask_bits = 0
-    for lab in policy.mask:
-        mask_bits |= label_to_bit.get(lab, 0)
-    return group_bits, mask_bits
 
 
 def _base_spec_kwargs_from_model(
     m: BaseSpecModel,
-    label_to_bit: dict[str, int],
     material_models: dict[str, MaterialModel] = {},
 ) -> dict[str, Any]:
-    group_bits, mask_bits = _collision_bits(m.collision, label_to_bit)
     material = resolve_material_for_spec(m, material_models)
     return dict(
         key=m.key,
         kind=m.kind.value,  # "mesh" | "points" | "lines"
-        # Normalised: configs that predate `role: probe` say `geometry` and
-        # carry the probe-ness in the key prefix instead.
-        role=Role.PROBE if is_probe_spec(m) else m.role,
+        role=m.role,
         default_material=material,
         metadata=dict(m.metadata),
         collidable=resolve_collidable(m),
@@ -273,28 +225,13 @@ def _default_probe_pivot_local(
 
 
 def resolve_collidable(m) -> bool:
-    """Whether this asset gets an FCL body.
-
-    ``collidable`` states it; ``caps`` containing ``COLLIDABLE`` is how configs
-    that predate the field said it.
-    """
-    declared = getattr(m, "collidable", None)
-    if declared is not None:
-        return bool(declared)
-    caps = _capabilities_from_list(getattr(m, "caps", None) or ())
-    return bool(caps & Capability.COLLIDABLE)
+    """Whether this asset gets an FCL body; unset means it does not."""
+    return bool(getattr(m, "collidable", None))
 
 
 def is_probe_spec(a) -> bool:
-    """Whether this asset is a probe.
-
-    ``role: probe`` states it; the ``probe:`` key prefix is how configs that
-    predate the role said it, and they set ``role: geometry`` explicitly, so
-    inference never fires for them.
-    """
-    if a.role is Role.PROBE:
-        return True
-    return isinstance(a.key, str) and a.key.startswith("probe:")
+    """Whether this asset is a probe."""
+    return a.role is Role.PROBE
 
 
 def resolve_recording(a) -> RecordingGeometry | None:
@@ -545,44 +482,29 @@ def build_plan_state_from_config(
     )
 
 
-def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
-    # 1) collision labels → bit mapping
-    labels: list[str] = []
-    for a in cfg.assets:
-        if a.collision.group:
-            labels.append(a.collision.group)
-        labels.extend(a.collision.mask)
-    for t in cfg.targets:
-        if t.collision.group:
-            labels.append(t.collision.group)
-        labels.extend(t.collision.mask)
-    label_to_bit = _compile_collision_labels(labels)
-    bit_to_label = {v: k for k, v in label_to_bit.items()}
-    label_index = CollisionLabelIndex(
-        label_to_bit=label_to_bit, bit_to_label=bit_to_label
-    )
-    # 2) assets
+def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:
+    # 1) assets
     chem = ChemShiftContext.from_config(cfg)
     compiled_transforms = compile_all_transforms(cfg.transforms)
     runtime_assets: dict[str, AssetSpec] = {}
     for a in cfg.assets:
         maybe_cannon = _resolve_canon_model_to_runtime(a, cfg, compiled_transforms)
-        base_kwargs = _base_spec_kwargs_from_model(a, label_to_bit, cfg.materials)
+        base_kwargs = _base_spec_kwargs_from_model(a, cfg.materials)
         runtime_assets[a.key] = build_asset_spec(a, base_kwargs, chem, maybe_cannon)
 
-    # 3) resources
+    # 2) resources
     runtime_resources: dict[str, GeometryOut] = {}
     for r in cfg.resources:
         maybe_cannon = _resolve_canon_model_to_runtime(r, cfg, compiled_transforms)
         runtime_resources[r.key] = load_resource(r, chem, maybe_cannon)
 
-    # 4) targets (specs + points index)
+    # 3) targets (specs + points index)
     runtime_targets: dict[str, TargetSpec] = {}
     target_index: dict[str, Float3] = {}
     skipped_targets: set[str] = set()
     for t in cfg.targets:
         maybe_cannon = _resolve_canon_model_to_runtime(t, cfg, compiled_transforms)
-        base_kwargs = _base_spec_kwargs_from_model(t, label_to_bit, cfg.materials)
+        base_kwargs = _base_spec_kwargs_from_model(t, cfg.materials)
         try:
             tspec, pts = build_target_spec(
                 t,
@@ -606,7 +528,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
 
     catalog = AssetCatalog(assets=runtime_assets, targets=runtime_targets)
 
-    # 5) scene
+    # 4) scene
     scene = Scene()
     for n in cfg.scene.nodes:
         asset_key = n.asset
@@ -647,7 +569,7 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
         if transformed is not None:
             target_index[key] = transformed.raw
 
-    # 6) kinematics, calibrations, plans — shared mesh-free helper (node targets
+    # 5) kinematics, calibrations, plans — shared mesh-free helper (node targets
     #    are resolved via the catalog + scene built above)
     plan_state = build_plan_state_from_config(
         cfg, catalog=catalog, scene=scene, target_index=target_index
@@ -657,6 +579,5 @@ def build_runtime_from_config(cfg: ConfigModel) -> RuntimeBundle:  # noqa: C901
         asset_catalog=catalog,
         targets_pts=target_index,
         scene=scene,
-        collision_labels=label_index,
         plan_state=plan_state,
     )

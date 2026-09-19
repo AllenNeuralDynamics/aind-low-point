@@ -14,7 +14,6 @@ paths:
 imaging:
   magnet_frequency_MHz: 599.0
   chem_shift_ppm_default: 3.9
-  chem_shift_apply_by_role: [anatomy, target]
   image_path: "${paths.annotations_path}/${paths.mouse}_100.nii.gz"
 
 transforms:

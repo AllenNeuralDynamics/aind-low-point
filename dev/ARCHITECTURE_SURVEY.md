@@ -84,8 +84,9 @@ because a mistyped tag loads silently while a mistyped enum is refused:
 Every migration was verified rather than asserted: behaviour computed from the
 pre-migration configs and from the migrated ones agrees on every chemical-shift
 decision and ppm, every collidability, and all 169 collision pairs.
-`tests/config_semantics.json` pins that, and `scripts/upgrade_config.py` brings an
-older config forward, accepting the result only if none of it moves.
+`tests/config_semantics.json` pins that. `scripts/upgrade_config.py` brought an
+older config forward, accepting the result only if none of it moved; it lives at
+commit `e7e345c`, the last one whose models can read the fields it migrates.
 
 The suite went 499 → 671 (step 2) → 730. Two findings under "Tests and
 documentation" are fixed by step 1 and are marked where they appear. Everything
@@ -151,12 +152,11 @@ clamped angles to the optimizer reproduces the app exactly, and that is asserted
 merging them now that the layouts are named would mean a layout-generic packer —
 more abstraction than two sites justify.
 
-**What is left.** Steps 6 and 7, and one gated step: retiring `caps`, `collision`,
-`chem_shift_policy`, `chem_shift_apply_by_role` and the `role` prefix inference
-from the models. Those stay until the configs on `/mnt/vast` and in `scratch/`
-have been through `scripts/upgrade_config.py`, because once they go
-`extra="forbid"` refuses a config still carrying them and the migrations can no
-longer read them to derive the replacements. Decisions 10 to 16 remain open.
+**What is left.** Steps 6 and 7. `caps`, `collision`, `chem_shift_policy`,
+`chem_shift_apply_by_role` and the `role` prefix inference are gone from the
+models: the 113 local configs carrying them were migrated and verified first,
+and a config that still states one is now refused by name. Decisions 10 to 16
+are answered below.
 
 ## The package today
 

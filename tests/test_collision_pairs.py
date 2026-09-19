@@ -1,10 +1,10 @@
 """Which pairs get an FCL test, decided by a rule rather than per-asset labels.
 
-Every asset used to carry `collision.group` and `collision.mask` label lists,
-compiled to bits, and `FCLBackend` tested a pair when each side's mask admitted
-the other's group. Across all five tracked configs those labels only ever
-expressed two patterns — probes admit fixtures and probes, fixtures admit probes
-— so the pair filter is a rule about probe-ness, not data.
+`FCLBackend` tests a pair when each side's mask admits the other's group, and
+`pair_bits` derives both from `collidable` and `role`: probes admit fixtures and
+probes, fixtures admit probes. Across every tracked config the hand-written
+labels this replaced only ever expressed those two patterns, so the pair filter
+is a rule about probe-ness, not data a subject supplies.
 """
 
 from __future__ import annotations
@@ -63,21 +63,6 @@ def test_the_rule(a: _Spec, b: _Spec, tested: bool) -> None:
 def test_a_non_collidable_probe_is_tested_against_nothing() -> None:
     """`collidable` and probe-ness are separate questions."""
     assert not _tested(_Spec(False, Role.PROBE), PROBE)
-
-
-@pytest.mark.parametrize("path", CONFIGS)
-def test_no_config_still_carries_collision_labels(path: str) -> None:
-    """`collision.group`/`mask` are migrated away; the rule decides now.
-
-    Which pairs each config yields is pinned in tests/config_semantics.json.
-    """
-    cfg = ConfigModel.from_yaml(path)
-    labelled = [
-        str(s.key)
-        for s in [*cfg.assets, *cfg.targets]
-        if s.collision.group or s.collision.mask
-    ]
-    assert not labelled, f"{path}: still labelled: {labelled}"
 
 
 @pytest.mark.parametrize("path", CONFIGS)

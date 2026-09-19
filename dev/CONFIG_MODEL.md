@@ -67,7 +67,8 @@ overrides)` — see the "Template merge" gotcha below.
   pack is by definition a directory of meshes).
 - `role` defaults to `Role.ANATOMY` (sensible for brain regions); user can
   override at the pack level. Other fields (templates, material, transform,
-  scene_tags, caps, collision, …) behave the same as in `BulkAssetSpecModel`.
+  scene_tags, collidable, mr_signal, …) behave the same as in
+  `BulkAssetSpecModel`.
 - `use_ccf_color: true` injects a per-region inline `material` with the CCF
   region's bundled `color_hex`. Other material fields (opacity, point_size,
   …) flow through from `material_ref` / pack-level `material` as usual. If
@@ -219,7 +220,6 @@ plan:
       # calibrated: false
       # auto_scene: true
       # scene_tags: ["probe", "dynamic"]
-      # chem_shift_policy: auto
 ```
 
 `scene_tags` on probes is what causes `("probe", ...)` filtering elsewhere

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from aind_rutter.common import Capability, Kind, Role
+from aind_rutter.common import Kind, Role
 from aind_rutter.config import (
     AssetSpecModel,
     ConfigModel,
@@ -120,7 +120,7 @@ class TestModelLogicErrors:
     def test_target_collidable_restriction_error(self):
         """Test clear error when target is marked as collidable."""
         target_data = TargetFactory.explicit_target()
-        target_data["caps"] = [Capability.RENDERABLE.value, Capability.COLLIDABLE.value]
+        target_data["collidable"] = True
 
         with pytest.raises(
             ValidationError, match="targets should not be collidable by default"
@@ -532,3 +532,43 @@ class TestComplexErrorScenarios:
         # Should contain both types of errors
         assert "material_ref 'missing_material' not found" in error_msg
         assert "template 'missing_template' not found" in error_msg
+
+
+class TestRetiredFields:
+    """A config written against an older schema is refused by name."""
+
+    def _write(self, tmp_path, body: str):
+        path = tmp_path / "subject.yml"
+        path.write_text(body)
+        return path
+
+    @pytest.mark.parametrize(
+        ("body", "field"),
+        [
+            ("version: 1\noptions:\n  color_map: viridis\n", "options"),
+            (
+                "version: 1\nimaging:\n  magnet_frequency_MHz: 599.0\n"
+                "  chem_shift_apply_by_role: [anatomy]\n",
+                "chem_shift_apply_by_role",
+            ),
+            (
+                "version: 1\nassets:\n  - key: well\n    src: w.obj\n"
+                "    loader: trimesh\n    caps: [RENDERABLE, COLLIDABLE]\n",
+                "caps",
+            ),
+            (
+                "version: 1\nasset_templates:\n  hardware:\n    kind: mesh\n"
+                "    collision:\n      group: fixture\n      mask: [probe]\n",
+                "collision",
+            ),
+        ],
+    )
+    def test_a_retired_field_names_its_replacement(self, tmp_path, body, field):
+        path = self._write(tmp_path, body)
+        with pytest.raises(ValueError, match=f"`{field}`"):
+            ConfigModel.from_yaml(path)
+
+    def test_the_error_says_where_to_migrate_from(self, tmp_path):
+        path = self._write(tmp_path, "version: 1\noptions: {}\n")
+        with pytest.raises(ValueError, match="upgrade_config.py"):
+            ConfigModel.from_yaml(path)

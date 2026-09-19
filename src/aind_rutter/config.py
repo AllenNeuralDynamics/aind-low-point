@@ -24,14 +24,12 @@ from pydantic import (
     Field,
     FilePath,
     PrivateAttr,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
 
 from aind_rutter.common import (
     KNOWN_SCENE_TAGS,
-    Capability,
     Kind,
     MRSignal,
     Role,
@@ -117,9 +115,43 @@ def _find_matching_templates(key: str, templates: dict[str, Any]) -> list[str]:
     return matches
 
 
-# Top-level keys the model no longer has. A legacy load drops them so the
-# upgrade path can still read a config written before they went.
-RETIRED_KEYS: tuple[str, ...] = ("options",)
+# Fields the models no longer have, and what says the same thing now.
+# `extra="forbid"` already refuses them; naming the replacement is the
+# difference between "unexpected key" and knowing what to write instead.
+RETIRED_FIELDS: dict[str, str] = {
+    "caps": "`collidable: true`",
+    "collision": "`collidable: true` plus `role: probe` or `role: fixture`",
+    "chem_shift_policy": "`mr_signal`",
+    "chem_shift_apply_by_role": "`mr_signal`, stated per asset and target",
+    "options": "nothing — no code has read it since the notebook frontend went",
+}
+
+# The last commit whose `scripts/upgrade_config.py` can read the fields above
+# and derive their replacements. Check it out to migrate a config written
+# before them; this version cannot, because the models no longer hold them.
+UPGRADE_FROM_COMMIT = "e7e345c"
+
+
+def _retired_fields_in(doc: Any) -> set[str]:
+    """Which retired fields a raw config still states, and where they can be.
+
+    Scoped to the blocks that carried them rather than walking the whole
+    document, so a subject is free to use one of these words for its own key.
+    """
+    found: set[str] = set()
+    if not isinstance(doc, dict):
+        return found
+    found |= RETIRED_FIELDS.keys() & doc.keys()
+    found |= RETIRED_FIELDS.keys() & (doc.get("imaging") or {}).keys()
+    for section in ("assets", "targets"):
+        for item in doc.get(section) or ():
+            if isinstance(item, dict):
+                found |= RETIRED_FIELDS.keys() & item.keys()
+    for section in ("asset_templates", "target_templates"):
+        for item in (doc.get(section) or {}).values():
+            if isinstance(item, dict):
+                found |= RETIRED_FIELDS.keys() & item.keys()
+    return found
 
 
 # Add FILE_NATIVE as a sentinel without mixing semantics
@@ -131,12 +163,9 @@ class ImagingModel(BaseModel):
 
     magnet_frequency_MHz: float
     chem_shift_ppm_default: float = 3.7
-    chem_shift_apply_by_role: list[Role] = Field(default_factory=lambda: [Role.ANATOMY])
     # optionally, where to read the reference image from if needed by your library
     image_path: Optional[FilePath] = None
 
-
-ChemMode = Literal["on", "off", "auto"]
 
 # A probe with no recording array — a pipette — targets with its tip. Said out
 # loud so a mistyped kind cannot quietly mean the same thing.
@@ -221,7 +250,6 @@ class GeometrySourceModel(BaseModel):
     )
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
@@ -310,19 +338,6 @@ Selector = Annotated[
 
 def select_from_resource(payload: Any, selector: Selector) -> Any:
     return selector.select(payload)
-
-
-class CollisionPolicyModel(BaseModel):
-    """Label-based policy; compile to bitmasks in loader."""
-
-    model_config = {"extra": "forbid"}
-
-    group: Optional[str] = Field(
-        default=None, description="e.g., STATIC, FIXTURE, PROBE"
-    )
-    mask: list[str] = Field(
-        default_factory=list, description="Labels it can collide with"
-    )
 
 
 class _TxOpBase(BaseModel):
@@ -468,39 +483,17 @@ class BaseTemplateModel(GeometrySourceModel):
     canonicalization: Optional["CanonicalizationDefModel"] = None
     canonicalization_override: Optional["CanonicalizationDefModel"] = None
 
-    caps: Optional[list["Capability"]] = None
     collidable: Optional[bool] = None
-    collision: Optional["CollisionPolicyModel"] = None
 
     pivot_LPS: Optional[list[float]] = None
     bbox_hint: Optional[list[list[float]]] = None
 
     # Chem-shift hints (optional, ignored if not applicable)
     chem_shift_ppm: Optional[float] = None
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
     recording: Union[RecordingModel, Literal["none"], None] = None
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
 
 class AssetTemplateModel(BaseTemplateModel):
@@ -569,41 +562,18 @@ class BaseSpecModel(BaseModel):
     )
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    # capabilities are parsed from strings like ["RENDERABLE", "COLLIDABLE"]
-    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
-    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    # Whether this asset gets an FCL body.
     collidable: Optional[bool] = None
-    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     # UI/layout hints
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
     recording: Union[RecordingModel, Literal["none"], None] = None
     chem_shift_ppm: Optional[float] = None
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
     @model_validator(mode="after")
     def _check_canon_choice(self):
@@ -746,15 +716,12 @@ class BulkAssetSpecModel(BaseModel):
     canonicalization: Optional[CanonicalizationDefModel] = None
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
-    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    # Whether this asset gets an FCL body.
     collidable: Optional[bool] = None
-    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
@@ -764,25 +731,6 @@ class BulkAssetSpecModel(BaseModel):
     templates: list[str] = Field(default_factory=list)
     from_resource: Optional[str] = None
     selector: Optional[Selector] = None
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
     def expand(self) -> list[AssetSpecModel]:
         """Expand into individual AssetSpecModel instances."""
@@ -849,15 +797,12 @@ class AtlasMeshPackSpecModel(BaseModel):
     canonicalization: Optional[CanonicalizationDefModel] = None
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
-    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    # Whether this asset gets an FCL body.
     collidable: Optional[bool] = None
-    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
@@ -865,25 +810,6 @@ class AtlasMeshPackSpecModel(BaseModel):
     chem_shift_ppm: Optional[float] = None
 
     templates: list[str] = Field(default_factory=list)
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
     @model_validator(mode="after")
     def _validate_acronyms(self) -> "AtlasMeshPackSpecModel":
@@ -1005,7 +931,7 @@ class TargetSpecModel(BaseSpecModel):
         return data
 
     @model_validator(mode="after")
-    def _check_target_source_and_caps(self):
+    def _check_target_source(self):
         explicit = self.src is not None and self.loader is not None
         derived = self.source_key is not None
         from_res = (self.from_resource is not None) and (self.selector is not None)
@@ -1015,7 +941,7 @@ class TargetSpecModel(BaseSpecModel):
                 f"Target '{self.key}': provide exactly one of "
                 "(src+loader) | (source_key+reducer) | (from_resource+selector)"
             )
-        if self.collidable or Capability.COLLIDABLE in self.caps:
+        if self.collidable:
             raise ValueError(
                 f"Target '{self.key}': targets should not be collidable by default."
             )
@@ -1072,15 +998,12 @@ class RangeTargetSpecModel(BaseModel):
     canonicalization: Optional[CanonicalizationDefModel] = None
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
-    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    # Whether this asset gets an FCL body.
     collidable: Optional[bool] = None
-    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
@@ -1093,25 +1016,6 @@ class RangeTargetSpecModel(BaseModel):
         default=None, min_length=3, max_length=3
     )
     uncertainty_mm: Optional[float] = None
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
     def expand(self) -> list[TargetSpecModel]:
         """Expand into individual TargetSpecModel instances."""
@@ -1193,15 +1097,12 @@ class DerivedTargetSpecModel(BaseModel):
     canonicalization: Optional[CanonicalizationDefModel] = None
     canonicalization_override: Optional[CanonicalizationOverrideModel] = None
 
-    caps: list[Capability] = Field(default_factory=lambda: [Capability.RENDERABLE])
-    # Whether this asset gets an FCL body. Unset falls back to `caps`.
+    # Whether this asset gets an FCL body.
     collidable: Optional[bool] = None
-    collision: CollisionPolicyModel = Field(default_factory=CollisionPolicyModel)
 
     pivot_LPS: Optional[list[float]] = Field(default=None, min_length=3, max_length=3)
     bbox_hint: Optional[list[list[float]]] = Field(default=None)
 
-    chem_shift_policy: ChemMode = "auto"
     mr_signal: Optional[MRSignal] = None
     # Unset resolves from the built-in table by kind; "none" declares a
     # probe with no recording array.
@@ -1214,25 +1115,6 @@ class DerivedTargetSpecModel(BaseModel):
         default=None, min_length=3, max_length=3
     )
     uncertainty_mm: Optional[float] = None
-
-    @field_validator("caps", mode="before")
-    @classmethod
-    def _coerce_caps(cls, v):
-        if v is None:
-            return v
-        if not isinstance(v, list):
-            v = [v]
-        out = []
-        for item in v:
-            if isinstance(item, Capability):
-                out.append(item)
-            elif isinstance(item, str):
-                out.append(Capability[item.upper()])
-            elif isinstance(item, int):
-                out.append(Capability(item))
-            else:
-                out.append(item)
-        return out
 
     def expand(
         self, asset_by_key: Optional[dict[str, "AssetSpecModel"]] = None
@@ -1688,27 +1570,26 @@ class ConfigModel(BaseModel):
     canonicalizations: dict[str, CanonicalizationDefModel] = Field(default_factory=dict)
 
     @classmethod
-    def from_yaml(cls, path: "str | Path", *, legacy: bool = False) -> "ConfigModel":
-        """Load a ConfigModel from a YAML file with OmegaConf interpolation.
-
-        ``legacy=True`` reads a config written against an older schema: keys the
-        model has since retired are dropped rather than refused, and `mr_signal`
-        is not required. Only `scripts/upgrade_config.py` passes it — a config
-        read this way resolves chemical shift from `role`, which cannot tell an
-        annotation centroid from a bore centre.
-        """
+    def from_yaml(cls, path: "str | Path") -> "ConfigModel":
+        """Load a ConfigModel from a YAML file with OmegaConf interpolation."""
         from omegaconf import OmegaConf
 
         raw = OmegaConf.load(path)
         resolved = OmegaConf.to_container(raw, resolve=True)
-        if legacy and isinstance(resolved, dict):
-            for key in RETIRED_KEYS:
-                resolved.pop(key, None)
-        return cls.model_validate(resolved, context={"require_mr_signal": not legacy})
+        retired = _retired_fields_in(resolved)
+        if retired:
+            says = "; ".join(f"`{k}` → {RETIRED_FIELDS[k]}" for k in sorted(retired))
+            raise ValueError(
+                f"{path}: written against a retired schema ({says}). Migrate it "
+                f"with `scripts/upgrade_config.py` as of commit "
+                f"{UPGRADE_FROM_COMMIT}, which is the last one that can read "
+                f"these fields."
+            )
+        return cls.model_validate(resolved)
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")
-    def _xref_and_expand_templates(self, info: ValidationInfo):  # noqa: C901
+    def _xref_and_expand_templates(self):  # noqa: C901
         errors: list[str] = []
 
         # ---------- Expand bulk specs first ----------
@@ -1933,7 +1814,7 @@ class ConfigModel(BaseModel):
                     "from_resource, you must also provide a selector."
                 )
 
-        def _check_target_spec_single_source_and_caps(spec: TargetSpecModel):
+        def _check_target_spec_single_source(spec: TargetSpecModel):
             explicit = spec.src is not None and spec.loader is not None
             derived = spec.source_key is not None
             from_res = (spec.from_resource is not None) and (spec.selector is not None)
@@ -1943,7 +1824,7 @@ class ConfigModel(BaseModel):
                     f"Target '{_where_key(spec)}': provide exactly one of "
                     "(src+loader) | (source_key+reducer) | (from_resource+selector)"
                 )
-            if Capability.COLLIDABLE in spec.caps:
+            if spec.collidable:
                 err(f"Target '{_where_key(spec)}': targets should not be collidable.")
 
         def _check_material_ref(spec, where_prefix: str):
@@ -1953,12 +1834,6 @@ class ConfigModel(BaseModel):
                     f"{where_prefix} '{_where_key(spec)}': "
                     f"material_ref '{mref}' not found"
                 )
-
-        # Chemical shift displaces geometry by millimetres and nothing
-        # downstream notices, so a config that has an image must say, per
-        # feature, which resonance localized it. A config without an `imaging`
-        # block — an atlas-based plan — has no image and says nothing.
-        require_mr_signal = (info.context or {}).get("require_mr_signal", True)
 
         def _check_probe_recording():
             """Every probe kind a plan uses must resolve to a recording array.
@@ -2010,8 +1885,10 @@ class ConfigModel(BaseModel):
         _check_probe_recording()
 
         def _check_mr_signal(spec, where_prefix: str):
-            if not require_mr_signal:
-                return
+            # Chemical shift displaces geometry by millimetres and nothing
+            # downstream notices, so a config that has an image must say, per
+            # feature, which resonance localized it. A config without an
+            # `imaging` block — an atlas plan — has no image and says nothing.
             if self.imaging is None or spec.mr_signal is not None:
                 return
             err(
@@ -2030,7 +1907,7 @@ class ConfigModel(BaseModel):
             _check_material_ref(t, "target")
             _check_spec_kind(t, "target", allowable={Kind.POINTS})
             _check_spec_role(t, "target", allowable={Role.TARGET})
-            _check_target_spec_single_source_and_caps(t)
+            _check_target_spec_single_source(t)
             _check_mr_signal(t, "target")
 
         for name, tmpl in self.asset_templates.items():
@@ -2303,22 +2180,6 @@ def _merge_dict_shallow(
     return {**a, **b}
 
 
-def _merge_collision(
-    base: Optional[dict[str, Any]], over: Optional[dict[str, Any]]
-) -> Optional[dict[str, Any]]:
-    if base is None:
-        return over
-    if over is None:
-        return base
-    # union mask; overlay group if provided
-    merged_mask = _union_list(base.get("mask"), over.get("mask")) or []
-    group = over.get("group", base.get("group"))
-    base.update(over)
-    base["mask"] = merged_mask
-    base["group"] = group
-    return type(base)(**base)
-
-
 # -----------------------------
 # Asset template merge
 # -----------------------------
@@ -2391,7 +2252,6 @@ def merge_asset_template_model_dumps(
 
     # unions
     out["tags"] = _union_list(base.get("tags"), over.get("tags")) or []
-    out["caps"] = _union_list(base.get("caps"), over.get("caps")) or None
 
     # metadata shallow merge
     out["metadata"] = _merge_dict_shallow(base.get("metadata"), over.get("metadata"))
@@ -2406,9 +2266,6 @@ def merge_asset_template_model_dumps(
     out["canonicalization_override"] = _merge_dict_shallow(
         base.get("canonicalization_override"),
         over.get("canonicalization_override", None),
-    )
-    out["collision"] = _merge_collision(
-        base.get("collision"), over.get("collision", None)
     )
 
     # refs (replace-on-write)
@@ -2425,9 +2282,6 @@ def merge_asset_template_model_dumps(
         over.get("chem_shift_ppm", None)
         if "chem_shift_ppm" in over
         else base.get("chem_shift_ppm", None)
-    )
-    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or base.get(
-        "chem_shift_policy", None
     )
 
     # source modes
@@ -2585,7 +2439,6 @@ def merge_target_template_model_dumps(
 
     # unions
     out["tags"] = _union_list(base.get("tags"), over.get("tags")) or []
-    out["caps"] = _union_list(base.get("caps"), over.get("caps")) or None
 
     # metadata shallow merge
     out["metadata"] = _merge_dict_shallow(base.get("metadata"), over.get("metadata"))
@@ -2600,9 +2453,6 @@ def merge_target_template_model_dumps(
     out["canonicalization_override"] = _merge_dict_shallow(
         base.get("canonicalization_override"),
         over.get("canonicalization_override", None),
-    )
-    out["collision"] = _merge_collision(
-        base.get("collision"), over.get("collision", None)
     )
 
     # refs (replace-on-write)
@@ -2625,9 +2475,6 @@ def merge_target_template_model_dumps(
         over.get("chem_shift_ppm", None)
         if "chem_shift_ppm" in over
         else base.get("chem_shift_ppm", None)
-    )
-    out["chem_shift_policy"] = over.get("chem_shift_policy", None) or base.get(
-        "chem_shift_policy", None
     )
 
     # source modes

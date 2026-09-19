@@ -32,7 +32,7 @@ class BaseSpec:
     metadata: dict[str, Any] = field(default_factory=dict)
     # free-form (scene/UI grouping)
 
-    # HOW it behaves (capabilities & collision policy)
+    # HOW it behaves
     # Whether this asset gets an FCL body. Which *pairs* are then tested is a
     # rule, not a per-asset label: see `collisions.pair_bits`.
     collidable: bool = False
@@ -86,7 +86,7 @@ class AssetSpec(BaseSpec):
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class TargetSpec(BaseSpec):
-    # For targets we default to points, role TARGET, and non-collidable caps
+    # For targets we default to points and role TARGET; never collidable
     kind: Literal["points", "derived_point"] = "points"
     role: Role = Role.TARGET
 

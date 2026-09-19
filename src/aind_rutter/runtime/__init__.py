@@ -26,12 +26,8 @@ here for backward compatibility.
 """
 
 from aind_rutter.runtime.build import (
-    CollisionLabelIndex,
     RuntimeBundle,
     _base_spec_kwargs_from_model,
-    _capabilities_from_list,
-    _collision_bits,
-    _compile_collision_labels,
     _material_from_model,
     _resolve_scene_node_transform,
     build_asset_spec,
@@ -123,12 +119,8 @@ from aind_rutter.runtime.transforms import (
 
 __all__ = [
     # build
-    "CollisionLabelIndex",
     "RuntimeBundle",
     "_base_spec_kwargs_from_model",
-    "_capabilities_from_list",
-    "_collision_bits",
-    "_compile_collision_labels",
     "_material_from_model",
     "_resolve_scene_node_transform",
     "build_asset_spec",
