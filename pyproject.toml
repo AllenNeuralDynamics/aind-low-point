@@ -155,17 +155,12 @@ ignore-words-list = "nd"
 
 [tool.pytest.ini_options]
 # Fast by default: no coverage (it traces every line for a report nothing
-# gates), parallel across cores (-n auto), and the heavy JAX compile/optimize
-# tests deselected via the `slow` marker. Full run: `pytest -m "" ` (all) or
-# `pytest -m slow`; coverage: `pytest --cov=src -p no:xdist -m ""`.
-addopts = "--strict-markers --tb=short -n auto -m 'not slow'"
+# gates) and parallel across cores. Coverage: `pytest --cov=src -p no:xdist`.
+addopts = "--strict-markers --tb=short -n auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-markers = [
-    "slow: heavy JAX compile/optimize/mesh test — deselected by default",
-]
 
 [tool.interrogate]
 ignore-init-method = true

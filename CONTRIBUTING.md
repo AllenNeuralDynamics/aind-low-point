@@ -1,112 +1,104 @@
 # Contributing
 
-### Linters and testing
+## Setup
 
-There are several libraries used to run linters, check documentation, and run tests.
-
-- Please test your changes using the **coverage** library, which will run the tests and log a coverage report:
-
-```bash
-coverage run -m unittest discover && coverage report
-```
-
-- Use **interrogate** to check that modules, methods, etc. have been documented thoroughly:
+Development happens on Python 3.13; 3.11 is the supported floor, and CI tests
+both. Everything runs through [uv](https://docs.astral.sh/uv/) — nothing is
+installed into a global environment.
 
 ```bash
-interrogate .
+uv sync --python 3.13 --all-extras
 ```
 
-- Use **flake8** to check that code is up to standards (no unused imports, etc.):
+`--all-extras` is load-bearing. The `optimization` extra carries JAX, IPOPT and
+the mesh tooling; without it the package still imports and the app still runs,
+but 18 test modules fail to collect.
+
+## Checks
+
 ```bash
-flake8 .
+uv run --python 3.13 pytest -q        # the suite: 837 passing, 2 skipped
+ruff check                            # lint
+ruff format                           # format, 88 columns
+mypy                                  # types, on the eight modules it lists
+codespell                             # spelling
+interrogate                           # docstring coverage, floor 30%
+uv run --python 3.13 sphinx-build -q -E -b html docs/source docs/build/html
 ```
 
-- Use **black** to automatically format the code into PEP standards:
-```bash
-black .
-```
+`ruff`, `mypy`, `codespell` and `interrogate` are expected on the PATH rather
+than in the project environment, so they take no `uv run`.
 
-- Use **isort** to automatically sort import statements:
-```bash
-isort .
-```
+Build the docs before merging anything that touches `docs/source`. Sphinx
+reports a malformed table or a short heading underline as a warning and exits
+zero, so a broken page does not fail any other check.
 
-### Pull requests
+Four checks fail in ways worth recognising:
 
-For internal members, please create a branch. For external members, please fork the repository and open a pull request from the fork. We'll primarily use [Angular](https://github.com/angular/angular/blob/main/CONTRIBUTING.md#commit) style for commit messages. Roughly, they should follow the pattern:
+- **`tests/architecture/`** holds the structural rules — import cycles,
+  dependency direction, private-name imports, environment reads, and which
+  modules import without JAX. Each carries a baseline of today's exceptions that
+  may only shrink. Fixing a violation means deleting its line; a rule also fails
+  when a listed exception stops violating it, so the lists cannot rot.
+- **`tests/config_semantics.json`** pins what every tracked config resolves to:
+  per-asset chemical-shift decision and ppm, collidability, scene nodes, fixture
+  set and collision pairs. Regenerate it with
+  `uv run --python 3.13 python -m tests.config_semantics` only when changing that
+  behaviour is the point of the commit.
+- **`scripts/parity_phase2.py`** compares Phase-2 output against a baseline
+  commit on a subject written on the spot, and exits non-zero on any difference.
+  Run it for any change to a solver path:
+  `uv run --python 3.13 python scripts/parity_phase2.py --baseline HEAD~1`.
+- **Models are the source of truth.** When a test disagrees with
+  `src/aind_rutter/config/`, the test is what changes.
+
+## Style
+
+- 88-column lines, `ruff format`.
+- NumPy-style docstrings.
+- Pydantic v2, `extra="forbid"` on most models.
+- `@dataclass(frozen=True, slots=True)` for immutable runtime data.
+- Comments say what the code cannot: why this way, what breaks otherwise. No
+  history, no ticket or run identifiers, no measurements from the analysis that
+  prompted the change — that belongs in the commit message, where it stays
+  attached to the diff.
+
+## Commits
+
+Conventional commits, [Angular
+flavour](https://github.com/angular/angular/blob/main/CONTRIBUTING.md#commit):
+
 ```text
 <type>(<scope>): <short summary>
 ```
 
-where scope (optional) describes the packages affected by the code changes and type (mandatory) is one of:
+`type` is one of `build`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`,
+`test` or `chore`; `scope` names the affected package and is optional. Write the
+summary in the imperative, and use the body for what changed and why.
 
-- **build**: Changes that affect build tools or external dependencies (example scopes: pyproject.toml, setup.py)
-- **ci**: Changes to our CI configuration files and scripts (examples: .github/workflows/ci.yml)
-- **docs**: Documentation only changes
-- **feat**: A new feature
-- **fix**: A bugfix
-- **perf**: A code change that improves performance
-- **refactor**: A code change that neither fixes a bug nor adds a feature
-- **test**: Adding missing tests or correcting existing tests
+Commitizen bumps the version from these types when CI passes on `main`:
+`fix` gives a patch, `feat` a minor. `major_version_zero` is set, so a
+`BREAKING CHANGE:` footer bumps the minor as well while the version stays below
+1.0 — mark it anyway, because it is what the changelog reads.
 
-### Semantic Release
+## Pull requests
 
-The table below, from [semantic release](https://github.com/semantic-release/semantic-release), shows which commit message gets you which release type when `semantic-release` runs (using the default configuration):
+Internal contributors branch; external contributors fork. Either way the branch
+has to be green on `ruff check`, the suite and the architecture tests before
+review.
 
-| Commit message                                                                                                                                                                                   | Release type                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `fix(pencil): stop graphite breaking when too much pressure applied`                                                                                                                             | ~~Patch~~ Fix Release, Default release                                                                          |
-| `feat(pencil): add 'graphiteWidth' option`                                                                                                                                                       | ~~Minor~~ Feature Release                                                                                       |
-| `perf(pencil): remove graphiteWidth option`<br><br>`BREAKING CHANGE: The graphiteWidth option has been removed.`<br>`The default graphite width of 10mm is always used for performance reasons.` | ~~Major~~ Breaking Release <br /> (Note that the `BREAKING CHANGE: ` token must be in the footer of the commit) |
+## Documentation
 
-### Documentation
-To generate the rst files source files for documentation, run
-```bash
-sphinx-apidoc -o docs/source/ src
-```
-Then to create the documentation HTML files, run
-```bash
-sphinx-build -b html docs/source/ docs/build/html
-```
-More info on sphinx installation can be found [here](https://www.sphinx-doc.org/en/master/usage/installation.html).
+Four places, split by who reads them:
 
-### Read the Docs Deployment
-Note: Private repositories require **Read the Docs for Business** account. The following instructions are for a public repo.
+| Where | Holds |
+|---|---|
+| `docs/source/` | the user guide and the stable developer reference, built by Sphinx |
+| `dev/` | dated working notes, design records and known defects |
+| `CLAUDE.md` | what a coding agent would otherwise get wrong |
+| `CONTRIBUTING.md` | this: setup, checks, style and conventions |
 
-The following are required to import and build documentations on *Read the Docs*:
-- A *Read the Docs* user account connected to Github. See [here](https://docs.readthedocs.com/platform/stable/guides/connecting-git-account.html) for more details.
-- *Read the Docs* needs elevated permissions to perform certain operations that ensure that the workflow is as smooth as possible, like installing webhooks. If you are not the owner of the repo, you may have to request elevated permissions from the owner/admin.
-- A **.readthedocs.yaml** file in the root directory of the repo. Here is a basic template:
-```yaml
-# Read the Docs configuration file
-# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
-
-# Required
-version: 2
-
-# Set the OS, Python version, and other tools you might need
-build:
-  os: ubuntu-24.04
-  tools:
-    python: "3.13"
-
-# Path to a Sphinx configuration file.
-sphinx:
-  configuration: docs/source/conf.py
-
-# Declare the Python requirements required to build your documentation
-python:
-  install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - dev
-```
-
-Here are the steps for building docs in *Read the Docs*. See [here](https://docs.readthedocs.com/platform/stable/intro/add-project.html) for detailed instructions:
-- From *Read the Docs* dashboard, click on **Add project**.
-- For automatic configuration, select **Configure automatically** and type the name of the repo. A repo with public visibility should appear as you type.
-- Follow the subsequent steps.
-- For manual configuration, select **Configure manually** and follow the subsequent steps
-
-Once a project is created successfully, you will be able to configure/modify the project's settings; such as **Default version**, **Default branch** etc.
+`docs/source/configuration.rst` is what someone writing a config for a new
+subject reads, and `tests/test_docs_configuration.py` loads its worked example,
+so it cannot drift from the models. Anything dated, superseded or specific to
+one run belongs in `dev/`, not in the built docs.
