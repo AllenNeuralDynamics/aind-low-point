@@ -8,21 +8,21 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.optimization.sdf.build import build_probe_sdf
-from aind_rutter.optimization.sdf.clearance_sweep import (
-    build_padded_probe_tables,
-    swept_pair_clearances,
-)
-from aind_rutter.optimization.sdf.kernels import (
+from aind_rutter.optimization.clearance.kernels import (
     body_body_pair_clearance_c2f,
     body_shank_box_clearance_c2f,
     trilinear_sdf,
     trilinear_sdf_stacked,
 )
-from aind_rutter.optimization.sdf.surface_samples import (
+from aind_rutter.optimization.clearance.samples import (
     SampleParams,
     build_clearance_samples,
 )
+from aind_rutter.optimization.clearance.sweep import (
+    build_padded_probe_tables,
+    swept_pair_clearances,
+)
+from aind_rutter.optimization.clearance.voxel_sdf import build_probe_sdf
 
 PAD_VOXELS = 3
 OFF_GRID = 1e3

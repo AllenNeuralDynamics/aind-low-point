@@ -28,7 +28,10 @@ from aind_rutter.domain.probe_kinds import (
     pivot_from_shank_tips,
 )
 from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
-from aind_rutter.optimization.enumeration.contracts import ArcAssignment, HoleAssignment
+from aind_rutter.optimization.assignment.assignments import (
+    ArcAssignment,
+    HoleAssignment,
+)
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.holes import (
     MAX_WALLS_PAD,

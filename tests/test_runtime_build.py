@@ -83,7 +83,7 @@ def test_plan_state_reproduces_the_declared_probes(runtime: RuntimeBundle) -> No
 
 
 def test_head_pitch_comes_from_the_plan(runtime: RuntimeBundle) -> None:
-    from aind_rutter.optimization.pipeline.runtime_adapter import (
+    from aind_rutter.optimization.pipeline.subject import (
         head_pitch_deg_from_runtime,
     )
 

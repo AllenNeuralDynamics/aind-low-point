@@ -10,7 +10,7 @@ from aind_rutter.build.assemble import RuntimeBundle
 from aind_rutter.domain.transforms import AffineTransform
 from aind_rutter.optimization.geometry import HoleSection
 from aind_rutter.optimization.geometry.holes import Hole
-from aind_rutter.optimization.pipeline.runtime_adapter import (
+from aind_rutter.optimization.pipeline.subject import (
     find_well_fixture,
     head_pitch_deg_from_runtime,
     transform_holes_to_lps,

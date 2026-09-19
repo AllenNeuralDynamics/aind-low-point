@@ -43,6 +43,21 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from aind_rutter.optimization.clearance.kernels import (
+    FIXTURE_PAIR_SLACK_GAINS,
+    PROBE_PAIR_SLACK_GAINS,
+    pose_from_optimizer_vars,
+    smooth_abs,
+    spin_deg_from_sxy,
+    trilinear_sdf,
+    unit_circle_penalty,
+)
+from aind_rutter.optimization.clearance.sweep import (
+    build_padded_fixture_table,
+    build_padded_probe_tables,
+    swept_fixture_clearances,
+    swept_pair_clearances,
+)
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
@@ -52,26 +67,11 @@ from aind_rutter.optimization.objectives.coverage import (
     normalized_coverage_objective,
 )
 from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
-from aind_rutter.optimization.objectives.reduced_jax import (
+from aind_rutter.optimization.objectives.threading import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
     threading_g_matrix,
-)
-from aind_rutter.optimization.sdf.clearance_sweep import (
-    build_padded_fixture_table,
-    build_padded_probe_tables,
-    swept_fixture_clearances,
-    swept_pair_clearances,
-)
-from aind_rutter.optimization.sdf.kernels import (
-    FIXTURE_PAIR_SLACK_GAINS,
-    PROBE_PAIR_SLACK_GAINS,
-    pose_from_optimizer_vars,
-    smooth_abs,
-    spin_deg_from_sxy,
-    trilinear_sdf,
-    unit_circle_penalty,
 )
 
 

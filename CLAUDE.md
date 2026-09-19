@@ -25,7 +25,7 @@ PyVista (`web/app.py` + `web/controller.py`).
   last commit whose `scripts/upgrade_config.py` can migrate a config that has
   them.
 - **Every pipeline stage is told, not configured by import order.**
-  `phase1_pool.run(Phase1Settings())`, `phase2_ipopt.run(recs, Phase2Settings())`
+  `phase1.run(Phase1Settings())`, `phase2.run(recs, Phase2Settings())`
   and `emit.run(EmitSettings())` take typed settings; constructor arguments
   outrank the environment. Every variable the pipeline reads is `RUTTER_` plus
   the field's name, upper-cased; the bare spellings are gone, because `CONFIG`,
@@ -116,28 +116,30 @@ The top-level tree above is partial. Two big subpackages are not shown:
 `__init__` exports only `build_runtime_from_config` and `RuntimeBundle`;
 everything else comes from its submodule.
 
-**`optimization/`** — the placement-optimizer package, reorganized
-flat→subpackages (the old flat `optimization/*.py` module names are gone):
-- `enumeration/` — `visibility_atlas`, `atlas`, `arc_placement`,
-  `seed_emission` (`emit_seed`), `contracts` (`ArcAssignment`/`HoleAssignment`)
+**`optimization/`** — the placement-optimizer package. The solver
+subpackages never import `pipeline`; the pipeline drives them.
+- `assignment/` — which probe goes where: `visibility_atlas`, `atlas`,
+  `arc_placement`, `seed_emission` (`emit_seed`), `assignments`
+  (`ArcAssignment`/`HoleAssignment`)
 - `geometry/` — `primitives` (`cap_basis`, `HoleSection`), `kinematics`
-  (`pose_from_optimizer_vars`), `holes`, `recording`,
-  `headstages`, `probes`
-- `objectives/` — `reduced_jax` (`threading_g_matrix`), `phase1`, `phase2`,
-  `fcl_validator`, `coverage`, `batched_reduced`, `batched_static`,
-  `spin_restore`, `probe_static` (`JointWeights`), `variables`,
-  `clearance_metrics`
-- `sdf/` — `kernels` (`arc_angles_to_rotation`, `trilinear_sdf`), `build`,
-  `envelope`, `clearance_sweep`
-- `pipeline/` — the offline batch flow: Phase-1 `phase1_pool`, Phase-2
-  `phase2_ipopt`, `emit`, plus `enumeration`/`phase1_build`/`phase1_geometry`/
-  `restore`/`thick_well`/`probe_setup`/`runtime_adapter`/`contracts`.
-  Phase 2 is callable as `phase2_ipopt.run(recs, settings)`; its inputs and
-  outputs live in modules kept free of jax so they import without a GPU
-  backend — `settings` (`Phase2Settings`, constructor over environment over
+  (`pose_from_optimizer_vars`), `holes`, `headstages`, `probes`
+- `clearance/` — `kernels` (`arc_angles_to_rotation`, `trilinear_sdf`),
+  `voxel_sdf`, `envelope`, `samples`, `sweep`
+- `objectives/` — `soft` (Phase 1), `constrained` (Phase 2), `threading`
+  (`threading_g_matrix`), `reduced`, `packing`, `coverage`, `metrics`,
+  `statics` (`JointWeights`), `variables`, `layout`, `cache_keys`
+- `search/` — `spin_restore`, `minimizers` (the batched RProp/ADAM builders)
+- `validation/` — `fcl`, the ground-truth check a candidate must pass
+- `pipeline/` — the offline batch flow: `phase1`, `phase2`, `emit`, plus
+  `candidates` (the enumerator and its atlas cache), `subject` (the runtime a
+  stage optimizes over), `stage_setup`, `fixtures`, `thick_well`,
+  `probe_setup`. Phase 2 is callable as `phase2.run(recs, settings)`; its
+  inputs and outputs live in modules kept free of jax so they import without a
+  GPU backend — `settings` (`Phase2Settings`, constructor over environment over
   defaults), `selection` (which candidates get solved), `handoff` (keep bands
-  and provenance), `payloads` (JSON files for the pool, handoff and Phase-1
-  caches; nothing in the pipeline reads pickles), `phase2_diagnostics`
+  and provenance), `records` (the payload types), `payloads` (JSON files for
+  the pool, handoff and Phase-1 caches; nothing reads pickles),
+  `phase2_diagnostics`
 
 Console entry points `rutter-phase1` / `rutter-phase2` / `rutter-emit` and the
 `scripts/run_subject_overnight.sh` driver run the pipeline. **See

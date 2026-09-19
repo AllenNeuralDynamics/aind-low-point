@@ -25,10 +25,12 @@ from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.pose import ProbePose
 from aind_rutter.domain.probe_kinds import recording_center_local_for_kind
 from aind_rutter.domain.rig import Kinematics
+from aind_rutter.optimization.clearance.kernels import (
+    pose_from_optimizer_vars as pose_jax,
+)
 from aind_rutter.optimization.geometry.kinematics import (
     pose_from_optimizer_vars as pose_numpy,
 )
-from aind_rutter.optimization.sdf.kernels import pose_from_optimizer_vars as pose_jax
 
 TARGET = np.array([1.5, -3.2, -4.0])
 KIND = "2.1"

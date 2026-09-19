@@ -22,15 +22,15 @@ import numpy as np
 from aind_rutter.build.queries import fixture_node_keys, world_geometry_for_node
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, RecordingGeometry
 from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
+from aind_rutter.optimization.clearance import (
+    build_probe_sdf,
+    build_probe_sdf_from_alpha_wrap,
+)
 from aind_rutter.optimization.objectives.coverage import (
     GaussianCoverageData,
     build_coverage_data_from_probe_context,
 )
-from aind_rutter.optimization.objectives.phase1 import BrainSDFData, FixtureSDFData
-from aind_rutter.optimization.sdf import (
-    build_probe_sdf,
-    build_probe_sdf_from_alpha_wrap,
-)
+from aind_rutter.optimization.objectives.soft import BrainSDFData, FixtureSDFData
 
 
 def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
@@ -104,12 +104,12 @@ def _resample_envelope_surface_in_box(
 
     import trimesh
 
-    from aind_rutter.optimization.sdf.build import (
+    from aind_rutter.optimization.clearance.envelope import build_alpha_wrap_envelope
+    from aind_rutter.optimization.clearance.voxel_sdf import (
         SURFACE_SAMPLE_SEED,
         _cache_dir,
         _mesh_hash,
     )
-    from aind_rutter.optimization.sdf.envelope import build_alpha_wrap_envelope
 
     box = np.round(np.concatenate([box_min, box_max]).astype(np.float64), 6)
     box_key = hashlib.sha256(box.tobytes()).hexdigest()[:12]

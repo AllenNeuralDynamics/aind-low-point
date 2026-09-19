@@ -9,7 +9,7 @@ interpolate, getting a continuous signed distance and (via finite-diff
 on the grid or analytic on the interp formula) a smooth gradient.
 
 This module just builds and caches the grids. Lookup happens in
-:mod:`aind_rutter.optimization.sdf.kernels` (separate to keep JAX
+:mod:`aind_rutter.optimization.clearance.kernels` (separate to keep JAX
 imports out of the path that just needs a grid).
 
 Generation uses ``libigl``'s pseudonormal SDF — typically 0.2–0.3 μs
@@ -32,7 +32,7 @@ import trimesh
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from aind_rutter.optimization.sdf.surface_samples import ClearanceSamples
+    from aind_rutter.optimization.clearance.samples import ClearanceSamples
 
 DEFAULT_SPACING_MM: float = 0.2
 DEFAULT_PAD_MM: float = 2.0
@@ -50,7 +50,7 @@ class ProbeSDF:
     ``world_local_pt = origin + i * spacing`` for each integer index
     ``i`` along the three axes. Look up at a continuous local-frame
     point ``p`` by trilinear or tricubic interpolation in
-    :mod:`aind_rutter.optimization.sdf.kernels`.
+    :mod:`aind_rutter.optimization.clearance.kernels`.
 
     Outside the grid bbox the SDF should be treated as ``+spacing * 10``
     or similar large positive — the probe is "definitely far" — since
@@ -265,7 +265,7 @@ def build_probe_sdf_from_alpha_wrap(
     headframe) — they have no shanks; stripping anything in the
     shank-zone classifier (z ≤ 10.5 mm) would erase the whole mesh.
     """
-    from aind_rutter.optimization.sdf.envelope import (
+    from aind_rutter.optimization.clearance.envelope import (
         build_alpha_wrap_envelope,
         extract_shank_obbs,
         floor_shank_half_extents,
@@ -290,7 +290,7 @@ def build_probe_sdf_from_alpha_wrap(
     if strip_shanks_first:
         centers, halves = extract_shank_obbs(raw_mesh)
         halves = floor_shank_half_extents(halves)
-        from aind_rutter.optimization.sdf.surface_samples import (
+        from aind_rutter.optimization.clearance.samples import (
             build_clearance_samples,
         )
 

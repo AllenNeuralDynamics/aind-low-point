@@ -16,16 +16,16 @@ TIPS = np.array([[0.0, 0.0, 0.0], [0.0, 0.25, 0.0], [0.5, 0.0, 0.0]])
 
 
 def test_the_per_probe_variable_count_has_one_definition() -> None:
-    """`restore` declared a bare 6 of its own; a layout change would have
+    """The stage setup declared a bare 6 of its own; a layout change would have
     silently disagreed with the objective it indexes into."""
-    from aind_rutter.optimization.objectives import clearance_metrics, variables
-    from aind_rutter.optimization.objectives.phase1 import PHASE1_PER_PROBE_VARS
-    from aind_rutter.optimization.pipeline import restore
+    from aind_rutter.optimization.objectives import metrics, variables
+    from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
+    from aind_rutter.optimization.pipeline import stage_setup
 
     counts = {
         variables.PPV,
-        clearance_metrics.PPV,
-        restore.PPV,
+        metrics.PPV,
+        stage_setup.PPV,
         PHASE1_PER_PROBE_VARS,
     }
     assert counts == {PHASE1_PER_PROBE_VARS}
@@ -55,7 +55,7 @@ def test_the_atlas_and_the_statics_agree() -> None:
     """Both take the centre from the probe's resolved recording geometry."""
     from types import SimpleNamespace
 
-    from aind_rutter.optimization.enumeration.visibility_atlas import (
+    from aind_rutter.optimization.assignment.visibility_atlas import (
         _probe_centroid_local,
     )
 
@@ -71,7 +71,7 @@ def test_a_configured_pivot_still_wins_everywhere() -> None:
     """`AssetSpec.pivot_LPS` overrides the derivation; that is what D11 fixed."""
     from aind_rutter.optimization.geometry.holes import Hole, HoleSection
     from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-    from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+    from aind_rutter.optimization.objectives.statics import _build_probe_static
 
     configured = np.array([0.25, -0.5, 2.0])
     probe = ProbeStaticInfo(

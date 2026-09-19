@@ -23,7 +23,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.optimization.geometry.kinematics import pose_from_optimizer_vars
-from aind_rutter.optimization.objectives.phase1 import (
+from aind_rutter.optimization.objectives.soft import (
     PHASE1_PER_PROBE_VARS,
     FixtureSDFData,
 )

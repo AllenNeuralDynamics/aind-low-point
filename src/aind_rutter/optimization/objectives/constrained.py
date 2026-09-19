@@ -31,36 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 
-from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
-from aind_rutter.optimization.objectives.coverage import (
-    CoverageData,
-    coverage_per_probe_over_probes,
-    normalized_coverage_objective,
-    probe_coverage,
-)
-from aind_rutter.optimization.objectives.phase1 import (
-    PHASE1_PER_PROBE_VARS,
-    BrainSDFData,
-    FixtureSDFData,
-    _pack_statics,
-    _saturating_reward_mean,
-    _saturating_reward_worst,
-)
-from aind_rutter.optimization.objectives.reduced_jax import (
-    MAX_SECTIONS_PAD,
-    MAX_SHANKS_PAD,
-    _softplus_squared,
-    threading_g_matrix,
-)
-from aind_rutter.optimization.pipeline.contracts import Phase2Problem
-from aind_rutter.optimization.sdf.clearance_sweep import (
-    build_padded_fixture_table,
-    cast_fixture_grids,
-    cast_packed_grids,
-    swept_fixture_clearances,
-    swept_pair_clearances,
-)
-from aind_rutter.optimization.sdf.kernels import (
+from aind_rutter.optimization.clearance.kernels import (
     SLACK_GAIN_BODY_BODY,
     SLACK_GAIN_BODY_SHANK_CORNERS,
     SLACK_GAIN_FIXTURE_BODY,
@@ -72,6 +43,35 @@ from aind_rutter.optimization.sdf.kernels import (
     trilinear_sdf,
     unit_circle_penalty,
 )
+from aind_rutter.optimization.clearance.sweep import (
+    build_padded_fixture_table,
+    cast_fixture_grids,
+    cast_packed_grids,
+    swept_fixture_clearances,
+    swept_pair_clearances,
+)
+from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
+from aind_rutter.optimization.objectives.coverage import (
+    CoverageData,
+    coverage_per_probe_over_probes,
+    normalized_coverage_objective,
+    probe_coverage,
+)
+from aind_rutter.optimization.objectives.soft import (
+    PHASE1_PER_PROBE_VARS,
+    BrainSDFData,
+    FixtureSDFData,
+    _pack_statics,
+    _saturating_reward_mean,
+    _saturating_reward_worst,
+)
+from aind_rutter.optimization.objectives.threading import (
+    MAX_SECTIONS_PAD,
+    MAX_SHANKS_PAD,
+    _softplus_squared,
+    threading_g_matrix,
+)
+from aind_rutter.optimization.pipeline.records import Phase2Problem
 
 # ---------------------------------------------------------------------------
 # Weights

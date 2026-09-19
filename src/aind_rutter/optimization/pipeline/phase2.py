@@ -77,15 +77,6 @@ from typing import Any, cast  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from aind_rutter.optimization.pipeline.contracts import (  # noqa: E402
-    MRVArcAssignment,
-    MRVHoleAssignment,
-    Phase2HandoffPayload,
-    Phase2InputRecord,
-    Phase2Problem,
-    Phase2ResultRecord,
-    ProbeToHole,
-)
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     classify_results,
     handoff_config,
@@ -93,6 +84,15 @@ from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
 from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
     read_pool,
     write_handoff,
+)
+from aind_rutter.optimization.pipeline.records import (  # noqa: E402
+    MRVArcAssignment,
+    MRVHoleAssignment,
+    Phase2HandoffPayload,
+    Phase2InputRecord,
+    Phase2Problem,
+    Phase2ResultRecord,
+    ProbeToHole,
 )
 from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
     select_records,
@@ -129,12 +129,12 @@ def _init(settings: Phase2Settings | None = None) -> None:
     _G.clear()
     _G["settings"] = settings
     _setup_compile_cache()
-    from aind_rutter.optimization.objectives.phase2 import clear_jit_cache
-    from aind_rutter.optimization.objectives.probe_static import _build_probe_static
-    from aind_rutter.optimization.pipeline.phase1_geometry import (
+    from aind_rutter.optimization.objectives.constrained import clear_jit_cache
+    from aind_rutter.optimization.objectives.statics import _build_probe_static
+    from aind_rutter.optimization.pipeline.fixtures import (
         build_coverage_data,
     )
-    from aind_rutter.optimization.pipeline.runtime_adapter import (
+    from aind_rutter.optimization.pipeline.subject import (
         OptimizationRuntime,
     )
 
@@ -217,16 +217,16 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from aind_rutter.optimization.objectives.coverage import (
         coverage_total_over_probes,
     )
-    from aind_rutter.optimization.objectives.fcl_validator import make_fcl_validator
     from aind_rutter.optimization.objectives.variables import (
         _poses,
         worst_threading_g,
     )
-    from aind_rutter.optimization.pipeline.phase1_geometry import phase1_bounds
+    from aind_rutter.optimization.pipeline.fixtures import phase1_bounds
     from aind_rutter.optimization.pipeline.phase2_diagnostics import (
         minimize_ipopt_logged,
         perturb_pose,
     )
+    from aind_rutter.optimization.validation.fcl import make_fcl_validator
 
     s = _G["settings"]
     idx, n_arcs, pose = rec["idx"], rec["n_arcs"], np.asarray(rec["pose"], float)
@@ -283,7 +283,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             # the branch that reports local infeasibility.
             ipopt_options["resto.acceptable_iter"] = 0
         if s.p2_diag:
-            from aind_rutter.optimization.objectives.phase2 import PADDED_SLACK
+            from aind_rutter.optimization.objectives.constrained import PADDED_SLACK
 
             res, diag["diag_hist"] = minimize_ipopt_logged(
                 p2["fun"],
@@ -427,7 +427,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
     ``_warmup`` and ``_phase2_one`` both build through here, so the warmup compiles
     the functions the solve calls.
     """
-    from aind_rutter.optimization.objectives.phase2 import (
+    from aind_rutter.optimization.objectives.constrained import (
         Phase2Weights,
         make_phase2,
     )
@@ -674,7 +674,7 @@ def run(
         config=handoff_config(settings),
     )
     if settings.p2_diag:
-        from aind_rutter.optimization.objectives.phase2 import SLACK_GROUPS
+        from aind_rutter.optimization.objectives.constrained import SLACK_GROUPS
 
         # Labels are identical across candidates of one probe/fixture set: store once.
         labels = [r.pop("slack_labels", None) for r in results]

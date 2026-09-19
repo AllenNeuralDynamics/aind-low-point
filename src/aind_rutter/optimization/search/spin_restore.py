@@ -29,10 +29,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.objectives.batched_reduced import (
-    _threading_g_for_probe,
+from aind_rutter.optimization.clearance.kernels import (
+    body_body_pair_clearance,
+    body_shank_corners_pair_clearance,
+    dual_rep_fixture_clearance,
+    pose_from_optimizer_vars,
+    shank_only_pair_clearance,
+    spin_deg_from_sxy,
 )
-from aind_rutter.optimization.objectives.batched_static import BatchedProbeStatic
 from aind_rutter.optimization.objectives.layout import (
     ML,
     SPIN_COS,
@@ -40,17 +44,13 @@ from aind_rutter.optimization.objectives.layout import (
     reduced_block,
     reduced_var,
 )
-from aind_rutter.optimization.objectives.probe_static import JointWeights
-from aind_rutter.optimization.pipeline.contracts import (
-    SpinRestoreWithLosses,
+from aind_rutter.optimization.objectives.packing import BatchedProbeStatic
+from aind_rutter.optimization.objectives.reduced import (
+    _threading_g_for_probe,
 )
-from aind_rutter.optimization.sdf.kernels import (
-    body_body_pair_clearance,
-    body_shank_corners_pair_clearance,
-    dual_rep_fixture_clearance,
-    pose_from_optimizer_vars,
-    shank_only_pair_clearance,
-    spin_deg_from_sxy,
+from aind_rutter.optimization.objectives.statics import JointWeights
+from aind_rutter.optimization.pipeline.records import (
+    SpinRestoreWithLosses,
 )
 
 

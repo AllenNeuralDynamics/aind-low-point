@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from aind_rutter.optimization.objectives.phase1 import PHASE1_PER_PROBE_VARS
-from aind_rutter.optimization.sdf.kernels import (
+from aind_rutter.optimization.clearance.kernels import (
     dual_rep_fixture_clearance,
     dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
+from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS
 

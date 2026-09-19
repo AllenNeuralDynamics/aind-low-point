@@ -13,7 +13,10 @@ from aind_rutter.domain.probe_kinds import (
     RecordingGeometry,
     pivot_from_shank_tips,
 )
-from aind_rutter.optimization.enumeration.contracts import ArcAssignment, HoleAssignment
+from aind_rutter.optimization.assignment.assignments import (
+    ArcAssignment,
+    HoleAssignment,
+)
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.headstages import make_fcl_bvh
 from aind_rutter.optimization.geometry.holes import (

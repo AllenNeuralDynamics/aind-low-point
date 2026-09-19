@@ -17,16 +17,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.objectives.batched_static import BatchedProbeStatic
-from aind_rutter.optimization.objectives.layout import (
-    reduced_block,
-)
-from aind_rutter.optimization.objectives.probe_static import JointWeights
-from aind_rutter.optimization.objectives.reduced_jax import (
-    smooth_abs,
-    threading_g_matrix,
-)
-from aind_rutter.optimization.sdf.kernels import (
+from aind_rutter.optimization.clearance.kernels import (
     body_body_pair_clearance,
     body_shank_corners_pair_clearance,
     dual_rep_fixture_clearance,
@@ -34,6 +25,15 @@ from aind_rutter.optimization.sdf.kernels import (
     shank_only_pair_clearance,
     spin_deg_from_sxy,
     unit_circle_penalty,
+)
+from aind_rutter.optimization.objectives.layout import (
+    reduced_block,
+)
+from aind_rutter.optimization.objectives.packing import BatchedProbeStatic
+from aind_rutter.optimization.objectives.statics import JointWeights
+from aind_rutter.optimization.objectives.threading import (
+    smooth_abs,
+    threading_g_matrix,
 )
 
 

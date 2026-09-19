@@ -47,7 +47,7 @@ import jax.numpy as jnp
 import numpy as np
 from scipy.spatial import cKDTree
 
-from aind_rutter.optimization.objectives.phase1 import FixtureSDFData
+from aind_rutter.optimization.objectives.soft import FixtureSDFData
 
 # The solidified cone is grown by this much inside and out. A caller with
 # settings passes `well_margin`; this is the value they default to.
@@ -198,7 +198,7 @@ def main() -> int:
     from aind_rutter.build.assemble import build_runtime_from_config
     from aind_rutter.config import ConfigModel
     from aind_rutter.optimization.jax_env import configure_compile_cache
-    from aind_rutter.optimization.pipeline.phase1_geometry import (
+    from aind_rutter.optimization.pipeline.fixtures import (
         build_fixture_sdf_data,
     )
     from aind_rutter.optimization.pipeline.settings import PipelineSettings

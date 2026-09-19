@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from aind_rutter.optimization.pipeline.contracts import (
+from aind_rutter.optimization.pipeline.records import (
     Phase1PoolRecord,
     Phase2InputRecord,
 )

@@ -20,7 +20,7 @@ JAX_FREE_MODULES = [
     "aind_rutter.domain.pose",
     "aind_rutter.domain.probe_kinds",
     "aind_rutter.domain.transforms",
-    "aind_rutter.optimization.pipeline.contracts",
+    "aind_rutter.optimization.pipeline.records",
     "aind_rutter.optimization.pipeline.handoff",
     "aind_rutter.optimization.pipeline.payloads",
     "aind_rutter.optimization.pipeline.phase2_diagnostics",

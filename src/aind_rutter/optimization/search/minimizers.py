@@ -23,7 +23,11 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 
-from aind_rutter.optimization.objectives.phase1 import (
+from aind_rutter.optimization.clearance.sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+)
+from aind_rutter.optimization.objectives.soft import (
     PACKED_ARG_ORDER,
     PACKED_PER_CAND_KEYS,
     Phase1Weights,
@@ -31,14 +35,10 @@ from aind_rutter.optimization.objectives.phase1 import (
     _pack_statics,
     _signature,
 )
-from aind_rutter.optimization.pipeline.contracts import (
+from aind_rutter.optimization.pipeline.records import (
     BatchedGradientFn,
     BatchedObjectiveFn,
     Phase1ChunkedFns,
-)
-from aind_rutter.optimization.sdf.clearance_sweep import (
-    cast_fixture_grids,
-    cast_packed_grids,
 )
 
 ARG_ORDER = list(PACKED_ARG_ORDER)

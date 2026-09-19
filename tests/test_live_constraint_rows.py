@@ -9,12 +9,12 @@ import numpy as np
 from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.phase2 import (
+from aind_rutter.optimization.objectives.constrained import (
     PADDED_SLACK,
     _padding_mask,
     make_phase2,
 )
-from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+from aind_rutter.optimization.objectives.statics import _build_probe_static
 
 
 def _problem(**kwargs):

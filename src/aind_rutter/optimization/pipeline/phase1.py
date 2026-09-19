@@ -47,13 +47,6 @@ import numpy as np
 
 from aind_rutter.domain.rig import AP_LIMIT_DEG
 from aind_rutter.optimization.jax_env import configure_compile_cache
-from aind_rutter.optimization.objectives.batched_reduced import (
-    make_batched_reduced_objective,
-)
-from aind_rutter.optimization.objectives.batched_static import (
-    build_batched_probe_static,
-)
-from aind_rutter.optimization.objectives.clearance_metrics import make_min_clear_one
 from aind_rutter.optimization.objectives.layout import (
     ML,
     SPIN_COS,
@@ -61,16 +54,34 @@ from aind_rutter.optimization.objectives.layout import (
     reduced_block,
     reduced_n_vars,
 )
-from aind_rutter.optimization.objectives.phase1 import Phase1Weights
-from aind_rutter.optimization.objectives.probe_static import (
+from aind_rutter.optimization.objectives.metrics import make_min_clear_one
+from aind_rutter.optimization.objectives.packing import (
+    build_batched_probe_static,
+)
+from aind_rutter.optimization.objectives.reduced import (
+    make_batched_reduced_objective,
+)
+from aind_rutter.optimization.objectives.soft import Phase1Weights
+from aind_rutter.optimization.objectives.statics import (
     JointWeights,
     _build_probe_static,
 )
-from aind_rutter.optimization.objectives.spin_restore import (
-    make_batched_spin_restore_partial,
-)
 from aind_rutter.optimization.objectives.variables import build_y
-from aind_rutter.optimization.pipeline.contracts import (
+from aind_rutter.optimization.pipeline.candidates import (
+    Enumerator,
+    build_or_load_atlas,
+)
+from aind_rutter.optimization.pipeline.fixtures import (
+    build_coverage_data,
+    phase1_bounds,
+)
+from aind_rutter.optimization.pipeline.payloads import (
+    read_pool,
+    read_seed_cache,
+    write_pool,
+    write_seed_cache,
+)
+from aind_rutter.optimization.pipeline.records import (
     ArglistBuilder,
     EnumeratorCandidate,
     MRVArcAssignment,
@@ -81,34 +92,23 @@ from aind_rutter.optimization.pipeline.contracts import (
     ProbeToHole,
     SeedMap,
 )
-from aind_rutter.optimization.pipeline.enumeration import (
-    Enumerator,
-    build_or_load_atlas,
+from aind_rutter.optimization.pipeline.settings import Phase1Settings
+from aind_rutter.optimization.pipeline.stage_setup import (
+    PPV,
+    setup,
+    setup_runtime,
+    spins_deg_from_reduced,
 )
-from aind_rutter.optimization.pipeline.payloads import (
-    read_pool,
-    read_seed_cache,
-    write_pool,
-    write_seed_cache,
-)
-from aind_rutter.optimization.pipeline.phase1_build import (
+from aind_rutter.optimization.search.minimizers import (
     ARG_ORDER,
     PER_CAND,
     build_cw_fns,
     make_batched_phase1_chunked,
     make_staged_rprop,
 )
-from aind_rutter.optimization.pipeline.phase1_geometry import (
-    build_coverage_data,
-    phase1_bounds,
+from aind_rutter.optimization.search.spin_restore import (
+    make_batched_spin_restore_partial,
 )
-from aind_rutter.optimization.pipeline.restore import (
-    PPV,
-    setup,
-    setup_runtime,
-    spins_deg_from_reduced,
-)
-from aind_rutter.optimization.pipeline.settings import Phase1Settings
 
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]

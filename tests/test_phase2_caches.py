@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from aind_rutter.optimization.objectives.phase2 import (
+from aind_rutter.optimization.objectives.constrained import (
     Phase2Weights,
     _signature,
     _weights_key,
@@ -94,7 +94,7 @@ def test_the_signature_cannot_tell_two_subjects_of_one_shape_apart() -> None:
 
 
 def test_clearing_drops_every_entry_and_resets_the_counters() -> None:
-    from aind_rutter.optimization.objectives import phase2
+    from aind_rutter.optimization.objectives import constrained as phase2
 
     phase2._JIT_CACHE[("stale",)] = {"obj": None}
     phase2._CACHE_STATS["hits"] = 7

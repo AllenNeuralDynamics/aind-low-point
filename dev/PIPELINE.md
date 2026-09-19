@@ -6,7 +6,7 @@
 The live pipeline is now:
 
 ```text
-CONFIG + HOLES
+RUTTER_CONFIG + RUTTER_HOLES
   -> rutter-phase1  (MRV enumerate, spin restore, batched RProp/coarse-fine pool)
   -> rutter-phase2  (IPOPT/trust-constr polish, FCL/threading gate, MMR ranking)
   -> rutter-emit    (plan-only YAMLs, tree.txt, manifest.md)

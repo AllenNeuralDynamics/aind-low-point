@@ -13,7 +13,7 @@ from typing import Any, Callable, NamedTuple, Protocol, TypedDict
 
 from numpy.typing import NDArray
 
-from aind_rutter.optimization.enumeration.atlas import Atlas
+from aind_rutter.optimization.assignment.atlas import Atlas
 
 Array = NDArray[Any]
 ProbeName = str

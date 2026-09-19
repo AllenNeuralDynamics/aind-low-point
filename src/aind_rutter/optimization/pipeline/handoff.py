@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from aind_rutter.optimization.pipeline.contracts import Phase2ResultRecord
+from aind_rutter.optimization.pipeline.records import Phase2ResultRecord
 from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
 

@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from aind_rutter.optimization.enumeration.arc_placement import (
+from aind_rutter.optimization.assignment.arc_placement import (
     bounded_isotonic_arc_aps,
 )
-from aind_rutter.optimization.enumeration.atlas import Atlas
+from aind_rutter.optimization.assignment.atlas import Atlas
 
 
 @dataclass(frozen=True)

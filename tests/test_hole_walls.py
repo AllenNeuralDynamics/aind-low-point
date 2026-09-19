@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import yaml
 
-from aind_rutter.optimization.enumeration.visibility_atlas import _shank_in_section_jax
+from aind_rutter.optimization.assignment.visibility_atlas import _shank_in_section_jax
 from aind_rutter.optimization.geometry.holes import (
     MAX_WALLS_PAD,
     NO_WALL_OFFSET_MM,
@@ -26,25 +26,25 @@ from aind_rutter.optimization.geometry.holes import (
 )
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.batched_reduced import (
-    make_batched_reduced_objective,
-)
-from aind_rutter.optimization.objectives.batched_static import (
+from aind_rutter.optimization.objectives.constrained import _threading_g_per_probe
+from aind_rutter.optimization.objectives.packing import (
     build_batched_probe_static,
 )
-from aind_rutter.optimization.objectives.phase1 import (
+from aind_rutter.optimization.objectives.reduced import (
+    make_batched_reduced_objective,
+)
+from aind_rutter.optimization.objectives.soft import (
     PACKED_ARG_ORDER,
     PACKED_PER_CAND_KEYS,
 )
-from aind_rutter.optimization.objectives.phase1 import (
+from aind_rutter.optimization.objectives.soft import (
     _pack_statics as pack_phase1,
 )
-from aind_rutter.optimization.objectives.phase2 import _threading_g_per_probe
-from aind_rutter.optimization.objectives.probe_static import (
+from aind_rutter.optimization.objectives.statics import (
     JointWeights,
     _build_probe_static,
 )
-from aind_rutter.optimization.objectives.reduced_jax import threading_g_matrix
+from aind_rutter.optimization.objectives.threading import threading_g_matrix
 from aind_rutter.optimization.pipeline.probe_setup import _transform_holes
 
 A_MM, B_MM = 0.6, 0.3

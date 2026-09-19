@@ -103,9 +103,9 @@ def test_a_constructor_argument_beats_the_environment(monkeypatch) -> None:
 
 def test_every_stage_has_a_settings_class() -> None:
     """The point of step 4: each stage is told, not configured by import order."""
-    from aind_rutter.optimization.pipeline import emit, phase1_pool, phase2_ipopt
+    from aind_rutter.optimization.pipeline import emit, phase1, phase2
 
-    for module in (phase1_pool, phase2_ipopt, emit):
+    for module in (phase1, phase2, emit):
         assert callable(module.run), module.__name__
         assert callable(module.main), module.__name__
 

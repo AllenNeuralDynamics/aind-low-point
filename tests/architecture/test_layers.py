@@ -11,84 +11,87 @@ import pytest
 
 from tests.architecture.graph import PACKAGE, Graph, module_graph
 
-# aind_rutter.optimization.sdf.build imports surface_samples inside a function and
-# surface_samples imports build's cache helpers at import time.
+# `clearance.voxel_sdf` imports `samples` inside a function, and `samples`
+# imports voxel_sdf's cache helpers at import time.
 CYCLES_BASELINE = {
     (
-        "aind_rutter.optimization.sdf.build",
-        "aind_rutter.optimization.sdf.surface_samples",
+        "aind_rutter.optimization.clearance.samples",
+        "aind_rutter.optimization.clearance.voxel_sdf",
     ),
 }
 
-# Objectives must not depend on the pipeline that drives them. Both exceptions
-# reach for the stage record types, which the target layout moves under
+# The solver must not depend on the pipeline that drives it. Every exception
+# reaches for the stage record types, which the target layout moves under
 # `optimization/problem`.
-OBJECTIVES_TO_PIPELINE_BASELINE = {
+SOLVER_TO_PIPELINE_BASELINE = {
     (
-        "aind_rutter.optimization.objectives.phase2",
-        "aind_rutter.optimization.pipeline.contracts",
+        "aind_rutter.optimization.objectives.constrained",
+        "aind_rutter.optimization.pipeline.records",
     ),
     (
-        "aind_rutter.optimization.objectives.spin_restore",
-        "aind_rutter.optimization.pipeline.contracts",
+        "aind_rutter.optimization.search.minimizers",
+        "aind_rutter.optimization.pipeline.records",
+    ),
+    (
+        "aind_rutter.optimization.search.spin_restore",
+        "aind_rutter.optimization.pipeline.records",
     ),
 }
 
-# Modules reaching into another module's private names. The `runtime` and
-# `build_runtime` entries are re-export shims that the target layout deletes.
+# Modules reaching into another module's private names.
 PRIVATE_IMPORT_BASELINE = {
     ("aind_rutter.domain.commands", "aind_rutter.domain.pose"),
     (
-        "aind_rutter.optimization.objectives.phase1",
-        "aind_rutter.optimization.objectives.reduced_jax",
+        "aind_rutter.optimization.objectives.soft",
+        "aind_rutter.optimization.objectives.threading",
     ),
     (
-        "aind_rutter.optimization.objectives.phase2",
-        "aind_rutter.optimization.objectives.phase1",
+        "aind_rutter.optimization.objectives.constrained",
+        "aind_rutter.optimization.objectives.soft",
     ),
     (
-        "aind_rutter.optimization.objectives.phase2",
-        "aind_rutter.optimization.objectives.reduced_jax",
+        "aind_rutter.optimization.objectives.constrained",
+        "aind_rutter.optimization.objectives.threading",
     ),
     (
-        "aind_rutter.optimization.objectives.spin_restore",
-        "aind_rutter.optimization.objectives.batched_reduced",
+        "aind_rutter.optimization.search.spin_restore",
+        "aind_rutter.optimization.objectives.reduced",
     ),
     (
         "aind_rutter.optimization.pipeline.emit",
         "aind_rutter.optimization.objectives.variables",
     ),
     (
-        "aind_rutter.optimization.pipeline.enumeration",
-        "aind_rutter.optimization.enumeration.seed_emission",
+        "aind_rutter.optimization.pipeline.candidates",
+        "aind_rutter.optimization.assignment.seed_emission",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase1_build",
-        "aind_rutter.optimization.objectives.phase1",
+        "aind_rutter.optimization.search.minimizers",
+        "aind_rutter.optimization.objectives.soft",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase1_geometry",
-        "aind_rutter.optimization.sdf.build",
+        "aind_rutter.optimization.pipeline.fixtures",
+        "aind_rutter.optimization.clearance.voxel_sdf",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase1_pool",
-        "aind_rutter.optimization.objectives.probe_static",
+        "aind_rutter.optimization.pipeline.phase1",
+        "aind_rutter.optimization.objectives.statics",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase2_ipopt",
-        "aind_rutter.optimization.objectives.probe_static",
+        "aind_rutter.optimization.pipeline.phase2",
+        "aind_rutter.optimization.objectives.statics",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase2_ipopt",
+        "aind_rutter.optimization.pipeline.phase2",
         "aind_rutter.optimization.objectives.variables",
     ),
     (
-        "aind_rutter.optimization.pipeline.runtime_adapter",
+        "aind_rutter.optimization.pipeline.subject",
         "aind_rutter.optimization.pipeline.probe_setup",
     ),
     (
-        "aind_rutter.optimization.sdf.surface_samples",
-        "aind_rutter.optimization.sdf.build",
+        "aind_rutter.optimization.clearance.samples",
+        "aind_rutter.optimization.clearance.voxel_sdf",
     ),
     ("aind_rutter.build.assemble", "aind_rutter.build.calibration"),
     ("aind_rutter.build.assemble", "aind_rutter.build.canonicalize"),
@@ -134,19 +137,29 @@ def test_no_import_cycles(graph: Graph) -> None:
     _assert_baseline(cycles, CYCLES_BASELINE, "import cycle")
 
 
-def test_objectives_do_not_import_the_pipeline(graph: Graph) -> None:
+SOLVER_SUBPACKAGES = (
+    "assignment",
+    "clearance",
+    "geometry",
+    "objectives",
+    "search",
+    "validation",
+)
+
+
+def test_the_solver_does_not_import_the_pipeline(graph: Graph) -> None:
+    """The pipeline drives the solver, so the edge only runs one way."""
+    solver = tuple(f"{PACKAGE}.optimization.{s}" for s in SOLVER_SUBPACKAGES)
     violations = set()
     for imp in graph.imports:
         target = graph.owner(imp.target)
         if target is None:
             continue
-        if imp.importer.startswith(
-            f"{PACKAGE}.optimization.objectives"
-        ) and target.startswith(f"{PACKAGE}.optimization.pipeline"):
+        if imp.importer.startswith(solver) and target.startswith(
+            f"{PACKAGE}.optimization.pipeline"
+        ):
             violations.add((imp.importer, target))
-    _assert_baseline(
-        violations, OBJECTIVES_TO_PIPELINE_BASELINE, "objectives → pipeline"
-    )
+    _assert_baseline(violations, SOLVER_TO_PIPELINE_BASELINE, "solver → pipeline")
 
 
 def test_optimization_does_not_import_a_frontend(graph: Graph) -> None:

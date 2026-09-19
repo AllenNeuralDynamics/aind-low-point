@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.optimization.pipeline import phase1_geometry
-from aind_rutter.optimization.sdf import build as sdf_build
-from aind_rutter.optimization.sdf import envelope
+from aind_rutter.optimization.clearance import envelope
+from aind_rutter.optimization.clearance import voxel_sdf as sdf_build
+from aind_rutter.optimization.pipeline import fixtures as phase1_geometry
 
 
 def test_probe_sdf_surface_points_are_seeded() -> None:

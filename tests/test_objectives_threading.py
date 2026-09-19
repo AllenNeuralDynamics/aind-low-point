@@ -1,9 +1,9 @@
 """Direct coverage for the live threading primitives that lost their test when
 ``test_optimization_joint_rerank.py`` was deleted in the package reorg:
 
-  - ``objectives.probe_static._build_probe_static`` — builds the per-probe static
+  - ``objectives.statics._build_probe_static`` — builds the per-probe static
     cache, insetting each bore oval by the shank-radius threading margin.
-  - ``objectives.reduced_jax.threading_g_matrix`` — the bore-fit metric
+  - ``objectives.threading.threading_g_matrix`` — the bore-fit metric
     (``g <= 0`` ⇔ shank centerline inside the inset oval).
 
 These are central (threading_g_matrix is imported by 5 objectives modules and is
@@ -20,8 +20,8 @@ import numpy as np
 from aind_rutter.optimization.geometry.holes import Hole, threading_margin_mm
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.probe_static import _build_probe_static
-from aind_rutter.optimization.objectives.reduced_jax import threading_g_matrix
+from aind_rutter.optimization.objectives.statics import _build_probe_static
+from aind_rutter.optimization.objectives.threading import threading_g_matrix
 
 
 def _vertical_hole(a: float = 0.6, b: float = 0.3) -> Hole:

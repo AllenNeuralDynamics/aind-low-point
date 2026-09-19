@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from aind_rutter.optimization.enumeration.seed_emission import (
+from aind_rutter.optimization.assignment.seed_emission import (
     emit_seed,
     ml_anchors_mrv,
 )

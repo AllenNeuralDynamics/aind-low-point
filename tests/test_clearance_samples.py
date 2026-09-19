@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.optimization.sdf.surface_samples import (
+from aind_rutter.optimization.clearance.samples import (
     SampleParams,
     build_clearance_samples,
     convex_mean_curvature,

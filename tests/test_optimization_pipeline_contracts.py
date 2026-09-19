@@ -20,13 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 BANNED_SETUP_HELPERS = {
     "_probe_static_info": "aind_rutter.optimization.pipeline.probe_setup",
     "_transform_holes": "aind_rutter.optimization.pipeline.probe_setup",
-    "build_fixture_sdf_data": "aind_rutter.optimization.pipeline.phase1_geometry",
+    "build_fixture_sdf_data": "aind_rutter.optimization.pipeline.fixtures",
 }
 
 REQUIRED_NAMES = {
-    "Enumerator": "aind_rutter.optimization.pipeline.enumeration",
-    "build_or_load_atlas": "aind_rutter.optimization.pipeline.enumeration",
-    "make_phase1_pool_record": "aind_rutter.optimization.pipeline.phase1_pool",
+    "Enumerator": "aind_rutter.optimization.pipeline.candidates",
+    "build_or_load_atlas": "aind_rutter.optimization.pipeline.candidates",
+    "make_phase1_pool_record": "aind_rutter.optimization.pipeline.phase1",
 }
 
 
@@ -63,7 +63,7 @@ def test_build_or_load_atlas_is_not_splatted_into_enumerator() -> None:
 
 
 def test_phase1_pool_records_are_built_through_helper() -> None:
-    path = ROOT / "src/aind_rutter/optimization/pipeline/phase1_pool.py"
+    path = ROOT / "src/aind_rutter/optimization/pipeline/phase1.py"
     tree = ast.parse(path.read_text(), filename=str(path))
 
     helper_calls = [
@@ -80,7 +80,7 @@ def test_phase1_pool_records_are_built_through_helper() -> None:
 def test_active_pipeline_entrypoints_use_runtime_adapter_for_setup() -> None:
     # Pipeline stages must build setup via the runtime adapter, not the banned
     # legacy helpers.
-    stages = ("phase1_pool", "phase1_build", "restore", "phase2_ipopt", "emit")
+    stages = ("phase1", "phase2", "emit")
     paths = [ROOT / f"src/aind_rutter/optimization/pipeline/{s}.py" for s in stages]
     assert all(path.exists() for path in paths), "a named stage module has moved"
     banned_names = set(BANNED_SETUP_HELPERS)

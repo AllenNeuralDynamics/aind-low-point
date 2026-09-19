@@ -27,18 +27,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
-from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
-from aind_rutter.optimization.objectives.layout import (
-    reduced_block,
-)
-from aind_rutter.optimization.sdf.kernels import (
+from aind_rutter.optimization.clearance.kernels import (
     PROBE_PAIR_SLACK_GAINS,
     dual_rep_pair_clearance,
     pose_from_optimizer_vars,
     smooth_abs,
     spin_deg_from_sxy,
     unit_circle_penalty,
+)
+from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
+from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
+from aind_rutter.optimization.objectives.layout import (
+    reduced_block,
 )
 
 MAX_SHANKS_PAD = 4

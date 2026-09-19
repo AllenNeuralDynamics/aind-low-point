@@ -1,7 +1,7 @@
 """JAX-traceable kernels: pose math, SDF trilinear lookup, pairwise
 signed clearance via SDF.
 
-Companion to :mod:`aind_rutter.optimization.sdf` (which builds the
+Companion to :mod:`aind_rutter.optimization.clearance` (which builds the
 voxel grids). This module does the inner-loop work that needs to be
 differentiable for constrained optimizer Jacobians.
 
@@ -955,7 +955,7 @@ def body_body_pair_clearance_c2f(
     grid's boundary: a point off the grid is at least that far from the body, which
     stands in for the out-of-grid sentinel when ranking, so a cell whose coarse point
     is off the grid but whose members are close still ranks by a valid bound. See
-    :mod:`aind_rutter.optimization.sdf.surface_samples`.
+    :mod:`aind_rutter.optimization.clearance.samples`.
     """
     n_coarse, n_fine = coarse.shape[1], fine.shape[1]
 

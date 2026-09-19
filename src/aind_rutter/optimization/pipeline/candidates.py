@@ -29,17 +29,17 @@ import time
 from collections.abc import Sequence
 
 from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
-from aind_rutter.optimization.enumeration.atlas import Atlas
-from aind_rutter.optimization.enumeration.seed_emission import emit_seed
-from aind_rutter.optimization.pipeline.contracts import (
-    AtlasCachePayload,
-    EnumeratorCandidate,
-    SeedResult,
-)
+from aind_rutter.optimization.assignment.atlas import Atlas
+from aind_rutter.optimization.assignment.seed_emission import emit_seed
 from aind_rutter.optimization.pipeline.payloads import (
     check_payload_path,
     read_atlas_cache,
     write_atlas_cache,
+)
+from aind_rutter.optimization.pipeline.records import (
+    AtlasCachePayload,
+    EnumeratorCandidate,
+    SeedResult,
 )
 from aind_rutter.optimization.pipeline.settings import PipelineSettings
 
@@ -69,10 +69,10 @@ def build_or_load_atlas(settings: PipelineSettings) -> AtlasCachePayload:
             return read_atlas_cache(cache)
         except ValueError as e:
             print(f"atlas cache unusable, rebuilding: {e}", flush=True)
-    from aind_rutter.optimization.enumeration.visibility_atlas import (
+    from aind_rutter.optimization.assignment.visibility_atlas import (
         build_visibility_atlas,
     )
-    from aind_rutter.optimization.pipeline.runtime_adapter import OptimizationRuntime
+    from aind_rutter.optimization.pipeline.subject import OptimizationRuntime
 
     opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
     t0 = time.time()
@@ -121,7 +121,7 @@ class Enumerator:
         ap_range: "tuple[float, float] | None" = None,
         ml_range: "tuple[float, float] | None" = None,
     ):
-        from aind_rutter.optimization.enumeration.seed_emission import (
+        from aind_rutter.optimization.assignment.seed_emission import (
             _build_atlas_arrays,
         )
 
@@ -351,7 +351,7 @@ class Enumerator:
         # Canonical (sorted) arc + member order so the seed is independent of the
         # partition frozensets' hash-seed-dependent iteration order. Otherwise
         # emit_seed's MRV anchor pick varies per process — breaking reproducibility
-        # across runs and the parallel seed pool. ``wrap`` (phase1_pool) must use
+        # across runs and the parallel seed pool. ``wrap`` (phase1) must use
         # the same arc order so probe_to_arc_idx aligns with the returned arc_aps.
         for group in sorted(cand["partition"], key=sorted):
             members = [

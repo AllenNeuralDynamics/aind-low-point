@@ -1,4 +1,4 @@
-"""`phase2_ipopt.run` end to end on CPU, over a synthetic subject.
+"""`phase2.run` end to end on CPU, over a synthetic subject.
 
 Nothing covered the Phase-2 stage above the level of its helpers: the worker
 setup, the per-candidate problem build, the solve, the FCL gate, the keep bands
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aind_rutter.optimization.pipeline.contracts import (
+from aind_rutter.optimization.pipeline.records import (
     Phase2HandoffPayload,
     Phase2InputRecord,
 )
@@ -85,11 +85,11 @@ def solved(
     settings,
 ) -> tuple[Phase2HandoffPayload, list[tuple[int, int]], list[str]]:
     """Run the stage once; every test below reads the same payload."""
-    from aind_rutter.optimization.pipeline import phase2_ipopt
+    from aind_rutter.optimization.pipeline import phase2
 
     seen: list[tuple[int, int]] = []
     messages: list[str] = []
-    payload = phase2_ipopt.run(
+    payload = phase2.run(
         [_record()],
         settings,
         on_result=lambda k, n, _result: seen.append((k, n)),
@@ -130,7 +130,7 @@ def test_every_result_carries_the_record_contract(solved) -> None:
 
 
 def test_the_solved_pose_keeps_its_shape_and_stays_in_bounds(solved) -> None:
-    from aind_rutter.optimization.pipeline.phase1_geometry import phase1_bounds
+    from aind_rutter.optimization.pipeline.fixtures import phase1_bounds
 
     payload, _, _ = solved
     pose = np.asarray(payload["all"][0]["pose"], dtype=float)
@@ -203,16 +203,16 @@ def test_worker_setup_drops_the_previous_subjects_state(settings) -> None:
     ceilings derived from it, and the compiled kernels are keyed on shapes that
     a different subject can match, so setup clears all three.
     """
-    from aind_rutter.optimization.objectives.phase2 import cache_stats
-    from aind_rutter.optimization.pipeline import phase2_ipopt
+    from aind_rutter.optimization.objectives.constrained import cache_stats
+    from aind_rutter.optimization.pipeline import phase2
 
-    phase2_ipopt._G["cov_norm"] = ((1.0,), (1.0,))
-    phase2_ipopt._G["from_another_subject"] = "stale"
-    phase2_ipopt._init(settings)
+    phase2._G["cov_norm"] = ((1.0,), (1.0,))
+    phase2._G["from_another_subject"] = "stale"
+    phase2._init(settings)
 
-    assert "from_another_subject" not in phase2_ipopt._G
-    assert phase2_ipopt._G.get("cov_norm") is None
-    assert phase2_ipopt._G["settings"] is settings
+    assert "from_another_subject" not in phase2._G
+    assert phase2._G.get("cov_norm") is None
+    assert phase2._G["settings"] is settings
     assert cache_stats()["entries"] == 0
 
 
@@ -222,19 +222,19 @@ def test_warmup_can_be_turned_off(settings, monkeypatch: pytest.MonkeyPatch) -> 
     Skipping it does not change the result, only who pays the compile: the
     warmup, or the first candidate to be solved.
     """
-    from aind_rutter.optimization.pipeline import phase2_ipopt
+    from aind_rutter.optimization.pipeline import phase2
 
     warmed: list[int] = []
-    monkeypatch.setattr(phase2_ipopt, "_warmup", lambda recs: warmed.append(len(recs)))
+    monkeypatch.setattr(phase2, "_warmup", lambda recs: warmed.append(len(recs)))
 
     messages: list[str] = []
-    phase2_ipopt.solve_candidates(
+    phase2.solve_candidates(
         [_record()], settings.model_copy(update={"warmup": False}), log=messages.append
     )
     assert warmed == []
     assert not any("warming" in message for message in messages)
 
-    phase2_ipopt.solve_candidates(
+    phase2.solve_candidates(
         [_record()], settings.model_copy(update={"warmup": True}), log=messages.append
     )
     assert warmed == [1]

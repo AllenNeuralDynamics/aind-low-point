@@ -32,11 +32,11 @@ from aind_rutter.optimization.pipeline.probe_setup import (
 )
 
 if TYPE_CHECKING:
-    from aind_rutter.optimization.objectives.phase1 import (
+    from aind_rutter.optimization.clearance import ProbeSDF
+    from aind_rutter.optimization.objectives.soft import (
         BrainSDFData,
         FixtureSDFData,
     )
-    from aind_rutter.optimization.sdf import ProbeSDF
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ class OptimizationRuntime:
         return tuple(probe.name for probe in self.probes)
 
     def probe_sdfs(self, n_surface_points: int = 5000) -> dict[str, ProbeSDF]:
-        from aind_rutter.optimization.sdf import build_sdf_by_name
+        from aind_rutter.optimization.clearance import build_sdf_by_name
 
         return cast(
             "dict[str, ProbeSDF]",
@@ -165,7 +165,7 @@ class OptimizationRuntime:
         }
 
     def fixture_sdfs(self, *, well_mode: str = "thin") -> tuple[FixtureSDFData, ...]:
-        from aind_rutter.optimization.pipeline.phase1_geometry import (
+        from aind_rutter.optimization.pipeline.fixtures import (
             build_fixture_sdf_data,
         )
 
@@ -207,7 +207,7 @@ class OptimizationRuntime:
         return out
 
     def brain_sdf(self) -> BrainSDFData | None:
-        from aind_rutter.optimization.pipeline.phase1_geometry import (
+        from aind_rutter.optimization.pipeline.fixtures import (
             maybe_build_brain_sdf,
         )
 

@@ -21,10 +21,10 @@ from aind_rutter.optimization.objectives.layout import (
     reduced_block,
 )
 from aind_rutter.optimization.objectives.variables import PHASE1_PER_PROBE_VARS
-from aind_rutter.optimization.pipeline.runtime_adapter import (
+from aind_rutter.optimization.pipeline.settings import PipelineSettings
+from aind_rutter.optimization.pipeline.subject import (
     OptimizationRuntime,
 )
-from aind_rutter.optimization.pipeline.settings import PipelineSettings
 
 # Variables per probe in the full Phase-1 layout, from the one definition.
 PPV = PHASE1_PER_PROBE_VARS

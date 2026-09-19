@@ -34,8 +34,8 @@ from pydantic import (
     ValidationError,
 )
 
-from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
-from aind_rutter.optimization.pipeline.contracts import (
+from aind_rutter.optimization.assignment.atlas import Atlas, AtlasEntry, PoseAnchor
+from aind_rutter.optimization.pipeline.records import (
     AtlasCachePayload,
     Phase1PoolPayload,
     Phase2HandoffPayload,

@@ -13,8 +13,8 @@ files that can be opened later with ``rutter-plan --plan``.
 
 The live production entry points are:
 
-* ``rutter-phase1`` -> ``aind_rutter.optimization.pipeline.phase1_pool``
-* ``rutter-phase2`` -> ``aind_rutter.optimization.pipeline.phase2_ipopt``
+* ``rutter-phase1`` -> ``aind_rutter.optimization.pipeline.phase1``
+* ``rutter-phase2`` -> ``aind_rutter.optimization.pipeline.phase2``
 * ``rutter-emit`` -> ``aind_rutter.optimization.pipeline.emit``
 * ``scripts/run_subject_overnight.sh`` -> unattended wrapper around those three
 
@@ -102,7 +102,7 @@ The split also keeps each algorithm in the regime where it works best:
 Runtime Adapter
 ---------------
 
-``optimization.pipeline.runtime_adapter.OptimizationRuntime`` is the subject
+``optimization.pipeline.subject.OptimizationRuntime`` is the subject
 setup boundary. It loads the config, builds the normal runtime, compiles
 transforms, loads and transforms holes, and exposes the optimizer-specific
 geometry caches.
@@ -252,7 +252,7 @@ The seed AP problem is therefore:
                low_k <= ap_k <= high_k
 
 This is solved by
-``optimization.enumeration.arc_placement.bounded_isotonic_arc_aps``. The key
+``optimization.assignment.arc_placement.bounded_isotonic_arc_aps``. The key
 trick is to sort arcs by preferred AP and substitute:
 
 .. code-block:: text
@@ -286,7 +286,7 @@ The enumerator emits only the cheap discrete decision:
    }
 
 The expensive joint seed is lazy. ``Enumerator.seed(candidate)`` calls
-``optimization.enumeration.seed_emission.emit_seed`` to compute arc APs, ML
+``optimization.assignment.seed_emission.emit_seed`` to compute arc APs, ML
 seeds, spin seeds, and the minimum ML gap for only the candidates that will be
 optimized.
 
@@ -319,7 +319,7 @@ Spin Restore
 Phase 1 does not trust atlas spin seeds as final basins. It first runs batched
 round-robin spin restore over the reduced objective:
 
-* ``phase1_pool.restore_group`` builds seed rows from arc APs, ML seeds, and
+* ``phase1.restore_group`` builds seed rows from arc APs, ML seeds, and
   spin seeds.
 * ``optimization.objectives.spin_restore.make_batched_spin_restore_partial``
   sweeps a full circle of spin proposals for each probe.
@@ -595,38 +595,37 @@ Open a generated plan with the interactive planner:
 Key Modules
 -----------
 
-* ``optimization.pipeline.contracts``: TypedDict/dataclass boundaries for
-  pickle payloads and callable bundles.
-* ``optimization.pipeline.enumeration``: visibility-atlas cache handling and MRV
+* ``optimization.pipeline.records``: TypedDict/dataclass boundaries for the
+  stage payloads and callable bundles.
+* ``optimization.pipeline.candidates``: visibility-atlas cache handling and MRV
   hole/arc enumeration.
-* ``optimization.pipeline.phase1_pool``: production Phase-1 driver: seed cache,
+* ``optimization.pipeline.phase1``: production Phase-1 driver: seed cache,
   spin restore, batched RProp, resume, and Phase-1 payload writing.
-* ``optimization.pipeline.phase1_build``: batched and chunked JAX objective
-  builders. This is where per-candidate packed statics become reusable vmapped
-  kernels.
-* ``optimization.pipeline.phase1_geometry``: bounds, fixture/brain SDF
-  construction, coverage data, and shared utility helpers.
-* ``optimization.pipeline.phase2_ipopt``: Phase-2 selection, solver dispatch,
+* ``optimization.pipeline.fixtures``: bounds, fixture/brain SDF construction,
+  coverage data, and shared utility helpers.
+* ``optimization.pipeline.phase2``: Phase-2 selection, solver dispatch,
   FCL/threading gate, and MMR ranking.
 * ``optimization.pipeline.emit``: handoff-to-plan reconstruction and
   manifest/tree emission.
-* ``optimization.pipeline.runtime_adapter``: subject/runtime setup facade used
-  by the pipeline.
-* ``optimization.enumeration.contracts``: lightweight discrete assignment
+* ``optimization.pipeline.subject``: subject/runtime setup facade used by the
+  pipeline.
+* ``optimization.assignment.assignments``: lightweight discrete assignment
   carriers shared by the enumerator, static builders, and batched objectives.
-* ``optimization.enumeration.arc_placement``: bounded isotonic AP placement for
+* ``optimization.assignment.arc_placement``: bounded isotonic AP placement for
   separated arc seeds.
-* ``optimization.enumeration.pose_bank``: target-oriented per-pair pose-bank
-  scoring used by pose feature precomputation.
-* ``optimization.objectives.probe_static``: per-candidate static geometry
-  builder and optimization weight contract.
-* ``optimization.objectives.phase1`` and ``optimization.objectives.phase2``:
-  differentiable objectives and constraints used by Phase 1 and Phase 2.
-* ``optimization.objectives.fcl_validator``: ground-truth FCL validation.
-* ``optimization.geometry``: hole geometry, rig kinematics, recording geometry,
-  and the ``ProbeStaticInfo`` input carrier.
-* ``optimization.sdf``: SDF builders, alpha-wrap envelopes, and JAX clearance
+* ``optimization.search.minimizers``: batched and chunked JAX objective
+  builders. This is where per-candidate packed statics become reusable vmapped
   kernels.
+* ``optimization.search.spin_restore``: the round-robin spin-basin search.
+* ``optimization.objectives.statics``: per-candidate static geometry builder
+  and optimization weight contract.
+* ``optimization.objectives.soft`` and ``optimization.objectives.constrained``:
+  the differentiable objectives and constraints Phase 1 and Phase 2 use.
+* ``optimization.validation.fcl``: ground-truth FCL validation.
+* ``optimization.geometry``: hole geometry, rig kinematics, and the
+  ``ProbeStaticInfo`` input carrier.
+* ``optimization.clearance``: SDF builders, alpha-wrap envelopes, and JAX
+  clearance kernels.
 * ``scripts/run_subject_overnight.sh``: recommended unattended production
   wrapper.
 * ``scripts/staged_adam.py``, ``scripts/manual_mrv_chain.py``,

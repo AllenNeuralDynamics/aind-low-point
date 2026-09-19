@@ -16,20 +16,20 @@ import dataclasses as dc
 
 import pytest
 
-from aind_rutter.optimization.objectives.phase1 import (
-    Phase1Weights,
-)
-from aind_rutter.optimization.objectives.phase1 import (
-    _weights_key as phase1_key,
-)
-from aind_rutter.optimization.objectives.phase2 import (
+from aind_rutter.optimization.objectives.constrained import (
     Phase2Weights,
 )
-from aind_rutter.optimization.objectives.phase2 import (
+from aind_rutter.optimization.objectives.constrained import (
     _weights_key as phase2_key,
 )
-from aind_rutter.optimization.objectives.probe_static import JointWeights
-from aind_rutter.optimization.objectives.reduced_jax import (
+from aind_rutter.optimization.objectives.soft import (
+    Phase1Weights,
+)
+from aind_rutter.optimization.objectives.soft import (
+    _weights_key as phase1_key,
+)
+from aind_rutter.optimization.objectives.statics import JointWeights
+from aind_rutter.optimization.objectives.threading import (
     _weights_key as reduced_key,
 )
 

@@ -10,9 +10,8 @@ from typing import Any, cast, get_type_hints
 import numpy as np
 import pytest
 
-from aind_rutter.optimization.enumeration.atlas import Atlas, AtlasEntry, PoseAnchor
-from aind_rutter.optimization.pipeline import contracts
-from aind_rutter.optimization.pipeline.contracts import AtlasCachePayload
+from aind_rutter.optimization.assignment.atlas import Atlas, AtlasEntry, PoseAnchor
+from aind_rutter.optimization.pipeline import records as contracts
 from aind_rutter.optimization.pipeline.payloads import (
     HandoffFile,
     HandoffRecord,
@@ -27,6 +26,7 @@ from aind_rutter.optimization.pipeline.payloads import (
     write_pool,
     write_seed_cache,
 )
+from aind_rutter.optimization.pipeline.records import AtlasCachePayload
 
 _FILE_ONLY = {"kind", "schema_version"}
 

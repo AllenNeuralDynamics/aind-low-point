@@ -1,7 +1,7 @@
 """Diagnostics for Phase-2 solves: per-iteration IPOPT history, start-pose jitter,
 and explicit rank lists.
 
-Used by ``phase2_ipopt`` when ``P2_DIAG``/``P2_PERTURB``/``RANKS_FILE`` are set, for
+Used by ``phase2`` when the diagnostics settings are set, for
 the success-estimator experiments in ``dev/PIPELINE_PLAN.md``. Kept free of JAX so it
 imports cheaply.
 """

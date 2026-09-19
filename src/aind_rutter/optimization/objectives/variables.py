@@ -11,8 +11,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.optimization.objectives.phase1 import PHASE1_PER_PROBE_VARS
-from aind_rutter.optimization.sdf.kernels import pose_from_optimizer_vars
+from aind_rutter.optimization.clearance.kernels import pose_from_optimizer_vars
+from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS
 
@@ -86,7 +86,7 @@ def worst_threading_g(statics, x, n_arcs) -> float:
     reduced/atlas convention (offsets pinned to 0). A recorded diagnostic; the
     hard accept/reject gate is the FCL validator (which includes the implant).
     """
-    from aind_rutter.optimization.objectives.reduced_jax import threading_g_matrix
+    from aind_rutter.optimization.objectives.threading import threading_g_matrix
 
     Rs, ts, _tips, _mk = _poses(statics, np.asarray(x, dtype=np.float64), n_arcs)
     Rs = np.asarray(Rs, dtype=np.float64)

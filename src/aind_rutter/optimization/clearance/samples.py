@@ -27,7 +27,7 @@ import trimesh
 from numpy.typing import NDArray
 from scipy.spatial import ConvexHull, QhullError, cKDTree
 
-from aind_rutter.optimization.sdf.build import (
+from aind_rutter.optimization.clearance.voxel_sdf import (
     SURFACE_SAMPLE_SEED,
     _cache_dir,
     _mesh_hash,

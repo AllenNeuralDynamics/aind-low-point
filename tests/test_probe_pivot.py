@@ -89,7 +89,7 @@ def test_without_one_the_optimizer_derives_it(subject, tmp_path: Path) -> None:
 def test_the_solver_statics_carry_the_resolved_pivot() -> None:
     """The value reaches the arrays the objective is traced against."""
     from aind_rutter.optimization.geometry.holes import Hole, HoleSection
-    from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+    from aind_rutter.optimization.objectives.statics import _build_probe_static
 
     probe = ProbeStaticInfo(
         name="p",
@@ -123,7 +123,7 @@ def test_the_solver_statics_carry_the_resolved_pivot() -> None:
 
 def test_a_hand_built_probe_still_derives_its_pivot() -> None:
     from aind_rutter.optimization.geometry.holes import Hole, HoleSection
-    from aind_rutter.optimization.objectives.probe_static import _build_probe_static
+    from aind_rutter.optimization.objectives.statics import _build_probe_static
 
     probe = ProbeStaticInfo(
         name="p",
