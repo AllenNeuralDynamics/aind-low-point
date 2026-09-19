@@ -11,6 +11,14 @@ gitignored, so a fresh clone cannot run the pipeline without being told where th
 file is. Open question: is the bore file a fixed artefact of the implant design
 (track it) or regenerated per run (derive it, or fail loudly)?
 
+### The spin-component bounds disagree between two stages
+
+`pipeline/fixtures.phase1_bounds` bounds each of `(sx, sy)` to ±1.1;
+`objectives/packing` bounds them to ±1.5. Both comments call the figure "loose
+around the unit circle", and `unit_circle_penalty` pulls the magnitude to 1
+either way, so this changes how far a component may wander before the penalty
+dominates rather than which poses are reachable. The remaining half of R7.
+
 ## Deferred
 
 ### `mypy` reports five errors it never used to reach
