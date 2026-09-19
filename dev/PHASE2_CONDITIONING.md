@@ -2,7 +2,7 @@
 
 **Status:** findings as of 2026-09-16. Companion to
 `docs/source/optimization.rst` (what runs
-today) and `dev/PIPELINE_PLAN.md` (the to-do, which carries the ordered next
+today) and `dev/proposals/PIPELINE_PLAN.md` (the to-do, which carries the ordered next
 steps from this work).
 
 Phase 2 is the constrained pose refinement in

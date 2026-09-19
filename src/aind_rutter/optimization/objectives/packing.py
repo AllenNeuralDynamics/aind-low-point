@@ -11,7 +11,7 @@ indexed by ``sdf_kind_id``. Mask arrays mark padded entries so the
 objective can mask their contribution out.
 
 Phase 1 of the batched-Stage-2 refactor — design in
-``dev/target_valid_atlas_design.md`` and the conversation log of
+``dev/proposals/target_valid_atlas_design.md`` and the conversation log of
 2026-05-19.
 """
 

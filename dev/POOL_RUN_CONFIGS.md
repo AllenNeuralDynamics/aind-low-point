@@ -1,6 +1,6 @@
 # MRV pool run — tuned configurations
 
-`rutter-phase1` (`src/aind_rutter/optimization/pipeline/phase1_pool.py`) runs the
+`rutter-phase1` (`src/aind_rutter/optimization/pipeline/phase1.py`) runs the
 full MRV candidate pool (about 19k configs: 3 arcs,
 ≤4 probes/arc) through **restore → reduced → full** optimization, saving one
 record per candidate for the downstream Phase-2 IPOPT/trust-constr polish,

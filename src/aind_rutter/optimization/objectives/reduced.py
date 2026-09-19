@@ -6,7 +6,7 @@ SDF grids) are closure-captured because they don't vary across the
 batch — only ``y``, ``arc_idx``, and the assigned-hole section data do.
 
 Designed alongside ``batched_static.py``. See
-``dev/target_valid_atlas_design.md`` Phase 2.
+``dev/proposals/target_valid_atlas_design.md`` Phase 2.
 """
 
 from __future__ import annotations

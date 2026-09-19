@@ -1,6 +1,11 @@
 # Spin-search heuristics for Stage 2/3 multi-basin recovery
 
-**Status**: design notes, 2026-05-26. Captures domain-derived heuristics
+**Status**: superseded, archived 2026-09-19. The beam search described here
+was never wired into a stage, and the round-robin spin restore reproduces the
+feasible spins the beam does not — see `dev/spin_basin_experiments.md`. Kept
+for the domain reasoning.
+
+Design notes, 2026-05-26. Captures domain-derived heuristics
 for the spin multi-modality problem and a proposed codification. Not
 yet implemented.
 

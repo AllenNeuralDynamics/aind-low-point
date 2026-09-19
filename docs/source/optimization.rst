@@ -34,7 +34,8 @@ numbered something else and match nothing in the code today.
 Three working notes sit beside this guide and go stale faster, so they carry
 dates: ``dev/POOL_RUN_CONFIGS.md`` (tuned Phase-1 presets, with measurements),
 ``dev/spin_basin_experiments.md`` (why the round-robin spin restore is still the
-production spin-basin finder) and ``dev/PIPELINE_PLAN.md`` (proposed hardening,
+production spin-basin finder) and ``dev/proposals/PIPELINE_PLAN.md`` (proposed
+hardening,
 not yet built).
 
 
