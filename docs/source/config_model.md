@@ -3,7 +3,7 @@
 Field-level reference and gotcha list for the `config/` package. The Pydantic model is
 the source of truth — when this doc disagrees, fix the doc.
 
-**New to the project?** Read `dev/CORE_CONCEPTS.md` first — it explains
+**New to the project?** Read [Core Concepts](concepts.md) first — it explains
 what catalog / scene / planning / adapters are and how they fit
 together. This doc assumes you already know that the YAML drives all
 four.
@@ -147,8 +147,8 @@ self-contained).
 
 ## CanonicalizationDefModel
 
-See `dev/COORDINATES.md` for semantics. Validation specifics (in
-`_check_canon_fields`):
+See [Coordinate Systems](coordinates.md) for semantics. Validation specifics
+(in `config/root.py`):
 
 - `source_space: FILE_NATIVE` requires a `transform` (no fallback orientation
   flip exists).
@@ -195,9 +195,9 @@ problems at once, not one at a time.
 `SceneNodeModel` carries the **union** of both. A node is generated when any of
 `transform`, `scene_tags` or `tags` is set, under `auto_scene` (default `True`).
 
-The tags something dispatches on are `common.KNOWN_SCENE_TAGS`; a config tag
-within an edit or two of one of them draws a warning at load. `dev/VOCABULARY.md`
-has what each does and why the chemical-shift and collision decisions are enum
+The tags something dispatches on are `domain.enums.KNOWN_SCENE_TAGS`; a config
+tag within an edit or two of one of them draws a warning at load. [The config's
+vocabulary](vocabulary.md) has what each does and why the chemical-shift and collision decisions are enum
 fields rather than tags.
 
 ### `ProbeDeclModel` defaults
@@ -303,8 +303,8 @@ hand-off to physical execution. It's read-only; there's no loader for it.
 | "Unknown template" raised on valid YAML | `_check_template_ref` ordering | `config/root.py` |
 | Template values not appearing in expanded spec | `model_fields_set` not respected → use `passthrough_kwargs` | `config/models_catalog.py` |
 | Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build/loaders.py` registry |
-| Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check `_resolve_target_LPS_from_plan` fallback path | `planning.py:151` |
+| Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check the `resolve_target_LPS` fallback path | `domain/plan.py` |
 | Probe orientation off | Wrong `canonicalization_ref` for probe mesh (LSA vs ASR) | example config + `canonicalizations` block |
 | Collisions silently missing pairs | This was the `defaultCollisionCallback` bug | `collision/fcl.py` (per-pair callback) |
-| An asset is never collided | `collidable` unset, or neither side of the pair is `role: probe` | `collisions.pair_bits` |
-| Geometry off by a few mm along AP | wrong `mr_signal` — `water` is what gets corrected | `runtime/chem_shift.py` |
+| An asset is never collided | `collidable` unset, or neither side of the pair is `role: probe` | `collision/adapter.py` (`pair_bits`) |
+| Geometry off by a few mm along AP | wrong `mr_signal` — `water` is what gets corrected | `build/chem_shift.py` |

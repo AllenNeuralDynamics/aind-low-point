@@ -105,6 +105,8 @@ docs = [
   "ruff",
   "sphinx",
   "furo",
+  # The reference pages under docs/source are markdown.
+  "myst-parser",
 ]
 
 [tool.setuptools.package-data]

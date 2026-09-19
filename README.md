@@ -35,11 +35,15 @@ the app and a hand-built plan can be exported to the rig.
 
 ## Install
 
-Python 3.13 is required — `python-fcl` has no 3.14 wheel.
+Development happens on Python 3.13; 3.11 is the supported floor. 3.14 waits on
+`scikit-image` and `mesh2sdf` wheels.
 
 ```bash
-uv sync --python 3.13
+uv sync --python 3.13 --all-extras
 ```
+
+Without `--all-extras` you get the planner but not the solver: the
+`optimization` extra carries JAX, IPOPT and the mesh tooling.
 
 ## Commands
 
@@ -53,5 +57,14 @@ uv sync --python 3.13
 
 ## Documentation
 
-`docs/source/` holds the user guide; `dev/` holds the architecture and pipeline
-notes. Start at `dev/CORE_CONCEPTS.md` for a tour of how the pieces fit.
+`docs/source/` holds both guides — the user guide and the developer
+reference — and `dev/` holds dated working notes and known defects. Start at
+`docs/source/concepts.md` for a tour of how the pieces fit, and read
+`CONTRIBUTING.md` before changing anything.
+
+Build the docs with:
+
+```bash
+uv sync --python 3.13 --all-extras --group docs
+uv run --python 3.13 sphinx-build -b html docs/source docs/build/html
+```

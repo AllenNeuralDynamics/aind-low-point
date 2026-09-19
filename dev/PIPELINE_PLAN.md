@@ -1,8 +1,9 @@
 # Placement-optimizer — sharpened pipeline proposal & action plan
 
-**Status:** proposal + open work, 2026-06-04. Companion to `dev/PIPELINE.md`
+**Status:** proposal + open work, 2026-06-04. Companion to
+`docs/source/optimization.rst`
 (the *read-verified current* pipeline). This file is the *target* and the
-*to-do*. When the two disagree, PIPELINE.md describes what runs today; this
+*to-do*. When the two disagree, optimization.rst describes what runs today; this
 file describes where we're going and what's unvalidated.
 
 ---
@@ -22,7 +23,7 @@ file describes where we're going and what's unvalidated.
 9. MMR rank + handoff export     (the terminus: ~10-15 diverse review-ready plan YAMLs)
 ```
 
-### Deltas vs the current pipeline (PIPELINE.md)
+### Deltas vs the current pipeline (optimization.rst)
 - **Drop the L-BFGS reduced polish** (current Stage 0 step 4). ADAM polishes
   directly from the round-robin restore output (`y0_restored`). **This is the
   central unvalidated bet — see Open Questions.**
@@ -419,7 +420,7 @@ Independent of the ordering, and cheap:
 ## Repo state after the 2026-06-04 cleanup
 - Committed: bf16 trilinear, vmap coverage, points_in_region reducer, 837229
   config, `rutter-plan` CLI (tyro + startup plan-apply), spin orbit-basis refactor,
-  live pipeline scripts tracked, 73 stale diagnostics deleted, `dev/PIPELINE.md`.
+  live pipeline scripts tracked, 73 stale diagnostics deleted, the optimizer guide.
 - `CLAUDE.md` is gitignored in this repo (edits are local-only).
 - Live scripts tracked; active spin/ADAM/enumerator exploration scripts kept;
   experiment-output configs + `.claude/` gitignored.

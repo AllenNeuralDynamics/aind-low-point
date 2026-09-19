@@ -32,7 +32,11 @@ extensions = [
     "sphinx.ext.doctest",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
+    "myst_parser",
 ]
+
+# Anchors for the `##` and `###` headings the markdown pages cross-link to.
+myst_heading_anchors = 3
 templates_path = ["_templates"]
 exclude_patterns = []
 

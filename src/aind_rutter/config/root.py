@@ -403,7 +403,8 @@ class ConfigModel(BaseModel):
             err(
                 f"{where_prefix} '{_where_key(spec)}': mr_signal is required "
                 f"when `imaging` is set — one of "
-                f"{', '.join(m.value for m in MRSignal)}. See dev/VOCABULARY.md."
+                f"{', '.join(m.value for m in MRSignal)}. "
+                f"See docs/source/vocabulary.md."
             )
 
         for a in self.assets:

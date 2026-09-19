@@ -1,6 +1,7 @@
 # Phase-2 solver conditioning — measured state, IPOPT behaviour, open defects
 
-**Status:** findings as of 2026-09-16. Companion to `dev/PIPELINE.md` (what runs
+**Status:** findings as of 2026-09-16. Companion to
+`docs/source/optimization.rst` (what runs
 today) and `dev/PIPELINE_PLAN.md` (the to-do, which carries the ordered next
 steps from this work).
 

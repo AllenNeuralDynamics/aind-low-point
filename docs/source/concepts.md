@@ -1,9 +1,10 @@
 # Core Concepts
 
 A conceptual tour of the codebase for someone new to it (or returning
-after months away). For per-file detail see `dev/MODULE_MAP.md`; for
-Pydantic field specifics see `dev/CONFIG_MODEL.md`. This doc is the
-mental model that makes the other two readable.
+after months away). For per-module detail see the [Architecture
+Guide](architecture.rst); for Pydantic field specifics see [Config
+Model](config_model.md). This doc is the mental model that makes the
+other two readable.
 
 ## The single most important distinction
 
@@ -46,7 +47,7 @@ those four.
 
 ## The layers, one by one
 
-### Catalog (`assets.py`, `core.py`)
+### Catalog (`domain/catalog.py`, `domain/transforms.py`)
 
 A catalog entry is a **loaded asset** — a mesh or point cloud sitting in
 memory in canonical-LPS-millimetres coordinates, with a default material
@@ -81,7 +82,7 @@ shelves." The scene is also where probe nodes live — they reference the
 `probe:<kind>` asset but get a dynamic pose layered on top of their base
 transform at render time (see Planning, below).
 
-### Planning (`planning.py`, `commands.py`)
+### Planning (`domain/plan.py`, `domain/commands.py`)
 
 The probe-positioning domain. **Independent of the scene** — planning
 state never reads scene nodes directly, only catalog entries (to look
@@ -164,15 +165,15 @@ They translate user input into commands and dispatch them.
 ### Configuration (`config/`, `build/assemble.py`)
 
 The whole catalog + scene + planning state is built from a single YAML
-via Pydantic models in `config.py`. The build pipeline:
+via Pydantic models in the `config/` package. The build pipeline:
 
 1. **Parse** — `ConfigModel.from_yaml(path)` runs OmegaConf
    interpolation (`${paths.foo}`) then Pydantic validation.
 2. **Expand** — bulk asset declarations (`keys: [...]`), atlas mesh
    packs (`acronyms: [...]`), derived targets (`derive_from: [...]`),
    and templates (`templates: [name]` or glob match) are all unrolled
-   into individual `AssetSpec` / `TargetSpec` instances. See
-   `dev/CONFIG_MODEL.md` for the merge mechanics.
+   into individual `AssetSpec` / `TargetSpec` instances. See [Config
+   Model](config_model.md) for the merge mechanics.
 3. **Cross-reference** — every `material_ref`, `transform.key`,
    `from_resource`, target ref in `ProbeDeclModel`, scene node `asset`
    — all checked against the catalog / registry. Errors collected,
@@ -259,6 +260,6 @@ entirely.
 
 **"Where's the dividing line between `tags` and `scene_tags`?"**
 `tags` lives on the catalog (asset/target spec); `scene_tags` lives on
-the scene (node instance). See `dev/CONFIG_MODEL.md`. Authoring tip:
+the scene (node instance). See [Config Model](config_model.md). Authoring tip:
 `tags` is for code that wants to *find* things ("give me all CCF
 regions"); `scene_tags` is for the user-facing UI ("show me probes").

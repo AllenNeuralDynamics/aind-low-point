@@ -73,7 +73,8 @@ where:
   `pivot_LPS`, the dynamic chain is wrapped `T_p ∘ dyn ∘ T_-p` so rotation
   occurs about the pivot rather than the origin.
 
-Composition is implemented in `planning.PoseResolver.world_chain_for_node`.
+Composition is implemented in `PoseResolver.world_chain_for_node`
+(`domain/pose.py`).
 
 ## CanonicalizationDefModel anatomy
 
@@ -94,12 +95,11 @@ canonicalizations:
 - `source_space: LSA` is used for Newscale probe meshes from `aind_mri_utils`
   (see `examples/786864-config.yml`'s `probe-mesh` entry).
 - `source_space: FILE_NATIVE` is a sentinel for "the file's native space is
-  arbitrary, you must provide a `transform`". Validated by
-  `_check_canon_fields` in `config.py`.
+  arbitrary, you must provide a `transform`". Validated in `config/root.py`.
 
 ## Adding a new source space
 
-The `OrientationCode` enum (`orientation_codes.py`) already lists all 48
+The `OrientationCode` enum (`domain/enums.py`) already lists all 48
 permutations. To add support for a fundamentally new frame (one not derivable
 from a permutation, e.g. mirrored or rotated atlas):
 

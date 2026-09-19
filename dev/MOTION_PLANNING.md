@@ -45,7 +45,7 @@ differentiable clearance field that makes trajectory *optimization* feasible too
 
 **Coordinate convention (must obey):** the internal canonical frame is **LPS
 millimeters**. RAS appears only at named user-facing boundaries and is converted
-at the planning boundary. See `dev/COORDINATES.md`. A planner should work
+at the planning boundary. See `docs/source/coordinates.md`. A planner should work
 entirely in canonical LPS mm.
 
 **Forward kinematics (actuator coords → placed meshes):**
@@ -83,7 +83,7 @@ entirely in canonical LPS mm.
 **soft/differentiable optimization (Phase-1 SDF) → polish (Phase-2 IPOPT) → FCL
 ground-truth gate (Phase-3)**. A trajectory planner should mirror this: plan/
 optimize against the fast SDF, then **validate the final trajectory with FCL**
-before anything is sent to hardware. See `dev/PIPELINE.md`.
+before anything is sent to hardware. See `docs/source/optimization.rst`.
 
 **Visualization for dry-runs:** `rendering.py` (`RendererAdapter`,
 `RenderBackend`), `pyvista_backend.py`. A planned trajectory can be
@@ -296,9 +296,9 @@ socket protocol.
 - Differentiable clearance / SDF: `optimization/sdf/` (`build`, `kernels`,
   `clearance_sweep`, `envelope`), `optimization/objectives/` (`reduced_jax`,
   `phase1`, `phase2`, `fcl_validator`, `batched_static`, `spin_restore`).
-- Coordinate convention: `dev/COORDINATES.md`. Solver pattern (soft → polish →
-  FCL gate): `dev/PIPELINE.md`. Architecture tour: `dev/CORE_CONCEPTS.md`,
-  `dev/MODULE_MAP.md`.
+- Coordinate convention: `docs/source/coordinates.md`. Solver pattern (soft →
+  polish → FCL gate): `docs/source/optimization.rst`. Architecture tour:
+  `docs/source/concepts.md`, `docs/source/architecture.rst`.
 - Suggested external libs to evaluate: **OMPL** (sampling-based planning), or a
   JAX/CHOMP-style optimizer built on the existing SDF kernels.
 

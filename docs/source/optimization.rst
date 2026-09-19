@@ -8,8 +8,17 @@ JAX polishing, and a final constrained handoff.
 
 The optimizer is not part of the interactive trame planner loop. It is an
 offline batch workflow that reads a subject ``ConfigModel`` YAML and an implant
-hole YAML, writes pickle artifacts under ``scratch/``, and emits plan-only YAML
-files that can be opened later with ``rutter-plan --plan``.
+hole YAML, writes gzipped JSON artifacts under ``scratch/``, and emits plan-only
+YAML files that can be opened later with ``rutter-plan --plan``.
+
+The three stages run in order:
+
+.. code-block:: text
+
+   RUTTER_CONFIG + RUTTER_HOLES
+     -> rutter-phase1  (MRV enumerate, spin restore, batched RProp/coarse-fine pool)
+     -> rutter-phase2  (IPOPT/trust-constr polish, FCL/threading gate, MMR ranking)
+     -> rutter-emit    (plan-only YAMLs, tree.txt, manifest.md)
 
 The live production entry points are:
 
@@ -17,6 +26,16 @@ The live production entry points are:
 * ``rutter-phase2`` -> ``aind_rutter.optimization.pipeline.phase2``
 * ``rutter-emit`` -> ``aind_rutter.optimization.pipeline.emit``
 * ``scripts/run_subject_overnight.sh`` -> unattended wrapper around those three
+
+Name the stages after those commands: **Phase 1 pool**, **Phase 2 handoff**,
+**emit**. Older notes and a few docstrings say "Stage 2" and "Stage 3", which
+numbered something else and match nothing in the code today.
+
+Three working notes sit beside this guide and go stale faster, so they carry
+dates: ``dev/POOL_RUN_CONFIGS.md`` (tuned Phase-1 presets, with measurements),
+``dev/spin_basin_experiments.md`` (why the round-robin spin restore is still the
+production spin-basin finder) and ``dev/PIPELINE_PLAN.md`` (proposed hardening,
+not yet built).
 
 
 Install And Inputs
@@ -26,7 +45,7 @@ Install the optional optimizer stack before running the pipeline:
 
 .. code-block:: bash
 
-   uv sync --extra optimization
+   uv sync --python 3.13 --extra optimization
 
 The two subject inputs are:
 
@@ -35,7 +54,8 @@ The two subject inputs are:
    the implant transform, and the runtime plan skeleton.
 
 ``RUTTER_HOLES``
-   Implant-bore YAML loaded by ``optimization.holes.load_holes``. Each hole has
+   Implant-bore YAML loaded by ``optimization.geometry.holes.load_holes``. Each
+   hole has
    oval cross-sections along its axis and optional ``walls``: planes that cut into
    the bore, such as an implant edge running through the channel. A shank must
    cross every section inside its oval and on the open side of every wall. If the
