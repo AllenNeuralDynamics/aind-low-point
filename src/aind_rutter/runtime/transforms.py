@@ -13,14 +13,14 @@ from aind_rutter.config import (
     TransformRecipeModel,
     TransformRefModel,
     TranslateTxOpModel,
-    _TxOpBase,
 )
+from aind_rutter.config.models_common import TxOpBase
 from aind_rutter.domain.transforms import AffineTransform, TransformChain
 
 CompiledTransforms = dict[str, AffineTransform]
 
 
-def _op_to_affine(op: _TxOpBase) -> AffineTransform:
+def _op_to_affine(op: TxOpBase) -> AffineTransform:
     if isinstance(op, TranslateTxOpModel):
         R = np.eye(3)
         t = np.asarray(op.delta, dtype=np.float64)

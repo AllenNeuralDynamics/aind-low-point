@@ -99,12 +99,10 @@ PRIVATE_IMPORT_BASELINE = {
     ("aind_rutter.runtime", "aind_rutter.runtime.loaders"),
     ("aind_rutter.runtime", "aind_rutter.runtime.reducers"),
     ("aind_rutter.runtime", "aind_rutter.runtime.transforms"),
-    ("aind_rutter.runtime.build", "aind_rutter.config"),
     ("aind_rutter.runtime.build", "aind_rutter.runtime.calibration"),
     ("aind_rutter.runtime.build", "aind_rutter.runtime.canonicalize"),
     ("aind_rutter.runtime.build", "aind_rutter.runtime.chem_shift"),
     ("aind_rutter.runtime.build", "aind_rutter.runtime.reducers"),
-    ("aind_rutter.runtime.transforms", "aind_rutter.config"),
     ("aind_rutter.trame_controller", "aind_rutter.runtime"),
 }
 

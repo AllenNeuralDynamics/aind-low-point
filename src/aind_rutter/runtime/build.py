@@ -20,8 +20,8 @@ from aind_rutter.config import (
     MaterialModel,
     ResourceModel,
     TargetSpecModel,
-    _merge_dict_shallow,
 )
+from aind_rutter.config.templates import merge_dict_shallow
 from aind_rutter.domain.catalog import AssetCatalog, AssetSpec, Material, TargetSpec
 from aind_rutter.domain.enums import Kind, Role
 from aind_rutter.domain.plan import PlanningState, ProbePlan
@@ -105,7 +105,7 @@ def resolve_material_for_spec(
         if spec_like.material
         else None
     )
-    merged = _merge_dict_shallow(base_d, over_d)
+    merged = merge_dict_shallow(base_d, over_d)
     mm = MaterialModel(**(merged or {}))
     return _material_from_model(mm)
 

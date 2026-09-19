@@ -13,7 +13,7 @@ PyVista (web app, `app.py` + `trame_controller.py`).
   everything. CI tests the floor and 3.13. 3.11 is what `enum.StrEnum` needs;
   3.14 waits on cp314 wheels for `scikit-image` and `mesh2sdf`, whose source
   builds fail (`python-fcl` has them now).
-- **Models are the source of truth.** When tests disagree with `config.py`,
+- **Models are the source of truth.** When tests disagree with `config/`,
   fix the tests.
 - **Classifications are enums, groupings are tags.** A config states
   `mr_signal`, `role`, `kind` and `collidable` as closed fields, so a
@@ -72,7 +72,14 @@ src/aind_rutter/
 │   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection
 │   ├── probe_kinds.py     # RecordingGeometry per probe kind
 │   └── commands.py        # Planning commands + apply_planning_command
-├── config.py              # All Pydantic models, validation, template expansion
+├── config/                # the config DSL, split by what each model describes
+│   ├── models_common.py   # sources, materials, transforms, imaging, paths
+│   ├── models_catalog.py  # asset and target specs, single and bulk, templates
+│   ├── models_scene.py    # SceneNodeModel, SceneModel
+│   ├── models_plan.py     # arcs, probes, calibrations, head mount
+│   ├── templates.py       # the template merge
+│   ├── resolve.py         # effective canonicalization and transform
+│   └── root.py            # ConfigModel and its cross-reference validation
 ├── build_runtime.py       # Thin re-export shim → runtime/ (see below)
 ├── state_change.py        # PlanStore, AsyncLatestWorker
 ├── rendering.py           # RendererAdapter, RenderBackend protocol, overlays
@@ -151,26 +158,3 @@ cannot drift from the models.
 - NumPy-style docstrings.
 - Pydantic v2 with `extra="forbid"` on most models.
 - `@dataclass(frozen=True, slots=True)` for immutable runtime data.
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community
-structure, and cross-file relationships. Treat it as a **navigation aid, not a
-source of truth.** It can lag the code (its cache has reported deleted modules as
-still present) and its `[INFERRED]` edges are text-similarity guesses, not facts.
-
-- **Architecture & relationships → graphify.** For "how do these subsystems
-  relate", "what's the shape of the optimizer", or orienting in a large file
-  (`config.py`, `trame_controller.py`, the `optimization/` tree), use
-  `graphify explain "<concept>"`, `graphify path "<A>" "<B>"`, or
-  `graphify query "<question>"` (scoped subgraph, smaller than GRAPH_REPORT.md).
-  `graphify-out/wiki/index.md` is good for broad navigation.
-- **Existence & verification → grep/AST, NOT graphify.** "Does X still exist /
-  what imports Y / did this get removed" must be answered against the actual
-  source; graphify can be stale and has been wrong in exactly this case. Don't
-  trust it to confirm a deletion or a dependency.
-- Treat `[INFERRED]` edges (e.g. `semantically_similar_to`) as hints to verify,
-  not findings — they fire on shared vocabulary between prose nodes.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review.
-- After modifying code, run `graphify update .` to keep the graph current
-  (AST-only, no API cost) — the cache silently contradicts reality otherwise.

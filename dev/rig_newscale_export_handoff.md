@@ -297,7 +297,6 @@ Register in `pyproject.toml [project.scripts]` next to `rutter-plan-csv`. Defaul
   µm are sane and match the notebook for the same target+calibration.
 - Launch the trame app, open the Rig tab, load a plan, auto-seed, assign a
   serial, confirm live NewScale + error; save/reload the session file.
-- `graphify update .` after code changes (AST-only, keeps the graph honest).
 
 ## 7. Gotchas / invariants
 - **Frame:** `lps_to_newscale` wants **subject LPS**; the plan tip and escape

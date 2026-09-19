@@ -60,7 +60,7 @@ Module Organization
     ├── planning.py         # Probe kinematics (ProbePlan, ProbePose, PoseResolver)
     ├── commands.py         # Command pattern for state mutations
     ├── state_change.py     # PlanStore + AsyncLatestWorker
-    ├── config.py           # Pydantic models for YAML parsing + validation
+    ├── config/             # Pydantic models for YAML parsing + validation
     ├── build_runtime.py    # Config → RuntimeBundle factory + loaders + save_plan_to_config
     ├── rendering.py        # Renderer adapter + RenderBackend protocol + overlay system
     ├── collisions.py       # Collision adapter + CollisionHandler (sync + async paths)
@@ -719,7 +719,7 @@ Data Flow Summary
             ▼
     ┌───────────────┐
     │  ConfigModel  │  Pydantic parsing & validation
-    │   (config.py) │  Template expansion, auto-inference
+    │   (config/)   │  Template expansion, auto-inference
     └───────┬───────┘
             │ build_runtime_from_config()
             ▼

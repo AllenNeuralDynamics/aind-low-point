@@ -1,6 +1,6 @@
 # Config Model
 
-Field-level reference and gotcha list for `config.py`. The Pydantic model is
+Field-level reference and gotcha list for the `config/` package. The Pydantic model is
 the source of truth — when this doc disagrees, fix the doc.
 
 **New to the project?** Read `dev/CORE_CONCEPTS.md` first — it explains
@@ -277,7 +277,7 @@ hand-off to physical execution. It's read-only; there's no loader for it.
   `expand()` methods passed every field explicitly to child models. Pydantic
   marks those as set, so subsequent template merges can't fill in the
   defaults. Always use `model_fields_set` when forwarding from a parent
-  model. The current `_passthrough_kwargs` helper in `config.py:627` handles
+  model. The `passthrough_kwargs` helper in `config/models_catalog.py` handles
   this correctly.
 - **`_merge_dict_shallow(None, dict)`**: must return the dict, not None.
   Old buggy form silently dropped overrides. Tests check this directly.
@@ -300,8 +300,8 @@ hand-off to physical execution. It's read-only; there's no loader for it.
 
 | Symptom | Likely culprit | File location |
 |---|---|---|
-| "Unknown template" raised on valid YAML | `_check_template_ref` ordering | `config.py` ~line 1480 |
-| Template values not appearing in expanded spec | `model_fields_set` not respected → use `_passthrough_kwargs` | `config.py:627` |
+| "Unknown template" raised on valid YAML | `_check_template_ref` ordering | `config/root.py` |
+| Template values not appearing in expanded spec | `model_fields_set` not respected → use `passthrough_kwargs` | `config/models_catalog.py` |
 | Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build_runtime.py` registry |
 | Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check `_resolve_target_LPS_from_plan` fallback path | `planning.py:151` |
 | Probe orientation off | Wrong `canonicalization_ref` for probe mesh (LSA vs ASR) | example config + `canonicalizations` block |
