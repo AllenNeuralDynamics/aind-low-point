@@ -27,11 +27,11 @@ PyVista (web app, `app.py` + `trame_controller.py`).
 - **Every pipeline stage is told, not configured by import order.**
   `phase1_pool.run(Phase1Settings())`, `phase2_ipopt.run(recs, Phase2Settings())`
   and `emit.run(EmitSettings())` take typed settings; constructor arguments
-  outrank the environment. Each variable also accepts a `RUTTER_`-prefixed
-  spelling, which wins — `CONFIG`, `OUT`, `LIMIT` and `N` are set in many
-  environments for unrelated reasons. The only import-time environment reads
-  left are the jax platform and allocator variables, which must precede the jax
-  import.
+  outrank the environment. Every variable the pipeline reads is `RUTTER_` plus
+  the field's name, upper-cased; the bare spellings are gone, because `CONFIG`,
+  `OUT`, `LIMIT`, `N`, `WORKERS`, `POOL` and `PLATFORM` are set for unrelated
+  reasons in ordinary shells. The only import-time environment reads left are
+  the jax platform and allocator variables, which must precede the jax import.
 - **What a config resolves to is pinned.** `tests/config_semantics.json` records
   every tracked config's per-asset chemical-shift decision and ppm and
   collidability, plus its scene nodes, fixture set and collision pairs.

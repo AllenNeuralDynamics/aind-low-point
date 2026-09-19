@@ -29,7 +29,7 @@ Beats all-fine on *everything* at <½ the surf wall-time.
 
 ```bash
 JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-# (defaults: MINIMIZER=rprop WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50)
+# (defaults: RUTTER_WELL=thick RUTTER_COARSE_N=1000 RUTTER_REDUCED_FINE=50 RUTTER_FULL_FINE=50)
 ```
 
 ### YIELD — most feasibles
@@ -38,7 +38,7 @@ JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 Maximizes the feasible handoff set.
 
 ```bash
-JAX_PLATFORMS=cuda COARSE_N=3000 REDUCED_FINE=100 FULL_FINE=100 \
+JAX_PLATFORMS=cuda RUTTER_COARSE_N=3000 RUTTER_REDUCED_FINE=100 RUTTER_FULL_FINE=100 \
   uv run --python 3.13 rutter-phase1
 ```
 
@@ -49,7 +49,7 @@ branches were deleted once the comparison settled; neither is reachable now.
 
 | variant | result on the 545 calibration set |
 |---|---|
-| `adam_const` | flat learning rate. The 2nd moment `v` accumulates from early collision-gradient spikes and the effective step decays before the basin floor, so long continuous runs stall. This produced the old 165-feasible pool, with `WELL=thin COARSE_N=5000 REDUCED_FINE=0 FULL_FINE=0`. |
+| `adam_const` | flat learning rate. The 2nd moment `v` accumulates from early collision-gradient spikes and the effective step decays before the basin floor, so long continuous runs stall. This produced the old 165-feasible pool, with `RUTTER_WELL=thin RUTTER_COARSE_N=5000 RUTTER_REDUCED_FINE=0 RUTTER_FULL_FINE=0`. |
 | `moment_restart` | resets `m, v` every 50 steps, which restores a full `lr·sign(g)` step and roughly doubles `adam_const`'s feasible count — landing level with RProp. Equivalent, so never worth selecting. |
 
 RProp reaches the same place as `moment_restart` without the moment state, and
@@ -64,7 +64,7 @@ both ADAM branches only had to keep compiling.
 | `REDUCED_FINE` | `50` | fine (@5000) steps ending the **reduced** stage; rest @`COARSE_N` |
 | `FULL_FINE` | `50` | fine (@5000) steps ending the **full** stage; rest @`COARSE_N` |
 | `STAGE1`/`STAGE2` | `500` | total steps in the reduced / full stage |
-| `COARSE_N=5000` or `RED/FULL_FINE=STAGE` | — | degenerate cases collapse to all-fine |
+| `RUTTER_COARSE_N=5000`, or the fine counts equal to the stage counts | — | degenerate cases collapse to all-fine |
 | `OUT` | `scratch/mrv_pool_results.json.gz` | output; **resumable** — re-running skips already-saved n_arcs groups |
 | `SEED_CACHE` | `scratch/mrv_seeds_<config-stem>.json.gz` | enumerate+seed is cached (~14 min); subject-specific and reused on restart |
 | `LIMIT` | `0` | cap candidates (smoke testing; disables seed cache + resume) |
@@ -86,7 +86,7 @@ nothing reads it.
 
 **Next step from here:** run `rutter-phase2`, which ranks by `SELECT_BY`
 (`min_clear` by default), polishes the top `TOPK` with IPOPT by default
-(`SOLVER=trust-constr` remains available), applies the final FCL/threading gate,
+(`RUTTER_SOLVER=trust-constr` remains available), applies the final FCL/threading gate,
 and MMR-ranks the feasible handoff set.
 
 ## Notes / gotchas
@@ -96,7 +96,7 @@ and MMR-ranks the feasible handoff set.
   first (cleanest GPU for the heaviest spin-restore).
 - **Compile**: RProp + two fidelities compiles several kernels up front
   (~3–4 min); amortized over the ~300 chunks of the big 3-arc group.
-- **VRAM**: ~9.5 MB/candidate marginal + ~2.2 GB baseline; `CHUNK=64` peaks
+- **VRAM**: ~9.5 MB/candidate marginal + ~2.2 GB baseline; `RUTTER_CHUNK=64` peaks
   ~2.8 GB. The thick-well + coarse SDFs are shared (broadcast), not per-cand.
 - Don't chain a background waiter with `until ! pgrep -f "[a]lp-phase1"` whose
   own argv contains the pattern — it matches itself and loops forever. Launch

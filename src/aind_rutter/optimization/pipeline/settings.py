@@ -7,10 +7,11 @@ defaults — pydantic-settings ranks constructor arguments above environment
 sources, so passing only the values a caller actually supplied gives command-line
 precedence without the CLI layer knowing about the environment.
 
-Every field keeps the environment name the pipeline has always used. The two
-generic ones also accept a prefixed spelling, listed first so it wins when both
-are set: ``RUTTER_CONFIG`` over ``CONFIG`` and ``RUTTER_OUT`` over ``OUT``.
-``CONFIG`` in particular is set for unrelated reasons in many environments.
+Every field reads one environment variable: ``RUTTER_`` followed by the field's
+name, upper-cased. The unprefixed spellings the pipeline used to accept are
+gone — ``CONFIG``, ``OUT``, ``LIMIT``, ``N`` and ``WORKERS`` are set for
+unrelated reasons in ordinary shells, and a stage quietly reading one of those
+changed what it optimized.
 
 Booleans are parsed by pydantic rather than compared against ``"1"``, which
 accepts ``1/true/yes/on`` and rejects anything it cannot interpret. A value that
@@ -36,14 +37,10 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
-
-
-def _env(*names: str) -> AliasChoices:
-    return AliasChoices(*names)
 
 
 class PipelineSettings(BaseSettings):
@@ -55,45 +52,39 @@ class PipelineSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        extra="forbid", frozen=True, populate_by_name=True
+        env_prefix="RUTTER_", extra="forbid", frozen=True, populate_by_name=True
     )
 
     config: Path = Field(
         Path("examples/836656-config-T12.yml"),
-        validation_alias=_env("RUTTER_CONFIG", "CONFIG"),
         description="Subject config YAML selecting assets, targets and transforms.",
     )
     holes: Path = Field(
         Path("scratch/0283-300-04.holes.yml"),
-        validation_alias=_env("RUTTER_HOLES", "HOLES"),
         description="Implant bore file, placed by the config's implant_to_lps.",
     )
     well: Literal["thin", "thick"] = Field(
         "thick",
-        validation_alias=_env("WELL"),
         description="Well SDF mode; thick solidifies the thin-skin envelope.",
     )
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
     # the coverage-vs-clearance gain. Both phases must agree for the objective to
     # mean the same thing across stages.
-    cov_norm: bool = Field(False, validation_alias=_env("COV_NORM"))
-    cov_alpha: float = Field(0.2, validation_alias=_env("COV_ALPHA"))
-    cov_weight: float = Field(1.0, validation_alias=_env("COV_WEIGHT"))
+    cov_norm: bool = Field(False)
+    cov_alpha: float = Field(0.2)
+    cov_weight: float = Field(1.0)
 
     n_surf: int = Field(
         5000,
-        validation_alias=_env("RUTTER_N_SURF", "N_SURF"),
         description="Surface points per probe SDF; the clearance query set.",
     )
     well_margin: float = Field(
         0.5,
-        validation_alias=_env("RUTTER_WELL_MARGIN", "MARGIN"),
         description="mm the solidified well cone is grown by, inside and out.",
     )
     atlas_cache: Path | None = Field(
         None,
-        validation_alias=_env("RUTTER_ATLAS_CACHE", "ATLAS_CACHE"),
         description="Visibility atlas cache; defaults to one named for the config.",
     )
 
@@ -116,17 +107,14 @@ class EmitSettings(PipelineSettings):
 
     handoff: Path = Field(
         Path("scratch/phase2_handoff.json"),
-        validation_alias=_env("RUTTER_HANDOFF", "HANDOFF"),
         description="Phase-2 handoff to emit from.",
     )
     plans: int = Field(
         15,
-        validation_alias=_env("RUTTER_EMIT_N", "N"),
         description="How many of the ranked feasible plans to write.",
     )
     outdir: Path = Field(
         Path("scratch/plans"),
-        validation_alias=_env("RUTTER_OUTDIR", "OUTDIR"),
         description="Directory receiving plans/, the tree and the manifest.",
     )
 
@@ -140,68 +128,49 @@ class Phase1Settings(PipelineSettings):
 
     # Optimization schedule. The two stages run the same compiled kernel, so
     # their step counts are runtime arguments rather than separate compiles.
-    stage1: int = Field(500, validation_alias=_env("RUTTER_STAGE1", "STAGE1"))
-    stage2: int = Field(500, validation_alias=_env("RUTTER_STAGE2", "STAGE2"))
-    n_spins: int = Field(16, validation_alias=_env("RUTTER_N_SPINS", "N_SPINS"))
-    restore_rounds: int = Field(
-        4, validation_alias=_env("RUTTER_RESTORE_ROUNDS", "RESTORE_ROUNDS")
-    )
+    stage1: int = Field(500)
+    stage2: int = Field(500)
+    n_spins: int = Field(16)
+    restore_rounds: int = Field(4)
     # Coarse surf count, then the fine steps that finish each stage. Running the
     # bulk coarse and finishing fine is a homotopy: it is both faster and finds
     # more feasible candidates. coarse_n at or above 5000 collapses to all-fine.
-    coarse_n: int = Field(1000, validation_alias=_env("RUTTER_COARSE_N", "COARSE_N"))
-    reduced_fine: int = Field(
-        50, validation_alias=_env("RUTTER_REDUCED_FINE", "REDUCED_FINE")
-    )
-    full_fine: int = Field(50, validation_alias=_env("RUTTER_FULL_FINE", "FULL_FINE"))
+    coarse_n: int = Field(1000)
+    reduced_fine: int = Field(50)
+    full_fine: int = Field(50)
 
     # Batch shapes. VRAM is ~9.5 MB per candidate plus a ~2.2 GB baseline.
-    chunk: int = Field(256, validation_alias=_env("RUTTER_CHUNK", "CHUNK"))
-    restore_chunk: int = Field(
-        128, validation_alias=_env("RUTTER_RESTORE_CHUNK", "RESTORE_CHUNK")
-    )
-    pipeline_depth: int = Field(
-        2, validation_alias=_env("RUTTER_PIPELINE_DEPTH", "PIPELINE_DEPTH")
-    )
-    bf16_store: bool = Field(
-        True, validation_alias=_env("RUTTER_BF16_STORE", "BF16_STORE")
-    )
+    chunk: int = Field(256)
+    restore_chunk: int = Field(128)
+    pipeline_depth: int = Field(2)
+    bf16_store: bool = Field(True)
 
     # Enumeration caps. Defaults reproduce the historical 3-arc pool; the
     # kinematic maxima are 8 each.
-    max_arcs: int = Field(3, validation_alias=_env("RUTTER_MAX_ARCS", "MAX_ARCS"))
-    max_probes_per_arc: int = Field(
-        4, validation_alias=_env("RUTTER_MAX_PROBES_PER_ARC", "MAX_PROBES_PER_ARC")
-    )
+    max_arcs: int = Field(3)
+    max_probes_per_arc: int = Field(4)
     only_narcs: int = Field(
         0,
-        validation_alias=_env("RUTTER_ONLY_NARCS", "ONLY_NARCS"),
         description="Build only this arc-count group; 0 builds all of them.",
     )
     limit: int = Field(
         0,
-        validation_alias=_env("RUTTER_LIMIT", "LIMIT"),
         description="Cap candidates for a smoke test; disables the seed cache.",
     )
     seed_workers: int = Field(
         default_factory=lambda: min(os.cpu_count() or 1, 16),
-        validation_alias=_env("RUTTER_SEED_WORKERS", "SEED_WORKERS"),
     )
 
     # I/O.
     out: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),
-        validation_alias=_env("RUTTER_OUT", "OUT"),
         description="Where the pool is written; resumable, groups are skipped.",
     )
     seed_cache: Path | None = Field(
         None,
-        validation_alias=_env("RUTTER_SEED_CACHE", "SEED_CACHE"),
         description="Enumerate+seed cache; defaults to one named for the config.",
     )
-    progress_every: int = Field(
-        25, validation_alias=_env("RUTTER_PROGRESS_EVERY", "PROGRESS_EVERY")
-    )
+    progress_every: int = Field(25)
 
     @property
     def two_fidelity(self) -> bool:
@@ -231,28 +200,24 @@ class Phase2Settings(PipelineSettings):
     """
 
     # Selection and I/O.
-    topk: int = Field(80, validation_alias=_env("TOPK"))
+    topk: int = Field(80)
     select_by: str = Field(
         "min_clear",
-        validation_alias=_env("SELECT_BY"),
         description="Phase-1 record field to rank by; 'objective' sorts ascending.",
     )
     poses: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),
-        validation_alias=_env("POSES"),
         description="Phase-1 pool to select from.",
     )
     out: Path = Field(
         Path("scratch/phase2_handoff.json"),
-        validation_alias=_env("RUTTER_OUT", "OUT"),
         description="Where the handoff is written.",
     )
     ranks: str = Field(
         "",
-        validation_alias=_env("RANKS"),
         description="Explicit zero-based offsets into the select_by order.",
     )
-    ranks_file: Path | None = Field(None, validation_alias=_env("RANKS_FILE"))
+    ranks_file: Path | None = Field(None)
 
     @field_validator("poses", "out")
     @classmethod
@@ -261,70 +226,64 @@ class Phase2Settings(PipelineSettings):
         return check_payload_path(path)
 
     # Execution.
-    workers: int = Field(4, validation_alias=_env("WORKERS"))
-    warmup: bool = Field(True, validation_alias=_env("WARMUP"))
+    workers: int = Field(4)
+    warmup: bool = Field(True)
 
     # Objective weights.
-    minclear: float = Field(0.2, validation_alias=_env("MINCLEAR"))
+    minclear: float = Field(0.2)
     # The clearance reward duplicates the min_clearance constraint and takes its
     # gradient from the single closest surface sample, which flips between
     # near-tied samples and makes solves irreproducible. Off, poses repeat
     # bitwise across runs.
-    lam_clear: float = Field(0.0, validation_alias=_env("LAM_CLEAR"))
-    tau_clear: float = Field(0.8, validation_alias=_env("TAU_CLEAR"))
+    lam_clear: float = Field(0.0)
+    tau_clear: float = Field(0.8)
     # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
     # ones.
-    obb_gain: float = Field(100.0, validation_alias=_env("OBB_GAIN"))
+    obb_gain: float = Field(100.0)
     # Soft minima instead of hard ones in the clearance reward.
-    smooth_reward: bool = Field(False, validation_alias=_env("SMOOTH_REWARD"))
+    smooth_reward: bool = Field(False)
     # Hand the solver only rows with a gradient; padding keeps compiled shapes
     # uniform but leaves most rows constant.
-    drop_dead_rows: bool = Field(False, validation_alias=_env("DROP_DEAD_ROWS"))
+    drop_dead_rows: bool = Field(False)
 
     # Solver.
     # IPOPT's restoration phase reaches feasibility from infeasible starts where
     # trust-constr stalls. It runs limited-memory, so only first-order
     # evaluations reach the GPU; the exact Lagrangian Hessian of this nonconvex
     # problem is indefinite away from the optimum and helps less than it costs.
-    solver: Literal["ipopt", "trust-constr"] = Field(
-        "ipopt", validation_alias=_env("SOLVER")
-    )
+    solver: Literal["ipopt", "trust-constr"] = Field("ipopt")
     # trust-constr only: none (BFGS), dense (exact n×n Hessian, slow) or hessp
     # (exact Hessian-vector products at about the cost of a gradient).
-    hess: Literal["none", "dense", "hessp"] = Field(
-        "none", validation_alias=_env("HESS")
-    )
-    p2_iter: int = Field(200, validation_alias=_env("P2_ITER"))
+    hess: Literal["none", "dense", "hessp"] = Field("none")
+    p2_iter: int = Field(200)
     # Above the variable count, so the L-BFGS model can represent a full Hessian
     # and a longer history buys nothing.
-    ip_hist: int = Field(60, validation_alias=_env("IP_HIST"))
-    ip_mu: Literal["adaptive", "monotone"] = Field(
-        "adaptive", validation_alias=_env("IP_MU")
-    )
+    ip_hist: int = Field(60)
+    ip_mu: Literal["adaptive", "monotone"] = Field("adaptive")
     # tol thresholds the overall NLP error, which is built from float32
     # derivatives over bfloat16 collision grids; IPOPT's 1e-6 default asks for
     # more precision than those gradients carry.
-    ip_tol: float = Field(1e-4, validation_alias=_env("IP_TOL"))
+    ip_tol: float = Field(1e-4)
     # Measured on the gain-carrying constraint, so it bounds the mm-native rows in
     # mm, inside the FCL gate's -1e-4. It also sets acceptable_constr_viol_tol,
     # whose IPOPT default of 1e-2 would accept 0.01 mm of overlap.
-    ip_cvtol: float = Field(1e-4, validation_alias=_env("IP_CVTOL"))
+    ip_cvtol: float = Field(1e-4)
     # acceptable_tol bounds the same overall error, which here is the dual
     # infeasibility. Feasible solves stall far above tol, so without this every
     # solve ends at the iteration cap or in restoration; the FCL gate decides the
     # plan either way.
-    ip_acc_tol: float = Field(5.0, validation_alias=_env("IP_ACC_TOL"))
+    ip_acc_tol: float = Field(5.0)
     # Consecutive acceptable iterations before stopping; 0 disables the early exit.
-    ip_acc_iter: int = Field(8, validation_alias=_env("IP_ACC_ITER"))
+    ip_acc_iter: int = Field(8)
 
     # Keep bands and ranking.
-    fcl_tol: float = Field(0.2, validation_alias=_env("FCL_TOL"))
+    fcl_tol: float = Field(0.2)
     # Threading keep band in g-units, judged independently of FCL; the separate
     # strict flag marks g <= 0.
-    g_tol: float = Field(0.2, validation_alias=_env("G_TOL"))
-    mmr_lambda: float = Field(0.5, validation_alias=_env("MMR_LAMBDA"))
+    g_tol: float = Field(0.2)
+    mmr_lambda: float = Field(0.5)
 
     # Diagnostics.
-    p2_diag: bool = Field(False, validation_alias=_env("P2_DIAG"))
-    p2_perturb: float = Field(0.0, validation_alias=_env("P2_PERTURB"))
-    p2_perturb_seed: int = Field(0, validation_alias=_env("P2_PERTURB_SEED"))
+    p2_diag: bool = Field(False)
+    p2_perturb: float = Field(0.0)
+    p2_perturb_seed: int = Field(0)

@@ -45,35 +45,37 @@ FIELDS: dict[str, str] = {
 }
 
 # A value per variable that is not its default, so a field that ignores its
-# variable is visible. COARSE_N sits at the threshold where the coarse pass
-# collapses to all-fine, which is what flips TWO_FIDELITY.
+# variable is visible. The names are the prefixed ones the pipeline reads today;
+# the tables above are keyed by the globals they replaced. RUTTER_COARSE_N sits
+# at the threshold where the coarse pass collapses to all-fine, which is what
+# flips TWO_FIDELITY.
 SAMPLE: dict[str, str] = {
-    "STAGE1": "300",
-    "STAGE2": "400",
-    "N_SPINS": "8",
-    "RESTORE_ROUNDS": "3",
-    "CHUNK": "64",
-    "RESTORE_CHUNK": "32",
-    "PIPELINE_DEPTH": "3",
-    "LIMIT": "7",
-    "MAX_ARCS": "5",
-    "MAX_PROBES_PER_ARC": "6",
-    "ONLY_NARCS": "2",
-    "BF16_STORE": "0",
-    "PROGRESS_EVERY": "13",
-    "OUT": "scratch/other_pool.json.gz",
-    "SEED_CACHE": "scratch/other_seeds.json.gz",
-    "COARSE_N": "5000",
-    "REDUCED_FINE": "100",
-    "FULL_FINE": "90",
-    "WELL": "thin",
-    "COV_NORM": "true",
-    "COV_ALPHA": "0.4",
-    "COV_WEIGHT": "2.5",
-    "CONFIG": "examples/836656-config.yml",
+    "RUTTER_STAGE1": "300",
+    "RUTTER_STAGE2": "400",
+    "RUTTER_N_SPINS": "8",
+    "RUTTER_RESTORE_ROUNDS": "3",
+    "RUTTER_CHUNK": "64",
+    "RUTTER_RESTORE_CHUNK": "32",
+    "RUTTER_PIPELINE_DEPTH": "3",
+    "RUTTER_LIMIT": "7",
+    "RUTTER_MAX_ARCS": "5",
+    "RUTTER_MAX_PROBES_PER_ARC": "6",
+    "RUTTER_ONLY_NARCS": "2",
+    "RUTTER_BF16_STORE": "0",
+    "RUTTER_PROGRESS_EVERY": "13",
+    "RUTTER_OUT": "scratch/other_pool.json.gz",
+    "RUTTER_SEED_CACHE": "scratch/other_seeds.json.gz",
+    "RUTTER_COARSE_N": "5000",
+    "RUTTER_REDUCED_FINE": "100",
+    "RUTTER_FULL_FINE": "90",
+    "RUTTER_WELL": "thin",
+    "RUTTER_COV_NORM": "true",
+    "RUTTER_COV_ALPHA": "0.4",
+    "RUTTER_COV_WEIGHT": "2.5",
+    "RUTTER_CONFIG": "examples/836656-config.yml",
 }
 
-DEFAULT_ENV: dict[str, str] = {"CONFIG": "examples/836656-config.yml"}
+DEFAULT_ENV: dict[str, str] = {"RUTTER_CONFIG": "examples/836656-config.yml"}
 
 # What the globals resolved to under SAMPLE.
 RESOLVED_SAMPLE: dict[str, str] = {

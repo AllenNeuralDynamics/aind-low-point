@@ -30,11 +30,11 @@ Install the optional optimizer stack before running the pipeline:
 
 The two subject inputs are:
 
-``CONFIG``
+``RUTTER_CONFIG``
    Full aind-rutter config YAML. It defines probes, targets, fixture meshes,
    the implant transform, and the runtime plan skeleton.
 
-``HOLES``
+``RUTTER_HOLES``
    Implant-bore YAML loaded by ``optimization.holes.load_holes``. Each hole has
    oval cross-sections along its axis and optional ``walls``: planes that cut into
    the bore, such as an implant edge running through the channel. A shank must
@@ -46,7 +46,7 @@ Example one-subject run:
 
 .. code-block:: bash
 
-   CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
+   RUTTER_CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
 
 The wrapper writes subject-keyed outputs:
 
@@ -109,7 +109,7 @@ geometry caches.
 
 Key responsibilities:
 
-* ``from_config_path(CONFIG, HOLES)`` builds the shared runtime state.
+* ``from_config_path(config_path, holes_path)`` builds the shared runtime state.
 * ``probes`` are ``ProbeStaticInfo`` records in config probe order.
 * ``holes`` are implant holes in world LPS.
 * ``head_pitch_deg`` shifts subject AP bounds into the rig-reachable AP window.
@@ -323,8 +323,8 @@ round-robin spin restore over the reduced objective:
   spin seeds.
 * ``optimization.objectives.spin_restore.make_batched_spin_restore_partial``
   sweeps a full circle of spin proposals for each probe.
-* The default production knobs are ``N_SPINS=16`` and ``RESTORE_ROUNDS=4`` in
-  ``rutter-phase1``.
+* The default production knobs are ``RUTTER_N_SPINS=16`` and
+  ``RUTTER_RESTORE_ROUNDS=4`` in ``rutter-phase1``.
 * The restore uses the well-aware reduced clearance objective and returns one
   spin vector per candidate.
 
@@ -403,14 +403,14 @@ Coarse Versus Fine Fidelity
 The coarse/fine schedule changes the SDF surface-sample count used by the
 clearance terms.
 
-``COARSE_N``
+``RUTTER_COARSE_N``
    Number of surface samples for the coarse pass. The default ``1000`` is much
    cheaper than the fine 5000-sample representation and tends to smooth narrow
    collision features.
 
-``REDUCED_FINE`` and ``FULL_FINE``
+``RUTTER_REDUCED_FINE`` and ``RUTTER_FULL_FINE``
    Number of final steps in each pass that rerun at fine fidelity. The preceding
-   steps run at ``COARSE_N`` when ``COARSE_N < 5000``.
+   steps run at ``RUTTER_COARSE_N`` when it is below 5000.
 
 The practical effect is a homotopy:
 
@@ -423,23 +423,21 @@ The practical effect is a homotopy:
 
 The current tuned defaults are:
 
-* ``MINIMIZER=rprop``: sign-based iRprop-, chosen because ADAM's second moment
-  can freeze after large collision-gradient spikes.
-* ``WELL=thick``: soft SDF uses a solidified well body; final FCL still checks
-  the true mesh.
-* ``COARSE_N=1000``, ``REDUCED_FINE=50``, ``FULL_FINE=50``: coarse-to-fine SDF
-  surface schedule.
-* ``STAGE1=500``, ``STAGE2=500`` total reduced/full steps.
-* ``FCL_TOPK=300`` when running the command directly; the overnight wrapper sets
-  ``FCL_TOPK=0`` and leaves final FCL gating to Phase 2.
+* Sign-based iRprop-, chosen because ADAM's second moment can freeze after
+  large collision-gradient spikes.
+* ``RUTTER_WELL=thick``: soft SDF uses a solidified well body; final FCL still
+  checks the true mesh.
+* ``RUTTER_COARSE_N=1000``, ``RUTTER_REDUCED_FINE=50``, ``RUTTER_FULL_FINE=50``:
+  coarse-to-fine SDF surface schedule.
+* ``RUTTER_STAGE1=500``, ``RUTTER_STAGE2=500`` total reduced/full steps.
 
 Run directly:
 
 .. code-block:: bash
 
-   CONFIG=examples/837229-config.yml \
-   HOLES=scratch/0283-300-04.holes.yml \
-   OUT=scratch/837229_pool.json.gz \
+   RUTTER_CONFIG=examples/837229-config.yml \
+   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_OUT=scratch/837229_pool.json.gz \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 
 Useful Phase-1 environment knobs:
@@ -450,29 +448,29 @@ Useful Phase-1 environment knobs:
    * - Variable
      - Default
      - Meaning
-   * - ``MAX_ARCS``
+   * - ``RUTTER_MAX_ARCS``
      - ``3``
      - Maximum arcs in the MRV search.
-   * - ``MAX_PROBES_PER_ARC``
+   * - ``RUTTER_MAX_PROBES_PER_ARC``
      - ``4``
      - Per-arc cap used by the search.
-   * - ``ONLY_NARCS``
+   * - ``RUTTER_ONLY_NARCS``
      - ``0``
      - Restrict a run to one arc-count group; the overnight wrapper uses this
        for one GPU process per group.
-   * - ``SEED_CACHE``
+   * - ``RUTTER_SEED_CACHE``
      - ``scratch/mrv_seeds_<config-stem>.json.gz``
      - Subject-specific enumerate/seed cache.
-   * - ``OUT``
+   * - ``RUTTER_OUT``
      - ``scratch/mrv_pool_results.json.gz``
      - Resumable pool output.
-   * - ``LIMIT``
+   * - ``RUTTER_LIMIT``
      - ``0``
      - Candidate cap for smoke tests.
-   * - ``CHUNK``, ``RESTORE_CHUNK``
+   * - ``RUTTER_CHUNK``, ``RUTTER_RESTORE_CHUNK``
      - ``256``, ``128``
      - Batched JAX chunk sizes.
-   * - ``COV_NORM``, ``COV_ALPHA``, ``COV_WEIGHT``
+   * - ``RUTTER_COV_NORM``, ``RUTTER_COV_ALPHA``, ``RUTTER_COV_WEIGHT``
      - ``0``, ``0.2``, ``1.0``
      - Optional normalized/weighted coverage objective.
 
@@ -490,13 +488,13 @@ Phase 2 Handoff
 runs a constrained continuous polish, gates the results, and writes
 ``Phase2HandoffPayload``.
 
-Default selection is ``SELECT_BY=min_clear``. ``SELECT_BY=objective`` is also
-supported and sorts ascending because lower objective is better.
+Default selection is ``RUTTER_SELECT_BY=min_clear``; ``RUTTER_SELECT_BY=objective``
+is also supported and sorts ascending because lower objective is better.
 
-The default solver is ``SOLVER=ipopt`` using ``cyipopt.minimize_ipopt`` with a
-limited-memory Hessian approximation. ``SOLVER=trust-constr`` keeps the scipy
+The default solver is ``RUTTER_SOLVER=ipopt`` using ``cyipopt.minimize_ipopt`` with a
+limited-memory Hessian approximation. ``RUTTER_SOLVER=trust-constr`` keeps the scipy
 path available. Phase 2 can run in a thread pool sharing one GPU context
-(``POOL=thread``, default) or a process pool when needed.
+(``RUTTER_POOL=thread``, default) or a process pool when needed.
 
 Phase 2 uses the same Phase-1 x-vector and mostly the same JAX geometry kernels,
 but it changes the mathematical contract. Feasibility terms become scipy
@@ -534,13 +532,13 @@ Run directly:
 
 .. code-block:: bash
 
-   SOLVER=ipopt \
-   CONFIG=examples/837229-config.yml \
-   HOLES=scratch/0283-300-04.holes.yml \
-   POSES=scratch/837229_pool.json.gz \
-   OUT=scratch/837229_phase2_handoff.json \
-   TOPK=200 P2_ITER=1000 \
-   PLATFORM=gpu POOL=thread WORKERS=4 \
+   RUTTER_SOLVER=ipopt \
+   RUTTER_CONFIG=examples/837229-config.yml \
+   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_POSES=scratch/837229_pool.json.gz \
+   RUTTER_OUT=scratch/837229_phase2_handoff.json \
+   RUTTER_TOPK=200 RUTTER_P2_ITER=1000 \
+   RUTTER_PLATFORM=gpu RUTTER_POOL=thread RUTTER_WORKERS=4 \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 
 Phase 2 reports two feasibility axes:
@@ -549,8 +547,8 @@ Phase 2 reports two feasibility axes:
 * ``max_g_thread``: worst bore-threading constraint value.
 
 Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
-``kept`` band is intentionally looser by default: ``FCL_TOL=0.2`` and
-``G_TOL=0.2`` admit mildly fixable plans while retaining all results in the
+``kept`` band is intentionally looser by default: ``RUTTER_FCL_TOL=0.2`` and
+``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
 ``all`` list for inspection.
 
 The final ``ranked`` list is MMR-ranked: high post-Phase-2 coverage is balanced
@@ -570,10 +568,10 @@ Run directly:
 
 .. code-block:: bash
 
-   CONFIG=examples/837229-config.yml \
-   HOLES=scratch/0283-300-04.holes.yml \
-   HANDOFF=scratch/837229_phase2_handoff.json \
-   N=15 OUTDIR=scratch/837229_plans \
+   RUTTER_CONFIG=examples/837229-config.yml \
+   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_HANDOFF=scratch/837229_phase2_handoff.json \
+   RUTTER_PLANS=15 RUTTER_OUTDIR=scratch/837229_plans \
    JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 
 Outputs:

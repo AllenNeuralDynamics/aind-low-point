@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import os as _os
 
-# Set BLAS/OMP threads-per-worker BEFORE jax/numpy import (THREADS=1 pins each
-# worker single-thread to avoid Nworkers x Ncore oversubscription; raise it to
-# test whether some oversubscription fills memory-bound stalls). Spawned workers
+# Set BLAS/OMP threads-per-worker BEFORE jax/numpy import (RUTTER_THREADS=1 pins
+# each worker single-thread to avoid Nworkers x Ncore oversubscription; raise it
+# to test whether oversubscription fills memory-bound stalls). Spawned workers
 # inherit this env and re-run this block.
-_THREADS = _os.environ.get("THREADS", "1")
+_THREADS = _os.environ.get("RUTTER_THREADS", "1")
 for _v in (
     "OMP_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
@@ -32,17 +32,17 @@ for _v in (
     "NUMEXPR_NUM_THREADS",
 ):
     _os.environ.setdefault(_v, _THREADS)
-# POOL=thread (default): ONE process/GPU context, N threads sharing it —
+# RUTTER_POOL=thread (default): ONE process/GPU context, N threads sharing it —
 # trust-constr/IPOPT's JAX evals release the GIL, so threads overlap and fill
 # the GPU's idle gaps (the scipy subproblem is CPU-bound and leaves the GPU
-# idle), with NO extra GPU memory. POOL=process: N worker processes (N GPU
+# idle), with NO extra GPU memory. RUTTER_POOL=process: N worker processes (N GPU
 # contexts → memory-limited). Read here (before the platform block) so the GPU
 # memory fraction can depend on it.
-POOL = _os.environ.get("POOL", "thread")
-# Platform: PLATFORM=gpu (default) or cpu. On GPU, never preallocate. A THREAD
-# pool is one context → give it most of the card; a PROCESS pool is N contexts →
-# a small fraction each. Spawned workers inherit this env.
-_PLATFORM = _os.environ.get("PLATFORM", "gpu")
+POOL = _os.environ.get("RUTTER_POOL", "thread")
+# Platform: RUTTER_PLATFORM=gpu (default) or cpu. On GPU, never preallocate. A
+# THREAD pool is one context → give it most of the card; a PROCESS pool is N
+# contexts → a small fraction each. Spawned workers inherit this env.
+_PLATFORM = _os.environ.get("RUTTER_PLATFORM", "gpu")
 if _PLATFORM in ("gpu", "cuda"):
     _PLATFORM = "cuda"  # JAX backend name
     # Never preallocate on GPU: grow on demand. Measured on a CLEAN card, one
@@ -65,7 +65,7 @@ if _PLATFORM in ("gpu", "cuda"):
     _default_frac = "0.9" if POOL == "thread" else "0.18"
     _os.environ.setdefault(
         "XLA_PYTHON_CLIENT_MEM_FRACTION",
-        _os.environ.get("GPU_MEM_FRACTION", _default_frac),
+        _os.environ.get("RUTTER_GPU_MEM_FRACTION", _default_frac),
     )
 _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
@@ -539,8 +539,8 @@ def _require_gpu_headroom(n_workers: int) -> None:
     # ~2.4 GB measured resident per context (clean card, incl. cold compile);
     # 0.4 GB slack. So 3 workers need ~7.6 GB (fits a ~8 GB-free desktop card),
     # and the check fires only when something has eaten the budget.
-    per_worker_gb = float(_os.environ.get("P2_PER_WORKER_GB", "2.4"))
-    headroom_gb = float(_os.environ.get("P2_HEADROOM_GB", "0.4"))
+    per_worker_gb = float(_os.environ.get("RUTTER_P2_PER_WORKER_GB", "2.4"))
+    headroom_gb = float(_os.environ.get("RUTTER_P2_HEADROOM_GB", "0.4"))
     need_mb = int((n_workers * per_worker_gb + headroom_gb) * 1024)
     if free_mb < need_mb:
         raise SystemExit(

@@ -1,9 +1,9 @@
 """Both phases read the values they share through one model.
 
-Phase 1 parsed `COV_NORM` as `== "1"` while Phase 2 let pydantic parse it, so
-`COV_NORM=true` normalized the coverage of one phase and not the other. Phase 1
-also read the bare `CONFIG` while Phase 2 preferred `RUTTER_CONFIG`, so an
-exported `RUTTER_CONFIG` sent the two phases to different subjects.
+Phase 1 parsed its truth values as `== "1"` while Phase 2 let pydantic parse
+them, so `RUTTER_COV_NORM=true` normalized one phase's coverage and not the
+other. The two also read the subject under different names, so one exported
+variable could send them to different subjects.
 
 Each module resolves these at import, so the checks run in a clean interpreter
 with the environment set before it starts.
@@ -40,7 +40,7 @@ def _read(expression: str, env: dict[str, str]) -> str:
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "JAX_PLATFORMS": "cpu", "PLATFORM": "cpu", **env},
+        env={**os.environ, "JAX_PLATFORMS": "cpu", "RUTTER_PLATFORM": "cpu", **env},
         cwd=ROOT,
         timeout=300,
     )
@@ -57,21 +57,20 @@ def _subject(cls: str, env: dict[str, str]) -> str:
 
 
 @pytest.mark.parametrize("cls", SUBJECT_READERS)
-def test_every_stage_prefers_the_prefixed_subject(cls: str) -> None:
-    """RUTTER_CONFIG wins over CONFIG. `CONFIG` is set for unrelated reasons in
-    many environments, so the prefixed spelling has to be the one that counts."""
-    env = {"CONFIG": "plain.yml", "RUTTER_CONFIG": "prefixed.yml"}
-    assert _subject(cls, env) == "prefixed.yml"
+def test_every_stage_reads_the_prefixed_subject(cls: str) -> None:
+    assert _subject(cls, {"RUTTER_CONFIG": "prefixed.yml"}) == "prefixed.yml"
 
 
 @pytest.mark.parametrize("cls", SUBJECT_READERS)
-def test_every_stage_still_accepts_the_bare_subject(cls: str) -> None:
-    assert _subject(cls, {"CONFIG": "plain.yml"}) == "plain.yml"
+def test_no_stage_reads_the_bare_subject(cls: str) -> None:
+    """`CONFIG` is set for unrelated reasons in ordinary shells, and a stage
+    picking it up optimizes a subject nobody asked for."""
+    assert _subject(cls, {"CONFIG": "plain.yml"}) != "plain.yml"
 
 
 @pytest.mark.parametrize("setting", TRUTHY)
 def test_phase_one_reads_the_same_true_values_as_phase_two(setting: str) -> None:
-    """`COV_NORM=true` used to normalize Phase 2's coverage and not Phase 1's.
+    """`RUTTER_COV_NORM=true` used to normalize Phase 2's coverage, not Phase 1's.
 
     Both stages now take it from `PipelineSettings`, so the parsing is shared by
     construction; this checks the spellings a caller may actually write.
@@ -79,7 +78,7 @@ def test_phase_one_reads_the_same_true_values_as_phase_two(setting: str) -> None
     value = _read(
         "__import__('aind_rutter.optimization.pipeline.settings',"
         " fromlist=['Phase1Settings']).Phase1Settings().cov_norm",
-        {"COV_NORM": setting},
+        {"RUTTER_COV_NORM": setting},
     )
     assert value == "True"
 
@@ -89,7 +88,7 @@ def test_phase_one_reads_the_same_false_values_as_phase_two(setting: str) -> Non
     value = _read(
         "__import__('aind_rutter.optimization.pipeline.settings',"
         " fromlist=['Phase1Settings']).Phase1Settings().cov_norm",
-        {"COV_NORM": setting},
+        {"RUTTER_COV_NORM": setting},
     )
     assert value == "False"
 
@@ -101,7 +100,7 @@ def test_the_two_phases_agree_on_every_spelling(setting: str) -> None:
         " fromlist=['Phase1Settings']).Phase1Settings().cov_norm,"
         " __import__('aind_rutter.optimization.pipeline.settings',"
         " fromlist=['Phase2Settings']).Phase2Settings().cov_norm)",
-        {"COV_NORM": setting},
+        {"RUTTER_COV_NORM": setting},
     )
     first, second = both.strip("()").split(",")
     assert first.strip() == second.strip()
@@ -119,7 +118,7 @@ def test_a_value_neither_phase_can_parse_is_refused() -> None:
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "JAX_PLATFORMS": "cpu", "COV_NORM": "perhaps"},
+        env={**os.environ, "JAX_PLATFORMS": "cpu", "RUTTER_COV_NORM": "perhaps"},
         cwd=ROOT,
         timeout=300,
     )

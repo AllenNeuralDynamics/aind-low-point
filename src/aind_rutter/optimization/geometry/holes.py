@@ -50,14 +50,16 @@ from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 # probe-static builders (``_build_probe_static`` and ``build_batched_probe_static``)
 # so every optimizer stage — spin restore, Phase-1, Phase-2 — sees the inset.
 # NOT applied to the hole-assignment gate (``static_threading_max_g``), which
-# stays pure centerline geometry. ``THREADING_MARGIN_MM=0`` reproduces the legacy
-# centerline check.
+# stays pure centerline geometry. ``RUTTER_THREADING_MARGIN_MM=0`` reproduces the
+# legacy centerline check.
 DEFAULT_THREADING_MARGIN_MM: float = 0.07
 
 
 def threading_margin_mm() -> float:
     """Effective shank-radius inset (mm) applied to bore ovals (env-overridable)."""
-    return float(os.environ.get("THREADING_MARGIN_MM", DEFAULT_THREADING_MARGIN_MM))
+    return float(
+        os.environ.get("RUTTER_THREADING_MARGIN_MM", DEFAULT_THREADING_MARGIN_MM)
+    )
 
 
 @dataclass(frozen=True, slots=True)

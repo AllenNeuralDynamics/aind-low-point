@@ -11,11 +11,16 @@
 # threads sharing the SDF grids in HBM (no process-pool RAM blow-up). All outputs
 # are subject-keyed so multiple subjects never collide.
 #
+# Every variable the pipeline reads is RUTTER_-prefixed; the bare spellings
+# (CONFIG, OUT, LIMIT, N, WORKERS, POOL, PLATFORM) are set for unrelated reasons
+# in ordinary shells and are no longer read.
+#
 # Usage:
-#   CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
+#   RUTTER_CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
 # Optional env (with defaults):
-#   HOLES=scratch/0283-300-04.holes.yml  TOPK=200  P2_ITER=1000
-#   COARSE_N=1000  REDUCED_FINE=50  FULL_FINE=50  WORKERS=4  EMIT_N=15
+#   RUTTER_HOLES=scratch/0283-300-04.holes.yml  RUTTER_TOPK=200
+#   RUTTER_P2_ITER=1000  RUTTER_COARSE_N=1000  RUTTER_REDUCED_FINE=50
+#   RUTTER_FULL_FINE=50  RUTTER_WORKERS=4  RUTTER_PLANS=15
 #   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,11 +30,11 @@ cd "$(dirname "$0")/.."
 # grabs the whole mem-fraction up front, which starves extra Phase-2 workers /
 # any process-pool or MPS run). Exporting it here puts it in the env every
 # `uv run` child inherits. Harmless for the default thread-shared Phase-2;
-# load-bearing the moment you raise WORKERS or switch POOL=process/MPS.
+# load-bearing the moment you raise RUTTER_WORKERS or switch RUTTER_POOL=process.
 export XLA_PYTHON_CLIENT_PREALLOCATE="${XLA_PYTHON_CLIENT_PREALLOCATE:-false}"
 
-CONFIG="${CONFIG:?set CONFIG=examples/<subject>-config.yml}"
-HOLES="${HOLES:-scratch/0283-300-04.holes.yml}"
+CONFIG="${RUTTER_CONFIG:?set RUTTER_CONFIG=examples/<subject>-config.yml}"
+HOLES="${RUTTER_HOLES:-scratch/0283-300-04.holes.yml}"
 STEM="$(basename "${CONFIG%.yml}")"
 # TAG: optional output suffix so variant runs don't clobber each other
 # (e.g. TAG=density → scratch/<stem>_density_pool.json.gz). Seed cache is untagged
@@ -39,29 +44,33 @@ POOL="scratch/${STEM}${TAG}_pool.json.gz"
 HANDOFF="scratch/${STEM}${TAG}_phase2_handoff.json"
 PLANDIR="scratch/${STEM}${TAG}_plans"
 # Coverage objective (off by default → legacy plain-sum). Density run:
-# RETRO_DENSITY=1 COV_NORM=1 COV_ALPHA=0.2 COV_WEIGHT=7.
-RETRO_DENSITY="${RETRO_DENSITY:-0}"; COV_NORM="${COV_NORM:-0}"
-COV_ALPHA="${COV_ALPHA:-0.2}"; COV_WEIGHT="${COV_WEIGHT:-1.0}"
-# WORKERS=4: GPU thread-shared knee (re-benched on real 837229 candidates after
+# RUTTER_RETRO_DENSITY=1 RUTTER_COV_NORM=1 RUTTER_COV_ALPHA=0.2
+# RUTTER_COV_WEIGHT=7.
+RETRO_DENSITY="${RUTTER_RETRO_DENSITY:-0}"; COV_NORM="${RUTTER_COV_NORM:-0}"
+COV_ALPHA="${RUTTER_COV_ALPHA:-0.2}"; COV_WEIGHT="${RUTTER_COV_WEIGHT:-1.0}"
+# RUTTER_WORKERS=4: GPU thread-shared knee (re-benched on real 837229 candidates after
 # the kernel vmapping). Faster GPU evals make Phase-2 more host/IPOPT-bound, so
 # the knee moved in from >4 to 4: W=2 is -18%, W=4 == W=8 (flat). 4 = full
 # throughput with less GIL/stream contention + HBM than 8.
-TOPK="${TOPK:-200}"; P2_ITER="${P2_ITER:-1000}"; WORKERS="${WORKERS:-4}"
-MAX_ARCS="${MAX_ARCS:-3}"  # Phase-1 loops n_arcs from this down to 1, one process each
-MAX_PROBES_PER_ARC="${MAX_PROBES_PER_ARC:-4}"; N_SPINS="${N_SPINS:-16}"
-COARSE_N="${COARSE_N:-1000}"; REDUCED_FINE="${REDUCED_FINE:-50}"; FULL_FINE="${FULL_FINE:-50}"
-EMIT_N="${EMIT_N:-15}"
+TOPK="${RUTTER_TOPK:-200}"; P2_ITER="${RUTTER_P2_ITER:-1000}"
+WORKERS="${RUTTER_WORKERS:-4}"
+MAX_ARCS="${RUTTER_MAX_ARCS:-3}"  # Phase 1 loops n_arcs down to 1, one process each
+MAX_PROBES_PER_ARC="${RUTTER_MAX_PROBES_PER_ARC:-4}"
+N_SPINS="${RUTTER_N_SPINS:-16}"
+COARSE_N="${RUTTER_COARSE_N:-1000}"; REDUCED_FINE="${RUTTER_REDUCED_FINE:-50}"
+FULL_FINE="${RUTTER_FULL_FINE:-50}"
+PLANS="${RUTTER_PLANS:-15}"
 
 # Gotcha 1: the atlas + seed caches are keyed only by the config stem, but their
 # CONTENTS depend on probe geometry (meshes, kinds), the implant holes, and the
 # enumeration caps. Editing any of those without clearing the caches silently
 # reuses stale geometry. Stamp a fingerprint and nuke atlas + seeds + pool (the
 # pool RESUMES, so it accumulates stale records too) whenever it changes.
-# Coverage tuning is env-driven (RETRO_DENSITY / COV_*) and deliberately NOT in
+# Coverage tuning is env-driven (RUTTER_RETRO_DENSITY / RUTTER_COV_*) and NOT in
 # the fingerprint, so coverage variants still share the geometry caches.
 # NOT detected: editing a probe .obj in place (config text unchanged) → FRESH=1.
-export ATLAS_CACHE="${ATLAS_CACHE:-scratch/atlas_${STEM}.json.gz}"
-export SEED_CACHE="${SEED_CACHE:-scratch/mrv_seeds_${STEM}.json.gz}"
+export RUTTER_ATLAS_CACHE="${RUTTER_ATLAS_CACHE:-scratch/atlas_${STEM}.json.gz}"
+export RUTTER_SEED_CACHE="${RUTTER_SEED_CACHE:-scratch/mrv_seeds_${STEM}.json.gz}"
 STAMP="scratch/geom_${STEM}.stamp"
 FRESH="${FRESH:-0}"
 geom_fingerprint() {
@@ -75,11 +84,11 @@ geom_fingerprint() {
 FP="$(geom_fingerprint)"
 if [ "$FRESH" = "1" ]; then
   echo "[$(date +%H:%M)] FRESH=1 → clearing geometry caches + pool"
-  rm -f "$ATLAS_CACHE" "$SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+  rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
 elif [ -f "$STAMP" ] && [ "$(cat "$STAMP")" != "$FP" ]; then
   echo "[$(date +%H:%M)] config/holes/caps changed → clearing stale geometry caches + pool"
-  echo "    atlas=$ATLAS_CACHE seeds=$SEED_CACHE pool=$POOL"
-  rm -f "$ATLAS_CACHE" "$SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+  echo "    atlas=$RUTTER_ATLAS_CACHE seeds=$RUTTER_SEED_CACHE pool=$POOL"
+  rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
 elif [ ! -f "$STAMP" ]; then
   echo "[$(date +%H:%M)] arming geometry-cache fingerprint (keeping existing caches);"
   echo "    if you changed probe geometry/holes since they were built, re-run FRESH=1."
@@ -97,25 +106,30 @@ echo "[$(date +%H:%M)] Phase 1: MRV enumerate + restore + RProp/coarse-fine (no 
 # logic accumulates records into $POOL. A group with no candidates no-ops.
 for NA in $(seq "$MAX_ARCS" -1 1); do
   echo "[$(date +%H:%M)]   Phase-1 group n_arcs=${NA}"
-  CONFIG="$CONFIG" HOLES="$HOLES" \
-    MAX_ARCS="$MAX_ARCS" MAX_PROBES_PER_ARC="$MAX_PROBES_PER_ARC" ONLY_NARCS="$NA" \
-    WELL=thick N_SPINS="$N_SPINS" \
-    COARSE_N="$COARSE_N" REDUCED_FINE="$REDUCED_FINE" FULL_FINE="$FULL_FINE" \
-    RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
-    OUT="$POOL" JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
+  RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
+    RUTTER_MAX_ARCS="$MAX_ARCS" RUTTER_MAX_PROBES_PER_ARC="$MAX_PROBES_PER_ARC" \
+    RUTTER_ONLY_NARCS="$NA" RUTTER_WELL=thick RUTTER_N_SPINS="$N_SPINS" \
+    RUTTER_COARSE_N="$COARSE_N" RUTTER_REDUCED_FINE="$REDUCED_FINE" \
+    RUTTER_FULL_FINE="$FULL_FINE" RUTTER_RETRO_DENSITY="$RETRO_DENSITY" \
+    RUTTER_COV_NORM="$COV_NORM" RUTTER_COV_ALPHA="$COV_ALPHA" \
+    RUTTER_COV_WEIGHT="$COV_WEIGHT" RUTTER_OUT="$POOL" \
+    JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
     uv run --python 3.13 rutter-phase1
 done
 
 echo "[$(date +%H:%M)] Phase 2: IPOPT + thick well on top-${TOPK} by min_clear (FCL at end) → ${HANDOFF}"
-SOLVER=ipopt CONFIG="$CONFIG" HOLES="$HOLES" \
-  POSES="$POOL" OUT="$HANDOFF" SELECT_BY=min_clear \
-  WELL=thick POOL=thread PLATFORM=gpu GPU_MEM_FRACTION=0.9 WORKERS="$WORKERS" \
-  RETRO_DENSITY="$RETRO_DENSITY" COV_NORM="$COV_NORM" COV_ALPHA="$COV_ALPHA" COV_WEIGHT="$COV_WEIGHT" \
-  TOPK="$TOPK" P2_ITER="$P2_ITER" \
+RUTTER_SOLVER=ipopt RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
+  RUTTER_POSES="$POOL" RUTTER_OUT="$HANDOFF" RUTTER_SELECT_BY=min_clear \
+  RUTTER_WELL=thick RUTTER_POOL=thread RUTTER_PLATFORM=gpu \
+  RUTTER_GPU_MEM_FRACTION=0.9 RUTTER_WORKERS="$WORKERS" \
+  RUTTER_RETRO_DENSITY="$RETRO_DENSITY" RUTTER_COV_NORM="$COV_NORM" \
+  RUTTER_COV_ALPHA="$COV_ALPHA" RUTTER_COV_WEIGHT="$COV_WEIGHT" \
+  RUTTER_TOPK="$TOPK" RUTTER_P2_ITER="$P2_ITER" \
   JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 
-echo "[$(date +%H:%M)] Emit top-${EMIT_N} trame configs → ${PLANDIR}/"
-CONFIG="$CONFIG" HOLES="$HOLES" HANDOFF="$HANDOFF" N="$EMIT_N" OUTDIR="$PLANDIR" \
+echo "[$(date +%H:%M)] Emit top-${PLANS} trame configs → ${PLANDIR}/"
+RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" RUTTER_HANDOFF="$HANDOFF" \
+  RUTTER_PLANS="$PLANS" RUTTER_OUTDIR="$PLANDIR" \
   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 
 echo "[$(date +%H:%M)] === DONE: pool=${POOL} handoff=${HANDOFF} plans=${PLANDIR}/ ==="

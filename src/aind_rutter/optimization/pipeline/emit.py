@@ -4,14 +4,17 @@ For each of the top-N MMR-ranked *feasible* plans,
 rebuild the plan_state from the saved pose + arc assignment and round-trip it
 through ``save_plan_to_config`` — one ready-to-open config per candidate.
 
-Config-driven (works on any subject): CONFIG/HOLES select the subject; HANDOFF is
-that subject's Phase-2 output. Each handoff record already carries everything
+Config-driven (works on any subject): ``RUTTER_CONFIG``/``RUTTER_HOLES`` select
+the subject and ``RUTTER_HANDOFF`` is that subject's Phase-2 output. Each handoff
+record already carries everything
 needed (pose, probe_to_hole, probe_to_arc_idx, arc_centroids_deg, n_arcs), so no
 re-optimization happens here — pure reconstruction.
 
 Run:
-  CONFIG=examples/837229-config.yml HOLES=scratch/0283-300-04.holes.yml \\
-  HANDOFF=scratch/837229_phase2_handoff.json N=15 OUTDIR=examples/837229_plans \\
+  RUTTER_CONFIG=examples/837229-config.yml \\
+  RUTTER_HOLES=scratch/0283-300-04.holes.yml \\
+  RUTTER_HANDOFF=scratch/837229_phase2_handoff.json \\
+  RUTTER_PLANS=15 RUTTER_OUTDIR=examples/837229_plans \\
   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 """
 

@@ -73,10 +73,11 @@ def test_the_sample_differs_from_the_default_everywhere() -> None:
     assert not same, f"sample value equals the default for {same}"
 
 
-def test_the_prefixed_spelling_wins() -> None:
+def test_the_unprefixed_spelling_is_ignored() -> None:
     """`LIMIT` and `OUT` are set in many environments for unrelated reasons."""
-    resolved = _settings({**DEFAULT_ENV, "LIMIT": "5", "RUTTER_LIMIT": "9"})
-    assert resolved["limit"] == "9"
+    resolved = _settings({**DEFAULT_ENV, "LIMIT": "5"})
+    assert resolved["limit"] == RESOLVED_DEFAULT["LIMIT"]
+    assert _settings({**DEFAULT_ENV, "RUTTER_LIMIT": "9"})["limit"] == "9"
 
 
 def test_the_seed_cache_is_named_for_the_subject() -> None:
@@ -95,7 +96,7 @@ def test_a_caller_may_pass_values_directly() -> None:
 
 
 def test_a_constructor_argument_beats_the_environment(monkeypatch) -> None:
-    monkeypatch.setenv("STAGE1", "999")
+    monkeypatch.setenv("RUTTER_STAGE1", "999")
     assert Phase1Settings(stage1=10).stage1 == 10
     assert Phase1Settings().stage1 == 999
 

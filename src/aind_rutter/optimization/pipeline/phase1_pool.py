@@ -2,27 +2,28 @@
 
 Enumerates the MRV pool (3 arcs, <=4 probes/arc; ~19k candidates), seeds each
 from the joint ``emit_seed`` (arc/ml/spin) via ``Enumerator.seed``, spin-restores
-(N_SPINS=16), then runs each candidate through a two-stage (reduced→full)
-optimization and a per-candidate FCL gate. Output → OUT (then cull/select/
+(16 spins), then runs each candidate through a two-stage (reduced→full)
+optimization and a per-candidate FCL gate. Output → RUTTER_OUT (then cull/select/
 trust-constr from there).
 
 The optimizer is TUNED (see dev/POOL_RUN_CONFIGS.md for the measurements):
-  - WELL=thick   — solidified well SDF (fixes the thin-skin false-negative);
+  - thick well   — solidified well SDF (fixes the thin-skin false-negative);
                    FCL still uses the true thin mesh (honest gate).
   - iRprop− — sign-based; immune to the ADAM v-freeze that stalls long runs.
-  - coarse→fine surf — reduced/full each run (STAGE-REDUCED_FINE/FULL_FINE) steps
-                   @COARSE_N surf then the FINE_* finish @5000 (the homotopy win).
+  - coarse→fine surf — reduced/full each run (stage minus the fine steps)
+                   at the coarse surf count, then the fine finish @5000.
 
 Two documented presets (copy-paste commands in dev/POOL_RUN_CONFIGS.md):
-  THROUGHPUT (default): COARSE_N=1000, REDUCED_FINE=FULL_FINE=50   (~2.16x; 545:105/20)
-  YIELD:                COARSE_N=3000, REDUCED_FINE=FULL_FINE=100  (~1.31x; 545:123/21)
+  THROUGHPUT (default): coarse_n=1000, reduced_fine=full_fine=50   (~2.16x; 545:105/20)
+  YIELD:                coarse_n=3000, reduced_fine=full_fine=100  (~1.31x; 545:123/21)
 
 Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-Env:  WELL=thick COARSE_N=1000 REDUCED_FINE=50 FULL_FINE=50
-      STAGE1=500 STAGE2=500 N_SPINS=16 CHUNK=256 RESTORE_CHUNK=128
+Env:  RUTTER_WELL=thick RUTTER_COARSE_N=1000 RUTTER_REDUCED_FINE=50
+      RUTTER_FULL_FINE=50 RUTTER_STAGE1=500 RUTTER_STAGE2=500
+      RUTTER_N_SPINS=16 RUTTER_CHUNK=256 RUTTER_RESTORE_CHUNK=128
 """
 
 from __future__ import annotations

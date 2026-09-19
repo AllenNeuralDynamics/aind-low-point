@@ -39,13 +39,19 @@ class RetroDensityOpts:
 
 
 def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
-    """``RetroDensityOpts()`` when ``RETRO_DENSITY`` is enabled in the env and the
-    retro asset is present in ``runtime``; otherwise ``None``. Lets every driver
-    opt into density (KDE) coverage uniformly with ``RETRO_DENSITY=1`` — off by
+    """``RetroDensityOpts()`` when ``RUTTER_RETRO_DENSITY`` is enabled in the env and
+    the retro asset is present in ``runtime``; otherwise ``None``. Lets every
+    driver opt into density (KDE) coverage uniformly with
+    ``RUTTER_RETRO_DENSITY=1`` — off by
     default, so subjects without a retro cloud keep the single-point target."""
     import os as _os
 
-    if _os.environ.get("RETRO_DENSITY", "0").lower() not in ("1", "true", "yes", "on"):
+    if _os.environ.get("RUTTER_RETRO_DENSITY", "0").lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         return None
     opts = RetroDensityOpts()
     if runtime is not None:
