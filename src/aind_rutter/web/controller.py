@@ -35,6 +35,7 @@ from aind_rutter.domain.plan import (
 )
 from aind_rutter.domain.pose import (
     ProbePose,
+    resolved_angles,
 )
 from aind_rutter.render.adapter import RendererAdapter
 from aind_rutter.render.overlays import OverlayResolver
@@ -808,23 +809,9 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
 
         # The sliders are labelled R and A; the plan holds LPS.
         r_mm, a_mm = -plan.offsets_LP[0], -plan.offsets_LP[1]
-        # Resolved angles. When the probe is calibrated, AP/ML come from
-        # the calibration rotation (find_probe_angle), not from arc/ml_local
-        # — match what ProbePose actually renders.
-        cal = self.store.state.calibrations.get(state.probe)
-        if plan.calibrated and cal is not None:
-            from aind_mri_utils.reticle_calibrations import find_probe_angle
-
-            ap_tilt, ml_tilt = find_probe_angle(cal.rotation)
-            ap_tilt = float(ap_tilt)
-            ml_tilt = float(ml_tilt)
-        else:
-            ap_tilt = (
-                float(self.store.state.kinematics.arc_angles.get(plan.arc_id, 0.0))
-                if plan.arc_id and plan.bind_ap_to_arc
-                else float(plan.ap_local)
-            )
-            ml_tilt = float(plan.ml_local)
+        # The same resolution ProbePose renders from, clamped to the rig
+        # limits, so the sliders cannot show a pose the probe is not in.
+        ap_tilt, ml_tilt, spin = resolved_angles(state.probe, self.store.state)
         n_shanks = max(1, len(self._shank_tips_local(f"probe:{plan.kind}")))
         with state:
             state.offset_r = float(r_mm)
@@ -832,7 +819,7 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
             state.depth = float(plan.past_target_mm)
             state.ap_tilt = ap_tilt
             state.ml_tilt = ml_tilt
-            state.spin = int(round(float(plan.spin)))
+            state.spin = int(round(spin))
             if plan.arc_id:
                 state.arc = plan.arc_id
             if plan.target_key:

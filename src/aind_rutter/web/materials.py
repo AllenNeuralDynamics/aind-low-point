@@ -235,21 +235,21 @@ class MaterialsMixin:
         self.render_adapter.repaint_materials([nid])
 
     def apply_default_opacities(self) -> None:
-        """Override per-node opacity for tagged fixtures so the implant
-        is mostly transparent and other fixtures sit at 40% transparency.
+        """Set the startup opacity of tagged fixtures so the implant is mostly
+        transparent and the rest sit at 40%.
 
-        Reads tags from the scene graph and pokes the PyVistaBackend
-        actor's `prop.opacity` directly. Called once at startup; the
-        per-asset config opacity values are the baseline this overrides.
+        Written to each node's ``material_override``, which is what the
+        renderer resolves from, rather than to the actor: an actor property is
+        restored by the next repaint, and a collision flip repaints.
+
+        A node takes the first matching row of the table, so a node tagged both
+        ``implant`` and ``fixture`` gets the implant value.
         """
-        backend = self.render_adapter.backend
-        if not hasattr(backend, "_actors"):
-            return
-        for node in self.render_adapter.scene.nodes.values():
-            tags = node.tags
+        by_opacity: dict[float, list[str]] = {}
+        for nid, node in self.render_adapter.scene.nodes.items():
             for tag, opacity, excluded in _DEFAULT_OPACITY_BY_TAG:
-                if tag in tags and not (tags & excluded):
-                    actor = backend._actors.get(node.key)
-                    if actor is not None:
-                        actor.prop.opacity = float(opacity)
+                if tag in node.tags and not (node.tags & excluded):
+                    by_opacity.setdefault(float(opacity), []).append(nid)
                     break
+        for opacity, node_ids in by_opacity.items():
+            self._apply_material_to_nodes(node_ids, opacity=opacity)

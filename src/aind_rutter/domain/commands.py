@@ -15,7 +15,7 @@ import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
 from aind_rutter.domain.plan import PlanningState
-from aind_rutter.domain.pose import _resolved_angles
+from aind_rutter.domain.pose import resolved_angles
 
 
 @dataclass(frozen=True)
@@ -189,7 +189,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
         else:
             # freeze current effective AP into ap_local so unbinding doesn't jump
             if cmd.freeze_effective_on_unbind:
-                eff_ap, _, _ = _resolved_angles(
+                eff_ap, _, _ = resolved_angles(
                     cmd.name, ps
                 )  # helper from earlier reply
                 plan.ap_local = eff_ap

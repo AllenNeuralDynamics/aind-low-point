@@ -40,7 +40,6 @@ SOLVER_TO_PIPELINE_BASELINE = {
 
 # Modules reaching into another module's private names.
 PRIVATE_IMPORT_BASELINE = {
-    ("aind_rutter.domain.commands", "aind_rutter.domain.pose"),
     (
         "aind_rutter.optimization.search.spin_restore",
         "aind_rutter.optimization.objectives.reduced",

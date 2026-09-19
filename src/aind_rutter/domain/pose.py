@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from aind_rutter.domain.catalog import AssetCatalog
 
 
-def _resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
+def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
     plan = ps.probes[name]
     cal = ps.calibrations.get(name)
 
@@ -126,7 +126,7 @@ class ProbePose:
         plan = ps.probes[probe_name]
 
         # --- angles (AP/ML) ---
-        ap_deg, ml_deg, spin_deg = _resolved_angles(probe_name, ps)
+        ap_deg, ml_deg, spin_deg = resolved_angles(probe_name, ps)
 
         # --- target + offsets, both already LPS ---
         tgt_LPS = resolve_target_LPS(

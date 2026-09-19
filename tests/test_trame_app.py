@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import pyvista as pv
@@ -93,7 +94,6 @@ def test_recenter_frames_the_brain_where_the_scene_puts_it(
     """The synthetic brain's node carries ``headframe_to_lps``, so its world
     centroid is not its mesh centroid. Framing the mesh aims the camera at a
     place nothing is drawn."""
-    from types import SimpleNamespace
 
     import numpy as np
 
@@ -127,7 +127,6 @@ def test_recenter_falls_back_when_the_scene_has_no_brain(
 ) -> None:
     """Never onto the untransformed mesh: an unplaced brain has no world
     position to frame, so the whole scene is the honest answer."""
-    from types import SimpleNamespace
 
     from aind_rutter.build import build_runtime_from_config
     from aind_rutter.domain.scene import Scene
@@ -147,3 +146,126 @@ def test_recenter_falls_back_when_the_scene_has_no_brain(
     )
     controller.recenter_view()
     assert tuple(controller.plotter.camera.focal_point) == before
+
+
+class _FakeState:
+    """Stands in for trame's reactive state: attributes, and a `with` block
+    that batches writes. Dunder lookup is on the type, so this cannot be a
+    SimpleNamespace."""
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _NullBackend:
+    """Draws nothing. What these tests exercise is the adapter's material
+    resolution, which runs whether or not a node has been drawn."""
+
+    def create_mesh(self, *a, **k) -> None: ...
+
+    def update_mesh(self, *a, **k) -> None: ...
+
+    def create_points(self, *a, **k) -> None: ...
+
+    def update_points(self, *a, **k) -> None: ...
+
+    def remove(self, *a, **k) -> None: ...
+
+    def flush(self, *a, **k) -> None: ...
+
+    def has_node(self, node_id: str) -> bool:
+        return True
+
+
+def _controller_for(subject: SyntheticSubject):
+    """A controller over the synthetic runtime, with a real renderer adapter
+    over a backend that draws nothing."""
+    from aind_rutter.build import build_runtime_from_config
+    from aind_rutter.render.adapter import RendererAdapter
+    from aind_rutter.session.store import PlanStore
+    from aind_rutter.web.controller import TrameController
+
+    bundle = build_runtime_from_config(ConfigModel.from_yaml(subject.config))
+    return TrameController(
+        store=PlanStore(bundle.plan_state),
+        assets=bundle.asset_catalog,
+        plotter=pv.Plotter(off_screen=True),
+        render_adapter=RendererAdapter(
+            backend=_NullBackend(), scene=bundle.scene, assets=bundle.asset_catalog
+        ),
+        collision_handler=None,
+        overlays_resolver=None,
+    )
+
+
+def test_the_sliders_show_the_angles_the_probe_is_actually_in(
+    subject: SyntheticSubject,
+) -> None:
+    """The readout resolved AP, ML and spin itself and skipped the clamp, so a
+    plan past a rig limit put a number on screen that nothing rendered."""
+    from aind_rutter.domain.pose import ProbePose, resolved_angles
+
+    controller = _controller_for(subject)
+    plan = controller.store.state.probes["P2"]
+    plan.bind_ap_to_arc = False
+    plan.ap_local = 140.0  # past the +75 deg AP limit
+    plan.ml_local = -95.0  # past the -42 deg ML limit
+    plan.spin = 400.0
+
+    state = _FakeState(probe="P2")
+    controller._load_probe_state(state)
+
+    pose = ProbePose.from_planning_state(controller.store.state, "P2")
+    assert (state.ap_tilt, state.ml_tilt) == (pose.ap, pose.ml)
+    assert state.spin == int(round(pose.spin))
+    assert (state.ap_tilt, state.ml_tilt) == resolved_angles(
+        "P2", controller.store.state
+    )[:2]
+    assert state.ap_tilt < 140.0 and state.ml_tilt > -95.0
+
+
+def test_default_opacities_survive_a_repaint(subject: SyntheticSubject) -> None:
+    """They used to be written onto the actor, which the next repaint restores
+    from the node's material — and a collision flip repaints."""
+    controller = _controller_for(subject)
+    scene = controller.render_adapter.scene
+    implant = next(nid for nid, node in scene.nodes.items() if "implant" in node.tags)
+    other = next(
+        nid
+        for nid, node in scene.nodes.items()
+        if "fixture" in node.tags and "implant" not in node.tags
+    )
+
+    controller.apply_default_opacities()
+
+    # The table's first matching row wins, so a node tagged both implant and
+    # fixture takes the implant value.
+    assert scene.nodes[implant].material_override.opacity == pytest.approx(0.2)
+    assert scene.nodes[other].material_override.opacity == pytest.approx(0.6)
+
+    # What a repaint resolves from is the override, so the value holds.
+    resolved = controller.render_adapter._resolve_material(scene.nodes[implant])
+    assert resolved.opacity == pytest.approx(0.2)
+
+
+def test_the_default_opacity_keeps_the_rest_of_the_material(
+    subject: SyntheticSubject,
+) -> None:
+    """Only opacity is overridden; colour and the rest come from the config."""
+    controller = _controller_for(subject)
+    scene = controller.render_adapter.scene
+    implant = next(nid for nid, node in scene.nodes.items() if "implant" in node.tags)
+    base = controller.assets.get_spec(scene.nodes[implant].asset_key).default_material
+
+    controller.apply_default_opacities()
+
+    override = scene.nodes[implant].material_override
+    assert override.color_hex_str == base.color_hex_str
+    assert (override.visible, override.wireframe) == (base.visible, base.wireframe)
+    assert override.opacity != base.opacity
