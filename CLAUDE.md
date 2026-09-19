@@ -2,7 +2,8 @@
 
 Multi-probe insertion planning for AIND: an interactive planner and a
 constrained-optimization solver over one runtime. The frontend is Trame +
-PyVista (`web/app.py` + `web/controller.py`).
+PyVista (`web/app.py` + `web/controller.py`, with the page, the readouts, the
+materials and the camera as mixins beside it).
 
 Setup, the checks and the commit and PR conventions are in `CONTRIBUTING.md`;
 the architecture, the coordinate rule, the config model and the optimizer are

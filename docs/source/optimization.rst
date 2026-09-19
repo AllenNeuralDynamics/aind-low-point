@@ -645,8 +645,10 @@ Key Modules
 * ``optimization.validation.fcl``: ground-truth FCL validation.
 * ``optimization.geometry``: hole geometry, rig kinematics, and the
   ``ProbeStaticInfo`` input carrier.
-* ``optimization.clearance``: SDF builders, alpha-wrap envelopes, and JAX
-  clearance kernels.
+* ``optimization.clearance``: SDF builders and alpha-wrap envelopes, plus the
+  JAX terms over them — ``poses``, ``smooth``, ``grids``, ``boxes``, ``pairs``
+  (signed clearance per representation) and ``aggregate`` (the category gains
+  and the dual-representation combination).
 * ``scripts/run_subject_overnight.sh``: recommended unattended production
   wrapper.
 * ``scripts/staged_adam.py``, ``scripts/manual_mrv_chain.py``,

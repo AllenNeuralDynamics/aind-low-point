@@ -203,9 +203,26 @@ vacuously; repointed, it found two diagnostic keys written onto
 was declared, deselected by default and used by no test, so the comment saying
 it held back the heavy JAX tests was false.
 
-**What is left.** The monolith splits, D13's second half — nobody has yet
-watched a CI run go green — and the seven reported defects R1 to R7, which are
-code readings with no reproduction. Decisions 10 to 16 are answered below.
+**The monolith splits** followed step 7, each verified the way its risk
+demanded: the trame controller against a dump of every attribute the class
+resolves, the two solver files against the Phase-2 parity harness.
+
+| commit | what split | from | to |
+|---|---|---|---|
+| `890a16d` | `web/controller.py` | 2,133 | 845, plus layout, readouts, materials, camera and keybindings |
+| `15de049` | `clearance/kernels.py` | 1,490 | poses, smooth, grids, boxes, pairs, aggregate |
+| `aabbe39` | `objectives/soft.py`, `constrained.py` | 911 and 1,007 | 835 and 857, plus sdf_inputs, rewards, slack_layout, evaluate |
+
+The two objective modules stayed large on purpose. Each is now mostly one
+closure factory — `_build_jit`, 386 lines in `soft` and 472 in `constrained` —
+that captures the packed statics and returns the traced objective. Splitting
+that means giving every closed-over array an explicit parameter, which changes
+the traced code rather than moving it, and the parity harness is the only thing
+that would catch a mistake.
+
+**What is left.** D13's second half — nobody has yet watched a CI run go green
+— and the seven reported defects R1 to R7, which are code readings with no
+reproduction. Decisions 10 to 16 are answered below.
 
 ## The package today
 

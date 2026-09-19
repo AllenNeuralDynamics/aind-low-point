@@ -75,7 +75,7 @@ time barely moves because Jacobians dominate.
 ## Constraint scaling — [measured] + [docs/source]
 
 Hand-picked gains multiply six constraint categories in
-`src/aind_rutter/optimization/sdf/kernels.py`: 1.0 for the millimetre-native
+`src/aind_rutter/optimization/clearance/aggregate.py`: 1.0 for the millimetre-native
 voxel-SDF rows, 100.0 for the three OBB rows. Row infinity-norms at a starting
 pose, with the gains divided back out to expose each category's native
 sensitivity:

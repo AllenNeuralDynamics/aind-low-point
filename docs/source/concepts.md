@@ -147,7 +147,7 @@ The split between adapter and handler exists so adapters can be tested
 in isolation against fake backends, and so the async-collision worker
 can drive the adapter without going through the subscriber path.
 
-### Frontend (`web/controller.py`, `web/app.py`)
+### Frontend (`web/controller.py` and its mixins, `web/app.py`)
 
 - `TrameController` — Vuetify3 components + PyVista (via VTK.js in the
   browser), for the web app. `app.py:build_trame_app(cfg)` is the

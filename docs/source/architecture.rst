@@ -100,14 +100,19 @@ Module Organization
     ├── web/
     │   ├── cli.py             # the rutter-plan entry point
     │   ├── app.py             # build_trame_app() factory
-    │   ├── controller.py      # TrameController (Vuetify3 + PyVista)
+    │   ├── controller.py      # TrameController: state, wiring, intent → command
+    │   ├── layout.py          # the Vuetify page: tabs, sliders, dialogs
+    │   ├── readouts.py        # tip, depth, over-insertion, collisions, NewScale
+    │   ├── materials.py       # warning overlays, visibility groups, opacities
+    │   ├── camera.py          # framing, click-to-pick, probe highlight
+    │   ├── keybindings.py     # which key means which action, and how fast
     │   └── ccf_regions.py     # CCFOverlayManager (lazy region meshes)
     ├── ccf/
     │   └── ontology.py        # Allen CCF structures + search
     └── optimization/          # the placement optimizer; see the optimizer guide
         ├── assignment/        # which probe goes where
         ├── geometry/          # holes, headstages, probes, kinematics
-        ├── clearance/         # signed-distance fields and sweeps
+        ├── clearance/         # poses, smooth math, SDF grids, boxes, pair terms
         ├── objectives/        # the soft and constrained objectives
         ├── search/            # spin restore and the batched minimizers
         ├── validation/        # the FCL ground-truth check
