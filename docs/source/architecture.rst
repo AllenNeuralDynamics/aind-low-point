@@ -52,22 +52,112 @@ Module Organization
 .. code-block:: text
 
     src/aind_rutter/
-    ├── domain/             # Transforms, enums, catalog, scene, rig, plan, pose
-    ├── config/             # Pydantic models for YAML parsing + validation
-    ├── build/              # Config → RuntimeBundle factory, loaders, reducers
-    ├── plan_io/            # Plan round-trip, replay and rig export
-    ├── session/            # PlanStore + AsyncLatestWorker
-    ├── render/             # Overlays, RendererAdapter, PyVista backend
-    ├── collision/          # Pair rule, FCL geometry and backend, CollisionHandler
-    ├── web/                # Trame CLI, app factory, controller, CCF overlay
-    └── ccf/                # Allen CCF ontology (bundled JSON, search)
+    ├── domain/                # the planning domain (imports no config, optimizer or UI)
+    │   ├── transforms.py      # AffineTransform, TransformChain, *Transformable
+    │   ├── enums.py           # Role, Kind, MRSignal, OrientationCode; KNOWN_SCENE_TAGS
+    │   ├── catalog.py         # AssetSpec, TargetSpec, AssetCatalog, Material
+    │   ├── scene.py           # NodeInstance, Scene
+    │   ├── rig.py             # JointRange, PoseLimits, Kinematics, AP/ML_LIMIT_DEG
+    │   ├── plan.py            # ProbePlan, PlanningState, resolve_target_LPS
+    │   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection
+    │   ├── probe_kinds.py     # RecordingGeometry per probe kind
+    │   └── commands.py        # planning commands + apply_planning_command
+    ├── config/                # the config DSL, split by what each model describes
+    │   ├── models_common.py   # sources, materials, transforms, imaging, paths
+    │   ├── models_catalog.py  # asset and target specs, single and bulk
+    │   ├── models_scene.py    # SceneNodeModel, SceneModel
+    │   ├── models_plan.py     # arcs, probes, calibrations, head mount
+    │   ├── templates.py       # the template merge
+    │   ├── resolve.py         # effective canonicalization and transform
+    │   └── root.py            # ConfigModel and its cross-reference validation
+    ├── build/                 # config → runtime
+    │   ├── assemble.py        # build_runtime_from_config
+    │   ├── loaders.py         # the loader registry
+    │   ├── reducers.py        # the reducer registry
+    │   ├── canonicalize.py    # orientation, scale and inline transform
+    │   ├── chem_shift.py      # the per-ppm correction
+    │   ├── calibration.py     # the bank plus the NewScale frame
+    │   ├── queries.py         # head_pitch_deg_*, fixture sets, brain_world_mesh
+    │   ├── transforms.py      # transform-reference resolution
+    │   └── probe_context.py   # the per-probe view the optimizer reads
+    ├── plan_io/               # reading a plan back out
+    │   ├── roundtrip.py       # planning_state_to_plan_model, save_plan_to_config
+    │   ├── replay.py          # apply_plan_model_to_state
+    │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
+    │   └── cli_csv.py         # the rutter-plan-csv entry point
+    ├── session/
+    │   ├── store.py           # PlanStore: one planning state, edited by command
+    │   └── worker.py          # AsyncLatestWorker
+    ├── render/
+    │   ├── overlays.py        # OverlaySpec, OverlayState, OverlayResolver
+    │   ├── adapter.py         # RendererAdapter, RenderBackend protocol
+    │   └── pyvista.py         # PyVistaBackend + DebouncedFlush
+    ├── collision/
+    │   ├── geometry.py        # FCL BVH and transform construction, with guards
+    │   ├── adapter.py         # CollisionAdapter, pair_bits (the pair rule)
+    │   ├── fcl.py             # FCLBackend (per-pair callback)
+    │   └── worker.py          # CollisionHandler (sync + async paths)
+    ├── web/
+    │   ├── cli.py             # the rutter-plan entry point
+    │   ├── app.py             # build_trame_app() factory
+    │   ├── controller.py      # TrameController (Vuetify3 + PyVista)
+    │   └── ccf_regions.py     # CCFOverlayManager (lazy region meshes)
+    ├── ccf/
+    │   └── ontology.py        # Allen CCF structures + search
+    └── optimization/          # the placement optimizer; see the optimizer guide
+        ├── assignment/        # which probe goes where
+        ├── geometry/          # holes, headstages, probes, kinematics
+        ├── clearance/         # signed-distance fields and sweeps
+        ├── objectives/        # the soft and constrained objectives
+        ├── search/            # spin restore and the batched minimizers
+        ├── validation/        # the FCL ground-truth check
+        └── pipeline/          # the offline batch flow: phase1, phase2, emit
+
+``build/__init__`` exports only ``build_runtime_from_config`` and
+``RuntimeBundle``; everything else comes from its submodule.
+
+
+Layer rules
+-----------
+
+Five rules hold over that tree, and ``tests/architecture/`` enforces each
+against the import graph rather than against a convention. Every rule carries a
+baseline of today's exceptions that may only shrink: fixing one means deleting
+its line, and a rule fails when a listed exception stops violating it, so the
+lists cannot rot quietly.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Rule
+     - Enforced by
+   * - No import cycles between modules.
+     - ``test_layers.py``, ``CYCLES_BASELINE``
+   * - The solver never imports the pipeline that drives it.
+     - ``test_layers.py``, ``SOLVER_TO_PIPELINE_BASELINE``
+   * - No module reaches into another module's private names.
+     - ``test_layers.py``, ``PRIVATE_IMPORT_BASELINE``
+   * - Nothing below the CLI reads the environment at import time, apart from
+       the JAX platform and allocator variables, which must precede the JAX
+       import.
+     - ``test_environment.py``, ``ENV_READ_BASELINE``
+   * - The planner imports without JAX installed, so the viewer runs without
+       the optimizer stack.
+     - ``test_jax_free.py``
+   * - All five console scripts import and resolve.
+     - ``test_console_scripts.py``
+
+``domain/`` is the load-bearing one. It imports no config, no optimizer and no
+UI, which is what lets the same probe geometry serve the app and the solver
+without the app pulling in JAX.
 
 
 Core Abstractions
 -----------------
 
-Transforms (``core.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~
+Transforms (``domain/transforms.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The transform system provides immutable, composable 3D transforms.
 
@@ -107,8 +197,8 @@ Composes multiple transforms with lazy evaluation:
         def apply_to(self, pts: FloatNx3) -> FloatNx3: ...
         def invert(self) -> TransformChain: ...
 
-Geometry Wrappers (``core.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Geometry Wrappers (``domain/transforms.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Protocol-based polymorphism for transformable geometry:
 
@@ -147,8 +237,8 @@ Binds geometry to a transform chain:
             R, t = self.chain.composed_transform
             return self.original.transformed(R, t)
 
-Material (``core.py``)
-~~~~~~~~~~~~~~~~~~~~~~
+Material (``domain/catalog.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Simple value object for rendering properties:
 
@@ -163,8 +253,8 @@ Simple value object for rendering properties:
         visible: bool = True
 
 
-Asset Catalog (``assets.py``)
------------------------------
+Asset Catalog (``domain/catalog.py``)
+-------------------------------------
 
 The catalog holds all loaded geometry and metadata.
 
@@ -243,8 +333,8 @@ Container for all assets and targets:
         def get_geometry(self, key: str) -> Union[MeshTransformable, PointsTransformable]: ...
 
 
-Scene Graph (``scene.py``)
---------------------------
+Scene Graph (``domain/scene.py``)
+---------------------------------
 
 The scene graph places catalog items in 3D space.
 
@@ -284,8 +374,8 @@ Container for all nodes:
         def by_tag(self, tag: str) -> list[NodeInstance]: ...
 
 
-Planning Domain (``planning.py``)
----------------------------------
+Planning Domain (``domain/plan.py``, ``pose.py``, ``rig.py``)
+-------------------------------------------------------------
 
 The planning domain handles probe kinematics and targeting.
 
@@ -633,8 +723,8 @@ query), and ``deliver`` is posted back to the main thread via
 ``post_to_main`` (typically ``asyncio.AbstractEventLoop.call_soon_threadsafe``
 under trame).
 
-Command Pattern (``commands.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Command Pattern (``domain/commands.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Commands encapsulate state mutations. They are frozen dataclasses; a single
 ``Union`` (``PlanningCommand``) covers all of them:
