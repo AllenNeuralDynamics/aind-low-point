@@ -17,8 +17,9 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Steps 1 to 5 of the
-proposed sequence have since landed.
+The survey below is a snapshot of commit `a5420cc`. Steps 1 to 6 of the
+proposed sequence have since landed; the module names and paths it cites are
+those of the snapshot, not of the tree today.
 
 **Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
 runtime-build, trame-app and Phase-2 smoke tests, `tests/architecture/` with its
@@ -152,11 +153,37 @@ clamped angles to the optimizer reproduces the app exactly, and that is asserted
 merging them now that the layouts are named would mean a layout-generic packer —
 more abstraction than two sites justify.
 
-**What is left.** Steps 6 and 7. `caps`, `collision`, `chem_shift_policy`,
-`chem_shift_apply_by_role` and the `role` prefix inference are gone from the
-models: the 113 local configs carrying them were migrated and verified first,
-and a config that still states one is now refused by name. Decisions 10 to 16
-are answered below.
+`caps`, `collision`, `chem_shift_policy`, `chem_shift_apply_by_role` and the
+`role` prefix inference are gone from the models (`ae32732`): the 113 local
+configs carrying them were migrated and verified first, and a config that still
+states one is refused by name. `2f91f9e` retired the unprefixed environment
+names; every variable the pipeline reads is now `RUTTER_` plus the field's own
+name, derived by `env_prefix` rather than listed per field.
+
+**Step 6** moved and renamed, bottom-up, each commit green:
+
+| commit | what moved |
+|---|---|
+| `3ba0539` | `domain/` — transforms, enums, catalog, scene, and `planning.py` split into `rig`, `plan` and `pose`. Probe-kind data moved in from `optimization/`, so the viewer no longer pulls in the optimizer. |
+| `285a104` | `config.py` (2,511 lines) split into seven modules under `config/` |
+| `cef55c4` | `runtime/` split into `build/` and `plan_io/`; the `build_runtime.py` shim deleted |
+| `7f1c3d9` | `session/`, `render/`, `collision/`, `web/`, `ccf/` |
+| `d6590a8` | the optimizer renamed for what each module does: `sdf/`→`clearance/`, `enumeration/`→`assignment/`, `objectives/phase1`→`soft`, `phase2`→`constrained`, plus `search/` and `validation/` |
+| `c2c5a26` | decision 10: `ProbePlan` holds `offsets_LP` and `target_point_LPS` |
+
+Two deviations from the proposed layout, both because the dependency direction
+did not hold: the MRV enumerator stays in `pipeline/` (as `candidates.py`)
+because it reads the atlas cache, builds the subject and takes settings; and
+`optimization/problem/` was not created, because `variables` imports the
+objective it lays out. The layer rule now covers every solver subpackage rather
+than `objectives` alone.
+
+`trame_controller.py` (2,131 lines), `clearance/kernels.py` (1,490),
+`objectives/constrained.py` (1,007) and `objectives/soft.py` (911) moved whole.
+Splitting them is the "Monoliths" finding below, not a move.
+
+**What is left.** Step 7, and the monolith splits. Decisions 10 to 16 are
+answered below.
 
 ## The package today
 
