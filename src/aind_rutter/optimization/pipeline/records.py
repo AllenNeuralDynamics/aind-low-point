@@ -156,10 +156,14 @@ class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
     fcl_pairs_start: list[tuple[str, float]]
     fcl_pairs_end: list[tuple[str, float]]
     diag_hist: dict[str, Array]
+    # Written per candidate, then moved into the payload's `config` once,
+    # because both are identical across candidates of one probe/fixture set.
+    slack_labels: list[str]
+    fcl_pair_names: list[str]
 
 
 class Phase2HandoffPayload(TypedDict):
-    """Pickled handoff consumed by ``pipeline.emit``."""
+    """Handoff JSON consumed by ``pipeline.emit``."""
 
     ranked: list[Phase2ResultRecord]
     all: list[Phase2ResultRecord]

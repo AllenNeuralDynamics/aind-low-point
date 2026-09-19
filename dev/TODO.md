@@ -28,6 +28,16 @@ file is. Open question: is the bore file a fixed artefact of the implant design
 
 ## Deferred
 
+### `mypy` reports five errors it never used to reach
+
+Its `files` list named seven modules that the package moves had renamed, so
+`mypy` checked one file and reported nothing. Repointed at the modules that
+exist, it reports five, none of them a defect: a `**dict` expansion into a
+`TypedDict`, two calls through a `dict[str, object]` value, a widened
+`Path | None` that a model validator always fills, and a float dtype union.
+Each wants a narrowed annotation rather than a code change.
+
+
 ### `_pack_statics` is two implementations
 
 `objectives/phase1.py` and `objectives/reduced_jax.py`. Deliberate: they pack

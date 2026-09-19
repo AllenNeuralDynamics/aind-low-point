@@ -130,15 +130,15 @@ mccabe = { max-complexity = 14 }
 pydocstyle = { convention = "numpy" }
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 files = [
-  "src/aind_rutter/runtime/probe_context.py",
-  "src/aind_rutter/runtime/scene_geometry.py",
-  "src/aind_rutter/optimization/pipeline/contracts.py",
-  "src/aind_rutter/optimization/pipeline/runtime_adapter.py",
-  "src/aind_rutter/optimization/pipeline/enumeration.py",
-  "src/aind_rutter/optimization/pipeline/phase1_pool.py",
-  "src/aind_rutter/optimization/pipeline/phase2_ipopt.py",
+  "src/aind_rutter/build/probe_context.py",
+  "src/aind_rutter/build/queries.py",
+  "src/aind_rutter/optimization/pipeline/records.py",
+  "src/aind_rutter/optimization/pipeline/subject.py",
+  "src/aind_rutter/optimization/pipeline/candidates.py",
+  "src/aind_rutter/optimization/pipeline/phase1.py",
+  "src/aind_rutter/optimization/pipeline/phase2.py",
   "src/aind_rutter/optimization/pipeline/emit.py",
 ]
 ignore_missing_imports = true
