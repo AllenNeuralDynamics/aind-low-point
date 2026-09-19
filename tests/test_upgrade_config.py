@@ -167,3 +167,35 @@ def test_a_bulk_declaration_gets_one_signal(tmp_path: Path) -> None:
     upgrade_mod.upgrade(path, dry_run=False)
     cfg = ConfigModel.from_yaml(path)
     assert [a.mr_signal for a in cfg.assets] == [MRSignal.WATER, MRSignal.WATER]
+
+
+def test_a_range_declaration_is_matched_to_its_keys() -> None:
+    """`key_pattern` + `range` names no key outright, so the migration matches
+    the config's expanded keys against the pattern rather than rebuilding them."""
+    keys = {"target:hole:1", "target:hole:12", "target:MD", "brain"}
+    assert upgrade_mod.declaration_keys(
+        {"key_pattern": "target:hole:{n}", "range": [1, 13]}, keys
+    ) == ["target:hole:1", "target:hole:12"]
+
+
+def test_a_derived_declaration_is_matched_by_prefix() -> None:
+    """`derive_from` may be a glob, so its expansion cannot be reconstructed
+    without reimplementing the model."""
+    keys = {"target:L:BLA", "target:L:MD", "target:R:BLA", "brain"}
+    assert upgrade_mod.declaration_keys(
+        {"derive_from": "structure:*", "key_prefix": "target:L:"}, keys
+    ) == ["target:L:BLA", "target:L:MD"]
+
+
+def test_a_named_declaration_needs_no_matching() -> None:
+    assert upgrade_mod.declaration_keys({"key": "brain"}, set()) == ["brain"]
+    assert upgrade_mod.declaration_keys({"keys": ["a", "b"]}, set()) == ["a", "b"]
+
+
+def test_a_declaration_matching_nothing_is_refused_not_guessed() -> None:
+    """Three real configs failed this way, which is what the dry run is for."""
+    with pytest.raises(KeyError, match="appears in the config"):
+        upgrade_mod.signal_for(
+            upgrade_mod.declaration_keys({"key_prefix": "target:X:"}, {"brain"}),
+            {"brain": False},
+        )

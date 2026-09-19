@@ -205,11 +205,37 @@ def _insert_at(lines: list[str], start: int, body: str, limit: int) -> int:
     return limit
 
 
+def declaration_keys(item: dict[str, Any], known: set[str]) -> list[str]:
+    """The expanded keys a declaration produces, matched rather than rebuilt.
+
+    A declaration names its keys outright (``key``, ``keys``) or describes them
+    (``key_pattern`` with a numeric ``range``, ``key_prefix`` with
+    ``derive_from``, which itself may be a glob). Reconstructing the described
+    ones would mean reimplementing each model's ``expand``; matching the config's
+    own expanded keys against the description does not, and an unmatched
+    declaration raises rather than guessing.
+    """
+    if item.get("keys"):
+        return [str(k) for k in item["keys"]]
+    if item.get("key"):
+        return [str(item["key"])]
+    pattern = item.get("key_pattern")
+    if pattern:
+        body = re.escape(str(pattern)).replace(r"\{n\}", r"\d+")
+        regex = re.compile(f"^{body}$")
+        return sorted(k for k in known if regex.match(k))
+    prefix = item.get("key_prefix")
+    if prefix:
+        return sorted(k for k in known if k.startswith(str(prefix)))
+    return []
+
+
 def rewrite_declarations(
     text: str,
     field: str,
     value_for: Callable[[list[str]], str | None],
     *,
+    known_expanded_keys: set[str] | None = None,
     drop_keys: tuple[str, ...] = (),
     drop_blocks: tuple[str, ...] = (),
 ) -> str:
@@ -224,6 +250,7 @@ def rewrite_declarations(
     """
     lines = text.splitlines()
     insertions: dict[int, str] = {}
+    known_keys = set(known_expanded_keys or ())
     for section in _SECTIONS:
         bounds = _section_lines(lines, section)
         if bounds is None:
@@ -239,8 +266,7 @@ def rewrite_declarations(
         for n, ((start, body), item) in enumerate(zip(items, raw)):
             if field in item:
                 continue
-            keys = item.get("keys") or ([item["key"]] if item.get("key") else [])
-            value = value_for([str(k) for k in keys])
+            value = value_for(declaration_keys(item, known_keys))
             if value is None:
                 continue
             stop = items[n + 1][0] if n + 1 < len(items) else hi
@@ -304,6 +330,7 @@ def _mr_signal_rewrite(text: str, cfg: ConfigModel) -> str:
         text,
         "mr_signal",
         lambda keys: signal_for(keys, shifted).value,
+        known_expanded_keys=set(shifted),
         drop_keys=("chem_shift_policy",),
         drop_blocks=("chem_shift_apply_by_role",),
     )
@@ -353,12 +380,19 @@ def _collidable_rewrite(text: str, cfg: ConfigModel) -> str:
             raise ValueError(f"declaration {keys} spans roles {roles}")
         return roles.pop()
 
-    text = rewrite_declarations(text, "collidable", collidable_for)
+    known = set(by_key)
+    text = rewrite_declarations(
+        text, "collidable", collidable_for, known_expanded_keys=known
+    )
     # Both go as blocks: a generated config writes `caps` as the IntFlag's
     # integers rather than its names, so dropping the key alone would strand
     # the list items under it.
     return rewrite_declarations(
-        text, "role", role_for, drop_blocks=("caps", "collision")
+        text,
+        "role",
+        role_for,
+        known_expanded_keys=known,
+        drop_blocks=("caps", "collision"),
     )
 
 
