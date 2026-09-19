@@ -36,6 +36,7 @@ gradients.
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 from typing import Callable, Hashable
 
@@ -652,8 +653,29 @@ def _build_jit(  # noqa: C901
 
 # Per-probe-fixed SDF tuples + swept-pair table, cached by probe sdf-data
 # identity so they're built ONCE per probe set, not per candidate (see
-# pack_statics). Keyed by id() of the shared, long-lived ProbeSDF data.
+# pack_statics). Keyed by id() of each probe's SDFPayload.
 _SDF_PACK_CACHE: dict = {}
+
+
+def _evict_pack_entry_with_its_payloads(statics) -> None:
+    """Arrange for this entry to go when any payload its key names is collected.
+
+    A probe with no SDF contributes ``id(None)``, a constant that outlives
+    everything, so there is nothing to finalize for it.
+    """
+    for s in statics:
+        if s.sdf_data is not None:
+            weakref.finalize(s.sdf_data, _drop_pack_entries_for, id(s.sdf_data))
+
+
+def _drop_pack_entries_for(payload_id: int) -> None:
+    """Forget every packed table built from a payload that has been collected.
+
+    The key is a tuple of payload ids, so an entry outliving its payloads would
+    be read by whatever object next lands on one of those addresses.
+    """
+    for key in [k for k in _SDF_PACK_CACHE if payload_id in k[0]]:
+        _SDF_PACK_CACHE.pop(key, None)
 
 
 def pack_statics(
@@ -751,6 +773,7 @@ def pack_statics(
     key = (tuple(id(s.sdf_data) for s in statics), bool(build_table))
     sdf_part = _SDF_PACK_CACHE.get(key)
     if sdf_part is None:
+        _evict_pack_entry_with_its_payloads(statics)
         sdf_grids, sdf_origins, sdf_spacings, sdf_surfaces = [], [], [], []
         shank_obb_centers, shank_obb_halves, sdf_clearance = [], [], []
         # Dedup the grid→device conversion by probe KIND: the SDF/OBB/surface are

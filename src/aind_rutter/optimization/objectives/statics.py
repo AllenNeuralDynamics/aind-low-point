@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass, field
 
 import fcl
@@ -72,18 +73,33 @@ class _ProbeStatic:
     wall_offsets: NDArray = field(default_factory=lambda: pack_walls((), 0.0)[1])
 
 
-_SDF_JNP_CACHE: dict[tuple, dict] = {}
+class SDFPayload(dict):
+    """A probe's SDF arrays on device.
+
+    A ``dict`` subclass only so it can be weak-referenced: the caches below key
+    on ``id`` and have to drop an entry before its object is collected, or a
+    later object landing on the same address reads the previous probe's grids.
+    """
 
 
-def _sdf_jnp_payload(sdf) -> dict:
-    """Return cached JAX-array payload for a ``ProbeSDF``."""
-    key = (id(sdf),)
+_SDF_JNP_CACHE: dict[int, SDFPayload] = {}
+
+
+def _sdf_jnp_payload(sdf) -> SDFPayload:
+    """Return the cached JAX-array payload for a ``ProbeSDF``.
+
+    Keyed on identity, because the arrays cannot be hashed and equality on them
+    would cost more than the conversion it saves. The entry is dropped by a
+    finalizer when the ``ProbeSDF`` is collected, which both bounds the cache
+    and closes the window where its id could be reused.
+    """
+    key = id(sdf)
     cached = _SDF_JNP_CACHE.get(key)
     if cached is not None:
         return cached
     import jax.numpy as jnp
 
-    payload = dict(
+    payload = SDFPayload(
         grid=jnp.asarray(sdf.grid, dtype=jnp.float32),
         origin=jnp.asarray(sdf.origin, dtype=jnp.float32),
         spacing=jnp.asarray(sdf.spacing, dtype=jnp.float32),
@@ -95,6 +111,7 @@ def _sdf_jnp_payload(sdf) -> dict:
         # Host arrays; build_padded_probe_tables stacks them per kind.
         payload["clearance"] = sdf.clearance
     _SDF_JNP_CACHE[key] = payload
+    weakref.finalize(sdf, _SDF_JNP_CACHE.pop, key, None)
     return payload
 
 
