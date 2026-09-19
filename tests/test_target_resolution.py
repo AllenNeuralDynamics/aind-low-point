@@ -14,8 +14,8 @@ import pytest
 from aind_rutter.build.probe_context import resolve_plan_target_lps
 from aind_rutter.domain.plan import ProbePlan, resolve_target_LPS
 
-# RAS (1, 2, 3) is LPS (-1, -2, 3): L = -R, P = -A, S = S.
-INLINE_RAS = (1.0, 2.0, 3.0)
+# The plan holds LPS; the config and the sliders say RAS, and RAS (1, 2, 3) is
+# LPS (-1, -2, 3): L = -R, P = -A, S = S.
 INLINE_LPS = (-1.0, -2.0, 3.0)
 KEYED_LPS = np.array([4.0, 5.0, 6.0])
 INDEX = {"target:brain": KEYED_LPS}
@@ -30,8 +30,8 @@ def test_a_keyed_target_comes_from_the_index() -> None:
     np.testing.assert_allclose(resolve_target_LPS(plan, INDEX), KEYED_LPS)
 
 
-def test_an_inline_target_converts_from_ras() -> None:
-    plan = _plan(target_point_RAS=INLINE_RAS)
+def test_an_inline_target_is_taken_as_it_stands() -> None:
+    plan = _plan(target_point_LPS=INLINE_LPS)
     np.testing.assert_allclose(resolve_target_LPS(plan, INDEX), INLINE_LPS)
 
 
@@ -52,7 +52,7 @@ def test_supplied_points_override_the_plan() -> None:
 
 def test_naming_a_target_both_ways_is_refused() -> None:
     """A state holding two targets is corrupt, not a case with a winner."""
-    plan = _plan(target_key="target:brain", target_point_RAS=INLINE_RAS)
+    plan = _plan(target_key="target:brain", target_point_LPS=INLINE_LPS)
     with pytest.raises(ValueError, match="exactly one"):
         resolve_target_LPS(plan, INDEX)
 
@@ -88,7 +88,7 @@ def test_an_unresolvable_target_lets_the_app_keep_drawing(plan: ProbePlan) -> No
     "plan",
     [
         ProbePlan(kind="np", arc_id="a", target_key="target:brain"),
-        ProbePlan(kind="np", arc_id="a", target_point_RAS=INLINE_RAS),
+        ProbePlan(kind="np", arc_id="a", target_point_LPS=INLINE_LPS),
     ],
     ids=["keyed", "inline"],
 )

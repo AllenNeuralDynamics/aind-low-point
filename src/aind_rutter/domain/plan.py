@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Optional, Tuple
 from warnings import warn
 
 import numpy as np
-from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
 from aind_rutter.domain.rig import Kinematics
 from aind_rutter.domain.scene import Scene
@@ -82,9 +81,11 @@ class ProbePlan:
     spin: float = 0.0  # deg
     # targeting
     past_target_mm: float = 0.0
-    offsets_RA: Tuple[float, float] = (0.0, 0.0)
+    # In-plane offset from the target, LPS mm. The config and the sliders say
+    # (R, A); the planning boundary flips both signs on the way in.
+    offsets_LP: Tuple[float, float] = (0.0, 0.0)
     target_key: Optional[str] = None
-    target_point_RAS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
+    target_point_LPS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
     # The shank whose tip is the kinematic pivot (1-indexed). Drives
     # which shank's tip lands at the inline target, which shank's RAS
     # is shown in the readout, and along which shank brain-surface
@@ -180,10 +181,10 @@ def resolve_target_LPS(
     if points_LPS is not None:
         return np.asarray(points_LPS, dtype=np.float64).reshape(-1, 3).mean(0)
 
-    if plan.target_key and plan.target_point_RAS is not None:
+    if plan.target_key and plan.target_point_LPS is not None:
         raise ValueError(
             f"probe plan names both target_key {plan.target_key!r} and an inline "
-            f"point {plan.target_point_RAS!r}; exactly one is allowed"
+            f"point {plan.target_point_LPS!r}; exactly one is allowed"
         )
 
     if plan.target_key:
@@ -200,16 +201,15 @@ def resolve_target_LPS(
         warn(f"Missing target for key: {plan.target_key!r}; using origin.")
         return np.zeros(3, dtype=np.float64)
 
-    if plan.target_point_RAS is not None:
-        ras = np.asarray(plan.target_point_RAS, dtype=np.float64)
-        return convert_coordinate_system(ras, "RAS", "LPS")
+    if plan.target_point_LPS is not None:
+        return np.asarray(plan.target_point_LPS, dtype=np.float64)
 
     if strict:
         raise RuntimeError(
-            "Probe plan has no target_key or target_point_RAS; "
+            "Probe plan has no target_key or target_point_LPS; "
             "a runtime target point is required."
         )
-    warn("ProbePlan has neither target_key nor target_point_RAS; using origin.")
+    warn("ProbePlan has neither target_key nor target_point_LPS; using origin.")
     return np.zeros(3, dtype=np.float64)
 
 

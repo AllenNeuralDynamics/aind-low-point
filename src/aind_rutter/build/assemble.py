@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import trimesh
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
 from aind_rutter.build.calibration import _get_calibration_rt
@@ -428,10 +429,17 @@ def build_plan_state_from_config(
         else:
             ap = 0.0
             ml = probe_decl.slider_ml
-        # Resolve target: inline RAS point, node, or catalog key
+        # Resolve target: inline RAS point, node, or catalog key. The config
+        # says RAS; the plan holds LPS.
         if probe_decl.target.kind == "inline":
             target_key = None
-            target_point_RAS = tuple(probe_decl.target.point_RAS)
+            target_point_LPS = tuple(
+                convert_coordinate_system(
+                    np.asarray(probe_decl.target.point_RAS, float).reshape(1, 3),
+                    "RAS",
+                    "LPS",
+                ).reshape(3)
+            )
         elif probe_decl.target.kind == "node":
             if catalog is None or scene is None:
                 raise ValueError(
@@ -450,10 +458,10 @@ def build_plan_state_from_config(
             transformed_points = transformed_points.raw
             target_index[key] = transformed_points
             target_key = key
-            target_point_RAS = None
+            target_point_LPS = None
         else:  # catalog
             target_key = probe_decl.target.key
-            target_point_RAS = None
+            target_point_LPS = None
         probes[probe_name] = ProbePlan(
             kind=probe_decl.kind,
             arc_id=probe_decl.arc,
@@ -462,9 +470,9 @@ def build_plan_state_from_config(
             ml_local=ml,
             spin=probe_decl.spin,
             past_target_mm=probe_decl.past_target_mm,
-            offsets_RA=tuple(probe_decl.offsets_RA),
+            offsets_LP=(-probe_decl.offsets_RA[0], -probe_decl.offsets_RA[1]),
             target_key=target_key,
-            target_point_RAS=target_point_RAS,
+            target_point_LPS=target_point_LPS,
             position_bearing_shank=probe_decl.position_bearing_shank,
             calibrated=probe_decl.calibrated,
         )

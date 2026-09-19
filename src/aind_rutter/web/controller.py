@@ -356,7 +356,7 @@ class TrameController:
             state.probe_newscale_readout_z = "—"
 
         # Centering is built into the kinematic chain: any probe with
-        # ``past_target_mm = 0`` and ``offsets_RA = (0, 0)`` already has
+        # ``past_target_mm = 0`` and ``offsets_LP = (0, 0)`` already has
         # the recording-array center on the target. No init-time fix-up
         # needed.
 
@@ -795,7 +795,7 @@ class TrameController:
     # centering helper used to live here. Both are obsolete after the
     # pivot redesign — ``ProbePose.from_planning_state`` now subtracts
     # ``R @ recording_center_local`` from ``tip``, so any
-    # ``(past_target_mm=0, offsets_RA=(0, 0))`` pose automatically
+    # ``(past_target_mm=0, offsets_LP=(0, 0))`` pose automatically
     # places the recording-array center on the target. Setting a target
     # is just a target dispatch followed by a state reset of those
     # variables — no manual offset/depth math needed.
@@ -1999,7 +1999,7 @@ class TrameController:
         VTK.js's ``r`` to reset.
 
         Looks up the target via ``plan_state.target_index`` for catalog
-        keys (already in LPS) or converts ``target_point_RAS`` for
+        keys or the plan's inline point, both already LPS, for
         inline targets. No-op silently if no probe is selected or the
         target can't be resolved.
         """
@@ -2016,9 +2016,8 @@ class TrameController:
             if tlps is not None:
                 arr = np.asarray(tlps, dtype=np.float64).reshape(-1, 3)
                 target_lps = arr.mean(axis=0)
-        if target_lps is None and plan.target_point_RAS is not None:
-            ras = np.asarray(plan.target_point_RAS, dtype=np.float64).reshape(1, 3)
-            target_lps = convert_coordinate_system(ras, "RAS", "LPS").reshape(3)
+        if target_lps is None and plan.target_point_LPS is not None:
+            target_lps = np.asarray(plan.target_point_LPS, dtype=np.float64)
         if target_lps is None:
             return
         self.plotter.camera.focal_point = tuple(float(c) for c in target_lps)
@@ -2095,7 +2094,8 @@ class TrameController:
         if not plan:
             return
 
-        r_mm, a_mm = plan.offsets_RA
+        # The sliders are labelled R and A; the plan holds LPS.
+        r_mm, a_mm = -plan.offsets_LP[0], -plan.offsets_LP[1]
         # Resolved angles. When the probe is calibrated, AP/ML come from
         # the calibration rotation (find_probe_angle), not from arc/ml_local
         # — match what ProbePose actually renders.

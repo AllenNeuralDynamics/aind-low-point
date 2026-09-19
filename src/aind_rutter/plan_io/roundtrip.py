@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import numpy as np
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
+
 from aind_rutter.config import (
     CatalogTargetRefModel,
     ConfigModel,
@@ -21,12 +24,15 @@ def _reconstruct_target_ref(
     """Reconstruct a TargetRef from a ProbePlan.
 
     Priority:
-    1. If target_point_RAS is set → InlineTargetRefModel
+    1. If target_point_LPS is set → InlineTargetRefModel (converted to RAS)
     2. If target_key matches the original → reuse original TargetRef (preserves kind)
     3. Otherwise → CatalogTargetRefModel
     """
-    if probe.target_point_RAS is not None:
-        return InlineTargetRefModel(point_RAS=list(probe.target_point_RAS))
+    if probe.target_point_LPS is not None:
+        ras = convert_coordinate_system(
+            np.asarray(probe.target_point_LPS, float).reshape(1, 3), "LPS", "RAS"
+        ).reshape(3)
+        return InlineTargetRefModel(point_RAS=[float(v) for v in ras])
     orig = original_probes.get(probe_name)
     if (
         orig is not None
@@ -71,7 +77,7 @@ def planning_state_to_plan_model(
             bind_ap_to_arc=plan.bind_ap_to_arc,
             target=target_ref,
             past_target_mm=plan.past_target_mm,
-            offsets_RA=list(plan.offsets_RA),
+            offsets_RA=[-plan.offsets_LP[0], -plan.offsets_LP[1]],
             position_bearing_shank=plan.position_bearing_shank,
             calibrated=plan.calibrated,
             auto_scene=orig_decl.auto_scene if orig_decl else True,

@@ -610,7 +610,7 @@ def emit_full_config(  # noqa: C901
         # Look up the per-region CCF colors from the bundled ontology
         # so each structure renders in its Allen colour (matching
         # ``use_ccf_color: true`` on the atlas-mesh-pack spec).
-        from aind_rutter.ccf_ontology import CCFOntology
+        from aind_rutter.ccf.ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         for s in structures:

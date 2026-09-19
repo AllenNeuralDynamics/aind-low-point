@@ -11,6 +11,9 @@ from typing import (
     Union,
 )
 
+import numpy as np
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
+
 from aind_rutter.domain.plan import PlanningState
 from aind_rutter.domain.pose import _resolved_angles
 
@@ -212,20 +215,22 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
         return sorted(changed)
 
     if isinstance(cmd, SetProbeOffsetsRA):
+        # The command names the axes the slider does; the plan stores LPS, and
+        # RAS -> LPS is a sign flip on both in-plane axes.
         plan = ps.probes[cmd.name]
-        R, A = plan.offsets_RA
+        L, P = plan.offsets_LP
         if cmd.R_mm is not None:
-            R = float(cmd.R_mm)
+            L = -float(cmd.R_mm)
         if cmd.A_mm is not None:
-            A = float(cmd.A_mm)
-        plan.offsets_RA = (R, A)
+            P = -float(cmd.A_mm)
+        plan.offsets_LP = (L, P)
         changed.add(cmd.name)
         return sorted(changed)
 
     if isinstance(cmd, NudgeProbeOffsetsRA):
         plan = ps.probes[cmd.name]
-        R, A = plan.offsets_RA
-        plan.offsets_RA = (R + float(cmd.dR_mm), A + float(cmd.dA_mm))
+        L, P = plan.offsets_LP
+        plan.offsets_LP = (L - float(cmd.dR_mm), P - float(cmd.dA_mm))
         changed.add(cmd.name)
         return sorted(changed)
 
@@ -261,7 +266,15 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
                 "SetProbeTarget: specify exactly one of target_key or target_point_RAS"
             )
         plan.target_key = cmd.target_key
-        plan.target_point_RAS = cmd.target_point_RAS
+        plan.target_point_LPS = (
+            None
+            if cmd.target_point_RAS is None
+            else tuple(
+                convert_coordinate_system(
+                    np.asarray(cmd.target_point_RAS, float).reshape(1, 3), "RAS", "LPS"
+                ).reshape(3)
+            )
+        )
         changed.add(cmd.name)
         return sorted(changed)
 

@@ -3,8 +3,9 @@
 ## The rule
 
 **Internal canonical space is LPS millimeters.** Every piece of geometry that
-lives in `AssetCatalog`, `Scene`, `PlanningState.target_index`, or any
-`Transform`-bound payload is in LPS mm.
+lives in `AssetCatalog`, `Scene`, `PlanningState` — including `ProbePlan`'s
+`offsets_LP` and `target_point_LPS` — or any `Transform`-bound payload is in
+LPS mm.
 
 The only places RAS shows up are user-facing config/UI boundaries (specifically
 named: `point_RAS`, `offset_RAS`, `offsets_RA`). They get converted to LPS the
@@ -25,25 +26,27 @@ moment they cross into the runtime.
    - multiply by `scale_to_mm`,
    - apply optional `transform` (an `AffineTransform` resolved from the
      transforms registry).
-3. **Chemical shift** (`ChemShiftContext.pt_transform_for_ppm`) — if the spec's
-   role is in `apply_by_role` and the policy is on, shift vertices by the
-   per-ppm correction.
+3. **Chemical shift** (`ChemShiftContext.pt_transform_for_ppm`) — if the spec
+   says `mr_signal: water`, shift vertices by the per-ppm correction.
 
 After step 3 the geometry is stored in the spec's `mesh` / `points` field and
-is **guaranteed in canonical LPS mm** (per the comment at `assets.py:62`).
+is **guaranteed in canonical LPS mm** (per the comment in `domain/catalog.py`).
 
-### RAS → LPS (runtime)
+### RAS → LPS (planning boundary)
 
-Two specific conversions happen at the planning boundary, both in
-`planning.py`:
+The plan itself holds LPS, so each RAS spelling converts exactly once, where it
+crosses in or out:
 
-- `ProbePlan.target_point_RAS` (inline RAS target) → LPS via
-  `convert_coordinate_system(ras, "RAS", "LPS")` in
-  `_resolve_target_LPS_from_plan`.
-- `ProbePlan.offsets_RA` (the (R, A) tuple in mm) → LPS via the same converter
-  on a `[R, A, 0]` vector inside `ProbePose.from_planning_state`.
+- `build/assemble.py` — the config's `target.point_RAS` and `offsets_RA` become
+  `ProbePlan.target_point_LPS` and `offsets_LP`.
+- `domain/commands.py` — `SetProbeTarget` and the two offset commands name the
+  axes the sliders do (R, A) and flip on apply.
+- `plan_io/roundtrip.py` and `plan_io/rig_export.py` — flip back, so the YAML a
+  config author reads and the numbers the rig reads stay RAS.
+- `optimization/objectives/variables.py` — the optimizer's x vector names its
+  in-plane DOFs `off_R`/`off_A`; writing them into a plan flips both.
 
-After these, every coordinate inside the runtime is LPS mm.
+RAS → LPS is a sign flip on the first two axes and identity on the third.
 
 ### LPS → renderer (display time)
 

@@ -29,7 +29,7 @@ def _probe(arc_id: str, ml: float) -> ProbePlan:
         bind_ap_to_arc=True,
         ml_local=ml,
         past_target_mm=1.0,
-        offsets_RA=(0.0, 0.0),
+        offsets_LP=(0.0, 0.0),
     )
 
 

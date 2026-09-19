@@ -194,7 +194,7 @@ class TestPlanningStateToModel:
                     ml_local=3.0,
                     spin=1.0,
                     past_target_mm=2.0,
-                    offsets_RA=(0.5, 0.3),
+                    offsets_LP=(-0.5, -0.3),
                     target_key="t1",
                     calibrated=False,
                 ),
@@ -256,7 +256,7 @@ class TestPlanningStateToModel:
         p = state.probes["p1"]
         p.spin = 45.0
         p.past_target_mm = 5.0
-        p.offsets_RA = (1.0, 2.0)
+        p.offsets_LP = (-1.0, -2.0)
 
         original = self._make_original_plan()
         result = planning_state_to_plan_model(state, original)
@@ -517,7 +517,7 @@ class TestInlineTargetRefModel:
                     ap_local=15.0,
                     ml_local=0.0,
                     target_key=None,
-                    target_point_RAS=(10.0, 20.0, 30.0),
+                    target_point_LPS=(-10.0, -20.0, 30.0),
                 ),
             },
         )
@@ -572,7 +572,7 @@ class TestInlineTargetRefModel:
                     ap_local=0.0,
                     ml_local=0.0,
                     target_key=None,
-                    target_point_RAS=(10.0, 20.0, 30.0),
+                    target_point_LPS=(-10.0, -20.0, 30.0),
                 ),
             },
         )
@@ -806,7 +806,7 @@ class TestApplyPlanModelToState:
                     ml_local=0.0,
                     spin=0.0,
                     past_target_mm=0.0,
-                    offsets_RA=(0.0, 0.0),
+                    offsets_LP=(0.0, 0.0),
                     target_key="t1",
                     calibrated=False,
                     position_bearing_shank=1,
@@ -818,7 +818,7 @@ class TestApplyPlanModelToState:
                     ml_local=0.0,
                     spin=0.0,
                     past_target_mm=0.0,
-                    offsets_RA=(0.0, 0.0),
+                    offsets_LP=(0.0, 0.0),
                     target_key="t2",
                     calibrated=False,
                     position_bearing_shank=1,
@@ -862,7 +862,8 @@ class TestApplyPlanModelToState:
         assert p1.ml_local == 4.5
         assert p1.spin == 141.0
         assert p1.past_target_mm == 0.5
-        assert p1.offsets_RA == (0.1, -0.2)
+        # The config says RAS (0.1, -0.2); the plan holds its LPS mirror.
+        assert p1.offsets_LP == (-0.1, 0.2)
         assert p1.position_bearing_shank == 4
         p2 = store.state.probes["P2"]
         assert p2.spin == 20.0
@@ -901,7 +902,7 @@ class TestApplyPlanModelToState:
                     ml_local=-12.0,
                     spin=141.0,
                     past_target_mm=0.0675,
-                    offsets_RA=(0.0, 0.0),
+                    offsets_LP=(0.0, 0.0),
                     target_key="MD_target",
                     calibrated=False,
                     position_bearing_shank=1,
@@ -936,7 +937,7 @@ class TestApplyPlanModelToState:
                     ml_local=0.0,
                     spin=0.0,
                     past_target_mm=0.0,
-                    offsets_RA=(0.0, 0.0),
+                    offsets_LP=(0.0, 0.0),
                     target_key="MD_target",
                     calibrated=False,
                     position_bearing_shank=1,
@@ -959,4 +960,4 @@ class TestApplyPlanModelToState:
             "position_bearing_shank",
         ):
             assert getattr(loaded, field) == getattr(src.probes["MD"], field), field
-        assert loaded.offsets_RA == src.probes["MD"].offsets_RA
+        assert loaded.offsets_LP == src.probes["MD"].offsets_LP

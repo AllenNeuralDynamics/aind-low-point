@@ -146,8 +146,15 @@ def export_plan_geometry(
             )
             tlps = tlps.flatten() if tlps.ndim > 1 else tlps
             target_ras = convert_coordinate_system(tlps[:3], "LPS", "RAS").tolist()
-        elif plan.target_point_RAS is not None:
-            target_ras = list(plan.target_point_RAS)
+        elif plan.target_point_LPS is not None:
+            target_ras = [
+                float(v)
+                for v in convert_coordinate_system(
+                    np.asarray(plan.target_point_LPS, float).reshape(1, 3),
+                    "LPS",
+                    "RAS",
+                ).reshape(3)
+            ]
 
         depth = None
         if brain_mesh is not None:
@@ -183,7 +190,7 @@ def export_plan_geometry(
                 "ml": float(pose.ml),
                 "spin": float(pose.spin),
             },
-            "offsets_RA_mm": [float(plan.offsets_RA[0]), float(plan.offsets_RA[1])],
+            "offsets_RA_mm": [-float(plan.offsets_LP[0]), -float(plan.offsets_LP[1])],
             "past_target_mm": float(plan.past_target_mm),
             "position_bearing_shank": int(plan.position_bearing_shank),
             "tip_RAS_mm": [float(c) for c in tip_ras],

@@ -61,7 +61,7 @@ def _plan(kind: str) -> PlanningState:
     return PlanningState(
         kinematics=Kinematics(arc_angles={"a": 0.0}),
         probes={
-            PROBE: ProbePlan(kind=kind, arc_id="a", target_point_RAS=(0.0, 0.0, -1.0))
+            PROBE: ProbePlan(kind=kind, arc_id="a", target_point_LPS=(0.0, 0.0, -1.0))
         },
     )
 

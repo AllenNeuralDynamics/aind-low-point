@@ -141,5 +141,6 @@ def _apply_x_to_plan_state(plan_state, x, statics, n_arcs):
         plan.ap_local = 0.0
         plan.ml_local = ml
         plan.spin = spin
-        plan.offsets_RA = (off_R, off_A)
+        # The x layout names these in RAS; the plan holds LPS.
+        plan.offsets_LP = (-off_R, -off_A)
         plan.past_target_mm = depth

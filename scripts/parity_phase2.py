@@ -120,19 +120,31 @@ def run_arm(tag: str, tree: Path, env: dict[str, str], work: Path) -> Path:
     arm_env = {
         **env,
         "OUT": str(out),
+        "RUTTER_OUT": str(out),
         "PYTHONPATH": os.pathsep.join(
             [str(tree / "src"), *filter(None, [env.get("PYTHONPATH")])]
         ),
     }
-    code = (
-        "import pathlib, sys, aind_rutter;"
-        f"expected = pathlib.Path({str(tree / 'src')!r}).resolve();"
-        "actual = pathlib.Path(aind_rutter.__file__).resolve();"
-        "print('aind_rutter from', actual, flush=True);"
-        "sys.exit(f'WRONG TREE: expected {expected}') "
-        "if expected not in actual.parents else None;"
-        "from aind_rutter.optimization.pipeline.phase2_ipopt import main;"
-        "sys.exit(main())"
+    # The two arms may sit either side of the stage rename, so the module is
+    # looked up under both spellings.
+    code = "\n".join(
+        [
+            "import importlib.util, pathlib, sys, aind_rutter",
+            f"expected = pathlib.Path({str(tree / 'src')!r}).resolve()",
+            "actual = pathlib.Path(aind_rutter.__file__).resolve()",
+            "print('aind_rutter from', actual, flush=True)",
+            "if expected not in actual.parents:",
+            "    sys.exit(f'WRONG TREE: expected {expected}')",
+            "stage = None",
+            "for name in ('phase2', 'phase2_ipopt'):",
+            "    dotted = 'aind_rutter.optimization.pipeline.' + name",
+            "    if importlib.util.find_spec(dotted) is not None:",
+            "        stage = importlib.import_module(dotted)",
+            "        break",
+            "if stage is None:",
+            "    sys.exit('no Phase-2 stage module in this tree')",
+            "sys.exit(stage.main())",
+        ]
     )
     print(f"[{tag}] running → {log}", flush=True)
     with log.open("w") as handle:
@@ -286,23 +298,31 @@ def stage_env(
     platform = "cuda" if args.platform == "gpu" else "cpu"
     return {
         **os.environ,
-        "CONFIG": str(config),
-        "HOLES": str(holes),
-        "POSES": str(poses),
-        "SELECT_BY": args.select_by,
-        "TOPK": str(args.topk),
-        "WORKERS": str(args.workers),
-        "P2_ITER": str(args.p2_iter),
-        "WELL": args.well,
-        "SOLVER": "ipopt",
-        "POOL": args.pool,
-        "PLATFORM": args.platform,
+        # Both spellings, because the two code generations either side of a
+        # change may read different ones; the prefixed names are what the
+        # pipeline reads today.
+        **{
+            prefix + name: value
+            for prefix in ("", "RUTTER_")
+            for name, value in {
+                "CONFIG": str(config),
+                "HOLES": str(holes),
+                "POSES": str(poses),
+                "SELECT_BY": args.select_by,
+                "TOPK": str(args.topk),
+                "WORKERS": str(args.workers),
+                "P2_ITER": str(args.p2_iter),
+                "WELL": args.well,
+                "SOLVER": "ipopt",
+                "POOL": args.pool,
+                "PLATFORM": args.platform,
+            }.items()
+        },
         "JAX_PLATFORMS": platform,
         "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
         # Shared, so the second arm pays neither the SDF build nor the compile —
-        # and so a change to how the cache directory is chosen cannot be what the
-        # comparison measures. Both names are set because the two code
-        # generations either side of a change may read different ones.
+        # and so a change to how the cache directory is chosen cannot be what
+        # the comparison measures.
         "AIND_LOW_POINT_CACHE_DIR": str(work / "sdf_cache"),
         "JAX_CACHE_DIR": str(work / "jax_cache"),
         "AIND_JAX_CACHE_DIR": str(work / "jax_cache"),

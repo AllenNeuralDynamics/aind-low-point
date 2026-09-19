@@ -36,7 +36,7 @@ def _arc_probe(arc_id: str) -> ProbePlan:
         ml_local=3.0,
         spin=1.0,
         past_target_mm=2.0,
-        offsets_RA=(0.0, 0.0),
+        offsets_LP=(0.0, 0.0),
         target_key=None,
         calibrated=False,
     )

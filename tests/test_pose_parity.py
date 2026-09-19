@@ -100,7 +100,7 @@ def _app_tip(ap, ml, spin, off_r, off_a, past) -> np.ndarray:
         ap_local=ap,
         ml_local=ml,
         spin=spin,
-        offsets_RA=(off_r, off_a),
+        offsets_LP=(-off_r, -off_a),
         past_target_mm=past,
         target_key="target:x",
     )

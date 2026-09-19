@@ -78,8 +78,8 @@ def test_plan_state_reproduces_the_declared_probes(runtime: RuntimeBundle) -> No
     assert probes["P1"].target_key == "target:brain"
     assert probes["P2"].kind == "quadbase-alpha"
     assert probes["P2"].spin == pytest.approx(90.0)
-    # The inline target is declared in RAS and stored as declared.
-    assert probes["P2"].target_point_RAS == (HOLE_PITCH_MM, 0.0, -5.0)
+    # The inline target is declared in RAS and stored in LPS.
+    assert probes["P2"].target_point_LPS == (-HOLE_PITCH_MM, 0.0, -5.0)
 
 
 def test_head_pitch_comes_from_the_plan(runtime: RuntimeBundle) -> None:

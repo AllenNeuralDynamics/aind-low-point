@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import trimesh
-from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 from numpy.typing import ArrayLike, NDArray
@@ -97,7 +96,7 @@ class ProbePose:
         - ML comes from calibration if present/allowed, else local.
         - Spin is always the per-probe plan spin.
         - Target is taken from planning.target_index (or assets fallback) +
-        offsets_RA.
+        offsets_LP.
 
         ``ProbePose.tip`` continues to mean **the world position of the
         position-bearing shank's tip** (= world position of the probe's
@@ -129,14 +128,13 @@ class ProbePose:
         # --- angles (AP/ML) ---
         ap_deg, ml_deg, spin_deg = _resolved_angles(probe_name, ps)
 
-        # --- target + offsets (RAS→LPS) ---
+        # --- target + offsets, both already LPS ---
         tgt_LPS = resolve_target_LPS(
             plan, ps.target_index, assets_fallback=assets_targets_fallback
         )
-        off_RAS = np.array(
-            [plan.offsets_RA[0], plan.offsets_RA[1], 0.0], dtype=np.float64
+        off_LPS = np.array(
+            [plan.offsets_LP[0], plan.offsets_LP[1], 0.0], dtype=np.float64
         )
-        off_LPS = convert_coordinate_system(off_RAS, "RAS", "LPS")
         adjusted_target = tgt_LPS + off_LPS
 
         # --- pivot lookup ---
