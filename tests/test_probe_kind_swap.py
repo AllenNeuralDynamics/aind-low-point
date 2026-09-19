@@ -133,7 +133,7 @@ def _bounds(vertices: np.ndarray) -> float:
 
 def test_the_renderer_rebuilds_the_node_it_had_drawn() -> None:
     """update_mesh takes new points but not new faces, so it has to recreate."""
-    from aind_rutter.rendering import RendererAdapter
+    from aind_rutter.render.adapter import RendererAdapter
 
     scene, catalog = _scene(), _catalog(OLD_KIND, NEW_KIND)
     backend = _RecordingBackend()
@@ -157,8 +157,8 @@ def test_a_loaded_plan_moves_the_mesh(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from aind_rutter.config import PlanningModel
     from aind_rutter.plan_io.replay import apply_plan_model_to_state
-    from aind_rutter.rendering import RendererAdapter, RenderHandler
-    from aind_rutter.state_change import PlanStore
+    from aind_rutter.render.adapter import RendererAdapter, RenderHandler
+    from aind_rutter.session.store import PlanStore
 
     scene, catalog = _scene(), _catalog(OLD_KIND, NEW_KIND)
     backend = _RecordingBackend()

@@ -10,6 +10,12 @@ import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.rotations import apply_rotate_translate
 
+from aind_rutter.build.transforms import (
+    CompiledTransforms,
+    compile_recipe_to_chain,
+    resolve_transform_key_cached,
+    resolve_transform_ref_cached,
+)
 from aind_rutter.config import (
     BaseSpecModel,
     CanonicalizationDefModel,
@@ -20,12 +26,6 @@ from aind_rutter.config import (
 )
 from aind_rutter.domain.enums import OrientationCode
 from aind_rutter.domain.transforms import AffineTransform, TransformChain
-from aind_rutter.build.transforms import (
-    CompiledTransforms,
-    compile_recipe_to_chain,
-    resolve_transform_key_cached,
-    resolve_transform_ref_cached,
-)
 
 
 @dataclass(frozen=True)

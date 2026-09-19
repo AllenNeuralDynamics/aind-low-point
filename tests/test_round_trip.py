@@ -18,7 +18,7 @@ from aind_rutter.plan_io.roundtrip import (
     planning_state_to_plan_model,
     save_plan_to_config,
 )
-from aind_rutter.state_change import PlanStore
+from aind_rutter.session.store import PlanStore
 from tests.config_factories import (
     AssetFactory,
     ConfigFactory,

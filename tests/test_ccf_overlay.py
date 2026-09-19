@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from aind_rutter.ccf_ontology import CCFOntology
-from aind_rutter.ccf_overlay import CCFOverlayManager
+from aind_rutter.ccf.ontology import CCFOntology
+from aind_rutter.web.ccf_regions import CCFOverlayManager
 
 pv = pytest.importorskip("pyvista")
 

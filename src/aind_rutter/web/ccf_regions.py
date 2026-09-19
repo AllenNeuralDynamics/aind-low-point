@@ -17,7 +17,7 @@ import SimpleITK as sitk
 import trimesh
 from aind_mri_utils.meshes import mask_to_trimesh
 
-from aind_rutter.ccf_ontology import CCFOntology, CCFStructure
+from aind_rutter.ccf.ontology import CCFOntology, CCFStructure
 
 
 @dataclass

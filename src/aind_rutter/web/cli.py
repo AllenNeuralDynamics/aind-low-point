@@ -25,8 +25,8 @@ from pathlib import Path
 
 import tyro
 
-from aind_rutter.app import build_trame_app
 from aind_rutter.config import ConfigModel
+from aind_rutter.web.app import build_trame_app
 
 
 @dataclass

@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
+from aind_rutter.build.assemble import RuntimeBundle
 from aind_rutter.domain.plan import ProbePlan, probe_asset_key, resolve_target_LPS
 from aind_rutter.domain.pose import detect_shank_tips_local
 from aind_rutter.domain.probe_kinds import RecordingGeometry, pivot_from_shank_tips
 from aind_rutter.domain.transforms import MeshTransformable
-from aind_rutter.build.assemble import RuntimeBundle
 
 if TYPE_CHECKING:
     import trimesh

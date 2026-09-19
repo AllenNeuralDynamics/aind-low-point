@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from aind_rutter.config import PlanningModel
 
 if TYPE_CHECKING:
-    from aind_rutter.state_change import PlanStore
+    from aind_rutter.session.store import PlanStore
 
 
 def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[str]:

@@ -74,7 +74,7 @@ optimization = [
 ]
 
 [project.scripts]
-rutter-plan = "aind_rutter.cli:main"
+rutter-plan = "aind_rutter.web.cli:main"
 rutter-phase1 = "aind_rutter.optimization.pipeline.phase1_pool:main"
 rutter-phase2 = "aind_rutter.optimization.pipeline.phase2_ipopt:main"
 rutter-emit = "aind_rutter.optimization.pipeline.emit:main"

@@ -39,7 +39,7 @@ def subject(tmp_path_factory: pytest.TempPathFactory) -> SyntheticSubject:
 
 
 def _build(subject: SyntheticSubject, **kwargs):
-    from aind_rutter.app import build_trame_app
+    from aind_rutter.web.app import build_trame_app
 
     return build_trame_app(ConfigModel.from_yaml(subject.config), **kwargs)
 

@@ -11,6 +11,18 @@ import numpy as np
 import trimesh
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
+from aind_rutter.build.calibration import _get_calibration_rt
+from aind_rutter.build.canonicalize import (
+    CanonicalizationRuntime,
+    _apply_canonicalization_mesh,
+    _apply_canonicalization_points,
+    _resolve_canon_model_to_runtime,
+    _resolve_scene_node_transform,
+)
+from aind_rutter.build.chem_shift import ChemShiftContext, _should_apply_chem
+from aind_rutter.build.loaders import GeometryOut, load_geometry
+from aind_rutter.build.reducers import _REDUCER_REGISTRY, EmptyReductionError
+from aind_rutter.build.transforms import compile_all_transforms
 from aind_rutter.config import (
     NO_RECORDING_ARRAY,
     AssetSpecModel,
@@ -34,18 +46,6 @@ from aind_rutter.domain.transforms import (
     MeshTransformable,
     PointsTransformable,
 )
-from aind_rutter.build.calibration import _get_calibration_rt
-from aind_rutter.build.canonicalize import (
-    CanonicalizationRuntime,
-    _apply_canonicalization_mesh,
-    _apply_canonicalization_points,
-    _resolve_canon_model_to_runtime,
-    _resolve_scene_node_transform,
-)
-from aind_rutter.build.chem_shift import ChemShiftContext, _should_apply_chem
-from aind_rutter.build.loaders import GeometryOut, load_geometry
-from aind_rutter.build.reducers import EmptyReductionError, _REDUCER_REGISTRY
-from aind_rutter.build.transforms import compile_all_transforms
 
 logger = logging.getLogger(__name__)
 

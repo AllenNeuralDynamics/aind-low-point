@@ -21,9 +21,8 @@ from trame.widgets import client, vuetify3
 from trame_pyvista.ui import plotter_ui
 
 from aind_rutter.build.queries import brain_world_mesh
-from aind_rutter.ccf_ontology import CCFOntology
-from aind_rutter.ccf_overlay import CCFOverlayManager
-from aind_rutter.collisions import CollisionHandler
+from aind_rutter.ccf.ontology import CCFOntology
+from aind_rutter.collision.worker import CollisionHandler
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.commands import (
     AssignProbeArc,
@@ -50,8 +49,10 @@ from aind_rutter.domain.pose import (
 )
 from aind_rutter.domain.transforms import MeshTransformable
 from aind_rutter.plan_io.rig_export import depth_along_probe_axis
-from aind_rutter.rendering import OverlayResolver, OverlaySpec, RendererAdapter
-from aind_rutter.state_change import PlanStore
+from aind_rutter.render.adapter import RendererAdapter
+from aind_rutter.render.overlays import OverlayResolver, OverlaySpec
+from aind_rutter.session.store import PlanStore
+from aind_rutter.web.ccf_regions import CCFOverlayManager
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
 # at priority 30, so they still win when both overlays apply to the same
@@ -2057,7 +2058,7 @@ class TrameController:
     def apply_default_view(self) -> None:
         """Apply default camera (brain-focused iso, S-L-A octant) and
         opacity (implant 20%, fixtures 60%) on first paint. Called
-        once from :func:`aind_rutter.app.build_trame_app` after the
+        once from :func:`aind_rutter.web.app.build_trame_app` after the
         renderer's initial build."""
         self.recenter_view()
         self.apply_default_opacities()

@@ -2,7 +2,7 @@
 
 Multi-probe insertion planning for AIND: an interactive planner and a
 constrained-optimization solver over one runtime. The frontend is Trame +
-PyVista (web app, `app.py` + `trame_controller.py`).
+PyVista (`web/app.py` + `web/controller.py`).
 
 ## Invariants
 
@@ -86,15 +86,25 @@ src/aind_rutter/
 │   ├── replay.py          # apply_plan_model_to_state
 │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
 │   └── cli_csv.py         # the rutter-plan-csv entry point
-├── state_change.py        # PlanStore, AsyncLatestWorker
-├── rendering.py           # RendererAdapter, RenderBackend protocol, overlays
-├── collisions.py          # CollisionAdapter, CollisionHandler (sync + async paths)
-├── pyvista_backend.py     # PyVistaBackend + DebouncedFlush (trame)
-├── fcl_backend.py         # FCLBackend (per-pair callback, group/mask filter)
-├── trame_controller.py    # TrameController (Vuetify3 + PyVista)
-├── app.py                 # build_trame_app() factory
-├── ccf_ontology.py        # Allen CCF structures + search
-└── ccf_overlay.py         # CCFOverlayManager (lazy region meshes in PyVista)
+├── session/
+│   ├── store.py           # PlanStore: one planning state, edited by command
+│   └── worker.py          # AsyncLatestWorker
+├── render/
+│   ├── overlays.py        # OverlaySpec, OverlayState, OverlayResolver
+│   ├── adapter.py         # RendererAdapter, RenderBackend protocol
+│   └── pyvista.py         # PyVistaBackend + DebouncedFlush (trame)
+├── collision/
+│   ├── geometry.py        # FCL BVH and transform construction, with guards
+│   ├── adapter.py         # CollisionAdapter, pair_bits (the pair rule)
+│   ├── fcl.py             # FCLBackend (per-pair callback)
+│   └── worker.py          # CollisionHandler (sync + async paths)
+├── web/
+│   ├── cli.py             # the rutter-plan entry point
+│   ├── app.py             # build_trame_app() factory
+│   ├── controller.py      # TrameController (Vuetify3 + PyVista)
+│   └── ccf_regions.py     # CCFOverlayManager (lazy region meshes)
+└── ccf/
+    └── ontology.py        # Allen CCF structures + search
 ```
 
 The top-level tree above is partial. Two big subpackages are not shown:

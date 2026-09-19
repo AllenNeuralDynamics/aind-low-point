@@ -98,12 +98,13 @@ PRIVATE_IMPORT_BASELINE = {
 
 # Modules whose job is drawing or driving a UI. The optimizer never imports one.
 FRONTEND_MODULES = {
-    "aind_rutter.app",
-    "aind_rutter.cli",
-    "aind_rutter.ccf_overlay",
-    "aind_rutter.pyvista_backend",
-    "aind_rutter.rendering",
-    "aind_rutter.trame_controller",
+    "aind_rutter.web.app",
+    "aind_rutter.web.cli",
+    "aind_rutter.web.ccf_regions",
+    "aind_rutter.render.pyvista",
+    "aind_rutter.render.adapter",
+    "aind_rutter.render.overlays",
+    "aind_rutter.web.controller",
 }
 
 

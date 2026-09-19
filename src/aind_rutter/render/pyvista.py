@@ -9,7 +9,7 @@ from typing import Callable, Iterable
 import numpy as np
 import pyvista as pv
 
-from aind_rutter.rendering import ViewMaterial
+from aind_rutter.render.overlays import ViewMaterial
 
 
 class DebouncedFlush:

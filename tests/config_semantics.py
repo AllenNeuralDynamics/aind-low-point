@@ -18,7 +18,7 @@ from typing import Any
 from aind_rutter.build.assemble import resolve_collidable
 from aind_rutter.build.chem_shift import ChemShiftContext, _should_apply_chem
 from aind_rutter.build.queries import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
-from aind_rutter.collisions import pair_bits
+from aind_rutter.collision.adapter import pair_bits
 from aind_rutter.config import ConfigModel
 
 ROOT = Path(__file__).resolve().parents[1]

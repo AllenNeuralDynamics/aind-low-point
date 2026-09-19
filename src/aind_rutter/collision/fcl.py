@@ -13,7 +13,12 @@ from typing import (
 import fcl
 import numpy as np
 
-from aind_rutter.collisions import CollisionBackend, CollisionPair, Contact, ObjSpec
+from aind_rutter.collision.adapter import (
+    CollisionBackend,
+    CollisionPair,
+    Contact,
+    ObjSpec,
+)
 
 
 @dataclass

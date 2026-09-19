@@ -418,7 +418,7 @@ class AtlasMeshPackSpecModel(BaseModel):
 
     @model_validator(mode="after")
     def _validate_acronyms(self) -> "AtlasMeshPackSpecModel":
-        from aind_rutter.ccf_ontology import CCFOntology
+        from aind_rutter.ccf.ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         unknown = [a for a in self.acronyms if ontology.find_by_acronym(a) is None]
@@ -431,7 +431,7 @@ class AtlasMeshPackSpecModel(BaseModel):
 
     def expand(self) -> list[AssetSpecModel]:
         """Expand into individual AssetSpecModel instances, one per acronym."""
-        from aind_rutter.ccf_ontology import CCFOntology
+        from aind_rutter.ccf.ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         results: list[AssetSpecModel] = []

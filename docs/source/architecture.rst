@@ -52,25 +52,15 @@ Module Organization
 .. code-block:: text
 
     src/aind_rutter/
-    ├── common.py           # Shared enums (Kind, Role, MRSignal)
-    ├── orientation_codes.py # OrientationCode StrEnum (48 RAS-style codes)
-    ├── core.py             # Transform primitives, geometry wrappers, Material
-    ├── assets.py           # Runtime catalog specs (AssetSpec, TargetSpec)
-    ├── scene.py            # Scene graph (NodeInstance, Scene)
-    ├── planning.py         # Probe kinematics (ProbePlan, ProbePose, PoseResolver)
-    ├── commands.py         # Command pattern for state mutations
-    ├── state_change.py     # PlanStore + AsyncLatestWorker
+    ├── domain/             # Transforms, enums, catalog, scene, rig, plan, pose
     ├── config/             # Pydantic models for YAML parsing + validation
     ├── build/              # Config → RuntimeBundle factory, loaders, reducers
     ├── plan_io/            # Plan round-trip, replay and rig export
-    ├── rendering.py        # Renderer adapter + RenderBackend protocol + overlay system
-    ├── collisions.py       # Collision adapter + CollisionHandler (sync + async paths)
-    ├── pyvista_backend.py  # PyVista rendering backend + DebouncedFlush (trame)
-    ├── fcl_backend.py      # FCL collision backend (per-pair callback, group/mask)
-    ├── trame_controller.py # TrameController (Vuetify3 + PyVista)
-    ├── app.py              # build_trame_app() factory
-    ├── ccf_ontology.py     # Allen CCF ontology (bundled JSON, search)
-    └── ccf_overlay.py      # CCFOverlayManager (lazy region meshes)
+    ├── session/            # PlanStore + AsyncLatestWorker
+    ├── render/             # Overlays, RendererAdapter, PyVista backend
+    ├── collision/          # Pair rule, FCL geometry and backend, CollisionHandler
+    ├── web/                # Trame CLI, app factory, controller, CCF overlay
+    └── ccf/                # Allen CCF ontology (bundled JSON, search)
 
 
 Core Abstractions
@@ -501,7 +491,7 @@ Adapters
 
 Adapters connect the domain to external systems.
 
-RendererAdapter (``rendering.py``)
+RendererAdapter (``render/adapter.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Bridges domain objects to a render backend. Pushes a 4×4
@@ -552,7 +542,7 @@ Overlays modify node appearance (e.g., collision highlighting):
         def set_for_source(self, node_ids: list[str], spec: OverlaySpec): ...
         def clear_source(self, source: str): ...
 
-CollisionAdapter (``collisions.py``)
+CollisionAdapter (``collision/adapter.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Bridges domain to FCL collision detection:
@@ -584,7 +574,7 @@ Bridges domain to FCL collision detection:
             ...
 
 
-State Management (``state_change.py``)
+State Management (``session/store.py``)
 --------------------------------------
 
 Redux-inspired unidirectional data flow.
@@ -684,7 +674,7 @@ Commands encapsulate state mutations. They are frozen dataclasses; a single
 Frontend
 --------
 
-Trame web app (``trame_controller.py`` + ``app.py``)
+Trame web app (``web/controller.py`` + ``web/app.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``TrameController`` — Vuetify3 layout with PyVista 3D view via

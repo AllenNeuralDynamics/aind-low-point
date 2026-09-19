@@ -305,6 +305,6 @@ hand-off to physical execution. It's read-only; there's no loader for it.
 | Asset loaded but geometry missing in catalog | Loader registered with wrong arity / signature | `build/loaders.py` registry |
 | Target at origin / "Missing target for key" warning | Target wasn't in `target_index`; check `_resolve_target_LPS_from_plan` fallback path | `planning.py:151` |
 | Probe orientation off | Wrong `canonicalization_ref` for probe mesh (LSA vs ASR) | example config + `canonicalizations` block |
-| Collisions silently missing pairs | This was the `defaultCollisionCallback` bug — fixed in `fcl_backend.py` | `fcl_backend.py` (per-pair callback) |
+| Collisions silently missing pairs | This was the `defaultCollisionCallback` bug | `collision/fcl.py` (per-pair callback) |
 | An asset is never collided | `collidable` unset, or neither side of the pair is `role: probe` | `collisions.pair_bits` |
 | Geometry off by a few mm along AP | wrong `mr_signal` — `water` is what gets corrected | `runtime/chem_shift.py` |

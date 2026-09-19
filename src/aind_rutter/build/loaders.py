@@ -158,7 +158,7 @@ def ccf_region_label_ids(
         raise ValueError("ccf_region_label_ids: must specify acronym or label_id")
     ids: set[int] = set()
     if acronym is not None:
-        from aind_rutter.ccf_ontology import CCFOntology
+        from aind_rutter.ccf.ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         if include_descendants:

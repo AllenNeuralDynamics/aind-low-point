@@ -84,7 +84,7 @@ Equivalently you could call `transform_bregma_to_probe(R,t)` directly on the
 bregma-RAS point; pick one path and keep it consistent. Prefer routing through
 the existing module so there's a single conversion implementation.
 
-### 3b. Calibration loading — `src/aind_rutter/runtime/calibration.py`
+### 3b. Calibration loading — `src/aind_rutter/build/calibration.py`
 - `_load_calibration_bank(cal_file: CalibrationSourceModel, reticles) -> {code: (R,t)}`
   — wraps `fit_rotation_params_from_{manual_calibration,parallax}`.
 - `_merge_stacked_sources(sources, reticles) -> {code: (R,t)}` — loads an ordered
@@ -108,7 +108,7 @@ EITHER `file` (no reticle) OR `directory` (reticle required).
   dict is where reticle offsets live for the session loader.
 
 ### 3d. The plan geometry payload — `export_plan_geometry`
-`src/aind_rutter/runtime/export.py`, re-exported from `build_runtime.py`.
+`src/aind_rutter/plan_io/rig_export.py`.
 Per-probe dict already carries everything the rig needs:
 `kind`, `target.position_RAS_mm` (anatomical centroid, no offset),
 `arc`, `angles_rig_deg`, `angles_subject_deg`, `offsets_RA_mm`,
@@ -119,7 +119,7 @@ offsets+depth+angles applied), `position_bearing_shank`,
 point** (this is the landing point; consistent with the `rutter-plan-csv` CSV's
 `target_pt_*`).
 
-### 3e. The trame tab scaffold — `src/aind_rutter/trame_controller.py`
+### 3e. The trame tab scaffold — `src/aind_rutter/web/controller.py`
 - Tab bar at `:1432`: `VTabs(v_model=("ctrl_tab",))` with
   `VTab(text="Pose"/"Display"/"Files", value=...)`, and a
   `VTabsWindow(v_model=("ctrl_tab",))` with one `VTabsWindowItem(value=...)` per
@@ -184,7 +184,7 @@ Add Pydantic v2 models (`extra="forbid"`, match the repo style):
   `adhoc: dict[str, RigAdhocEntry] = {}`. Add `from_yaml(path)` / `to_yaml(path)`
   (mirror `ConfigModel.from_yaml`; dump with `sort_keys=False`).
 
-### Step 2 — shared core (new `src/aind_rutter/runtime/newscale.py`)
+### Step 2 — shared core (new `src/aind_rutter/plan_io/newscale.py`)
 ```python
 def load_session_bank(
     session: RigSessionModel,
@@ -227,7 +227,7 @@ def session_to_newscale_rows(
 Keep it pure (numpy only) and import-light. This is the single source of truth
 both the tab and CLI call.
 
-### Step 3 — CLI (`src/aind_rutter/runtime/newscale_cli.py`, entry `rutter-newscale`)
+### Step 3 — CLI (`src/aind_rutter/plan_io/newscale_cli.py`, entry `rutter-newscale`)
 `rutter-newscale rig-session.yml [--config examples/837229-config.yml] [--out X.csv]`:
 1. `RigSessionModel.from_yaml(session)`.
 2. `cfg = ConfigModel.from_yaml(config)`; `bundle = build_runtime_from_config(cfg)`.
@@ -319,14 +319,14 @@ Register in `pyproject.toml [project.scripts]` next to `rutter-plan-csv`. Defaul
 
 ## 8. Files touched (summary)
 - `src/aind_rutter/config.py` — `RigSessionModel` + sub-models.
-- `src/aind_rutter/runtime/newscale.py` — NEW, shared core.
-- `src/aind_rutter/runtime/newscale_cli.py` — NEW, `rutter-newscale`.
-- `src/aind_rutter/trame_controller.py` — Rig tab (`_build_rig_tab`, state,
+- `src/aind_rutter/plan_io/newscale.py` — NEW, shared core.
+- `src/aind_rutter/plan_io/newscale_cli.py` — NEW, `rutter-newscale`.
+- `src/aind_rutter/web/controller.py` — Rig tab (`_build_rig_tab`, state,
   handlers, tab-bar entries at `:1437`/`:1452`).
-- `src/aind_rutter/app.py` — optional `on_export_newscale` wiring
+- `src/aind_rutter/web/app.py` — optional `on_export_newscale` wiring
   (mirror `on_export_plan`, `:148`).
 - `pyproject.toml` — `rutter-newscale` entry point.
 - `tests/test_newscale_session.py` — NEW.
 - Reuse (no change): `calibration_conversion.py`, `runtime/calibration.py`,
-  `runtime/export.py`, `runtime/plan_csv.py` (pattern reference).
+  `plan_io/rig_export.py`, `plan_io/cli_csv.py` (pattern reference).
 ```

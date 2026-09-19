@@ -8,23 +8,20 @@ from typing import TYPE_CHECKING
 import pyvista as pv
 
 from aind_rutter.build.assemble import build_runtime_from_config
-from aind_rutter.collisions import (
-    CollisionAdapter,
-    CollisionHandler,
-    CollisionState,
-)
+from aind_rutter.collision.adapter import CollisionAdapter, CollisionState
+from aind_rutter.collision.fcl import FCLBackend
+from aind_rutter.collision.worker import CollisionHandler
 from aind_rutter.config import ConfigModel
-from aind_rutter.fcl_backend import FCLBackend
-from aind_rutter.pyvista_backend import DebouncedFlush, PyVistaBackend
-from aind_rutter.rendering import (
-    OverlayResolver,
-    OverlayState,
+from aind_rutter.render.adapter import (
     RendererAdapter,
     RenderHandler,
     on_collisions_changed_lambda,
 )
-from aind_rutter.state_change import AsyncLatestWorker, PlanStore
-from aind_rutter.trame_controller import TrameController
+from aind_rutter.render.overlays import OverlayResolver, OverlayState
+from aind_rutter.render.pyvista import DebouncedFlush, PyVistaBackend
+from aind_rutter.session.store import PlanStore
+from aind_rutter.session.worker import AsyncLatestWorker
+from aind_rutter.web.controller import TrameController
 
 if TYPE_CHECKING:
     from trame.app.singleton import Server
@@ -128,7 +125,7 @@ def build_trame_app(
 
     ccf_overlay = None
     if ccf_volume is not None:
-        from aind_rutter.ccf_overlay import CCFOverlayManager
+        from aind_rutter.web.ccf_regions import CCFOverlayManager
 
         ccf_overlay = CCFOverlayManager(plotter=pl, volume_path=ccf_volume)
 

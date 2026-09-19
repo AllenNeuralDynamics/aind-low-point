@@ -107,7 +107,7 @@ Mutations are **commands**: `SetProbeLocalAngles`, `SetProbePastTarget`,
 `AssignProbeArc`, etc. They're frozen dataclasses; you build one and
 dispatch it through the store.
 
-### State management (`state_change.py`, `commands.py`)
+### State management (`session/store.py`, `domain/commands.py`)
 
 Redux-ish unidirectional flow.
 
@@ -124,19 +124,19 @@ Redux-ish unidirectional flow.
 The flow on every edit: **slider drag → controller → dispatch command
 → store applies + notifies → adapters react → frontend re-renders**.
 
-### Adapters (`rendering.py`, `collisions.py`)
+### Adapters (`render/adapter.py`, `collision/adapter.py`)
 
 Adapters translate planning state into *backend operations* without
 the planning layer knowing what backend exists.
 
 - `RendererAdapter` — given a scene + planning state, computes each
   node's world transform and pushes it to a `RenderBackend`
-  (`pyvista_backend.py`). Also handles material overrides and the **overlay system** — additional
+  (`render/pyvista.py`). Also handles material overrides and the **overlay system** — additional
   per-node tint / alpha contributions stacked by priority (collisions
   paint a red tint; selection or hover would paint others).
 - `CollisionAdapter` — given a scene + planning state, builds
   collision geometry for nodes with the `COLLIDABLE` capability and
-  asks a `CollisionBackend` (`fcl_backend.py`) for the current set of
+  asks a `CollisionBackend` (`collision/fcl.py`) for the current set of
   colliding pairs. Result flows back as a `CollisionState`.
 - `RenderHandler` / `CollisionHandler` — the *subscribers*. They
   receive `(plan, changed_ids)` notifications, decide which nodes to
@@ -146,7 +146,7 @@ The split between adapter and handler exists so adapters can be tested
 in isolation against fake backends, and so the async-collision worker
 can drive the adapter without going through the subscriber path.
 
-### Frontend (`trame_controller.py`, `app.py`)
+### Frontend (`web/controller.py`, `web/app.py`)
 
 - `TrameController` — Vuetify3 components + PyVista (via VTK.js in the
   browser), for the web app. `app.py:build_trame_app(cfg)` is the
@@ -207,7 +207,7 @@ Pick up the *AP tilt* slider and drag it 1°. What happens:
 5.  Sync subscribers:
         RenderHandler → RendererAdapter.on_store_change(plan, ['<name>'])
            - PoseResolver computes new world chain for that probe node
-           - pyvista_backend updates the actor's user_matrix
+           - render/pyvista updates the actor's user_matrix
         TrameController._on_plan_change_for_readouts(plan, ['<name>'])
            - Recompute tip-RAS / depth strings; push to trame state.
        ↓
