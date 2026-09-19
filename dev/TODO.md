@@ -19,6 +19,15 @@ around the unit circle", and `unit_circle_penalty` pulls the magnitude to 1
 either way, so this changes how far a component may wander before the penalty
 dominates rather than which poses are reachable. The remaining half of R7.
 
+### `collide_one_to_many` is unreachable and uses the callback that drops pairs
+
+`CollisionAdapter.collide_one_to_many` and `FCLBackend.collide_one_to_many` have
+no callers. The backend one still goes through `fcl.defaultCollisionCallback`,
+which stops accumulating once the global contact limit is hit — the reason
+`collide_internal` was rewritten around a per-pair callback. Delete both, and
+`_pairs_from_contacts` and `Contact` with them, or wire it up and fix the
+callback.
+
 ## Deferred
 
 ### `mypy` reports five errors it never used to reach
