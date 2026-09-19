@@ -28,6 +28,21 @@ AP_LIMIT_DEG: float = 75.0
 ML_LIMIT_DEG: float = 42.0
 
 
+def reachable_ap_window_deg(head_pitch_deg: float) -> tuple[float, float]:
+    """The subject-frame arc AP angles the rig can reach, given head pitch.
+
+    Rig AP is subject AP plus head pitch, because the head is mounted
+    nose-down, so the rig's symmetric ``±AP_LIMIT_DEG`` becomes a window
+    shifted by ``-head_pitch_deg`` in the subject frame. At a typical 14° the
+    reachable subject window is [-89, +61], not [-75, +75].
+
+    Every search bound, enumeration window and coverage ceiling has to use this
+    same window: a ceiling computed over poses the solver cannot reach
+    normalizes coverage by an unreachable maximum.
+    """
+    return -AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg
+
+
 @dataclass(frozen=True, slots=True)
 class PoseLimits:
     # angular limits (deg)

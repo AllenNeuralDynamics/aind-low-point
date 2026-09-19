@@ -45,7 +45,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.domain.rig import AP_LIMIT_DEG
+from aind_rutter.domain.rig import reachable_ap_window_deg
 from aind_rutter.optimization.jax_env import configure_compile_cache
 from aind_rutter.optimization.objectives.layout import (
     ML,
@@ -412,7 +412,12 @@ def run_group(  # noqa: C901
             coverage_ceiling_per_probe,
         )
 
-        ceilings = tuple(float(c) for c in coverage_ceiling_per_probe(st_f[0], cov))
+        ceilings = tuple(
+            float(c)
+            for c in coverage_ceiling_per_probe(
+                st_f[0], cov, ap_window_deg=reachable_ap_window_deg(head_pitch_deg)
+            )
+        )
         cov_weights = tuple(float(p.coverage_weight) for p in probes)
         if _group_log_once[0]:
             alpha, gain = settings.cov_alpha, settings.cov_weight
@@ -687,13 +692,8 @@ def run(settings: Phase1Settings) -> int:
 
     def _enum_factory() -> Enumerator:
         atlas_payload = build_or_load_atlas(settings)
-        # rig AP = subject AP + head_pitch (head nose-down) → rig-reachable subject
-        # window = rig[±AP_LIMIT] − head_pitch (mirrors phase1_bounds /
-        # _ap_bounds_deg). See dev memory rig_ap_sign_convention. ML is invariant.
-        ap_range = (
-            -AP_LIMIT_DEG - atlas_payload.head_pitch_deg,
-            AP_LIMIT_DEG - atlas_payload.head_pitch_deg,
-        )
+        # ML is invariant under head pitch; AP is not.
+        ap_range = reachable_ap_window_deg(atlas_payload.head_pitch_deg)
         return Enumerator(
             atlas_payload.atlas,
             atlas_payload.probe_names,

@@ -27,7 +27,7 @@ from aind_rutter.domain.probe_kinds import (
     RecordingGeometry,
     pivot_from_shank_tips,
 )
-from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
+from aind_rutter.domain.rig import ML_LIMIT_DEG, reachable_ap_window_deg
 from aind_rutter.optimization.assignment.assignments import (
     ArcAssignment,
     HoleAssignment,
@@ -183,14 +183,6 @@ def _build_per_kind_sdf_table(sdf_by_name: dict | None, probes: list[ProbeStatic
     return table, name_to_kind
 
 
-def _ap_bounds_deg(head_pitch_deg: float) -> tuple[float, float]:
-    """Per-arc AP bounds in degrees (subject frame): the ±75° kinematic rig AP
-    range mapped to subject AP. Rig AP = subject AP + head_pitch (head nose-down),
-    so the rig-reachable subject window is rig[±AP_LIMIT] − head_pitch. See dev
-    memory rig_ap_sign_convention."""
-    return -AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg
-
-
 def build_batched_probe_static(
     candidates: list[tuple[HoleAssignment, ArcAssignment]],
     probes: list[ProbeStaticInfo],
@@ -275,7 +267,7 @@ def build_batched_probe_static(
     n_vars = reduced_n_vars(n_arcs, K)  # (ml, sx, sy) per probe
     bounds_lo = np.zeros((B, n_vars), dtype=np.float32)
     bounds_hi = np.zeros((B, n_vars), dtype=np.float32)
-    ap_lo, ap_hi = _ap_bounds_deg(head_pitch_deg)
+    ap_lo, ap_hi = reachable_ap_window_deg(head_pitch_deg)
     # ML / (sx, sy) bounds. Spin is parameterized as a 2D unit-circle
     # vector to remove the ±180° angle wrap; each component bounded
     # to ±1.5 (loose around the unit circle).

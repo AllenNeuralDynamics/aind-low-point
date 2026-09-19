@@ -77,6 +77,7 @@ from typing import Any, cast  # noqa: E402
 
 import numpy as np  # noqa: E402
 
+from aind_rutter.domain.rig import reachable_ap_window_deg  # noqa: E402
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     classify_results,
     handoff_config,
@@ -192,7 +193,12 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
         )
 
         ceilings = tuple(
-            float(c) for c in coverage_ceiling_per_probe(st, _G["cov_data"])
+            float(c)
+            for c in coverage_ceiling_per_probe(
+                st,
+                _G["cov_data"],
+                ap_window_deg=reachable_ap_window_deg(_G["head_pitch_deg"]),
+            )
         )
         weights = tuple(float(p.coverage_weight) for p in _G["probes"])
         _G["cov_norm"] = (ceilings, weights)

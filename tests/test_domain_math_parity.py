@@ -325,3 +325,38 @@ def test_the_spin_slots_come_from_the_layout_not_from_literals() -> None:
     from aind_rutter.optimization.objectives import layout
 
     assert (layout.SPIN_COS, layout.SPIN_SIN) == (1, 2)
+
+
+def test_every_stage_searches_the_same_reachable_ap_window() -> None:
+    """The window head pitch shifts was written out four times, and the coverage
+    ceiling was the copy that forgot the shift — so it normalized coverage by a
+    maximum over poses the solver could not reach."""
+    import inspect
+
+    from aind_rutter.domain.rig import AP_LIMIT_DEG, reachable_ap_window_deg
+    from aind_rutter.optimization.objectives import packing
+    from aind_rutter.optimization.pipeline.fixtures import phase1_bounds
+
+    for pitch in (0.0, 14.0, -9.5):
+        window = reachable_ap_window_deg(pitch)
+        assert window == (-AP_LIMIT_DEG - pitch, AP_LIMIT_DEG - pitch)
+        # The arc block of the Phase-1 box bounds is this window, per arc.
+        assert phase1_bounds(3, 2, pitch)[:3] == [window] * 3
+
+    # Nothing may spell the shift out again.
+    for mod in (packing, inspect.getmodule(phase1_bounds)):
+        src = inspect.getsource(mod)
+        assert "AP_LIMIT_DEG - head_pitch" not in src, mod.__name__
+
+
+def test_the_coverage_ceiling_refuses_to_guess_the_window() -> None:
+    """A default was what let the two callers take the unshifted window."""
+    import inspect
+
+    from aind_rutter.optimization.objectives.coverage import (
+        coverage_ceiling_per_probe,
+    )
+
+    param = inspect.signature(coverage_ceiling_per_probe).parameters["ap_window_deg"]
+    assert param.default is inspect.Parameter.empty
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY

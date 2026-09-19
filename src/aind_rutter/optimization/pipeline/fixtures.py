@@ -21,7 +21,7 @@ import numpy as np
 
 from aind_rutter.build.queries import fixture_node_keys, world_geometry_for_node
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, RecordingGeometry
-from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG
+from aind_rutter.domain.rig import ML_LIMIT_DEG, reachable_ap_window_deg
 from aind_rutter.optimization.clearance import (
     build_probe_sdf,
     build_probe_sdf_from_alpha_wrap,
@@ -36,11 +36,9 @@ from aind_rutter.optimization.objectives.soft import BrainSDFData, FixtureSDFDat
 def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
     """Box bounds for Phase 1 x = (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)."""
     bounds = []
+    ap_window = reachable_ap_window_deg(head_pitch_deg)
     for _ in range(n_arcs):
-        # Rig AP = subject AP + head_pitch (head nose-down), so the rig-reachable
-        # subject window is rig[±AP_LIMIT] − head_pitch. See dev memory
-        # rig_ap_sign_convention.
-        bounds.append((-AP_LIMIT_DEG - head_pitch_deg, +AP_LIMIT_DEG - head_pitch_deg))
+        bounds.append(ap_window)
     for _ in range(n_probes):
         bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml
         # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
