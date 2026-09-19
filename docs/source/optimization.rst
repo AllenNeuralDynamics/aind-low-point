@@ -641,7 +641,10 @@ Key Modules
 * ``optimization.objectives.statics``: per-candidate static geometry builder
   and optimization weight contract.
 * ``optimization.objectives.soft`` and ``optimization.objectives.constrained``:
-  the differentiable objectives and constraints Phase 1 and Phase 2 use.
+  the differentiable objectives and constraints Phase 1 and Phase 2 use. The
+  terms both phases compute identically — reading the variable vector, the
+  comfort-range pull-back, the intra-arc ML separation and the normalized
+  coverage — live once in ``optimization.objectives.terms``.
 * ``optimization.validation.fcl``: ground-truth FCL validation.
 * ``optimization.geometry``: hole geometry, rig kinematics, and the
   ``ProbeStaticInfo`` input carrier.
