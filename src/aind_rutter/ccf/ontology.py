@@ -133,6 +133,26 @@ class CCFOntology:
             queue = next_queue
         return result
 
+    def label_ids_under(self, label_id: int) -> frozenset[int]:
+        """``label_id`` and every structure id beneath it in the tree.
+
+        An annotation volume stores the finest structure at each voxel, so a
+        parent's own id may appear at no voxel at all: matching a parent means
+        matching its descendants. Returns just ``{label_id}`` for an id the
+        ontology does not know, so an unrecognised label still selects itself.
+        """
+        if label_id not in self.structures:
+            return frozenset({label_id})
+        found = {label_id}
+        queue = [label_id]
+        while queue:
+            parent_id = queue.pop()
+            for child_id in self._children_map.get(parent_id, []):
+                if child_id not in found:
+                    found.add(child_id)
+                    queue.append(child_id)
+        return frozenset(found)
+
     def autocomplete_items(self, query: str, limit: int = 50) -> list[dict]:
         """Return dicts suitable for a Vuetify VAutocomplete.
 

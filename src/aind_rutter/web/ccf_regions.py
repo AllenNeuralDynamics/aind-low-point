@@ -60,10 +60,26 @@ class CCFOverlayManager:
         self._sitk_image = sitk.ReadImage(str(self.volume_path))
         self._volume = sitk.GetArrayFromImage(self._sitk_image)
 
+    def _labels_to_match(self, label_id: int) -> list[int]:
+        """Every value in the volume that belongs to this region.
+
+        Two things an exact match misses. A parent structure is stored as its
+        leaves, so selecting one has to select everything beneath it. And a
+        lateralized annotation carries the left hemisphere as the negated id,
+        so both signs belong to the same region. Matching the signed values
+        rather than ``abs(volume)`` keeps this from copying the volume.
+        """
+        ids = (
+            self.ontology.label_ids_under(label_id)
+            if self.ontology is not None
+            else {label_id}
+        )
+        return sorted({i for i in ids} | {-i for i in ids})
+
     def _extract_mesh(self, label_id: int) -> trimesh.Trimesh | None:
         """Extract a mesh for a single CCF label via marching cubes."""
         self._load_volume()
-        binary = (self._volume == label_id).astype(np.uint8)
+        binary = np.isin(self._volume, self._labels_to_match(label_id)).astype(np.uint8)
         if not binary.any():
             return None
 

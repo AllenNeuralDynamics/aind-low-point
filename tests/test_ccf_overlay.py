@@ -183,3 +183,110 @@ class TestAvailableLabels:
     def test_returns_labels(self, manager):
         labels = manager.available_labels()
         assert labels == {10, 20}
+
+
+# --- Which labels a region matches -------------------------------------------
+
+HIERARCHY_DATA = [
+    {
+        "id": 100,
+        "acronym": "PARENT",
+        "name": "Parent",
+        "color_hex_triplet": "FF0000",
+        "parent_structure_id": None,
+    },
+    {
+        "id": 110,
+        "acronym": "CHILD_A",
+        "name": "Child A",
+        "color_hex_triplet": "00FF00",
+        "parent_structure_id": 100,
+    },
+    {
+        "id": 111,
+        "acronym": "GRAND",
+        "name": "Grandchild",
+        "color_hex_triplet": "0000FF",
+        "parent_structure_id": 110,
+    },
+    {
+        "id": 200,
+        "acronym": "OTHER",
+        "name": "Other",
+        "color_hex_triplet": "FFFF00",
+        "parent_structure_id": None,
+    },
+]
+
+
+@pytest.fixture
+def hierarchy(tmp_path):
+    p = tmp_path / "hier.json"
+    p.write_text(json.dumps(HIERARCHY_DATA))
+    return CCFOntology.from_json(p)
+
+
+@pytest.fixture
+def lateralized_volume(tmp_path):
+    """Leaves only, and the left hemisphere negated — what a lateralized
+    annotation looks like. The parent id 100 appears at no voxel."""
+    arr = np.zeros((10, 10, 10), dtype=np.int32)
+    arr[2:5, 2:5, 2:5] = 111  # grandchild, right hemisphere
+    arr[2:5, 2:5, 6:9] = -111  # grandchild, left hemisphere
+    arr[6:9, 6:9, 2:5] = 200  # an unrelated structure
+    img = sitk.GetImageFromArray(arr)
+    img.SetSpacing((1.0, 1.0, 1.0))
+    img.SetOrigin((0.0, 0.0, 0.0))
+    path = tmp_path / "lat.nrrd"
+    sitk.WriteImage(img, str(path))
+    return path
+
+
+@pytest.fixture
+def hierarchy_manager(lateralized_volume, hierarchy):
+    pl = pv.Plotter(off_screen=True)
+    mgr = CCFOverlayManager(
+        plotter=pl, volume_path=lateralized_volume, ontology=hierarchy
+    )
+    yield mgr
+    pl.close()
+
+
+def test_a_parent_matches_every_id_beneath_it(hierarchy) -> None:
+    assert hierarchy.label_ids_under(100) == frozenset({100, 110, 111})
+    assert hierarchy.label_ids_under(110) == frozenset({110, 111})
+    assert hierarchy.label_ids_under(111) == frozenset({111})
+
+
+def test_an_unknown_label_still_selects_itself(hierarchy) -> None:
+    assert hierarchy.label_ids_under(9999) == frozenset({9999})
+
+
+def test_the_overlay_matches_both_hemispheres(hierarchy_manager) -> None:
+    """A lateralized annotation negates the left hemisphere's id."""
+    assert hierarchy_manager._labels_to_match(111) == [-111, 111]
+
+
+def test_the_overlay_matches_descendants_and_both_signs(hierarchy_manager) -> None:
+    assert hierarchy_manager._labels_to_match(100) == [-111, -110, -100, 100, 110, 111]
+
+
+def test_selecting_a_parent_finds_the_voxels_of_its_leaves(hierarchy_manager) -> None:
+    """The parent id is at no voxel, so an exact match returned nothing and the
+    region silently failed to appear."""
+    mesh = hierarchy_manager._extract_mesh(100)
+    assert mesh is not None and len(mesh.faces) > 0
+
+
+def test_a_region_spans_the_voxels_of_both_hemispheres(hierarchy_manager) -> None:
+    """Matching one sign meshed half the structure."""
+    volume = sitk.GetArrayFromImage(sitk.ReadImage(str(hierarchy_manager.volume_path)))
+    both = np.isin(volume, hierarchy_manager._labels_to_match(111)).sum()
+    right_only = (volume == 111).sum()
+    assert both == 2 * right_only > 0
+
+
+def test_an_unrelated_structure_is_not_pulled_in(hierarchy_manager) -> None:
+    volume = sitk.GetArrayFromImage(sitk.ReadImage(str(hierarchy_manager.volume_path)))
+    matched = np.isin(volume, hierarchy_manager._labels_to_match(100))
+    assert not matched[volume == 200].any()
