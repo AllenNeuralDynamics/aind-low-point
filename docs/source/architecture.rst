@@ -386,7 +386,7 @@ Computes world transforms for scene nodes:
 
 
 Build Runtime (``build/assemble.py``)
-------------------------------------
+-------------------------------------
 
 Transforms configuration into runtime objects.
 
@@ -492,7 +492,7 @@ Adapters
 Adapters connect the domain to external systems.
 
 RendererAdapter (``render/adapter.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Bridges domain objects to a render backend. Pushes a 4×4
 ``model_matrix`` per node so the renderer applies the transform on the GPU
@@ -543,7 +543,7 @@ Overlays modify node appearance (e.g., collision highlighting):
         def clear_source(self, source: str): ...
 
 CollisionAdapter (``collision/adapter.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Bridges domain to FCL collision detection:
 
@@ -575,7 +575,7 @@ Bridges domain to FCL collision detection:
 
 
 State Management (``session/store.py``)
---------------------------------------
+---------------------------------------
 
 Redux-inspired unidirectional data flow.
 
@@ -675,7 +675,7 @@ Frontend
 --------
 
 Trame web app (``web/controller.py`` + ``web/app.py``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``TrameController`` — Vuetify3 layout with PyVista 3D view via
 ``pyvista.trame.ui.plotter_ui``. Includes optional Save-YAML and CCF region

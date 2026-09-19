@@ -942,16 +942,16 @@ water-localized ones are translated into it.
 
 Every asset and target therefore states which resonance localized it:
 
-============ =====================================================
-``mr_signal`` Meaning
-============ =====================================================
-``water``    Brain anatomy, segmented structures, targets derived
-             from the annotation volume. **Gets the correction.**
-``fat``      Located from a vaseline fiducial — the headframe, the
-             implant, bore centres. Defines the frame; stays put.
-``none``     Never in the image: CAD assumed rigid to the headframe
-             (cone, well) or geometry the planner places (probes).
-============ =====================================================
+============== =====================================================
+``mr_signal``  Meaning
+============== =====================================================
+``water``      Brain anatomy, segmented structures, targets derived
+               from the annotation volume. **Gets the correction.**
+``fat``        Located from a vaseline fiducial — the headframe, the
+               implant, bore centres. Defines the frame; stays put.
+``none``       Never in the image: CAD assumed rigid to the headframe
+               (cone, well) or geometry the planner places (probes).
+============== =====================================================
 
 .. code-block:: yaml
 
