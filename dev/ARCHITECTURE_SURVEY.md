@@ -17,9 +17,11 @@ review, not a decision.
 
 ## Status
 
-The survey below is a snapshot of commit `a5420cc`. Steps 1 to 6 of the
-proposed sequence have since landed; the module names and paths it cites are
-those of the snapshot, not of the tree today.
+**Status: closed.** All seven steps of the proposed sequence have landed. The
+survey below is a snapshot of commit `a5420cc`, so the module names and paths it
+cites are those of the snapshot rather than of the tree today; the step records
+that follow give the current spelling. What the survey found and did not fix is
+in `dev/TODO.md`, which is where a reader should go next.
 
 **Step 1** (commits `5a94195`–`14e1b81`) added the console-script,
 runtime-build, trame-app and Phase-2 smoke tests, `tests/architecture/` with its
@@ -182,8 +184,28 @@ than `objectives` alone.
 `objectives/constrained.py` (1,007) and `objectives/soft.py` (911) moved whole.
 Splitting them is the "Monoliths" finding below, not a move.
 
-**What is left.** Step 7, and the monolith splits. Decisions 10 to 16 are
-answered below.
+**Step 7** consolidated the documentation on decision 15, splitting it by who
+reads it:
+
+| commit | what moved |
+|---|---|
+| `f54f0aa` | the five short heading underlines and the one malformed table that step 6's renames left in the Sphinx build |
+| `141f7d5` | `CONTRIBUTING.md`, which was still the generated template telling contributors to run `coverage`, `flake8`, `black` and `isort` |
+| `c4cdbbf` | the concepts tour, the coordinate rule, the config model and the config vocabulary into `docs/source/`, rendered by myst-parser; `dev/PIPELINE.md` folded into the optimizer guide it pointed at |
+| `490c1aa` | the module tree and the five layer rules into `docs/source/architecture.rst`, each rule naming the test that enforces it; `dev/MODULE_MAP.md` deleted as superseded |
+| `9b1abb5` | five unbuilt designs into `dev/proposals/` and one superseded note into `dev/archive/`, with a `dev/README.md` saying what each lane is for |
+| `5af2c63` | `CLAUDE.md` from 175 lines to 79: the invariants and the traps, with setup, style and the module tree removed to where they belong |
+
+Fixing the documented commands turned up two defects of their own. `mypy` named
+seven modules the moves had renamed, so it checked one file and passed
+vacuously; repointed, it found two diagnostic keys written onto
+`Phase2ResultRecord` and never declared (`b674758`). The `slow` pytest marker
+was declared, deselected by default and used by no test, so the comment saying
+it held back the heavy JAX tests was false.
+
+**What is left.** The monolith splits, D13's second half — nobody has yet
+watched a CI run go green — and the seven reported defects R1 to R7, which are
+code readings with no reproduction. Decisions 10 to 16 are answered below.
 
 ## The package today
 
@@ -592,7 +614,7 @@ previous commit.
    `build` and `plan_io`, then `session` and the frontends, then the optimization
    subpackages, then `pipeline`. Each move updates imports, docs and the baseline
    lists in the same commit.
-7. **Consolidate the documentation.**
+7. **Consolidate the documentation.** *(Done — see Status.)*
 
 ## Decisions needed
 
