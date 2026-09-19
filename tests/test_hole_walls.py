@@ -26,7 +26,7 @@ from aind_rutter.optimization.geometry.holes import (
 )
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.constrained import _threading_g_per_probe
+from aind_rutter.optimization.objectives.evaluate import threading_g_per_probe
 from aind_rutter.optimization.objectives.packing import (
     build_batched_probe_static,
 )
@@ -38,7 +38,7 @@ from aind_rutter.optimization.objectives.soft import (
     PACKED_PER_CAND_KEYS,
 )
 from aind_rutter.optimization.objectives.soft import (
-    _pack_statics as pack_phase1,
+    pack_statics as pack_phase1,
 )
 from aind_rutter.optimization.objectives.statics import (
     JointWeights,
@@ -202,7 +202,7 @@ def test_phase2_threading_sees_the_wall() -> None:
     m = threading_margin_mm()
     st = _build_probe_static([_probe(0.0)], [_hole([_wall()])], _HA, _AA)[0]
     packed = pack_phase1([st], 1, build_sdf=False, build_table=False)
-    g, valid = _threading_g_per_probe(
+    g, valid = threading_g_per_probe(
         jnp.eye(3)[None],
         jnp.asarray([[0.15, 0.0, -1.0]], jnp.float32),
         packed["tips_local"],

@@ -32,8 +32,8 @@ from aind_rutter.optimization.objectives.soft import (
     PACKED_PER_CAND_KEYS,
     Phase1Weights,
     _build_jit,
-    _pack_statics,
     _signature,
+    pack_statics,
 )
 from aind_rutter.optimization.pipeline.records import (
     BatchedGradientFn,
@@ -94,7 +94,7 @@ def make_batched_phase1_chunked(
 
     # Shared per-probe constants are identical across all candidates;
     # build them once from the template.
-    tpack = _pack_statics(template_statics, n_arcs)
+    tpack = pack_statics(template_statics, n_arcs)
     # bf16 grid storage for both the per-probe tuple (fixture loop) and the
     # padded swept-pair table (pair loop). See clearance_sweep for the policy.
     shared = cast_packed_grids(
@@ -104,7 +104,7 @@ def make_batched_phase1_chunked(
     def build_arglist(statics_list):
         # Only PER_CAND keys are used per chunk; the SDF tuples + sdf_table come
         # from the shared template — skip the per-chunk grid→device conversion.
-        packs = [_pack_statics(s, n_arcs, build_sdf=False) for s in statics_list]
+        packs = [pack_statics(s, n_arcs, build_sdf=False) for s in statics_list]
         stacked = {k: jnp.stack([jnp.asarray(p[k]) for p in packs]) for k in PER_CAND}
         return [stacked[k] if k in PER_CAND else shared[k] for k in ARG_ORDER]
 
@@ -198,7 +198,7 @@ def build_cw_fns(
     in_axes = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
     vobj = jax.jit(jax.vmap(obj_cw, in_axes=in_axes))
     vgrad = jax.jit(jax.vmap(jax.grad(obj_cw, argnums=0), in_axes=in_axes))
-    pack = _pack_statics(st, n_arcs)
+    pack = pack_statics(st, n_arcs)
     shared = cast_packed_grids(
         {k: pack[k] for k in ARG_ORDER if k not in PER_CAND}, jnp.bfloat16
     )

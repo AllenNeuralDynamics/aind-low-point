@@ -15,10 +15,10 @@ cyipopt = pytest.importorskip("cyipopt")
 from aind_rutter.optimization.geometry.holes import Hole  # noqa: E402
 from aind_rutter.optimization.geometry.primitives import HoleSection  # noqa: E402
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo  # noqa: E402
-from aind_rutter.optimization.objectives.constrained import (  # noqa: E402
+from aind_rutter.optimization.objectives.constrained import make_phase2  # noqa: E402
+from aind_rutter.optimization.objectives.slack_layout import (  # noqa: E402
     PADDED_SLACK,
     SLACK_GROUPS,
-    make_phase2,
 )
 from aind_rutter.optimization.objectives.soft import (  # noqa: E402
     PHASE1_PER_PROBE_VARS,

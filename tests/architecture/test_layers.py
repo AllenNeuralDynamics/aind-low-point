@@ -47,10 +47,6 @@ PRIVATE_IMPORT_BASELINE = {
     ),
     (
         "aind_rutter.optimization.objectives.constrained",
-        "aind_rutter.optimization.objectives.soft",
-    ),
-    (
-        "aind_rutter.optimization.objectives.constrained",
         "aind_rutter.optimization.objectives.threading",
     ),
     (

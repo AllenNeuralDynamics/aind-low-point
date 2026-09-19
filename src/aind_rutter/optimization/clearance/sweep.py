@@ -83,7 +83,7 @@ def cast_fixture_grids(fixtures, grid_dtype):
 
 def cast_packed_grids(packed: dict, grid_dtype) -> dict:
     """Cast the collision grids in a packed/shared statics dict (from
-    ``_pack_statics``) to ``grid_dtype`` IN PLACE: the per-probe ``sdf_grids``
+    ``pack_statics``) to ``grid_dtype`` IN PLACE: the per-probe ``sdf_grids``
     tuple (fixture loop) and the ``sdf_table`` grids (pair sweep). Brain is left
     fp32. No-op for float32. Returns ``packed`` for chaining.
     """
@@ -113,7 +113,7 @@ def build_padded_probe_tables(
     Same-kind probes share the *identical* SDF grid object (one ``ProbeSDF`` per
     kind), so deduping by grid identity is bit-exact with a per-probe table while
     storing only ``N_kinds`` distinct grids (e.g. 3 vs 7) — less padding, less
-    HBM. Inputs are length-P tuples of jnp arrays (from ``_pack_statics``); pad
+    HBM. Inputs are length-P tuples of jnp arrays (from ``pack_statics``); pad
     widths are concrete Python ints at trace time. Returns the per-kind tables +
     per-probe ``kind_id``, with ``obb_mask`` (1.0 real OBB rows, 0.0 padding).
 

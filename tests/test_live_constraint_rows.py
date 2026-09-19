@@ -9,11 +9,8 @@ import numpy as np
 from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.constrained import (
-    PADDED_SLACK,
-    _padding_mask,
-    make_phase2,
-)
+from aind_rutter.optimization.objectives.constrained import make_phase2
+from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK, padding_mask
 from aind_rutter.optimization.objectives.statics import _build_probe_static
 
 
@@ -92,7 +89,7 @@ def test_clearance_rows_stay_live_whatever_they_evaluate_to() -> None:
     """A lookup that falls off a fixture's grid returns the padding sentinel, so
     reading the mask off slack values drops rows that carry gradient once a pose
     brings the probe close."""
-    mask = _padding_mask(
+    mask = padding_mask(
         _packed([[1, 0]], [[1, 1, 0]], [[0]]), LABELS, n_arcs=1, has_brain=False
     )
     thread, clearance = mask[:6], mask[6:]
@@ -102,7 +99,7 @@ def test_clearance_rows_stay_live_whatever_they_evaluate_to() -> None:
 
 
 def test_brain_and_separation_rows_follow_their_masks() -> None:
-    mask = _padding_mask(
+    mask = padding_mask(
         _packed([[1, 1], [1, 0]], [[1, 1, 0], [1, 0, 0]], [[0, 1], [0, 0]]),
         {**LABELS, "probe_pairs": [], "fixtures": []},
         n_arcs=3,

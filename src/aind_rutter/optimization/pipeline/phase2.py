@@ -283,7 +283,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             # the branch that reports local infeasibility.
             ipopt_options["resto.acceptable_iter"] = 0
         if s.p2_diag:
-            from aind_rutter.optimization.objectives.constrained import PADDED_SLACK
+            from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK
 
             res, diag["diag_hist"] = minimize_ipopt_logged(
                 p2["fun"],
@@ -674,7 +674,7 @@ def run(
         config=handoff_config(settings),
     )
     if settings.p2_diag:
-        from aind_rutter.optimization.objectives.constrained import SLACK_GROUPS
+        from aind_rutter.optimization.objectives.slack_layout import SLACK_GROUPS
 
         # Labels are identical across candidates of one probe/fixture set: store once.
         labels = [r.pop("slack_labels", None) for r in results]

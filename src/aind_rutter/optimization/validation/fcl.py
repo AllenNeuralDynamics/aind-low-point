@@ -116,7 +116,7 @@ def _signed_clearance_fcl_fixed_b(
 # ---------------------------------------------------------------------------
 
 
-def _poses_from_x(
+def poses_from_x(
     x: NDArray,
     statics: list,
     n_arcs: int,
@@ -179,7 +179,7 @@ class FCLValidator:
         """Signed clearance per pair: positive ⇒ clear in mm, negative
         ⇒ in collision (sentinel value). Order matches ``pair_names``.
         """
-        Rs, ts = _poses_from_x(x, self.statics, self.n_arcs)
+        Rs, ts = poses_from_x(x, self.statics, self.n_arcs)
         out: list[float] = []
         for ia, ib in self.fcl_pair_list:
             ba = self.bvhs_by_idx[ia]

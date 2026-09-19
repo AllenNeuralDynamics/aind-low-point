@@ -40,8 +40,6 @@ from aind_rutter.optimization.clearance.aggregate import (
 )
 from aind_rutter.optimization.clearance.grids import trilinear_sdf
 from aind_rutter.optimization.clearance.poses import (
-    pose_from_optimizer_vars,
-    spin_deg_from_sxy,
     unit_circle_penalty,
 )
 from aind_rutter.optimization.clearance.smooth import smooth_abs
@@ -59,19 +57,28 @@ from aind_rutter.optimization.objectives.coverage import (
     normalized_coverage_objective,
     probe_coverage,
 )
+from aind_rutter.optimization.objectives.evaluate import (
+    poses_from_x,
+    threading_g_per_probe,
+)
+from aind_rutter.optimization.objectives.slack_layout import (
+    LARGE_SLACK,
+    SLACK_GROUPS,
+    live_row_constraints,
+    padding_mask,
+)
 from aind_rutter.optimization.objectives.soft import (
     PHASE1_PER_PROBE_VARS,
     BrainSDFData,
     FixtureSDFData,
-    _pack_statics,
-    _saturating_reward_mean,
-    _saturating_reward_worst,
+    pack_statics,
+    saturating_reward_mean,
+    saturating_reward_worst,
 )
 from aind_rutter.optimization.objectives.threading import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
-    threading_g_matrix,
 )
 from aind_rutter.optimization.pipeline.records import Phase2Problem
 
@@ -137,98 +144,6 @@ class Phase2Weights:
 
 
 # ---------------------------------------------------------------------------
-# Pose helper used by both objective and constraints
-# ---------------------------------------------------------------------------
-
-
-def _poses_from_x(x, n_arcs, n_probes, target_LPS, pivot_local, arc_idx):
-    """Stacked (Rs, ts) ``(P,3,3)``/``(P,3)`` per probe from a Phase 2 x vector,
-    vmapped over probes (one pose subgraph instead of P unrolled copies). x after
-    the arcs is (ml, sx, sy, off_R, off_A, depth) × P."""
-    arc_aps = x[:n_arcs]
-    xp = x[n_arcs : n_arcs + PHASE1_PER_PROBE_VARS * n_probes].reshape(
-        n_probes, PHASE1_PER_PROBE_VARS
-    )
-    aps = arc_aps[arc_idx]
-
-    def _one(xp6, ap, target, pivot):
-        return pose_from_optimizer_vars(
-            target_LPS=target,
-            ap_deg=ap,
-            ml_deg=xp6[0],
-            spin_deg=spin_deg_from_sxy(xp6[1], xp6[2]),
-            offset_R_mm=xp6[3],
-            offset_A_mm=xp6[4],
-            past_target_mm=xp6[5],
-            recording_center_local=pivot,
-        )
-
-    return jax.vmap(_one)(xp, aps, target_LPS, pivot_local)
-
-
-def _threading_g_per_probe(
-    Rs,
-    ts,
-    tips_local,
-    s_axes,
-    s_centers,
-    s_e1,
-    s_e2,
-    s_cos,
-    s_sin,
-    s_a,
-    s_b,
-    section_mask,
-    shank_mask,
-    w_normals=None,
-    w_offsets=None,
-    *,
-    shaft_len,
-):
-    """vmap ``threading_g_matrix`` over probes → ``(g, valid)``, each
-    ``(P, S, SH)`` — one threading subgraph instead of P unrolled copies. Both
-    the objective (reward) and the constraint vector consume this; flatten with
-    ``.reshape(-1)`` for the probe-major order the old per-probe loop produced."""
-
-    def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m, wn, wo):
-        g = threading_g_matrix(
-            R,
-            t,
-            tips,
-            sax,
-            scen,
-            se1,
-            se2,
-            scos,
-            ssin,
-            sa,
-            sb,
-            shaft_length_mm=shaft_len,
-            w_normals=wn,
-            w_offsets=wo,
-        )
-        return g, sec_m[:, None] * sh_m[None, :]
-
-    return jax.vmap(_one)(
-        Rs,
-        ts,
-        tips_local,
-        s_axes,
-        s_centers,
-        s_e1,
-        s_e2,
-        s_cos,
-        s_sin,
-        s_a,
-        s_b,
-        section_mask,
-        shank_mask,
-        w_normals,
-        w_offsets,
-    )
-
-
-# ---------------------------------------------------------------------------
 # JIT cache
 # ---------------------------------------------------------------------------
 
@@ -269,17 +184,6 @@ def _signature(statics, n_arcs, weights, fixtures, brain_sdf=None):
         _weights_key(weights),
         brain_shape,
     )
-
-
-# ---------------------------------------------------------------------------
-# Build JIT'd objective + slacks
-# ---------------------------------------------------------------------------
-
-
-_LARGE_SLACK = 1e3  # sentinel for masked-out (padded) constraints
-PADDED_SLACK = _LARGE_SLACK
-# Constraint groups, in the order they are concatenated into the slack vector.
-SLACK_GROUPS = ("thread", "probe_pair", "probe_fixture", "brain", "arc_sep", "ml_sep")
 
 
 def _build_jit(  # noqa: C901
@@ -404,7 +308,7 @@ def _build_jit(  # noqa: C901
         w_offsets=None,
     ):
         arc_aps = x[:n_arcs]
-        Rs, ts = _poses_from_x(
+        Rs, ts = poses_from_x(
             x,
             n_arcs,
             n_probes,
@@ -453,7 +357,7 @@ def _build_jit(  # noqa: C901
 
         # Margin bonuses: saturating per-pair (clear) and per-tuple (thread).
         # Mirror Phase 1's computation but skip the soft penalty terms.
-        _tg, _tvalid = _threading_g_per_probe(
+        _tg, _tvalid = threading_g_per_probe(
             Rs,
             ts,
             tips_local,
@@ -527,11 +431,11 @@ def _build_jit(  # noqa: C901
         if fixture_hard_clearances is not None:
             _hard_parts.append(fixture_hard_clearances)
         reward_clear = (
-            _saturating_reward_mean(jnp.concatenate(_hard_parts), tau_c)
+            saturating_reward_mean(jnp.concatenate(_hard_parts), tau_c)
             if _hard_parts
             else jnp.float32(0.0)
         )
-        reward_thread = _saturating_reward_worst(
+        reward_thread = saturating_reward_worst(
             _thread_slacks_pp, tau_t, _thread_masks_pp
         )
 
@@ -578,7 +482,7 @@ def _build_jit(  # noqa: C901
         w_offsets=None,
     ):
         arc_aps = x[:n_arcs]
-        Rs, ts = _poses_from_x(
+        Rs, ts = poses_from_x(
             x,
             n_arcs,
             n_probes,
@@ -589,7 +493,7 @@ def _build_jit(  # noqa: C901
 
         # Threading slacks: tol - g, masked. Padded entries → +LARGE. vmapped
         # over probes; reshape(-1) is probe-major (== old per-probe concatenate).
-        _tg, _tvalid = _threading_g_per_probe(
+        _tg, _tvalid = threading_g_per_probe(
             Rs,
             ts,
             tips_local,
@@ -607,7 +511,7 @@ def _build_jit(  # noqa: C901
             w_offsets,
             shaft_len=shaft_len,
         )
-        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, _LARGE_SLACK)
+        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, LARGE_SLACK)
 
         # Clearance probe-probe: d_soft − min_clear per (pair, category), vmapped
         # over the static pair list (one dual-rep subgraph vs C(P,2) unrolled).
@@ -671,7 +575,7 @@ def _build_jit(  # noqa: C901
             )
             d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
             s = -(d + brain_margin)
-            brain_vec = jnp.where(shank_mask > 0, s, _LARGE_SLACK)
+            brain_vec = jnp.where(shank_mask > 0, s, LARGE_SLACK)
 
         # Arc-AP separation: smooth_abs(diff) − min_arc_ap_sep.
         if arc_pairs.shape[0] > 0:
@@ -694,7 +598,7 @@ def _build_jit(  # noqa: C901
         if iu.size > 0:
             ml_slack_flat = ml_slack[iu, ju]
             mask_flat = same_arc_mask[iu, ju]
-            ml_sep_vec = jnp.where(mask_flat > 0, ml_slack_flat, _LARGE_SLACK)
+            ml_sep_vec = jnp.where(mask_flat > 0, ml_slack_flat, LARGE_SLACK)
         else:
             ml_sep_vec = jnp.zeros(0)
 
@@ -778,62 +682,6 @@ def clear_jit_cache() -> None:
     _CACHE_STATS.update(hits=0, misses=0)
 
 
-def _padding_mask(
-    packed: dict, labels: dict, *, n_arcs: int, has_brain: bool
-) -> NDArray:
-    """Which rows of the slack vector constrain something, in ``SLACK_GROUPS``
-    order.
-
-    Uniform compiled shapes across candidates need per-probe padding, and those
-    rows reach the solver as constants with no gradient. They do not make the KKT
-    matrix singular — each inequality carries its own slack, so such a row reads
-    ``[0 … 0 | −1]`` — but each still costs a Jacobian row, a slack and a barrier
-    term in every factorization. The same masks that create the padding say which
-    rows they are, so the mask is a property of the probe geometry alone. Reading
-    it off slack *values* instead also drops live rows that merely sit at the
-    out-of-grid sentinel, which share the padding value but do carry gradient
-    once a pose brings them near a fixture.
-    """
-    section = np.asarray(packed["section_mask"]) > 0  # (probes, sections)
-    shank = np.asarray(packed["shank_mask"]) > 0  # (probes, shanks)
-    same_arc = np.asarray(packed["same_arc_mask"]) > 0  # (probes, probes)
-    iu, ju = np.triu_indices(shank.shape[0], k=1)
-    by_group = {
-        "thread": (section[:, :, None] & shank[:, None, :]).reshape(-1),
-        "probe_pair": np.ones(
-            len(labels["probe_pairs"]) * len(labels["pair_categories"]), bool
-        ),
-        "probe_fixture": np.ones(
-            len(labels["fixtures"])
-            * len(labels["fixture_probes"])
-            * len(labels["fixture_categories"]),
-            bool,
-        ),
-        "brain": shank.reshape(-1) if has_brain else np.zeros(0, bool),
-        "arc_sep": np.ones(n_arcs * (n_arcs - 1) // 2, bool),
-        "ml_sep": same_arc[iu, ju],
-    }
-    return np.concatenate([by_group[name] for name in SLACK_GROUPS])
-
-
-def _live_row_constraints(slacks_fn, slacks_jac, live_rows: NDArray, drop_padded: bool):
-    """The constraint callables the solver sees.
-
-    Masking happens outside the traced function, so the compiled slack vector is
-    unchanged and only IPOPT's view of it shrinks.
-    """
-    if not drop_padded or live_rows.all():
-        return slacks_fn, slacks_jac
-
-    def live_fn(x: NDArray) -> NDArray:
-        return slacks_fn(x)[live_rows]
-
-    def live_jac(x: NDArray) -> NDArray:
-        return slacks_jac(x)[live_rows]
-
-    return live_fn, live_jac
-
-
 def make_phase2(
     statics,
     n_arcs: int,
@@ -900,7 +748,7 @@ def make_phase2(
     else:
         _CACHE_STATS["hits"] += 1
     jit = _JIT_CACHE[sig]
-    packed = cast_packed_grids(_pack_statics(statics, n_arcs), grid_dtype)
+    packed = cast_packed_grids(pack_statics(statics, n_arcs), grid_dtype)
 
     def fun(x: NDArray) -> float:
         return float(jit["obj"](jnp.asarray(x, dtype=jnp.float32), **packed))
@@ -969,13 +817,13 @@ def make_phase2(
     # dense matrix / LinearOperator.
     # The exact-Hessian modes return per-row structures the mask wouldn't line up
     # with, so they keep every row.
-    live_rows = _padding_mask(
+    live_rows = padding_mask(
         packed,
         jit["slack_labels"],
         n_arcs=n_arcs,
         has_brain=brain_sdf is not None,
     )
-    con_fn, con_jac = _live_row_constraints(
+    con_fn, con_jac = live_row_constraints(
         slacks_fn,
         slacks_jac,
         live_rows,

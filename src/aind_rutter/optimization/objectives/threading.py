@@ -430,7 +430,7 @@ def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:
     return jit_obj, jit_grad
 
 
-def _pack_statics(
+def pack_statics(
     statics,
     n_arcs: int,
     max_shanks: int,

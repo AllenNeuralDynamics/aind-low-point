@@ -69,98 +69,20 @@ from aind_rutter.optimization.objectives.coverage import (
     normalized_coverage_objective,
 )
 from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
+from aind_rutter.optimization.objectives.rewards import (
+    saturating_reward_mean,
+    saturating_reward_worst,
+)
+from aind_rutter.optimization.objectives.sdf_inputs import (
+    BrainSDFData,
+    FixtureSDFData,
+)
 from aind_rutter.optimization.objectives.threading import (
     MAX_SECTIONS_PAD,
     MAX_SHANKS_PAD,
     _softplus_squared,
     threading_g_matrix,
 )
-
-
-@dataclass(frozen=True)
-class FixtureSDFData:
-    """Static-in-world fixture body SDF (α-wrap envelope).
-
-    Used for probe-vs-fixture body clearance in Phase 1. Built once
-    from the fixture mesh (already canonicalized to world LPS) and
-    closure-captured by the JIT'd objective.
-    """
-
-    name: str
-    grid: jnp.ndarray
-    origin: jnp.ndarray
-    spacing: jnp.ndarray
-    surface: jnp.ndarray
-
-
-@dataclass(frozen=True)
-class BrainSDFData:
-    """Static-in-world brain signed-distance grid (negative inside).
-
-    Used for the brain-containment term: each shank tip must stay inside
-    the brain (don't puncture through the bottom). Built once from the
-    world-frame brain mesh and closure-captured by the JIT'd objective.
-    Only the voxel SDF is needed — containment is a point query at the
-    tips, not a surface-sampling clearance.
-    """
-
-    grid: jnp.ndarray
-    origin: jnp.ndarray
-    spacing: jnp.ndarray
-
-
-# Re-exported: several modules import it from here. See objectives/layout.py.
-
-
-# ---------------------------------------------------------------------------
-# Layout helpers
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Saturating reward helper
-# ---------------------------------------------------------------------------
-
-
-def _saturating_reward_mean(
-    slack: jnp.ndarray,
-    tau: float,
-    valid: jnp.ndarray | None = None,
-) -> jnp.ndarray:
-    """Mean of ``1 − exp(−max(slack, 0)/τ)`` over valid entries.
-
-    Saturating per-element reward, gated to zero when ``slack ≤ 0``
-    (infeasibility is handled by the penalty terms — the reward only
-    fires for actual margin). Mean form for problem-size invariance.
-    """
-    safe = jnp.maximum(0.0, slack)
-    h = 1.0 - jnp.exp(-safe / tau)
-    if valid is None:
-        return jnp.mean(h)
-    h_masked = jnp.where(valid > 0, h, 0.0)
-    n_valid = jnp.maximum(jnp.sum(valid), 1.0)
-    return jnp.sum(h_masked) / n_valid
-
-
-def _saturating_reward_worst(
-    slack: jnp.ndarray,
-    tau: float,
-    valid: jnp.ndarray,
-) -> jnp.ndarray:
-    """Per-probe worst-shank saturating reward, averaged over probes.
-
-    ``slack`` and ``valid`` are ``(P, K)`` where the K axis spans the
-    flattened (section × shank) entries for each probe. Picks the
-    *worst* (minimum) valid slack per probe — so the reward fires on
-    each probe's tightest shank, not an average. Probes with no valid
-    entries contribute 0.
-    """
-    big_slack = jnp.where(valid > 0, slack, jnp.inf)
-    worst = jnp.min(big_slack, axis=1)  # (P,) — tightest shank per probe
-    has_valid = jnp.any(valid > 0, axis=1)  # (P,)
-    h = jnp.where(has_valid, 1.0 - jnp.exp(-jnp.maximum(0.0, worst) / tau), 0.0)
-    return jnp.sum(h) / jnp.maximum(jnp.sum(has_valid), 1.0)
-
 
 # ---------------------------------------------------------------------------
 # Phase 1 weights
@@ -252,7 +174,7 @@ _JIT_CACHE: dict[Hashable, tuple[Callable, Callable]] = {}
 _CACHE_STATS = {"hits": 0, "misses": 0}
 
 # _objective's positional arg order after x. The batched phase-1 wrapper uses
-# this to convert _pack_statics' keyword dict into a stable positional arglist.
+# this to convert pack_statics' keyword dict into a stable positional arglist.
 PACKED_ARG_ORDER: tuple[str, ...] = (
     "target_LPS",
     "pivot_local",
@@ -661,15 +583,15 @@ def _build_jit(  # noqa: C901
             _hard_parts.append(fixture_hard_clearances)
         if _hard_parts:
             all_clears = jnp.concatenate(_hard_parts)
-            reward_clear = _saturating_reward_mean(all_clears, tau_c)
+            reward_clear = saturating_reward_mean(all_clears, tau_c)
         else:
             reward_clear = jnp.float32(0.0)
 
         # Saturating per-probe worst-shank threading margin reward.
         # _thread_slacks/_thread_masks are (P, S*SH) from the vmap — pass
-        # directly so _saturating_reward_worst sees each probe's tightest
+        # directly so saturating_reward_worst sees each probe's tightest
         # shank rather than averaging across all shanks.
-        reward_thread = _saturating_reward_worst(_thread_slacks, tau_t, _thread_masks)
+        reward_thread = saturating_reward_worst(_thread_slacks, tau_t, _thread_masks)
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the
         # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.
@@ -732,11 +654,11 @@ def _build_jit(  # noqa: C901
 
 # Per-probe-fixed SDF tuples + swept-pair table, cached by probe sdf-data
 # identity so they're built ONCE per probe set, not per candidate (see
-# _pack_statics). Keyed by id() of the shared, long-lived ProbeSDF data.
+# pack_statics). Keyed by id() of the shared, long-lived ProbeSDF data.
 _SDF_PACK_CACHE: dict = {}
 
 
-def _pack_statics(
+def pack_statics(
     statics, n_arcs: int, build_sdf: bool = True, build_table: bool = True
 ) -> dict:
     """Pack per-candidate static data into padded jnp tensors. Mirrors
