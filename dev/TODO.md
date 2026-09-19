@@ -23,9 +23,9 @@ exist, it reports five, none of them a defect: a `**dict` expansion into a
 Each wants a narrowed annotation rather than a code change.
 
 
-### `_pack_statics` is two implementations
+### `pack_statics` is two implementations
 
-`objectives/phase1.py` and `objectives/reduced_jax.py`. Deliberate: they pack
+`objectives/soft.py` and `objectives/reduced.py`. Deliberate: they pack
 different layouts with different padding, and merging them now that
 `objectives/layout.py` names both would mean a layout-generic packer — more
 abstraction than two call sites earn. Revisit if a third appears.
@@ -40,7 +40,11 @@ live. `tests/test_pose_parity.py` pins the difference.
 
 ### Two result-changing values are read below the pipeline layer
 
-`THREADING_MARGIN_MM` in `geometry.holes` and `RETRO_DENSITY` in
-`pipeline.probe_setup`. Surfacing them in settings means passing settings down
-into `geometry` and `objectives` — a layering change, so it belongs with the
-package moves rather than with configuration.
+`RUTTER_THREADING_MARGIN_MM` in `optimization/geometry/holes.py` and
+`RUTTER_RETRO_DENSITY` in `optimization/pipeline/probe_setup.py`. Surfacing
+them in settings means passing settings down into `geometry` and `objectives`,
+which the package moves did not do; both are still read where they are used.
+They are two of the three entries in `ENV_READ_BASELINE` that are not the JAX
+platform and allocator variables. The third is the cache directory, spelled
+`AIND_JAX_CACHE_DIR`, `JAX_CACHE_DIR` and `AIND_LOW_POINT_CACHE_DIR` in three
+places and `RUTTER_` in none.
