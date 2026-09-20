@@ -7,12 +7,13 @@ both. Everything runs through [uv](https://docs.astral.sh/uv/) — nothing is
 installed into a global environment.
 
 ```bash
-uv sync --python 3.13 --all-extras
+uv sync --python 3.13
 ```
 
-`--all-extras` is load-bearing. The `optimization` extra carries JAX, IPOPT and
-the mesh tooling; without it the package still imports and the app still runs,
-but 18 test modules fail to collect.
+The `dev` group pulls in the `optimization` extra, so a plain sync gives a
+working test run. That extra carries JAX, IPOPT and the mesh tooling and stays
+an extra for *installs*, because someone who only wants the planner should not
+have to take a gigabyte of solver with it.
 
 ## Checks
 
@@ -25,6 +26,11 @@ codespell                             # spelling
 interrogate                           # docstring coverage, floor 30%
 uv run --python 3.13 sphinx-build -q -E -b html docs/source docs/build/html
 ```
+
+CI runs the first five of these on 3.11 and 3.13, plus a wheel build that
+walk-imports every submodule. It installs with a plain `uv sync --locked`, so
+anything the suite needs has to be in a default dependency group rather than
+behind an extra.
 
 `ruff`, `mypy`, `codespell` and `interrogate` are expected on the PATH rather
 than in the project environment, so they take no `uv run`.

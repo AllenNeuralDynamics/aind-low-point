@@ -34,5 +34,10 @@ jobs:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       package-name: aind_rutter
+      # The wheel smoke test walks every submodule, and everything under
+      # optimization/ imports JAX at module level, so the minimal wheel cannot
+      # import 22 of them. Keeping JAX lazy there is not worth it: the solver
+      # is the package's other half, not an optional accessory.
+      smoke-extras: optimization
     secrets:
       repo-token: ${{ secrets.GITHUB_TOKEN }}

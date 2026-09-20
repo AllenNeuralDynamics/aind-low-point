@@ -101,6 +101,7 @@ optimization = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aind-rutter", extra = ["optimization"] },
     { name = "codespell" },
     { name = "interrogate" },
     { name = "pytest" },
@@ -109,6 +110,7 @@ dev = [
     { name = "ruff" },
 ]
 docs = [
+    { name = "aind-rutter", extra = ["optimization"] },
     { name = "codespell" },
     { name = "furo" },
     { name = "interrogate" },
@@ -125,6 +127,7 @@ docs = [
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 vscode = [
+    { name = "aind-rutter", extra = ["optimization"] },
     { name = "codespell" },
     { name = "interrogate" },
     { name = "ipykernel" },
@@ -175,6 +178,7 @@ provides-extras = ["optimization"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aind-rutter", extras = ["optimization"] },
     { name = "codespell" },
     { name = "interrogate" },
     { name = "pytest" },
@@ -183,6 +187,7 @@ dev = [
     { name = "ruff" },
 ]
 docs = [
+    { name = "aind-rutter", extras = ["optimization"] },
     { name = "codespell" },
     { name = "furo" },
     { name = "interrogate" },
@@ -198,6 +203,7 @@ docs = [
     { name = "sphinx" },
 ]
 vscode = [
+    { name = "aind-rutter", extras = ["optimization"] },
     { name = "codespell" },
     { name = "interrogate" },
     { name = "ipykernel" },

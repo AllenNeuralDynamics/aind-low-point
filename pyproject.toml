@@ -88,6 +88,11 @@ Changelog = "https://github.com/AllenNeuralDynamics/aind-rutter/blob/main/CHANGE
 
 [dependency-groups]
 dev = [
+    # The solver stack, so `uv sync` gives a working test run. It stays an
+    # extra for installs (a planner-only user does not want ~1 GB of JAX and
+    # IPOPT) and a default group for development, where 18 test modules import
+    # it. CI installs with a plain `uv sync --locked`.
+    "aind-rutter[optimization]",
     "codespell",
     "pytest",
     "pytest-cov",
@@ -152,8 +157,18 @@ disallow_untyped_defs = false
 disable_error_code = ["import-untyped"]
 
 [tool.codespell]
-skip = ".git,*.pdf,*.svg,./bonsai,*.bonsai,./docs/_build,uv.lock"
-ignore-words-list = "nd"
+# The bundled Allen ontology carries their structure names and abbreviations
+# verbatim, several of which a spell checker reads as typos, and the K3D
+# notebook is a kept reference that ruff also excludes. Neither is ours to edit.
+skip = """\
+.git,*.pdf,*.svg,./bonsai,*.bonsai,./docs/_build,uv.lock,\
+./src/aind_rutter/data/*.json,./scripts/reference_k3d_notebook.py,\
+./scratch,./graphify-out,./figures,./docs/build\
+"""
+# Domain vocabulary, not typos: a `canonicalizations` config block, the
+# per-candidate `statics`, `fo` for a fixture origin beside `fg`/`fs`, and
+# `ALS` as one of the 48 orientation codes.
+ignore-words-list = "nd,canonicalizations,statics,fo,als"
 
 [tool.pytest.ini_options]
 # Fast by default: no coverage (it traces every line for a report nothing

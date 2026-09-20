@@ -17,8 +17,9 @@ wrong.
   sliders, the rig export — and converts at the planning boundary. `ProbePlan`
   holds `offsets_LP` and `target_point_LPS`. See `docs/source/coordinates.md`.
 - **Develop on 3.13; the floor is 3.11.** Use `uv run --python 3.13 ...` for
-  everything, and sync with `--all-extras` or 18 test modules lose JAX and fail
-  to collect. CI tests the floor and 3.13. 3.11 is what `enum.StrEnum` needs;
+  everything. The `dev` group pulls in the `optimization` extra, so a plain
+  `uv sync` has JAX; CI tests the floor and 3.13 with `uv sync --locked`, which
+  is why anything the suite needs belongs in a group, not behind an extra. 3.11 is what `enum.StrEnum` needs;
   3.14 waits on cp314 wheels for `scikit-image` and `mesh2sdf`, whose source
   builds fail (`python-fcl` has them now).
 - **Models are the source of truth.** When tests disagree with `config/`,

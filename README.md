@@ -39,11 +39,11 @@ Development happens on Python 3.13; 3.11 is the supported floor. 3.14 waits on
 `scikit-image` and `mesh2sdf` wheels.
 
 ```bash
-uv sync --python 3.13 --all-extras
+uv sync --python 3.13
 ```
 
-Without `--all-extras` you get the planner but not the solver: the
-`optimization` extra carries JAX, IPOPT and the mesh tooling.
+That includes the solver. To install the planner alone — without JAX, IPOPT and
+the mesh tooling — take the package without its `optimization` extra.
 
 ## Commands
 
