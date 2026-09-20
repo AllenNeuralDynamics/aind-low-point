@@ -18,8 +18,6 @@ from typing import (
 )
 
 import fcl
-import numpy as np
-import trimesh
 
 from aind_rutter.collision.geometry import bvh_from_mesh, rt_to_fcl_transform
 from aind_rutter.domain.catalog import AssetCatalog
@@ -33,17 +31,16 @@ from aind_rutter.domain.transforms import MeshTransformable, Pair
 ## Collision detection
 # ---- result types ----
 @dataclass(frozen=True)
-class Contact:
-    position: np.ndarray  # (3,), float64
-    normal: np.ndarray  # (3,), float64 (from o1 into o2)
-    penetration_depth: float
-
-
-@dataclass(frozen=True)
 class CollisionPair:
+    """Two nodes found overlapping. Which pairs are tested is the rule below.
+
+    Contact points are deliberately not reported: the app colours a node that
+    is in collision and reads nothing about where, and computing them costs a
+    second pass over every pair.
+    """
+
     id1: str
     id2: str
-    contacts: Tuple[Contact, ...]  # empty if enable_contact=False
 
 
 # ---- specs the backend accepts (domain-free) ----
@@ -76,12 +73,7 @@ class CollisionBackend(Protocol):
         self, transforms: Iterable[Tuple[str, "fcl.Transform"]]
     ) -> None: ...
     def remove(self, node_ids: Iterable[str]) -> None: ...
-    def collide_internal(
-        self, *, enable_contacts: bool, max_contacts: int
-    ) -> List[CollisionPair]: ...
-    def collide_one_to_many(
-        self, spec: ObjSpec, *, enable_contacts: bool, max_contacts: int
-    ) -> List[CollisionPair]: ...
+    def collide_internal(self) -> List[CollisionPair]: ...
 
 
 # The pair filter, as two bits. A pair is tested when both sides are collidable
@@ -174,24 +166,8 @@ class CollisionAdapter:
         self.backend.remove(node_ids)
 
     # ---- queries (pass-through to backend) ----
-    def collide_internal(
-        self, *, enable_contacts: bool = True, max_contacts: int = 100
-    ) -> List[CollisionPair]:
-        return self.backend.collide_internal(
-            enable_contacts=enable_contacts, max_contacts=max_contacts
-        )
-
-    def collide_one_to_many(
-        self, mesh: trimesh.Trimesh, R: np.ndarray, t: np.ndarray, *, name: str
-    ) -> List[CollisionPair]:
-        spec = ObjSpec(
-            node_id=name,
-            geom=bvh_from_mesh(mesh, name=name),
-            transform=rt_to_fcl_transform(R, t, name=f"pose:{name}"),
-        )
-        return self.backend.collide_one_to_many(
-            spec, enable_contacts=True, max_contacts=8
-        )
+    def collide_internal(self) -> List[CollisionPair]:
+        return self.backend.collide_internal()
 
     # ---- internals ----
     def _make_resolver(self, plan: PlanningState) -> PoseResolver:

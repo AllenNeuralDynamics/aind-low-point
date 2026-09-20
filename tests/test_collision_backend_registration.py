@@ -48,7 +48,7 @@ def test_a_node_added_by_sync_is_collidable() -> None:
     backend.rebuild([well])
     backend.sync([probe])
 
-    pairs = backend.collide_internal(enable_contacts=False, max_contacts=1)
+    pairs = backend.collide_internal()
     assert {(p.id1, p.id2) for p in pairs} == {("probe:P", "well")}
 
 
@@ -95,7 +95,7 @@ def test_removing_a_node_leaves_nothing_behind() -> None:
     ):
         assert "probe:P" not in getattr(backend, attr), attr
     assert set(backend._geomid_to_node.values()) == {"well"}
-    assert backend.collide_internal(enable_contacts=False, max_contacts=1) == []
+    assert backend.collide_internal() == []
 
 
 def test_the_pair_rule_still_decides_which_pairs_are_tested() -> None:
@@ -105,7 +105,7 @@ def test_the_pair_rule_still_decides_which_pairs_are_tested() -> None:
     backend = FCLBackend()
     backend.rebuild([a])
     backend.sync([b])
-    assert backend.collide_internal(enable_contacts=False, max_contacts=1) == []
+    assert backend.collide_internal() == []
 
 
 def test_the_bits_under_test_are_the_ones_the_adapter_assigns() -> None:
@@ -137,9 +137,7 @@ def test_the_manager_is_guarded_against_concurrent_use() -> None:
     threads = [
         threading.Thread(
             target=hammer,
-            args=(
-                lambda: backend.collide_internal(enable_contacts=False, max_contacts=1),
-            ),
+            args=(lambda: backend.collide_internal(),),
         ),
         threading.Thread(target=hammer, args=(lambda: backend.rebuild([well, probe]),)),
         threading.Thread(
@@ -171,5 +169,5 @@ def test_repeated_sync_of_the_same_node_does_not_duplicate_it(n: int) -> None:
     backend.rebuild([well])
     for _ in range(n):
         backend.sync([probe])
-    pairs = backend.collide_internal(enable_contacts=False, max_contacts=1)
+    pairs = backend.collide_internal()
     assert len(pairs) == 1

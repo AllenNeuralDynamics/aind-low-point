@@ -48,7 +48,7 @@ class CollisionHandler:
             self.adapter.update_probe_transforms(plan, moved)
 
         # recompute collisions
-        pairs = self.adapter.collide_internal(enable_contacts=False)
+        pairs = self.adapter.collide_internal()
         new_pairs = {(p.id1, p.id2) for p in pairs}
         new_state = self.state.replace(new_pairs)
 
@@ -82,9 +82,7 @@ class CollisionHandler:
         """Worker thread: update transforms + run collision detection."""
         if transforms:
             self.adapter.backend.update_transforms(transforms)
-        pairs = self.adapter.collide_internal(
-            enable_contacts=False,
-        )
+        pairs = self.adapter.collide_internal()
         new_pairs = {(p.id1, p.id2) for p in pairs}
         new_state = self.state.replace(new_pairs)
         flips = _diff_hot(new_state, self._prev_state)

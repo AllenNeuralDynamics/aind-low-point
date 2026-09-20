@@ -7,17 +7,14 @@ from dataclasses import dataclass, field
 from typing import (
     Iterable,
     List,
-    Optional,
     Tuple,
 )
 
 import fcl
-import numpy as np
 
 from aind_rutter.collision.adapter import (
     CollisionBackend,
     CollisionPair,
-    Contact,
     ObjSpec,
 )
 
@@ -122,9 +119,7 @@ class FCLBackend(CollisionBackend):
             self._mgr.update()
 
     # ---- queries ----
-    def collide_internal(
-        self, *, enable_contacts: bool, max_contacts: int
-    ) -> List[CollisionPair]:
+    def collide_internal(self) -> List[CollisionPair]:
         gid_map = dict(self._geomid_to_node)
         group_map = self._node_to_group
         mask_map = self._node_to_mask
@@ -151,51 +146,4 @@ class FCLBackend(CollisionBackend):
 
         with self._lock:
             self._mgr.collide(fcl.CollisionData(), _cb)
-        return [CollisionPair(id1=a, id2=b, contacts=()) for a, b in set(found_pairs)]
-
-    def collide_one_to_many(
-        self, spec: ObjSpec, *, enable_contacts: bool, max_contacts: int
-    ) -> List[CollisionPair]:
-        req = fcl.CollisionRequest(
-            enable_contact=bool(enable_contacts), num_max_contacts=int(max_contacts)
-        )
-        cdata = fcl.CollisionData(request=req)
-        ext = fcl.CollisionObject(spec.geom, spec.transform)
-        with self._lock:
-            self._mgr.collide(ext, cdata, fcl.defaultCollisionCallback)
-        # add a temporary mapping for the external object, using its geometry id
-        ext_name_map = {id(ext.collision_geometry): spec.node_id}
-        return self._pairs_from_contacts(cdata.result.contacts, extra_map=ext_name_map)
-
-    # ---- helpers ----
-    def _pairs_from_contacts(
-        self,
-        contacts: Iterable[fcl.Contact],
-        *,
-        extra_map: Optional[dict[int, str]] = None,
-    ) -> List[CollisionPair]:
-        gid_to_name: dict[int, str] = dict(self._geomid_to_node)
-        if extra_map:
-            gid_to_name.update(extra_map)
-
-        groups: dict[Tuple[str, str], List[Contact]] = {}
-        for c in contacts:
-            n1 = gid_to_name.get(id(c.o1))
-            n2 = gid_to_name.get(id(c.o2))
-            if n1 is None or n2 is None:
-                continue
-            k = (n1, n2) if n1 <= n2 else (n2, n1)
-            cc = Contact(
-                position=np.asarray(c.pos, dtype=np.float64),
-                normal=np.asarray(c.normal, dtype=np.float64),
-                penetration_depth=float(c.penetration_depth),
-            )
-            groups.setdefault(k, []).append(cc)
-
-        return [
-            CollisionPair(id1=a, id2=b, contacts=tuple(cs))
-            for (a, b), cs in groups.items()
-        ]
-
-
-# ---- simple guards at the fcl boundary ----
+        return [CollisionPair(id1=a, id2=b) for a, b in set(found_pairs)]
