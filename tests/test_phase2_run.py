@@ -49,18 +49,35 @@ def caches(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     patch.undo()
 
 
-@pytest.fixture(scope="module")
-def settings(subject: SyntheticSubject, caches: Path):
+def _available_solvers() -> list[str]:
+    """``trust-constr`` always; ``ipopt`` only where cyipopt imports.
+
+    cyipopt publishes no wheels, so it builds against a native IPOPT that a
+    bare CI runner does not have. Running the stage on trust-constr keeps the
+    whole Phase-2 flow covered there, and a developer with IPOPT installed
+    also covers the solver production actually uses.
+    """
+    from importlib.util import find_spec
+
+    solvers = ["trust-constr"]
+    if find_spec("cyipopt") is not None:
+        solvers.append("ipopt")
+    return solvers
+
+
+@pytest.fixture(scope="module", params=_available_solvers())
+def settings(request, subject: SyntheticSubject, caches: Path):
     from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
     return Phase2Settings(
         config=subject.config,
         holes=subject.holes,
         poses=caches / "pool.json.gz",
-        out=caches / "handoff.json",
+        out=caches / f"handoff-{request.param}.json",
         workers=1,
         well="thin",
         p2_iter=20,
+        solver=request.param,
     )
 
 

@@ -60,9 +60,6 @@ dependencies = [
 optimization = [
   "cma>=4.4.4",
   "coacd>=1.0.11",
-  # Python bindings for IPOPT. Requires the native IPOPT library to be
-  # available on the system when the wheel cannot satisfy the platform.
-  "cyipopt>=1.7.0",
   "jax[cuda12]>=0.4.30 ; sys_platform == 'linux'",
   "jax>=0.4.30 ; sys_platform != 'linux'",
   "jaxlib>=0.4.30",
@@ -72,6 +69,12 @@ optimization = [
   "pymeshlab>=2025.7.post1",
   "pynvml>=13.0.1",
 ]
+
+# Phase 2's production solver. Separate from ``optimization`` because cyipopt
+# publishes no wheels at all: every install builds from source against a native
+# IPOPT that has to be on the system already. Without it Phase 2 still runs, on
+# scipy's trust-constr — set ``RUTTER_SOLVER=trust-constr``.
+ipopt = ["cyipopt>=1.7.0"]
 
 [project.scripts]
 rutter-plan = "aind_rutter.web.cli:main"

@@ -42,8 +42,10 @@ Development happens on Python 3.13; 3.11 is the supported floor. 3.14 waits on
 uv sync --python 3.13
 ```
 
-That includes the solver. To install the planner alone — without JAX, IPOPT and
-the mesh tooling — take the package without its `optimization` extra.
+That includes the solver. Two extras sit behind it: `optimization` (JAX and the
+mesh tooling) and `ipopt` (Phase 2's production solver). `ipopt` is separate
+because cyipopt publishes no wheels and builds against a native IPOPT that has
+to be installed already; without it Phase 2 falls back to scipy's trust-constr.
 
 ## Commands
 

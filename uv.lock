@@ -85,10 +85,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ipopt = [
+    { name = "cyipopt" },
+]
 optimization = [
     { name = "cma" },
     { name = "coacd" },
-    { name = "cyipopt" },
     { name = "jax" },
     { name = "jax", extra = ["cuda12"], marker = "sys_platform == 'linux'" },
     { name = "jaxlib" },
@@ -145,7 +147,7 @@ requires-dist = [
     { name = "aind-mri-utils", specifier = ">=0.12.1,<2" },
     { name = "cma", marker = "extra == 'optimization'", specifier = ">=4.4.4" },
     { name = "coacd", marker = "extra == 'optimization'", specifier = ">=1.0.11" },
-    { name = "cyipopt", marker = "extra == 'optimization'", specifier = ">=1.7.0" },
+    { name = "cyipopt", marker = "extra == 'ipopt'", specifier = ">=1.7.0" },
     { name = "jax", marker = "sys_platform != 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },
     { name = "jax", extras = ["cuda12"], marker = "sys_platform == 'linux' and extra == 'optimization'", specifier = ">=0.4.30" },
     { name = "jaxlib", marker = "extra == 'optimization'", specifier = ">=0.4.30" },
@@ -174,7 +176,7 @@ requires-dist = [
     { name = "tyro", specifier = ">=1.0.13" },
     { name = "vtk", specifier = ">=9.5.2" },
 ]
-provides-extras = ["optimization"]
+provides-extras = ["optimization", "ipopt"]
 
 [package.metadata.requires-dev]
 dev = [

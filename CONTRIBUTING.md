@@ -11,9 +11,14 @@ uv sync --python 3.13
 ```
 
 The `dev` group pulls in the `optimization` extra, so a plain sync gives a
-working test run. That extra carries JAX, IPOPT and the mesh tooling and stays
-an extra for *installs*, because someone who only wants the planner should not
-have to take a gigabyte of solver with it.
+working test run. It stays an extra for *installs*, because someone who only
+wants the planner should not have to take a gigabyte of solver with it.
+
+The `ipopt` extra is deliberately not in that group. cyipopt publishes no
+wheels, so every install builds from source against a native IPOPT, which a CI
+runner does not have. Add it if you have IPOPT — `uv sync --extra ipopt` — and
+the Phase-2 tests will then cover the production solver as well as
+trust-constr. Without it they cover trust-constr alone.
 
 ## Checks
 
