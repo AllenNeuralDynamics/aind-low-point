@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from aind_rutter.build.assemble import resolve_collidable
 from aind_rutter.build.chem_shift import ChemShiftContext, _should_apply_chem
 from aind_rutter.build.queries import FIXTURE_EXCLUDED_TAGS, FIXTURE_TAGS
@@ -33,6 +35,39 @@ CONFIGS = (
     "examples/837229-config.yml",
     "examples/build5-template-config.yml",
 )
+
+
+# A config whose declared inputs are absent fails validation on the paths
+# alone. Every subject config points at a lab share, so this is the ordinary
+# case off the lab network — CI included.
+_ABSENT_PATH_ERRORS = frozenset(
+    {"path_not_file", "path_not_directory", "path_not_exists"}
+)
+
+
+class MissingSubjectData(Exception):
+    """The config is well-formed; the files it names are not on this machine."""
+
+
+def load_config(path: str) -> ConfigModel:
+    """Validate one tracked config, or say its data is absent.
+
+    Only an error about a path that is not there becomes
+    :class:`MissingSubjectData`. Anything else is a real validation failure and
+    is raised, because a config that has genuinely broken must not look like a
+    config whose share is unmounted.
+    """
+    try:
+        return ConfigModel.from_yaml(ROOT / path)
+    except ValidationError as exc:
+        kinds = {e["type"] for e in exc.errors()}
+        if kinds and kinds <= _ABSENT_PATH_ERRORS:
+            absent = sorted({str(e["input"]) for e in exc.errors()})
+            raise MissingSubjectData(
+                f"{path}: {len(absent)} declared input(s) not on this machine, "
+                f"first is {absent[0]}"
+            ) from exc
+        raise
 
 
 def _chem_context(cfg: ConfigModel) -> ChemShiftContext:
@@ -68,7 +103,7 @@ def _spec_semantics(spec: Any, chem: ChemShiftContext) -> dict[str, Any]:
 
 def semantics_for(path: str) -> dict[str, Any]:
     """Per-key resolved decisions for one config, as the golden file stores them."""
-    cfg = ConfigModel.from_yaml(ROOT / path)
+    cfg = load_config(path)
     chem = _chem_context(cfg)
     out: dict[str, Any] = {}
     for spec in [*cfg.assets, *cfg.targets]:
@@ -83,7 +118,7 @@ def scene_for(path: str) -> dict[str, dict[str, Any]]:
     asset that has neither — every probe *kind* asset — would invent a node.
     Pinning the node set is what makes the tag migration checkable.
     """
-    cfg = ConfigModel.from_yaml(ROOT / path)
+    cfg = load_config(path)
     return {
         node.key: {
             "asset": node.asset,
@@ -105,7 +140,7 @@ def fixtures_for(path: str) -> list[str]:
     exclude = FIXTURE_EXCLUDED_TAGS
     return sorted(
         node.key
-        for node in ConfigModel.from_yaml(ROOT / path).scene.nodes
+        for node in load_config(path).scene.nodes
         if (set(node.tags or ()) & include) and not (set(node.tags or ()) & exclude)
     )
 
@@ -120,7 +155,7 @@ class _PairSpec:
 
 def pairs_for(path: str) -> list[list[str]]:
     """The pairs the collision backend tests, read through the rule itself."""
-    specs = [*(cfg := ConfigModel.from_yaml(ROOT / path)).assets, *cfg.targets]
+    specs = [*(cfg := load_config(path)).assets, *cfg.targets]
     bits = {str(s.key): pair_bits(_PairSpec(s)) for s in specs}
     out = set()
     for i, a in enumerate(specs):
@@ -148,5 +183,18 @@ def write_golden() -> None:
 
 
 if __name__ == "__main__":
+    # Regenerating without the subject data would drop those configs from the
+    # golden file, and the corpus test would then pass on a shrunken contract.
+    missing = []
+    for _path in CONFIGS:
+        try:
+            load_config(_path)
+        except MissingSubjectData as exc:
+            missing.append(str(exc))
+    if missing:
+        raise SystemExit(
+            "cannot regenerate: the golden file covers configs whose data is "
+            "not reachable from here.\n  " + "\n  ".join(missing)
+        )
     write_golden()
     print(f"wrote {GOLDEN}")

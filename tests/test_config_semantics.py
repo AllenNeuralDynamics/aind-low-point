@@ -18,6 +18,7 @@ import pytest
 from tests.config_semantics import (
     CONFIGS,
     GOLDEN,
+    MissingSubjectData,
     fixtures_for,
     pairs_for,
     scene_for,
@@ -30,9 +31,23 @@ def golden() -> dict:
     return json.loads(GOLDEN.read_text())
 
 
+def or_skip(fn, path: str):
+    """``fn(path)``, or skip when this machine cannot see the subject data.
+
+    Every tracked subject config points at a lab share. Off that network the
+    config still validates as YAML but its declared inputs are absent, and
+    there is nothing to compare against the golden file. Any other validation
+    failure is raised, so a genuinely broken config still fails here.
+    """
+    try:
+        return fn(path)
+    except MissingSubjectData as exc:
+        pytest.skip(str(exc))
+
+
 @pytest.mark.parametrize("path", CONFIGS)
 def test_a_config_resolves_to_the_recorded_decisions(path: str, golden: dict) -> None:
-    assert semantics_for(path) == golden[path]["specs"]
+    assert or_skip(semantics_for, path) == golden[path]["specs"]
 
 
 def test_the_golden_file_covers_every_tracked_config(golden: dict) -> None:
@@ -48,7 +63,7 @@ def test_no_cad_geometry_is_chemically_shifted(path: str) -> None:
     CAD or from the implant frame must never move, whichever flag carries the
     decision.
     """
-    resolved = semantics_for(path)
+    resolved = or_skip(semantics_for, path)
     physical = [
         key
         for key in resolved
@@ -67,7 +82,7 @@ def test_bore_targets_are_not_shifted_but_annotation_targets_are(path: str) -> N
     A bore centre and an annotation centroid are both targets; only the second
     is in image space.
     """
-    resolved = semantics_for(path)
+    resolved = or_skip(semantics_for, path)
     if not any(spec["chem_shift"] for spec in resolved.values()):
         pytest.skip("config declares no imaging, so nothing is shifted")
     bores = [k for k in resolved if k.startswith("target:hole:")]
@@ -85,7 +100,7 @@ def test_a_config_yields_the_recorded_collision_pairs(path: str, golden: dict) -
     tests/test_collision_pairs.py checks in isolation. The counts here are the
     ones the labels produced.
     """
-    assert pairs_for(path) == golden[path]["pairs"]
+    assert or_skip(pairs_for, path) == golden[path]["pairs"]
 
 
 @pytest.mark.parametrize("path", CONFIGS)
@@ -95,10 +110,49 @@ def test_a_config_produces_the_recorded_scene_nodes(path: str, golden: dict) -> 
     A probe *kind* asset is a template with no placement; the nodes the planner
     poses come from `plan.probes`. Tagging a template must not invent a node.
     """
-    assert scene_for(path) == golden[path]["scene"]
+    assert or_skip(scene_for, path) == golden[path]["scene"]
 
 
 @pytest.mark.parametrize("path", CONFIGS)
 def test_a_config_yields_the_recorded_fixture_set(path: str, golden: dict) -> None:
     """What the optimizer treats as a static obstacle."""
-    assert fixtures_for(path) == golden[path]["fixtures"]
+    assert or_skip(fixtures_for, path) == golden[path]["fixtures"]
+
+
+def test_absent_data_is_told_apart_from_a_broken_config(tmp_path) -> None:
+    """The skip must be narrow. A config whose share is unmounted is skipped;
+    one that is genuinely wrong still fails, or the corpus would go quiet the
+    moment someone broke a config off the network."""
+    import yaml
+    from pydantic import ValidationError
+
+    from tests.config_semantics import ROOT, load_config
+
+    absent = tmp_path / "absent.yml"
+    absent.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "transforms": {
+                    "t": {
+                        "sequence": [
+                            {"kind": "sitk_file", "path": str(tmp_path / "nope.h5")}
+                        ]
+                    }
+                },
+                "assets": [],
+            }
+        )
+    )
+    with pytest.raises(MissingSubjectData) as caught:
+        load_config(
+            str(absent.relative_to(ROOT))
+            if absent.is_relative_to(ROOT)
+            else str(absent)
+        )
+    assert "nope.h5" in str(caught.value)
+
+    broken = tmp_path / "broken.yml"
+    broken.write_text(yaml.safe_dump({"version": 1, "assets": [{"no_such": "field"}]}))
+    with pytest.raises(ValidationError):
+        load_config(str(broken))
