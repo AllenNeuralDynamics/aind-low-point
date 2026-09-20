@@ -16,6 +16,29 @@ Or with uv:
 
     uv add aind-rutter
 
+That is the interactive planner, and it runs on Linux, macOS and Windows with
+nothing to compile.
+
+The offline solver is the other half of the package and asks for more: a CUDA
+GPU, and therefore Linux, because JAX ships its CUDA plugin for Linux alone. On
+Windows the supported route is WSL2, which gives an ordinary Linux userspace.
+macOS installs and runs on CPU, which is fine for development and too slow for
+a real pool.
+
+.. code-block:: bash
+
+    pip install "aind-rutter[optimization]"
+
+Phase 2's production solver needs one more step, because cyipopt publishes no
+wheels and builds against a native IPOPT:
+
+.. code-block:: bash
+
+    sudo apt install coinor-libipopt-dev
+    pip install "aind-rutter[optimization,ipopt]"
+
+Without ``ipopt`` Phase 2 falls back to scipy's ``trust-constr``.
+
 
 Your First Configuration
 ------------------------

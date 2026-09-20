@@ -35,17 +35,53 @@ the app and a hand-built plan can be exported to the rig.
 
 ## Install
 
-Development happens on Python 3.13; 3.11 is the supported floor. 3.14 waits on
-`scikit-image` and `mesh2sdf` wheels.
+Python 3.13 is what development happens on; 3.11 is the supported floor. 3.14
+waits on `scikit-image` and `mesh2sdf` wheels.
+
+The planner installs anywhere, with nothing to build:
 
 ```bash
-uv sync --python 3.13
+pip install aind-rutter        # or: uv add aind-rutter
 ```
 
-That includes the solver. Two extras sit behind it: `optimization` (JAX and the
-mesh tooling) and `ipopt` (Phase 2's production solver). `ipopt` is separate
-because cyipopt publishes no wheels and builds against a native IPOPT that has
-to be installed already; without it Phase 2 falls back to scipy's trust-constr.
+The solver is a separate matter — see **Platforms** below.
+
+```bash
+uv sync --python 3.13          # a checkout, planner and solver both
+```
+
+## Platforms
+
+The two halves have different requirements, because the solver wants a GPU and
+the planner does not.
+
+| | Planner (`rutter-plan`) | Solver (`rutter-phase1/2/emit`) |
+|---|---|---|
+| **Linux** | yes | yes — the supported configuration |
+| **macOS** | yes | CPU only, for development; too slow for real runs |
+| **Windows** | yes | not natively; use WSL2 |
+| **Windows + WSL2** | yes | yes, identical to Linux |
+
+Two things decide this, and neither is about Rutter. JAX publishes its CUDA
+plugin for Linux only — `jax-cuda12-plugin` has no Windows or macOS wheels at
+any version — and the optimizer is built around having a card: it preflights
+VRAM, pools workers over MPS, and stores collision grids in bf16. On CPU it
+runs and is not worth running. WSL2 is JAX's own answer for GPU on Windows, and
+it gives you an ordinary Linux userspace, so everything below applies unchanged.
+
+Two extras sit behind the solver. `optimization` carries JAX and the mesh
+tooling and installs from wheels. `ipopt` carries Phase 2's production solver
+and is separate because cyipopt publishes no wheels at all, on any platform: it
+builds against a native IPOPT that has to be on the system first.
+
+```bash
+sudo apt install coinor-libipopt-dev   # Debian/Ubuntu, including WSL2
+uv sync --python 3.13 --extra ipopt
+```
+
+Without it Phase 2 still runs, on scipy's `trust-constr`. That is the fallback
+rather than the intent: on a stalled-candidate comparison, IPOPT's
+limited-memory mode recovered 7 of 11 where `trust-constr` recovered 4.
 
 ## Commands
 

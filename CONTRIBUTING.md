@@ -16,9 +16,14 @@ wants the planner should not have to take a gigabyte of solver with it.
 
 The `ipopt` extra is deliberately not in that group. cyipopt publishes no
 wheels, so every install builds from source against a native IPOPT, which a CI
-runner does not have. Add it if you have IPOPT — `uv sync --extra ipopt` — and
-the Phase-2 tests will then cover the production solver as well as
-trust-constr. Without it they cover trust-constr alone.
+runner does not have. Add it if you have IPOPT — `sudo apt install
+coinor-libipopt-dev`, then `uv sync --extra ipopt` — and the Phase-2 tests will
+then cover the production solver as well as trust-constr. Without it they cover
+trust-constr alone.
+
+Develop the solver on Linux. JAX ships its CUDA plugin for Linux only, so
+macOS is CPU and Windows is WSL2; the README's **Platforms** table has the
+detail. Working on the planner alone needs none of this.
 
 ## Checks
 
