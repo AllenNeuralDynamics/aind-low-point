@@ -17,7 +17,7 @@ from aind_rutter.build.assemble import resolve_collidable
 from aind_rutter.collision.adapter import pair_bits
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.enums import Role
-from tests.config_semantics import CONFIGS
+from tests.config_semantics import CONFIGS, MissingSubjectData, load_config
 
 
 @dataclass
@@ -68,7 +68,10 @@ def test_a_non_collidable_probe_is_tested_against_nothing() -> None:
 @pytest.mark.parametrize("path", CONFIGS)
 def test_every_collidable_asset_is_a_probe_or_a_fixture(path: str) -> None:
     """Anything else collidable would be tested against nothing at all."""
-    cfg = ConfigModel.from_yaml(path)
+    try:
+        cfg = load_config(path)
+    except MissingSubjectData as exc:
+        pytest.skip(str(exc))
     stranded = [
         str(s.key)
         for s in [*cfg.assets, *cfg.targets]
