@@ -18,7 +18,7 @@ have to take a gigabyte of solver with it.
 ## Checks
 
 ```bash
-uv run --python 3.13 pytest -q        # the suite: 837 passing, 2 skipped
+uv run --python 3.13 pytest -q        # the suite
 ruff check                            # lint
 ruff format                           # format, 88 columns
 mypy                                  # types, on the eight modules it lists
