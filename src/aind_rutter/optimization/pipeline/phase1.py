@@ -107,6 +107,7 @@ from aind_rutter.optimization.pipeline.stage_setup import (
 from aind_rutter.optimization.search.minimizers import (
     ARG_ORDER,
     PER_CAND,
+    TRACE_CHANNELS,
     build_cw_fns,
     make_batched_phase1_chunked,
     make_staged_rprop,
@@ -315,13 +316,14 @@ def angle_bounds(
     return lo, hi, periodic, step_scale
 
 
-def make_runner(vgrad_cw, periodic=None, step_scale=1.0) -> Callable:
+def make_runner(vgrad_cw, periodic=None, step_scale=1.0, trace=0) -> Callable:
     """run(x0, arglist, lo, hi, cov_weight, n_steps)."""
     return make_staged_rprop(
         vgrad_cw,
         eta0_frac=0.02 * step_scale,
         etamax_frac=0.5 * step_scale,
         periodic=periodic,
+        trace=trace,
     )
 
 
@@ -370,7 +372,7 @@ def _kernel(
         coverage_weights=cov_weights,
         spin_angle=settings.spin_param == "angle",
     )[1]
-    return vobj, barg, make_runner(vg, periodic, step_scale)
+    return vobj, barg, make_runner(vg, periodic, step_scale, settings.trace)
 
 
 def run_group(  # noqa: C901
@@ -524,6 +526,17 @@ def run_group(  # noqa: C901
     t0 = time.time()
     x_out = np.zeros_like(x0)  # full@end pose
     x_red = np.zeros_like(x0)  # reduced@end pose (cull checkpoint)
+    traced: dict[str, list[np.ndarray]] = {}
+
+    def stage(run, name, x, cargs, lo_s, hi_s, cw, n):
+        """One RProp stage, keeping its trace when the settings ask for one."""
+        if not settings.trace:
+            return run(x, cargs, lo_s, hi_s, cw, n)
+        x, eta, stats = run(x, cargs, lo_s, hi_s, cw, n)
+        traced.setdefault(name, []).append(np.asarray(stats)[:n])
+        traced.setdefault(f"{name}_eta_end", []).append(np.asarray(eta))
+        return x
+
     for ci, s in enumerate(range(0, n_tot, settings.chunk)):
         cargs_f = barg_f(st_f[s : s + settings.chunk])
         cargs_c = (
@@ -531,14 +544,15 @@ def run_group(  # noqa: C901
         )
         x = x0_dev[s : s + settings.chunk]
         if rc > 0:
-            x = run_c(x, cargs_c, lo_r, hi_r, 0.0, rc)  # reduced coarse
+            x = stage(run_c, "reduced_coarse", x, cargs_c, lo_r, hi_r, 0.0, rc)
         if rf > 0:
-            x = run_f(x, cargs_f, lo_r, hi_r, 0.0, rf)  # reduced fine finish
+            x = stage(run_f, "reduced_fine", x, cargs_f, lo_r, hi_r, 0.0, rf)
         x_red[s : s + settings.chunk] = np.asarray(x)
+        cw = settings.cov_weight
         if fc > 0:
-            x = run_c(x, cargs_c, lo, hi, settings.cov_weight, fc)  # full coarse
+            x = stage(run_c, "full_coarse", x, cargs_c, lo, hi, cw, fc)
         if ff > 0:
-            x = run_f(x, cargs_f, lo, hi, settings.cov_weight, ff)  # full fine finish
+            x = stage(run_f, "full_fine", x, cargs_f, lo, hi, cw, ff)
         x_out[s : s + settings.chunk] = np.asarray(x)
         if (ci + 1) % settings.progress_every == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
@@ -548,6 +562,21 @@ def run_group(  # noqa: C901
                 flush=True,
             )
     print(f"  {time.time() - t0:.1f}s optimize", flush=True)
+    if settings.trace:
+        # Per stage: (iteration, candidate, channel), and the final per-coordinate
+        # eta. Chunks concatenate along their candidate axis.
+        path = settings.out.with_name(
+            f"{settings.out.name.split('.')[0]}_trace_{n_arcs}arc.npz"
+        )
+        arrays: dict[str, Any] = {
+            "channels": np.asarray(TRACE_CHANNELS),
+            **{
+                k: np.concatenate(v, axis=1 if v[0].ndim == 3 else 0)
+                for k, v in traced.items()
+            },
+        }
+        np.savez_compressed(path, **arrays)  # names are ours, not savez's kwargs
+        print(f"  trace → {path}", flush=True)
     if spin_angle:
         x_out = np.asarray(from_angle_layout(x_out, n_arcs))
         x_red = np.asarray(from_angle_layout(x_red, n_arcs))

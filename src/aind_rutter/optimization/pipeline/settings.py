@@ -179,6 +179,14 @@ class Phase1Settings(PipelineSettings):
         description="Enumerate+seed cache; defaults to one named for the config.",
     )
     progress_every: int = Field(25)
+    # Diagnostic only: the RProp stages say nothing about how they got where they
+    # got, so record per-iteration rates for this many iterations of each stage
+    # beside the pool. Tracing changes XLA's fusion, so a traced run is
+    # comparable to other traced runs, not to an untraced one.
+    trace: int = Field(
+        0,
+        description="Record this many RProp iterations per stage to <out>_trace.npz.",
+    )
 
     @property
     def two_fidelity(self) -> bool:
