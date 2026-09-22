@@ -1,0 +1,146 @@
+diff --git a/src/aind_rutter/optimization/pipeline/phase2.py b/src/aind_rutter/optimization/pipeline/phase2.py
+index 360135f..8873cdc 100644
+--- a/src/aind_rutter/optimization/pipeline/phase2.py
++++ b/src/aind_rutter/optimization/pipeline/phase2.py
+@@ -23,7 +23,9 @@ import os as _os
+ # Set BLAS/OMP threads-per-worker BEFORE jax/numpy import (RUTTER_THREADS=1 pins
+ # each worker single-thread to avoid Nworkers x Ncore oversubscription; raise it
+ # to test whether oversubscription fills memory-bound stalls). Spawned workers
+-# inherit this env and re-run this block.
++# inherit this env and re-run this block. XLA reads none of these: its CPU pool
++# takes a thread per CPU the process may run on, so on CPU each process-pool
++# worker is also confined to RUTTER_THREADS CPUs (see _pin_worker).
+ _THREADS = _os.environ.get("RUTTER_THREADS", "1")
+ for _v in (
+     "OMP_NUM_THREADS",
+@@ -115,14 +117,42 @@ def _setup_compile_cache():
+     configure_compile_cache()
+ 
+ 
+-def _init(settings: Phase2Settings | None = None) -> None:
++def _cpu_slices(n_workers: int, per_worker: int) -> list[list[int]]:
++    """One run of ``per_worker`` of this process's CPUs per worker, disjoint
++    while there are enough and wrapping around when there are not."""
++    cpus = sorted(_os.sched_getaffinity(0))
++    return [
++        [cpus[(w * per_worker + k) % len(cpus)] for k in range(per_worker)]
++        for w in range(n_workers)
++    ]
++
++
++def _pin_worker(slices: list[list[int]], started: Any) -> None:
++    """Confine this worker to the next slice before its XLA client exists.
++
++    The shared count rather than a queue of slices, so a worker the pool
++    replaces takes a slice instead of blocking on an empty queue.
++    """
++    with started.get_lock():
++        k = started.value
++        started.value += 1
++    _os.sched_setaffinity(0, slices[k % len(slices)])
++
++
++def _init(
++    settings: Phase2Settings | None = None,
++    cpu_slices: tuple[list[list[int]], Any] | None = None,
++) -> None:
+     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap).
+ 
+     Spawned workers cannot see the parent's state, so the settings arrive as an
+     initializer argument rather than through inherited module globals, and every
+     worker task reads them back from ``_G``. Omitting them resolves from the
+     environment, which is what a caller outside the pipeline gets.
++    ``cpu_slices`` is ``_pin_worker``'s arguments.
+     """
++    if cpu_slices is not None:
++        _pin_worker(*cpu_slices)
+     settings = settings or Phase2Settings()
+     # A second run in one process must inherit nothing from the first: _G holds
+     # the previous subject's geometry and its derived coverage ceilings, and the
+@@ -433,6 +463,8 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
+     ``_warmup`` and ``_phase2_one`` both build through here, so the warmup compiles
+     the functions the solve calls.
+     """
++    import jax.numpy as jnp
++
+     from aind_rutter.optimization.objectives.constrained import (
+         Phase2Weights,
+         make_phase2,
+@@ -450,6 +482,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
+             min_clearance_mm=s.minclear,
+             lambda_margin_clear=s.lam_clear,
+             tau_clear_mm=s.tau_clear,
++            lambda_margin_thread=s.lam_thread,
+             lambda_cov=s.cov_weight,
+             cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
+             obb_slack_gain=s.obb_gain,
+@@ -458,6 +491,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
+         brain_sdf=_G.get("brain_sdf"),
+         hessian=s.hess,
+         drop_padded_rows=s.drop_dead_rows,
++        grid_dtype=jnp.dtype(s.grid_dtype),
+         **cast(Any, _cov_norm_kwargs(st)),
+     )
+ 
+@@ -615,8 +649,15 @@ def solve_candidates(
+     else:
+         _require_gpu_headroom(settings.workers)
+         ctx = get_context("spawn")
++        # On GPU the solve's arithmetic is not on the host pool, and confining
++        # CUDA's host threads would serialize them with the solver.
++        cpu_slices = (
++            (_cpu_slices(settings.workers, int(_THREADS)), ctx.Value("i", 0))
++            if _PLATFORM == "cpu"
++            else None
++        )
+         with ctx.Pool(
+-            settings.workers, initializer=_init, initargs=(settings,)
++            settings.workers, initializer=_init, initargs=(settings, cpu_slices)
+         ) as pool:
+             if settings.warmup:
+                 tw = time.time()
+@@ -670,6 +711,7 @@ def run(
+         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
+         f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
+         f" lam={settings.lam_clear} tau={settings.tau_clear},"
++        f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
+         f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
+     )
+     results = solve_candidates(recs, settings, on_result=on_result, log=log)
+diff --git a/src/aind_rutter/optimization/pipeline/settings.py b/src/aind_rutter/optimization/pipeline/settings.py
+index d835399..051089b 100644
+--- a/src/aind_rutter/optimization/pipeline/settings.py
++++ b/src/aind_rutter/optimization/pipeline/settings.py
+@@ -237,6 +237,9 @@ class Phase2Settings(PipelineSettings):
+     # bitwise across runs.
+     lam_clear: float = Field(0.0)
+     tau_clear: float = Field(0.8)
++    # The threading reward scores each probe's tightest shank through a hard
++    # minimum, which is not differentiable where two shanks tie.
++    lam_thread: float = Field(1.0)
+     # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
+     # ones.
+     obb_gain: float = Field(100.0)
+@@ -245,6 +248,10 @@ class Phase2Settings(PipelineSettings):
+     # Hand the solver only rows with a gradient; padding keeps compiled shapes
+     # uniform but leaves most rows constant.
+     drop_dead_rows: bool = Field(False)
++    # Collision-grid precision. bfloat16 halves grid memory, but its
++    # interpolation also blends in bfloat16, so the voxel-SDF constraints are
++    # rough at about 1e-4 mm, the feasibility tolerance.
++    grid_dtype: Literal["bfloat16", "float32"] = Field("bfloat16")
+ 
+     # Solver.
+     # IPOPT's restoration phase reaches feasibility from infeasible starts where
+diff --git a/tests/test_pipeline_settings.py b/tests/test_pipeline_settings.py
+index 54bd84f..2d66312 100644
+--- a/tests/test_pipeline_settings.py
++++ b/tests/test_pipeline_settings.py
+@@ -27,6 +27,7 @@ def test_defaults_match_the_shipped_solver_configuration() -> None:
+     assert (s.lam_clear, s.ip_hist, s.ip_acc_tol, s.ip_acc_iter) == (0.0, 60, 5.0, 8)
+     assert (s.ip_tol, s.ip_cvtol) == (1e-4, 1e-4)
+     assert (s.solver, s.hess, s.ip_mu, s.well) == ("ipopt", "none", "adaptive", "thick")
++    assert (s.lam_thread, s.grid_dtype) == (1.0, "bfloat16")
+ 
+ 
+ def test_environment_supplies_values_under_the_prefixed_names(
