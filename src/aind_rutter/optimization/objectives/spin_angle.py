@@ -7,17 +7,21 @@ over the angle has neither. :class:`SpinAngle` drops each probe's sine slot,
 puts the angle in radians in the cosine slot, and expands back to the unit
 circle before every model evaluation, pulling gradients and Jacobians back by
 the chain rule. The angle is unbounded: the model reads it only through sine
-and cosine, so there is no wrap to guard.
+and cosine, so there is no wrap to guard. NumPy only, and outside the compiled
+model, so switching representation costs no recompile.
 
-NumPy only, and outside the compiled model, so switching representation costs
-no recompile.
+A compiled first-order loop instead composes :func:`from_angle_layout` into the
+objective before differentiating, and keeps the vector's shape: the angle sits
+in the cosine slot and the sine slot holds zero.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+import jax.numpy as jnp
 import numpy as np
+from jax import Array
 from numpy.typing import NDArray
 
 from aind_rutter.optimization.objectives.layout import (
@@ -101,3 +105,33 @@ class SpinAngle:
                 for c in constraints
             ],
         )
+
+
+def spin_slots(n_arcs: int, n_vars: int) -> tuple[NDArray, NDArray]:
+    """Every probe's cosine and sine slot in a full-layout vector of ``n_vars``."""
+    blocks = n_arcs + PHASE1_PER_PROBE_VARS * np.arange(
+        (n_vars - n_arcs) // PHASE1_PER_PROBE_VARS
+    )
+    return blocks + SPIN_COS, blocks + SPIN_SIN
+
+
+def to_angle_layout(x: NDArray, n_arcs: int) -> NDArray:
+    """Full-layout ``x`` of shape ``(..., n_vars)`` in the angle layout: each
+    spin's angle in radians in its cosine slot, zero in its sine slot."""
+    cos, sin = spin_slots(n_arcs, x.shape[-1])
+    z = np.array(x, copy=True)
+    z[..., cos] = np.arctan2(x[..., sin], x[..., cos])
+    z[..., sin] = 0.0
+    return z
+
+
+def from_angle_layout(z: Array | NDArray, n_arcs: int) -> Array:
+    """The full-layout vector for angle-layout ``z``, spins on the unit circle.
+
+    Traceable; its gradient with respect to each sine slot is zero, since the
+    slot is overwritten.
+    """
+    z = jnp.asarray(z)
+    cos, sin = spin_slots(n_arcs, z.shape[-1])
+    theta = z[..., cos]
+    return z.at[..., cos].set(jnp.cos(theta)).at[..., sin].set(jnp.sin(theta))

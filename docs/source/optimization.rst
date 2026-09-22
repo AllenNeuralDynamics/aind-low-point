@@ -368,7 +368,11 @@ The continuous variable layout is:
 
 Spin is represented by ``(sx, sy)`` during optimization; the objective includes
 a unit-circle penalty so the pair behaves as a continuous spin angle without
-angle wrap discontinuities.
+angle wrap discontinuities. With ``RUTTER_SPIN_PARAM=angle`` the RProp passes
+instead step each spin angle, held in the ``sx`` slot and wrapped into
+``[-pi, pi)``, and the differentiated objective expands it back to the pair;
+Phase 2 reads the same setting for its IPOPT solve. The pool stores the pair
+either way.
 
 Phase 1 has two continuous passes:
 

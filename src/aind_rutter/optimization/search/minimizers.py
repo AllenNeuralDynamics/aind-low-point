@@ -35,6 +35,7 @@ from aind_rutter.optimization.objectives.soft import (
     _signature,
     pack_statics,
 )
+from aind_rutter.optimization.objectives.spin_angle import from_angle_layout
 from aind_rutter.optimization.pipeline.records import (
     BatchedGradientFn,
     BatchedObjectiveFn,
@@ -119,6 +120,7 @@ def make_staged_rprop(
     eta_min=1e-6,
     grow=1.2,
     shrink=0.5,
+    periodic=None,
 ) -> Callable[..., Any]:
     """Projected iRprop− (sign-based resilient backprop).
 
@@ -137,7 +139,11 @@ def make_staged_rprop(
     ``η`` is initialised/capped RELATIVE TO THE BOUND RANGE per coordinate
     (``η0 = eta0_frac·(hi−lo)``), which preconditions the scale disparity (deg vs
     mm vs cos/sin) and naturally pins ``lo==hi`` coords (reduced offsets/depth) at
-    ``η=0``. Pass the cov_weight-aware grad (``vmapped_grad_cw``)."""
+    ``η=0``. Pass the cov_weight-aware grad (``vmapped_grad_cw``).
+
+    ``periodic`` marks coordinates that wrap into ``[lo, hi)`` instead of being
+    clipped, for variables the objective reads with that period. The wrap leaves
+    the state intact: a periodic gradient has the same sign one period over."""
 
     def run(x0, arglist, lo, hi, cov_weight, n_steps):
         lo_j = jnp.asarray(lo, jnp.float32)
@@ -146,6 +152,9 @@ def make_staged_rprop(
         rng = hi_j - lo_j  # per-coord range; 0 for pinned coords
         eta0 = jnp.broadcast_to(eta0_frac * rng, x0.shape)
         eta_max = etamax_frac * rng
+        if periodic is not None:
+            wraps = jnp.asarray(periodic, bool)
+            period = jnp.where(wraps, rng, 1.0)
 
         def body(i, st):
             x, eta, g_prev = st
@@ -157,7 +166,12 @@ def make_staged_rprop(
                 jnp.where(prod < 0, jnp.maximum(eta * shrink, eta_min), eta),
             )
             g_eff = jnp.where(prod < 0, 0.0, g)  # iRprop−: skip step on a flip
-            x = jnp.clip(x - jnp.sign(g_eff) * eta, lo_j, hi_j)
+            x_new = x - jnp.sign(g_eff) * eta
+            if periodic is None:
+                x = jnp.clip(x_new, lo_j, hi_j)
+            else:
+                wrapped = lo_j + jnp.mod(x_new - lo_j, period)
+                x = jnp.where(wraps, wrapped, jnp.clip(x_new, lo_j, hi_j))
             return (x, eta, g_eff)
 
         init = (x0, eta0, jnp.zeros_like(x0))
@@ -175,8 +189,13 @@ def build_cw_fns(
     weights=None,
     coverage_ceilings=None,
     coverage_weights=None,
+    spin_angle=False,
 ) -> tuple[BatchedObjectiveFn, BatchedGradientFn, list[Any]]:
-    """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids)."""
+    """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids).
+
+    With ``spin_angle`` both take the angle layout of
+    :func:`~aind_rutter.optimization.objectives.spin_angle.to_angle_layout`.
+    """
     w = weights if weights is not None else Phase1Weights()
     sig = _signature(st, n_arcs, w)
     # bf16 all collision grids (fixture + probe + table), like the chunked
@@ -193,6 +212,8 @@ def build_cw_fns(
     )
 
     def obj_cw(x, cov_weight, *args):
+        if spin_angle:
+            x = from_angle_layout(x, n_arcs)
         return jit_obj(x, cov_weight=cov_weight, **dict(zip(ARG_ORDER, args)))
 
     in_axes = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)

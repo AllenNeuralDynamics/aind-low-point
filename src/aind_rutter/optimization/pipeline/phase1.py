@@ -62,6 +62,11 @@ from aind_rutter.optimization.objectives.reduced import (
     make_batched_reduced_objective,
 )
 from aind_rutter.optimization.objectives.soft import Phase1Weights
+from aind_rutter.optimization.objectives.spin_angle import (
+    from_angle_layout,
+    spin_slots,
+    to_angle_layout,
+)
 from aind_rutter.optimization.objectives.statics import (
     JointWeights,
     _build_probe_static,
@@ -289,9 +294,35 @@ def restore_group(
     return out
 
 
-def make_runner(vgrad_cw) -> Callable:
+def angle_bounds(
+    lo: np.ndarray, hi: np.ndarray, n_arcs: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Bounds over the angle layout, the mask of coordinates that wrap, and a
+    per-coordinate scale on RProp's step fractions.
+
+    RProp sizes each coordinate's steps from its bound range, so an angle's
+    steps are scaled to those its cosine component took: switching
+    representation changes what is stepped, not how far.
+    """
+    cos, sin = spin_slots(n_arcs, lo.size)
+    step_scale = np.ones_like(lo)
+    step_scale[cos] = (hi[cos] - lo[cos]) / (2 * np.pi)
+    lo, hi = lo.copy(), hi.copy()
+    lo[cos], hi[cos] = -np.pi, np.pi
+    lo[sin] = hi[sin] = 0.0
+    periodic = np.zeros(lo.size, bool)
+    periodic[cos] = True
+    return lo, hi, periodic, step_scale
+
+
+def make_runner(vgrad_cw, periodic=None, step_scale=1.0) -> Callable:
     """run(x0, arglist, lo, hi, cov_weight, n_steps)."""
-    return make_staged_rprop(vgrad_cw, eta0_frac=0.02, etamax_frac=0.5)
+    return make_staged_rprop(
+        vgrad_cw,
+        eta0_frac=0.02 * step_scale,
+        etamax_frac=0.5 * step_scale,
+        periodic=periodic,
+    )
 
 
 def _kernel(
@@ -305,8 +336,14 @@ def _kernel(
     settings: Phase1Settings,
     ceilings=None,
     cov_weights=None,
+    periodic=None,
+    step_scale=1.0,
 ) -> tuple[Callable, ArglistBuilder, Callable]:
-    """Build (vobj, build_arglist, run) for one fidelity's template statics."""
+    """Build (vobj, build_arglist, run) for one fidelity's template statics.
+
+    ``vobj`` scores the full layout; ``run`` steps the angle layout when
+    ``settings.spin_param`` asks for it.
+    """
     weights = Phase1Weights(
         cov_alpha=settings.cov_alpha if settings.cov_norm else 0.0,
         smooth_thread_reward=settings.smooth_thread_reward,
@@ -331,8 +368,9 @@ def _kernel(
         weights=weights,
         coverage_ceilings=ceilings,
         coverage_weights=cov_weights,
+        spin_angle=settings.spin_param == "angle",
     )[1]
-    return vobj, barg, make_runner(vg)
+    return vobj, barg, make_runner(vg, periodic, step_scale)
 
 
 def run_group(  # noqa: C901
@@ -354,6 +392,11 @@ def run_group(  # noqa: C901
     bounds = phase1_bounds(n_arcs, K, head_pitch_deg)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
+    spin_angle = settings.spin_param == "angle"
+    periodic: np.ndarray | None = None
+    step_scale: float | np.ndarray = 1.0
+    if spin_angle:
+        lo, hi, periodic, step_scale = angle_bounds(lo, hi, n_arcs)
     lo_r, hi_r = reduced_lohi(lo, hi, n_arcs, K)
 
     t0 = time.time()
@@ -399,6 +442,8 @@ def run_group(  # noqa: C901
         z = np.zeros(K)
         x0_rows.append(build_y(arc_aps, n_arcs, mls, np.asarray(sp), z, z, z))
     x0 = np.stack(x0_rows).astype(np.float32)
+    if spin_angle:
+        x0 = to_angle_layout(x0, n_arcs)
 
     cov = build_coverage_data(probes, st_f[0])
     # Per-region normalization: ceilings (achievable per-probe coverage) +
@@ -438,6 +483,8 @@ def run_group(  # noqa: C901
         settings=settings,
         ceilings=ceilings,
         cov_weights=cov_weights,
+        periodic=periodic,
+        step_scale=step_scale,
     )
     if settings.two_fidelity:
         _vo, barg_c, run_c = _kernel(
@@ -450,6 +497,8 @@ def run_group(  # noqa: C901
             settings=settings,
             ceilings=ceilings,
             cov_weights=cov_weights,
+            periodic=periodic,
+            step_scale=step_scale,
         )
     else:
         barg_c, run_c, st_c = barg_f, run_f, st_f
@@ -499,6 +548,9 @@ def run_group(  # noqa: C901
                 flush=True,
             )
     print(f"  {time.time() - t0:.1f}s optimize", flush=True)
+    if spin_angle:
+        x_out = np.asarray(from_angle_layout(x_out, n_arcs))
+        x_red = np.asarray(from_angle_layout(x_red, n_arcs))
 
     # Final scores at fine fidelity (soft clearance uses the thick well too).
     in_axes = (0,) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
@@ -683,7 +735,8 @@ def run(settings: Phase1Settings) -> int:
     reduced_coarse = settings.stage1 - settings.reduced_fine
     full_coarse = settings.stage2 - settings.full_fine
     print(
-        f"config: well={settings.well} {fidelity} "
+        f"config: well={settings.well} {fidelity} spin={settings.spin_param} "
+        f"smooth_thread={settings.smooth_thread_reward} "
         f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
         f"full {full_coarse}c+{settings.full_fine}f → {settings.out}",
         flush=True,

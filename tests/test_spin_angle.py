@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -10,8 +12,15 @@ from aind_rutter.optimization.objectives.layout import (
     SPIN_COS,
     SPIN_SIN,
 )
-from aind_rutter.optimization.objectives.spin_angle import SpinAngle
-from aind_rutter.optimization.pipeline.settings import Phase2Settings
+from aind_rutter.optimization.objectives.spin_angle import (
+    SpinAngle,
+    from_angle_layout,
+    to_angle_layout,
+)
+from aind_rutter.optimization.pipeline.fixtures import phase1_bounds
+from aind_rutter.optimization.pipeline.phase1 import angle_bounds
+from aind_rutter.optimization.pipeline.settings import Phase1Settings, Phase2Settings
+from aind_rutter.optimization.search.minimizers import make_staged_rprop
 
 N_ARCS, N_PROBES = 2, 3
 N_VARS = N_ARCS + PHASE1_PER_PROBE_VARS * N_PROBES
@@ -98,7 +107,96 @@ def test_angles_are_unbounded_and_other_bounds_carry_over() -> None:
         assert solver_bounds[slot] == expected
 
 
-def test_angle_parameterization_requires_ipopt() -> None:
-    assert Phase2Settings(spin_param="angle").spin_param == "angle"
+def test_angle_parameterization_reaches_both_stages_and_phase2_needs_ipopt(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("RUTTER_SPIN_PARAM", "angle")
+    assert Phase1Settings().spin_param == Phase2Settings().spin_param == "angle"
     with pytest.raises(ValueError, match="ipopt"):
-        Phase2Settings(spin_param="angle", solver="trust-constr")
+        Phase2Settings(solver="trust-constr")
+
+
+def test_angle_layout_keeps_the_shape_and_round_trips() -> None:
+    rng = np.random.default_rng(2)
+    x = np.stack([_model_point(rng) for _ in range(3)]).astype(np.float32)
+    z = to_angle_layout(x, N_ARCS)
+    assert z.shape == x.shape
+    np.testing.assert_array_equal(z[:, SIN], 0.0)
+    back = np.asarray(from_angle_layout(z, N_ARCS))
+    others = np.setdiff1d(np.arange(N_VARS), np.concatenate([COS, SIN]))
+    np.testing.assert_array_equal(back[:, others], x[:, others])
+    np.testing.assert_allclose(np.hypot(back[:, COS], back[:, SIN]), 1.0, rtol=1e-6)
+    np.testing.assert_allclose(
+        np.arctan2(back[:, SIN], back[:, COS]),
+        np.arctan2(x[:, SIN], x[:, COS]),
+        rtol=1e-6,
+    )
+
+
+def test_angle_layout_gradient_is_the_ipopt_pull_back() -> None:
+    """Autodiff through the in-place layout and the hand-written pull-back agree,
+    and the sine slots, which the expansion overwrites, get no gradient."""
+    weights = jnp.linspace(0.5, 2.0, N_VARS)
+
+    def model(x):
+        return jnp.sum(weights * jnp.sin(x)) + x[COS[0]] * x[SIN[1]]
+
+    x = _model_point(np.random.default_rng(3)).astype(np.float32)
+    z = to_angle_layout(x, N_ARCS)
+    grad_z = np.asarray(jax.grad(lambda z: model(from_angle_layout(z, N_ARCS)))(z))
+    np.testing.assert_array_equal(grad_z[SIN], 0.0)
+
+    spin = SpinAngle(N_ARCS, N_PROBES, N_VARS)
+    z_ipopt = spin.to_solver(x)
+    grad_x = np.asarray(jax.grad(model)(jnp.asarray(spin.to_model(z_ipopt))))
+    expected = spin.pull_back(z_ipopt, grad_x)
+    kept = np.setdiff1d(np.arange(N_VARS), SIN)
+    np.testing.assert_allclose(grad_z[kept], expected, rtol=1e-5, atol=1e-6)
+
+
+def _cosine_well_grad(target):
+    """RProp gradient of ``1 - cos(x - target)``, per coordinate and candidate."""
+    target = jnp.asarray(target, jnp.float32)
+    return lambda x, cov_weight: jnp.sin(x - target)
+
+
+def test_rprop_wraps_a_periodic_coordinate_that_a_clip_would_stop() -> None:
+    # The first minimum lies 0.28 rad away across the +-pi seam; the second
+    # coordinate is an ordinary bounded one.
+    target, lo, hi = [3.0, 0.5], [-np.pi, -1.0], [np.pi, 1.0]
+    x0 = jnp.asarray([[-3.0, -0.5]], jnp.float32)
+    grad = _cosine_well_grad(target)
+    wrapped = make_staged_rprop(grad, periodic=np.array([True, False]))
+    clipped = make_staged_rprop(grad)
+    x_wrapped = np.asarray(wrapped(x0, [], lo, hi, 0.0, 200))[0]
+    x_clipped = np.asarray(clipped(x0, [], lo, hi, 0.0, 200))[0]
+    assert abs(np.angle(np.exp(1j * (x_wrapped[0] - target[0])))) < 1e-4
+    assert -np.pi <= x_wrapped[0] < np.pi
+    np.testing.assert_allclose(x_wrapped[1], target[1], atol=1e-4)
+    np.testing.assert_allclose(x_clipped[0], -np.pi, rtol=1e-6)
+
+
+def test_rprop_with_nothing_periodic_matches_the_clipped_run() -> None:
+    target, lo, hi = [0.9, -0.4], [-1.0, -1.0], [0.5, 1.0]
+    x0 = jnp.asarray([[0.0, 0.8], [0.3, -0.9]], jnp.float32)
+    grad = _cosine_well_grad(target)
+    none_wrap = make_staged_rprop(grad, periodic=np.zeros(2, bool))
+    np.testing.assert_array_equal(
+        np.asarray(none_wrap(x0, [], lo, hi, 0.0, 50)),
+        np.asarray(make_staged_rprop(grad)(x0, [], lo, hi, 0.0, 50)),
+    )
+
+
+def test_phase1_angle_steps_as_far_as_its_cosine_component() -> None:
+    bounds = np.array(phase1_bounds(N_ARCS, N_PROBES), np.float32)
+    lo, hi = bounds[:, 0], bounds[:, 1]
+    lo_a, hi_a, periodic, step_scale = angle_bounds(lo, hi, N_ARCS)
+    np.testing.assert_array_equal(np.flatnonzero(periodic), COS)
+    np.testing.assert_allclose(hi_a[COS] - lo_a[COS], 2 * np.pi, rtol=1e-6)
+    np.testing.assert_array_equal(lo_a[SIN], hi_a[SIN])
+    np.testing.assert_allclose(
+        (step_scale * (hi_a - lo_a))[COS], (hi - lo)[COS], rtol=1e-6
+    )
+    others = np.setdiff1d(np.arange(N_VARS), np.concatenate([COS, SIN]))
+    np.testing.assert_array_equal(lo_a[others], lo[others])
+    np.testing.assert_array_equal(step_scale[others], 1.0)

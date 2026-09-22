@@ -77,6 +77,11 @@ class PipelineSettings(BaseSettings):
     # Smooth the threading reward's minimum over shanks and its zero gate. Both
     # phases score the same reward, so one switch covers them.
     smooth_thread_reward: bool = Field(False)
+    # Solve over each probe's spin angle rather than its (cos, sin) pair, whose
+    # radius no geometric term constrains and whose origin, inside the variable
+    # bounds, is a singularity of arctan2. Each stage converts at its own
+    # boundary and the pool keeps the pair, so the stages need not agree.
+    spin_param: Literal["unit_vector", "angle"] = Field("unit_vector")
 
     n_surf: int = Field(
         5000,
@@ -264,10 +269,6 @@ class Phase2Settings(PipelineSettings):
     # trust-constr only: none (BFGS), dense (exact n×n Hessian, slow) or hessp
     # (exact Hessian-vector products at about the cost of a gradient).
     hess: Literal["none", "dense", "hessp"] = Field("none")
-    # IPOPT only: solve over each probe's spin angle rather than its (cos, sin)
-    # pair, whose radius no geometric term constrains and whose origin, inside
-    # the variable bounds, is a singularity of arctan2.
-    spin_param: Literal["unit_vector", "angle"] = Field("unit_vector")
     p2_iter: int = Field(200)
     # Above the variable count, so the L-BFGS model can represent a full Hessian
     # and a longer history buys nothing.
