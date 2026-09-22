@@ -288,28 +288,40 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             # acceptable_tol would also relax the restoration subproblem's exit —
             # the branch that reports local infeasibility.
             ipopt_options["resto.acceptable_iter"] = 0
+        fun, jac, constraints = p2["fun"], p2["jac"], p2["constraints"]
+        x_start = pose_start
+        spin = None
+        if s.spin_param == "angle":
+            from aind_rutter.optimization.objectives.spin_angle import SpinAngle
+
+            spin = SpinAngle(n_arcs, _G["n_probes"], len(pose_start))
+            fun, jac, constraints = spin.wrap(fun, jac, constraints)
+            bnds = spin.bounds(bnds)
+            x_start = spin.to_solver(pose_start)
         if s.p2_diag:
             from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK
 
             res, diag["diag_hist"] = minimize_ipopt_logged(
-                p2["fun"],
-                pose_start,
-                jac=p2["jac"],
+                fun,
+                x_start,
+                jac=jac,
                 bounds=bnds,
-                constraints=p2["constraints"],
+                constraints=constraints,
                 options=ipopt_options,
                 group_sizes=_live_group_sizes(diag["slack_start"], p2["live_rows"]),
                 padded_slack=PADDED_SLACK,
             )
         else:
             res = minimize_ipopt(
-                p2["fun"],
-                pose_start,
-                jac=p2["jac"],
+                fun,
+                x_start,
+                jac=jac,
                 bounds=bnds,
-                constraints=p2["constraints"],  # dict ineq: g(x) >= 0
+                constraints=constraints,  # dict ineq: g(x) >= 0
                 options=ipopt_options,
             )
+        if spin is not None:
+            res.x = spin.to_model(res.x)
     else:
         # exactly one of hess / hessp is non-None per HESS mode (None ⇒ BFGS).
         mkw: dict[str, object] = {}
@@ -676,6 +688,7 @@ def run(
         f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
+        f" smooth_thread={settings.smooth_thread_reward}, spin={settings.spin_param},"
         f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
     )
     results = solve_candidates(recs, settings, on_result=on_result, log=log)

@@ -114,16 +114,14 @@ def pose_from_optimizer_vars(
 def spin_deg_from_sxy(sx: Array, sy: Array) -> Array:
     """Convert ``(sx, sy)`` rotation parameterization to ``spin_deg``.
 
-    The optimizer's reduced/full y vector parameterizes spin as a 2D
-    vector ``(sx, sy) ∝ (cos θ, sin θ)`` on the unit circle, avoiding
-    the ±180° wraparound discontinuity that bound-clipped scalar-angle
-    scalar-angle layout. Internally, the existing
-    :func:`pose_from_optimizer_vars` API still takes ``spin_deg`` so we
-    convert at the unpacking site via ``atan2(sy, sx)``.
+    The optimizer's reduced/full vectors carry spin as ``(sx, sy) ∝
+    (cos θ, sin θ)``, so a box-bounded variable never has to wrap at ±180°.
+    :func:`pose_from_optimizer_vars` takes ``spin_deg``, converted here.
 
-    The norm of ``(sx, sy)`` is irrelevant — only the direction
-    matters. JAX's ``arctan2`` is well-defined and differentiable
-    everywhere except at the origin; optimizer bounds keep us away from
-    it.
+    Only the direction of ``(sx, sy)`` matters. ``arctan2`` is not
+    differentiable at the origin, and nothing keeps the pair away from it: the
+    ±1.1 box contains it and :func:`unit_circle_penalty` only pulls toward the
+    circle. :class:`~aind_rutter.optimization.objectives.spin_angle.SpinAngle`
+    solves over the angle instead.
     """
     return jnp.degrees(jnp.arctan2(sy, sx))
