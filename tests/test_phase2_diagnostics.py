@@ -180,3 +180,43 @@ def test_slack_parts_concatenate_to_the_constraint_vector() -> None:
     assert parts["thread"].ndim == 3 and parts["thread"].shape[0] == 2
     assert parts["ml_sep"].shape == (1,)
     assert set(p2["slack_labels"]) >= {"probe_pairs", "fixtures", "pair_categories"}
+
+
+@pytest.mark.parametrize("drop", [False, True])
+def test_group_sizes_span_the_constraint_vector_the_solver_sees(drop: bool) -> None:
+    """The recorder splits the solver's constraint vector at these boundaries, so
+    they have to sum to its length whether or not the padded rows were removed.
+
+    Two probes with different shank counts, so the batched rows really are padded
+    and counting live rows differs from counting all of them.
+    """
+    from aind_rutter.optimization.pipeline.phase2 import _live_group_sizes
+
+    axis = np.array([0.0, 0.0, 1.0])
+    sec = HoleSection(axis=axis, center=np.zeros(3), a=0.6, b=0.3, theta=0.0)
+    hole = Hole(id=1, axis=axis, ref_point=np.zeros(3), sections=[sec])
+    probes = [
+        ProbeStaticInfo(
+            name=name,
+            target_LPS=np.array([dx, 0.0, -3.0]),
+            kind="2.1",
+            shank_tips_local=tips,
+        )
+        for name, dx, tips in (
+            ("p", 0.0, np.array([[0.0, 0.0, 0.0]])),
+            ("q", 1.0, np.array([[0.0, 0.0, 0.0], [0.25, 0.0, 0.0]])),
+        )
+    ]
+    ha = SimpleNamespace(probe_to_hole={"p": 1, "q": 1})
+    aa = SimpleNamespace(probe_to_arc_idx={"p": 0, "q": 0}, arc_centroids_deg=(0.0,))
+    statics = _build_probe_static(probes, [hole], ha, aa)
+    p2 = make_phase2(statics, 1, drop_padded_rows=drop)
+    assert p2["rows_dropped"] is drop
+    assert not np.asarray(p2["live_rows"]).all(), "fixture must actually pad rows"
+
+    x = np.array(
+        [0.0] + [0.0, 1.0, 0.0, 0.0, 0.0, 0.0] + [20.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    )
+    parts = {k: np.asarray(v) for k, v in p2["slack_parts"](x).items()}
+    sizes = _live_group_sizes(parts, p2["live_rows"], p2["rows_dropped"])
+    assert sum(sizes) == len(np.asarray(p2["constraints"][0]["fun"](x)))

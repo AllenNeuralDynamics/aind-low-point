@@ -236,12 +236,17 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
     return {"coverage_ceilings": ceilings, "coverage_weights": weights}
 
 
-def _live_group_sizes(slack_start: dict, live_rows) -> list[int]:
-    """Per-group row counts as the solver sees them: the whole group when no rows
-    were dropped, otherwise the live ones."""
+def _live_group_sizes(slack_start: dict, live_rows, rows_dropped: bool) -> list[int]:
+    """Per-group row counts as the solver sees them: the whole group unless the
+    padded rows were actually removed from the constraint vector.
+
+    Counting live rows when they were not dropped shortens every boundary, which
+    silently reads each group at the wrong offset and empties the ones the shift
+    pushes into padding.
+    """
     sizes = [a.size for a in slack_start.values()]
     live = np.asarray(live_rows)
-    if live.all():
+    if not rows_dropped or live.all():
         return sizes
     edges = np.cumsum([0] + sizes)
     return [int(live[a:b].sum()) for a, b in itertools.pairwise(edges)]
@@ -338,7 +343,9 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
                 bounds=bnds,
                 constraints=constraints,
                 options=ipopt_options,
-                group_sizes=_live_group_sizes(diag["slack_start"], p2["live_rows"]),
+                group_sizes=_live_group_sizes(
+                    diag["slack_start"], p2["live_rows"], p2["rows_dropped"]
+                ),
                 padded_slack=PADDED_SLACK,
             )
         else:

@@ -826,11 +826,15 @@ def make_phase2(
         n_arcs=n_arcs,
         has_brain=brain_sdf is not None,
     )
+    # Whether the padded rows were actually removed, not merely identified —
+    # anything splitting the constraint vector by group needs to know which
+    # length it is looking at.
+    rows_dropped = drop_padded_rows and hessian == "none"
     con_fn, con_jac = live_row_constraints(
         slacks_fn,
         slacks_jac,
         live_rows,
-        drop_padded_rows and hessian == "none",
+        rows_dropped,
     )
 
     nlc_kw = dict(fun=con_fn, lb=0.0, ub=np.inf, jac=con_jac)
@@ -854,6 +858,7 @@ def make_phase2(
             }
         ],
         live_rows=live_rows,
+        rows_dropped=rows_dropped,
         constraints_nlc=[NonlinearConstraint(**nlc_kw)],
         slack_parts=slack_parts,
         slack_labels=jit["slack_labels"],
