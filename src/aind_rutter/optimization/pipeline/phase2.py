@@ -433,6 +433,8 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
     ``_warmup`` and ``_phase2_one`` both build through here, so the warmup compiles
     the functions the solve calls.
     """
+    import jax.numpy as jnp
+
     from aind_rutter.optimization.objectives.constrained import (
         Phase2Weights,
         make_phase2,
@@ -450,6 +452,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
             min_clearance_mm=s.minclear,
             lambda_margin_clear=s.lam_clear,
             tau_clear_mm=s.tau_clear,
+            lambda_margin_thread=s.lam_thread,
             lambda_cov=s.cov_weight,
             cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
             obb_slack_gain=s.obb_gain,
@@ -458,6 +461,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         brain_sdf=_G.get("brain_sdf"),
         hessian=s.hess,
         drop_padded_rows=s.drop_dead_rows,
+        grid_dtype=jnp.dtype(s.grid_dtype),
         **cast(Any, _cov_norm_kwargs(st)),
     )
 
@@ -670,6 +674,7 @@ def run(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
         f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
+        f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
         f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
     )
     results = solve_candidates(recs, settings, on_result=on_result, log=log)

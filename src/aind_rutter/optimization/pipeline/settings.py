@@ -237,6 +237,9 @@ class Phase2Settings(PipelineSettings):
     # bitwise across runs.
     lam_clear: float = Field(0.0)
     tau_clear: float = Field(0.8)
+    # Weight of the reward for keeping each probe's tightest shank off the bore
+    # wall; the threading constraint alone lets a shank touch it.
+    lam_thread: float = Field(1.0)
     # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
     # ones.
     obb_gain: float = Field(100.0)
@@ -245,6 +248,10 @@ class Phase2Settings(PipelineSettings):
     # Hand the solver only rows with a gradient; padding keeps compiled shapes
     # uniform but leaves most rows constant.
     drop_dead_rows: bool = Field(False)
+    # Collision-grid precision. bfloat16 halves grid memory, but its
+    # interpolation also blends in bfloat16, so the voxel-SDF constraints are
+    # rough at about 1e-4 mm, the feasibility tolerance.
+    grid_dtype: Literal["bfloat16", "float32"] = Field("bfloat16")
 
     # Solver.
     # IPOPT's restoration phase reaches feasibility from infeasible starts where

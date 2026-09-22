@@ -27,6 +27,7 @@ def test_defaults_match_the_shipped_solver_configuration() -> None:
     assert (s.lam_clear, s.ip_hist, s.ip_acc_tol, s.ip_acc_iter) == (0.0, 60, 5.0, 8)
     assert (s.ip_tol, s.ip_cvtol) == (1e-4, 1e-4)
     assert (s.solver, s.hess, s.ip_mu, s.well) == ("ipopt", "none", "adaptive", "thick")
+    assert (s.lam_thread, s.grid_dtype) == (1.0, "bfloat16")
 
 
 def test_environment_supplies_values_under_the_prefixed_names(
