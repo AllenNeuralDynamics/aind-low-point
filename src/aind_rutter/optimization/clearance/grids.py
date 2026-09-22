@@ -43,9 +43,6 @@ def trilinear_sdf(
     ``query_local`` and ``grid``.
     """
     grid = jnp.asarray(grid)
-    # Value dtype follows the grid: fp32 normally, bf16 when the grid is
-    # stored bf16 (mixed-precision kernel — bf16 gather/blend, fp32 output).
-    vdt = grid.dtype
     if n_real is None:
         Nx, Ny, Nz = grid.shape
     else:
@@ -69,21 +66,22 @@ def trilinear_sdf(
     ix = jnp.clip(i0[..., 0], 0, Nx - 2)
     iy = jnp.clip(i0[..., 1], 0, Ny - 2)
     iz = jnp.clip(i0[..., 2], 0, Nz - 2)
-    # Interp weights carried at the value dtype (bf16 when the grid is bf16).
-    fx, fy, fz = (
-        f[..., 0].astype(vdt),
-        f[..., 1].astype(vdt),
-        f[..., 2].astype(vdt),
-    )
+    fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
 
-    c000 = grid[ix, iy, iz]
-    c100 = grid[ix + 1, iy, iz]
-    c010 = grid[ix, iy + 1, iz]
-    c110 = grid[ix + 1, iy + 1, iz]
-    c001 = grid[ix, iy, iz + 1]
-    c101 = grid[ix + 1, iy, iz + 1]
-    c011 = grid[ix, iy + 1, iz + 1]
-    c111 = grid[ix + 1, iy + 1, iz + 1]
+    # A bf16 grid is read at its storage precision and blended in fp32: bf16
+    # weights would move the value in steps of up to 1/256 of a voxel, which a
+    # solver's line search and finite differences read as noise.
+    def corner(dx: int, dy: int, dz: int) -> Array:
+        return grid[ix + dx, iy + dy, iz + dz].astype(jnp.float32)
+
+    c000 = corner(0, 0, 0)
+    c100 = corner(1, 0, 0)
+    c010 = corner(0, 1, 0)
+    c110 = corner(1, 1, 0)
+    c001 = corner(0, 0, 1)
+    c101 = corner(1, 0, 1)
+    c011 = corner(0, 1, 1)
+    c111 = corner(1, 1, 1)
 
     c00 = c000 * (1 - fx) + c100 * fx
     c01 = c001 * (1 - fx) + c101 * fx
@@ -91,9 +89,7 @@ def trilinear_sdf(
     c11 = c011 * (1 - fx) + c111 * fx
     c0 = c00 * (1 - fy) + c10 * fy
     c1 = c01 * (1 - fy) + c11 * fy
-    # interp value carried at the grid dtype; cast back to fp32 so the
-    # cross-point reduction (soft-min / top-k) downstream accumulates fp32.
-    interp = (c0 * (1 - fz) + c1 * fz).astype(jnp.float32)
+    interp = c0 * (1 - fz) + c1 * fz
     return jnp.where(in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32))
 
 
@@ -120,14 +116,14 @@ def trilinear_sdf_stacked(
         query_local.astype(jnp.float32) - jnp.asarray(origins, jnp.float32)[which]
     ) / jnp.asarray(spacings, jnp.float32)[which][..., None]
     i0 = jnp.floor(coords).astype(jnp.int32)
-    f = (coords - i0).astype(grids.dtype)
+    f = coords - i0
     in_bounds = jnp.all((i0 >= 0) & (i0 < n - 1), axis=-1)
     idx = jnp.clip(i0, 0, n - 2)
     ix, iy, iz = idx[..., 0], idx[..., 1], idx[..., 2]
     fx, fy, fz = f[..., 0], f[..., 1], f[..., 2]
 
     def corner(dx: int, dy: int, dz: int) -> Array:
-        return grids[which, ix + dx, iy + dy, iz + dz]
+        return grids[which, ix + dx, iy + dy, iz + dz].astype(jnp.float32)
 
     c00 = corner(0, 0, 0) * (1 - fx) + corner(1, 0, 0) * fx
     c01 = corner(0, 0, 1) * (1 - fx) + corner(1, 0, 1) * fx
@@ -135,5 +131,5 @@ def trilinear_sdf_stacked(
     c11 = corner(0, 1, 1) * (1 - fx) + corner(1, 1, 1) * fx
     c0 = c00 * (1 - fy) + c10 * fy
     c1 = c01 * (1 - fy) + c11 * fy
-    interp = (c0 * (1 - fz) + c1 * fz).astype(jnp.float32)
+    interp = c0 * (1 - fz) + c1 * fz
     return jnp.where(in_bounds, interp, jnp.asarray(out_of_bounds_value, jnp.float32))

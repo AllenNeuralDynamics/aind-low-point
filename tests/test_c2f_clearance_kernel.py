@@ -102,6 +102,31 @@ def test_stacked_lookup_matches_per_grid_lookup(tables) -> None:
         np.testing.assert_allclose(np.asarray(stacked), _lookup(sdf, points), atol=1e-5)
 
 
+def test_bf16_storage_rounds_only_the_stored_distances(tables) -> None:
+    """A bf16 grid interpolates like its rounded values held in fp32, so the
+    lookup stays piecewise trilinear rather than stepping with bf16 weights."""
+    rng = np.random.default_rng(1)
+    sdf = tables["sdfs"][0]
+    points = jnp.asarray(
+        rng.uniform(sdf.bbox_min, sdf.bbox_max, size=(2000, 3)).astype(np.float32)
+    )
+    rounded = jnp.asarray(sdf.grid).astype(jnp.bfloat16)
+    np.testing.assert_allclose(
+        np.asarray(trilinear_sdf(rounded, sdf.origin, sdf.spacing, points)),
+        np.asarray(
+            trilinear_sdf(rounded.astype(jnp.float32), sdf.origin, sdf.spacing, points)
+        ),
+        rtol=1e-6, atol=1e-6,
+    )  # fmt: skip
+    table = tables["grids"].astype(jnp.bfloat16)
+    args = (tables["origins"], tables["spacings"], tables["n_reals"], jnp.asarray(0))
+    np.testing.assert_allclose(
+        np.asarray(trilinear_sdf_stacked(table, *args, points)),
+        np.asarray(trilinear_sdf_stacked(table.astype(jnp.float32), *args, points)),
+        rtol=1e-6, atol=1e-6,
+    )  # fmt: skip
+
+
 def _pose_pair():
     R_a, t_a = np.eye(3), np.zeros(3)
     R_b, t_b = _rot_z(12.0), np.array([3.9, 0.4, 1.0])

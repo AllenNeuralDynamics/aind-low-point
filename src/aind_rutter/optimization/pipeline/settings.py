@@ -248,9 +248,8 @@ class Phase2Settings(PipelineSettings):
     # Hand the solver only rows with a gradient; padding keeps compiled shapes
     # uniform but leaves most rows constant.
     drop_dead_rows: bool = Field(False)
-    # Collision-grid precision. bfloat16 halves grid memory, but its
-    # interpolation also blends in bfloat16, so the voxel-SDF constraints are
-    # rough at about 1e-4 mm, the feasibility tolerance.
+    # Collision-grid storage. bfloat16 halves grid memory and rounds each stored
+    # distance to about 0.4% of its value; interpolation is float32 either way.
     grid_dtype: Literal["bfloat16", "float32"] = Field("bfloat16")
 
     # Solver.

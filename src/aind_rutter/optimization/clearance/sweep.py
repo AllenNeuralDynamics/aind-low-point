@@ -64,10 +64,10 @@ C2F_REFINED_CELLS = 16
 #
 # Which SDFs get bf16 storage lives here, in ONE place: every *collision* grid —
 # the per-probe probe grids, the swept-pair ``sdf_table`` grids, and the fixture
-# (well/cone/headframe) grids. ``trilinear_sdf`` is dtype-polymorphic (bf16
-# gather/blend, fp32 reduction — rank-safe for the 5000-sample SDF pools). The
-# brain SDF is deliberately NOT cast: it's a few-point shank-tip query, the
-# few-element regime where bf16 erodes rank. ``grid_dtype == float32`` ⇒ no-op.
+# (well/cone/headframe) grids. ``trilinear_sdf`` gathers bf16 corners and blends
+# them in fp32, so only the stored distances are rounded. The brain SDF is
+# deliberately NOT cast: it's a few-point shank-tip query, the few-element regime
+# where bf16 erodes rank. ``grid_dtype == float32`` ⇒ no-op.
 
 
 def cast_fixture_grids(fixtures, grid_dtype):

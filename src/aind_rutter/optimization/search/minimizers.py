@@ -66,9 +66,9 @@ def make_batched_phase1_chunked(
     ``grid_dtype`` stores the probe SDF voxel grids at that dtype on device.
     Pass ``jnp.bfloat16`` for the real mixed-precision kernel: halves the
     dominant array (Nx*Ny*Nz) → roughly doubles the chunk ceiling, and
-    ``trilinear_sdf`` then does the gather/blend in bf16 with fp32 output
-    (the cross-point reduction stays fp32). The grid is ~200x larger than
-    the surface points, so bf16 on the grid alone captures the storage win.
+    ``trilinear_sdf`` gathers the bf16 corners and blends in fp32. The grid is
+    ~200x larger than the surface points, so bf16 on the grid alone captures
+    the storage win.
     """
     # bf16 the fixture grids too (all collision SDFs share the dtype), before
     # _build_jit closure-captures them. See clearance_sweep for the policy.
