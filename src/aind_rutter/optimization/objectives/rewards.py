@@ -7,6 +7,7 @@ saturation stops one very loose probe from paying for a tight one.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 
 
@@ -34,6 +35,7 @@ def saturating_reward_worst(
     slack: jnp.ndarray,
     tau: float,
     valid: jnp.ndarray,
+    beta: float | None = None,
 ) -> jnp.ndarray:
     """Per-probe worst-shank saturating reward, averaged over probes.
 
@@ -42,9 +44,22 @@ def saturating_reward_worst(
     *worst* (minimum) valid slack per probe — so the reward fires on
     each probe's tightest shank, not an average. Probes with no valid
     entries contribute 0.
+
+    ``beta`` replaces the minimum with a log-sum-exp soft minimum and the zero
+    gate with a softplus, both of that sharpness per unit slack, so the reward
+    stays differentiable where two shanks tie or a shank reaches zero slack. The
+    soft minimum sits at most ``log(K) / beta`` below the hard one.
     """
-    big_slack = jnp.where(valid > 0, slack, jnp.inf)
-    worst = jnp.min(big_slack, axis=1)  # (P,) — tightest shank per probe
     has_valid = jnp.any(valid > 0, axis=1)  # (P,)
-    h = jnp.where(has_valid, 1.0 - jnp.exp(-jnp.maximum(0.0, worst) / tau), 0.0)
+    if beta is None:
+        worst = jnp.min(jnp.where(valid > 0, slack, jnp.inf), axis=1)
+        gated = jnp.maximum(0.0, worst)
+    else:
+        # A finite fill: with an infinite one, a probe with no valid entry gets
+        # NaN log-sum-exp weights, and the final mask does not keep NaN out of
+        # the gradient.
+        filled = jnp.where(valid > 0, slack, 1e6)
+        worst = -jax.nn.logsumexp(-beta * filled, axis=1) / beta
+        gated = jax.nn.softplus(beta * worst) / beta
+    h = jnp.where(has_valid, 1.0 - jnp.exp(-gated / tau), 0.0)
     return jnp.sum(h) / jnp.maximum(jnp.sum(has_valid), 1.0)

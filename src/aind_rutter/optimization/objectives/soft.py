@@ -126,6 +126,11 @@ class Phase1Weights:
     lambda_margin_thread: float = 1.0
     tau_clear_mm: float = 0.2  # saturation scale for pair clearance (mm)
     tau_thread_gunits: float = 0.5  # saturation scale for threading slack (g-units)
+    # Soft minimum over shanks and softplus gate in the threading reward, of
+    # sharpness softmin_beta_thread per g-unit; the hard forms are kinked where
+    # shanks tie and where the tightest one reaches zero slack.
+    smooth_thread_reward: bool = False
+    softmin_beta_thread: float = 20.0
     # Probe-vs-fixture body clearance: reuses tau_clear_mm; same penalty
     # form as probe-probe. Set to 0 to disable fixture clearance term.
     lambda_clearance_fixture: float = 100.0
@@ -325,6 +330,9 @@ def _build_jit(  # noqa: C901
     lmt = float(weights.lambda_margin_thread)
     tau_c = float(weights.tau_clear_mm)
     tau_t = float(weights.tau_thread_gunits)
+    beta_t = (
+        float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
+    )
     min_clear = float(weights.min_clearance_mm)
     thread_tol = float(weights.threading_oval_tolerance)
     min_arc_ap = float(weights.min_arc_ap_sep_deg)
@@ -594,7 +602,9 @@ def _build_jit(  # noqa: C901
         # _thread_slacks/_thread_masks are (P, S*SH) from the vmap — pass
         # directly so saturating_reward_worst sees each probe's tightest
         # shank rather than averaging across all shanks.
-        reward_thread = saturating_reward_worst(_thread_slacks, tau_t, _thread_masks)
+        reward_thread = saturating_reward_worst(
+            _thread_slacks, tau_t, _thread_masks, beta=beta_t
+        )
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the
         # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.

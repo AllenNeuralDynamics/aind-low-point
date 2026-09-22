@@ -108,6 +108,11 @@ class Phase2Weights:
     lambda_margin_thread: float = 1.0
     tau_clear_mm: float = 0.2
     tau_thread_gunits: float = 0.5
+    # Soft minimum over shanks and softplus gate in the threading reward, of
+    # sharpness softmin_beta_thread per g-unit; the hard forms are kinked where
+    # shanks tie and where the tightest one reaches zero slack.
+    smooth_thread_reward: bool = False
+    softmin_beta_thread: float = 20.0
 
     # Constraint thresholds (passed into the slack functions).
     min_clearance_mm: float = 0.0
@@ -237,6 +242,9 @@ def _build_jit(  # noqa: C901
     lmt = float(weights.lambda_margin_thread)
     tau_c = float(weights.tau_clear_mm)
     tau_t = float(weights.tau_thread_gunits)
+    beta_t = (
+        float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
+    )
     min_clear = float(weights.min_clearance_mm)
     obb_gain = float(weights.obb_slack_gain)
     smooth_reward = bool(weights.smooth_clearance_reward)
@@ -434,7 +442,7 @@ def _build_jit(  # noqa: C901
             else jnp.float32(0.0)
         )
         reward_thread = saturating_reward_worst(
-            _thread_slacks_pp, tau_t, _thread_masks_pp
+            _thread_slacks_pp, tau_t, _thread_masks_pp, beta=beta_t
         )
 
         # Unit-circle pull on (sx, sy). x stride = PHASE1_PER_PROBE_VARS = 6.

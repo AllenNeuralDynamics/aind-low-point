@@ -74,6 +74,9 @@ class PipelineSettings(BaseSettings):
     cov_norm: bool = Field(False)
     cov_alpha: float = Field(0.2)
     cov_weight: float = Field(1.0)
+    # Smooth the threading reward's minimum over shanks and its zero gate. Both
+    # phases score the same reward, so one switch covers them.
+    smooth_thread_reward: bool = Field(False)
 
     n_surf: int = Field(
         5000,

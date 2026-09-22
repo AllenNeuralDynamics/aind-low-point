@@ -453,6 +453,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
             lambda_margin_clear=s.lam_clear,
             tau_clear_mm=s.tau_clear,
             lambda_margin_thread=s.lam_thread,
+            smooth_thread_reward=s.smooth_thread_reward,
             lambda_cov=s.cov_weight,
             cov_alpha=s.cov_alpha if s.cov_norm else 0.0,
             obb_slack_gain=s.obb_gain,
