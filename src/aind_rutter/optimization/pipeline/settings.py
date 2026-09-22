@@ -297,6 +297,13 @@ class Phase2Settings(PipelineSettings):
     ip_acc_tol: float = Field(5.0)
     # Consecutive acceptable iterations before stopping; 0 disables the early exit.
     ip_acc_iter: int = Field(8)
+    # The acceptable test's separate bounds on its dual-infeasibility and
+    # complementarity legs, which ip_acc_tol otherwise reaches only through the
+    # overall error. Both hold IPOPT's own defaults, so the test is unchanged
+    # until one is lowered, and only a value below ip_acc_tol tightens the dual
+    # leg at all.
+    ip_acc_du_tol: float = Field(1e10)
+    ip_acc_compl_tol: float = Field(1e-2)
 
     # Keep bands and ranking.
     fcl_tol: float = Field(0.2)

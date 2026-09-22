@@ -315,6 +315,8 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             acceptable_iter=s.ip_acc_iter,
             acceptable_tol=s.ip_acc_tol,
             acceptable_constr_viol_tol=s.ip_cvtol,
+            acceptable_dual_inf_tol=s.ip_acc_du_tol,
+            acceptable_compl_inf_tol=s.ip_acc_compl_tol,
             print_level=0,
             sb="yes",
         )
