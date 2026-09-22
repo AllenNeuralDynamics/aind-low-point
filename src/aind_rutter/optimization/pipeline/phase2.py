@@ -23,7 +23,9 @@ import os as _os
 # Set BLAS/OMP threads-per-worker BEFORE jax/numpy import (RUTTER_THREADS=1 pins
 # each worker single-thread to avoid Nworkers x Ncore oversubscription; raise it
 # to test whether oversubscription fills memory-bound stalls). Spawned workers
-# inherit this env and re-run this block.
+# inherit this env and re-run this block. XLA reads none of these: its CPU pool
+# takes a thread per CPU the process may run on, so on CPU each process-pool
+# worker is also confined to RUTTER_THREADS CPUs (see _pin_worker).
 _THREADS = _os.environ.get("RUTTER_THREADS", "1")
 for _v in (
     "OMP_NUM_THREADS",
@@ -115,14 +117,42 @@ def _setup_compile_cache():
     configure_compile_cache()
 
 
-def _init(settings: Phase2Settings | None = None) -> None:
+def _cpu_slices(n_workers: int, per_worker: int) -> list[list[int]]:
+    """One run of ``per_worker`` of this process's CPUs per worker, disjoint
+    while there are enough and wrapping around when there are not."""
+    cpus = sorted(_os.sched_getaffinity(0))
+    return [
+        [cpus[(w * per_worker + k) % len(cpus)] for k in range(per_worker)]
+        for w in range(n_workers)
+    ]
+
+
+def _pin_worker(slices: list[list[int]], started: Any) -> None:
+    """Confine this worker to the next slice before its XLA client exists.
+
+    The shared count rather than a queue of slices, so a worker the pool
+    replaces takes a slice instead of blocking on an empty queue.
+    """
+    with started.get_lock():
+        k = started.value
+        started.value += 1
+    _os.sched_setaffinity(0, slices[k % len(slices)])
+
+
+def _init(
+    settings: Phase2Settings | None = None,
+    cpu_slices: tuple[list[list[int]], Any] | None = None,
+) -> None:
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap).
 
     Spawned workers cannot see the parent's state, so the settings arrive as an
     initializer argument rather than through inherited module globals, and every
     worker task reads them back from ``_G``. Omitting them resolves from the
     environment, which is what a caller outside the pipeline gets.
+    ``cpu_slices`` is ``_pin_worker``'s arguments.
     """
+    if cpu_slices is not None:
+        _pin_worker(*cpu_slices)
     settings = settings or Phase2Settings()
     # A second run in one process must inherit nothing from the first: _G holds
     # the previous subject's geometry and its derived coverage ceilings, and the
@@ -632,8 +662,15 @@ def solve_candidates(
     else:
         _require_gpu_headroom(settings.workers)
         ctx = get_context("spawn")
+        # On GPU the solve's arithmetic is not on the host pool, and confining
+        # CUDA's host threads would serialize them with the solver.
+        cpu_slices = (
+            (_cpu_slices(settings.workers, int(_THREADS)), ctx.Value("i", 0))
+            if _PLATFORM == "cpu"
+            else None
+        )
         with ctx.Pool(
-            settings.workers, initializer=_init, initargs=(settings,)
+            settings.workers, initializer=_init, initargs=(settings, cpu_slices)
         ) as pool:
             if settings.warmup:
                 tw = time.time()
