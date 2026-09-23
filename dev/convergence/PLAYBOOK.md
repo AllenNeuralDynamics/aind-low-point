@@ -485,6 +485,49 @@ been blocked since `a4826e8`, and the f32-blend VRAM numbers.
 subject and label it underpowered. Do not run it on the synthetic subject and
 present it as an answer — four candidates cannot characterize this.
 
+### A1 — Which term owns Phase 1's flips · *running, pre-registered*
+
+I2 measured that the flips are there and rise as η collapses; it did not say
+which term produces them. A1 zeroes one weight at a time and reads the flip rate
+back off the same trace, which attributes the flips without perturbing any other
+part of the objective the way a smoothing would. Solution quality is expected to
+degrade in every arm — every weight here is load-bearing, and this measures the
+landscape rather than a configuration worth shipping.
+
+Seven arms on 837772, 512 candidates, `chunk=128`, `trace=500`:
+
+| arm | weight zeroed | the kink it carries |
+|---|---|---|
+| `base` | — | control |
+| `mclear` | `lambda_margin_clear`, `..._fixture` | hard `min` over dual-rep pair clearances (`soft.py:533`/`:561`) |
+| `mthread` | `lambda_margin_thread` | hard `min` across a probe's shanks |
+| `thread` | `lambda_thread` | the hole-wall `max` (F4) |
+| `clear` | `lambda_clearance`, `..._fixture` | OBB-SAT `max` over separating axes |
+| `brain` | `lambda_brain` | one-sided hinge at the margin |
+| `unit` | `lambda_unit_circle` | smooth — the control **for the ablation itself** |
+
+```bash
+scratch/estimators/run_p1_ablate_gpu.sh 837772-config scratch/estimators/p1abl 512 500 \
+  base mclear mthread thread clear brain unit
+uv run --python 3.13 python scratch/estimators/compare_p1_arms.py \
+  scratch/estimators/p1abl base mclear mthread thread clear brain unit
+```
+
+**Pre-registered prediction: `mclear`.** Phase 2 runs this same reward at
+`lam_clear = 0.0`, and the field's own comment gives the reason — it "takes its
+gradient from the single closest surface sample, which flips between near-tied
+samples". Phase 1 hard-codes `lambda_margin_clear = 1.0` in `Phase1Weights` and
+exposes no setting to turn it off, so the phase that is most sensitive to a
+sign flip is the one still paying for it.
+
+**Read it against `unit`, not against zero.** Dropping any term changes where
+the optimiser goes, so some flip-rate movement is the ablation and not the kink.
+`unit` is smooth, so whatever it moves is the method's own floor; only a term
+that beats that floor by a clear margin has been shown to own the flips.
+
+**This closes nothing on its own.** A term identified here still needs a fix that
+keeps what the term is for — F5's shape for a reward, not a deletion.
+
 ### F1 — Split the hard-`min` constraint rows · **DROPPED 2026-09-22**
 
 Dropped after Tier 0: the line search is healthy and the active set is tiny and
