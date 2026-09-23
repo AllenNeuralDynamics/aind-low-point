@@ -528,6 +528,18 @@ that beats that floor by a clear margin has been shown to own the flips.
 **This closes nothing on its own.** A term identified here still needs a fix that
 keeps what the term is for — F5's shape for a reward, not a deletion.
 
+**Score on `min_clear`, not on the objective.** Each arm minimizes a different
+function, so its `objective` field is not comparable to any other arm's — the
+medians rank nothing. `min_clear` is safe: `make_min_clear_one` reads only
+`softmin_beta` and the `top_k`s, none of which A1 touches, so every arm's
+clearance is measured by the same evaluator. `compare_p1_arms.py` refuses the
+objective comparison for an ablated arm rather than printing a number that
+invites the X29 mistake in new clothes.
+
+**The restore stage is identical across arms.** It builds `JointWeights`, not
+`Phase1Weights`, so every arm enters RProp from the same restored seeds and the
+comparison is properly paired.
+
 ### F1 — Split the hard-`min` constraint rows · **DROPPED 2026-09-22**
 
 Dropped after Tier 0: the line search is healthy and the active set is tiny and
