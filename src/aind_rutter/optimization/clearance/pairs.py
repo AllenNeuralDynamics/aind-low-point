@@ -417,10 +417,10 @@ def body_body_pair_clearance_c2f(
     frame: ``coarse`` (K, C, 3), ``fine`` (K, F, 3), ``cells`` (K, C, W) listing fine
     indices padded with F, ``radius`` (K, C); grids as for
     :func:`trilinear_sdf_stacked`. ``outside_min`` (K,) is the lowest value on each
-    grid's boundary: a point off the grid is at least that far from the body, which
-    stands in for the out-of-grid sentinel when ranking, so a cell whose coarse point
-    is off the grid but whose members are close still ranks by a valid bound. See
-    :mod:`aind_rutter.optimization.clearance.samples`.
+    grid's boundary; a coarse point off the grid stands in for the out-of-grid
+    sentinel with ``outside_min`` plus its distance to the grid box, so a cell just
+    outside still ranks against the ones inside and a distant one cannot outrank
+    them on cell size. See :mod:`aind_rutter.optimization.clearance.samples`.
     """
     n_coarse, n_fine = coarse.shape[1], fine.shape[1]
 
@@ -430,18 +430,31 @@ def body_body_pair_clearance_c2f(
     def lookup(kind: Array, points: Array) -> Array:
         return trilinear_sdf_stacked(grids, origins, spacings, n_reals, kind, points)
 
+    pts_in_a = into(coarse[kind_b], R_b, t_b, R_a, t_a)
+    pts_in_b = into(coarse[kind_a], R_a, t_a, R_b, t_b)
     coarse_values = jnp.concatenate(
-        [
-            lookup(kind_a, into(coarse[kind_b], R_b, t_b, R_a, t_a)),
-            lookup(kind_b, into(coarse[kind_a], R_a, t_a, R_b, t_b)),
-        ]
+        [lookup(kind_a, pts_in_a), lookup(kind_b, pts_in_b)]
     )
     off_grid = coarse_values >= _PAD_CLEARANCE_MM
+
+    def off_grid_bound(kind: Array, points: Array) -> Array:
+        """Lower bound on the body distance of points outside grid ``kind``.
+
+        The body lies inside the grid box, so an outside point is at least its
+        box distance away, plus the boundary's own margin. ``outside_min`` alone
+        is the same number for every outside point however far out it is, which
+        leaves ``-radius`` deciding the ranking and hands the refinement slots to
+        the largest cells rather than the nearest.
+        """
+        lo = jnp.asarray(origins, jnp.float32)[kind]
+        span = (jnp.asarray(n_reals, jnp.float32)[kind] - 1.0) * jnp.asarray(
+            spacings, jnp.float32
+        )[kind]
+        gap = jnp.maximum(jnp.maximum(lo - points, points - (lo + span)), 0.0)
+        return outside_min[kind] + jnp.sqrt(jnp.sum(gap * gap, axis=-1) + 1e-12)
+
     floor = jnp.concatenate(
-        [
-            jnp.broadcast_to(outside_min[kind_a], (n_coarse,)),
-            jnp.broadcast_to(outside_min[kind_b], (n_coarse,)),
-        ]
+        [off_grid_bound(kind_a, pts_in_a), off_grid_bound(kind_b, pts_in_b)]
     )
     bound = jnp.where(off_grid, floor, coarse_values) - jnp.concatenate(
         [radius[kind_b], radius[kind_a]]
