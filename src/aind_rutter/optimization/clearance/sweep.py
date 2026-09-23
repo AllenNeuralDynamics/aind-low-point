@@ -54,8 +54,15 @@ from aind_rutter.optimization.clearance.pairs import (
 # Category order MUST match PROBE_PAIR_SLACK_GAINS and the unrolled loop's
 # (body_body, body_shank_corners, body_shank_obb, shank_shank) tuple order.
 N_PAIR_CATEGORIES = 4
-# Cells refined per probe pair by the coarse-to-fine body-body query.
-C2F_REFINED_CELLS = 16
+# Cells refined per probe pair by the coarse-to-fine body-body query. A cell whose
+# Lipschitz bound falls below the best coarse value can still hold the pair's true
+# minimum, and at real poses a few dozen do; refining fewer than that makes the
+# query an approximation. The population cap is what makes this many affordable.
+C2F_REFINED_CELLS = 64
+
+# Where a padded cell's coarse point sits: far enough outside every probe grid
+# that it reads the out-of-grid sentinel whatever the pose.
+_FAR_COARSE_MM = 1e6
 
 
 # ---------------------------------------------------------------------------
@@ -202,38 +209,45 @@ def build_padded_probe_tables(
 
 
 def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) -> dict:
-    """Per-kind coarse-to-fine sample tables; placeholder kinds (no SDF, never in a
-    pair) get inert rows."""
+    """Per-kind coarse-to-fine sample tables, padded to the widest kind.
+
+    The per-kind cell caps leave each kind with its own cell count, so the table
+    pads to the largest. A padding cell sits far outside every grid, so it reads
+    the out-of-grid sentinel and can neither win a refinement slot nor enter the
+    clearance pool. Placeholder kinds (no SDF, never in a pair) are all padding.
+    """
     real = [c for c in kind_samples if c is not None]
-    n_coarse, n_fine = real[0].coarse.shape[0], real[0].fine.shape[0]
-    if any(c.coarse.shape[0] != n_coarse or c.fine.shape[0] != n_fine for c in real):
-        raise ValueError("coarse-to-fine sample counts differ between probe kinds")
+    n_fine = real[0].fine.shape[0]
+    if any(c.fine.shape[0] != n_fine for c in real):
+        raise ValueError("coarse-to-fine fine-sample counts differ between probe kinds")
+    n_coarse = max(c.coarse.shape[0] for c in real)
     width = max(c.cells.shape[1] for c in real)
     coarse, fine, cells, radius, outside_min = [], [], [], [], []
     for grid, surface, c in zip(kind_grids, kind_surfaces, kind_samples, strict=True):
+        if c is None and int(surface.shape[0]) > 1:
+            raise ValueError(
+                "a probe kind with an SDF lacks coarse-to-fine samples; build all "
+                "probe SDFs with the same RUTTER_BODY_CLEARANCE setting"
+            )
+        co = jnp.full((n_coarse, 3), _FAR_COARSE_MM, jnp.float32)
+        ce = jnp.full((n_coarse, width), n_fine, jnp.int32)
+        ra = jnp.zeros(n_coarse, jnp.float32)
+        if c is not None:
+            n, w = c.coarse.shape[0], c.cells.shape[1]
+            co = co.at[:n].set(jnp.asarray(c.coarse, jnp.float32))
+            ce = ce.at[:n, :w].set(jnp.asarray(c.cells, jnp.int32))
+            ra = ra.at[:n].set(jnp.asarray(c.radius, jnp.float32))
+        coarse.append(co)
+        cells.append(ce)
+        radius.append(ra)
+        fine.append(
+            jnp.zeros((n_fine, 3), jnp.float32)
+            if c is None
+            else jnp.asarray(c.fine, jnp.float32)
+        )
         if c is None:
-            if int(surface.shape[0]) > 1:
-                raise ValueError(
-                    "a probe kind with an SDF lacks coarse-to-fine samples; build all "
-                    "probe SDFs with the same RUTTER_BODY_CLEARANCE setting"
-                )
-            coarse.append(jnp.zeros((n_coarse, 3), jnp.float32))
-            fine.append(jnp.zeros((n_fine, 3), jnp.float32))
-            cells.append(jnp.full((n_coarse, width), n_fine, jnp.int32))
-            radius.append(jnp.zeros(n_coarse, jnp.float32))
             outside_min.append(jnp.float32(0.0))
             continue
-        coarse.append(jnp.asarray(c.coarse, jnp.float32))
-        fine.append(jnp.asarray(c.fine, jnp.float32))
-        pad = width - c.cells.shape[1]
-        cells.append(
-            jnp.pad(
-                jnp.asarray(c.cells, jnp.int32),
-                ((0, 0), (0, pad)),
-                constant_values=n_fine,
-            )
-        )
-        radius.append(jnp.asarray(c.radius, jnp.float32))
         g = jnp.asarray(grid, jnp.float32)
         faces = (g[0], g[-1], g[:, 0], g[:, -1], g[:, :, 0], g[:, :, -1])
         outside_min.append(jnp.min(jnp.stack([f.min() for f in faces])))

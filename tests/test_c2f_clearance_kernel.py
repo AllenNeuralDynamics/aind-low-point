@@ -21,6 +21,7 @@ from aind_rutter.optimization.clearance.samples import (
     build_clearance_samples,
 )
 from aind_rutter.optimization.clearance.sweep import (
+    C2F_REFINED_CELLS,
     build_padded_probe_tables,
     swept_pair_clearances,
 )
@@ -256,7 +257,7 @@ def test_pair_sweep_uses_coarse_to_fine_samples_when_the_table_has_them(tables) 
     table = _probe_table(tables, clearance=tuple(tables["samples"]))
     assert "c2f_fine" in table
     hard, soft = _sweep_body_body(table, pose)
-    ref_hard, ref_soft = _c2f(tables, pose, 16)
+    ref_hard, ref_soft = _c2f(tables, pose, C2F_REFINED_CELLS)
     assert hard == pytest.approx(float(ref_hard), abs=1e-5)
     assert soft == pytest.approx(float(ref_soft), abs=1e-5)
 
