@@ -81,7 +81,7 @@ class PipelineSettings(BaseSettings):
     # radius no geometric term constrains and whose origin, inside the variable
     # bounds, is a singularity of arctan2. Each stage converts at its own
     # boundary and the pool keeps the pair, so the stages need not agree.
-    spin_param: Literal["unit_vector", "angle"] = Field("unit_vector")
+    spin_param: Literal["unit_vector", "angle"] = Field("angle")
 
     n_surf: int = Field(
         5000,
@@ -321,7 +321,10 @@ class Phase2Settings(PipelineSettings):
     def _spin_angle_needs_ipopt(self) -> "Phase2Settings":
         # trust-constr takes the NonlinearConstraint path, which the angle
         # adapter does not wrap, and its exact Hessians would need the map's
-        # curvature too.
+        # curvature too. Asking for it there is an error; inheriting it from the
+        # default is not, or no trust-constr run could be configured at all.
         if self.spin_param == "angle" and self.solver != "ipopt":
-            raise ValueError("spin_param='angle' is only wired for solver='ipopt'")
+            if "spin_param" in self.model_fields_set:
+                raise ValueError("spin_param='angle' is only wired for solver='ipopt'")
+            object.__setattr__(self, "spin_param", "unit_vector")
         return self
