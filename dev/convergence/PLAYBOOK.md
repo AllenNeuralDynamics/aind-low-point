@@ -540,6 +540,48 @@ invites the X29 mistake in new clothes.
 `Phase1Weights`, so every arm enters RProp from the same restored seeds and the
 comparison is properly paired.
 
+### A2 — Is Phase 1's churn gradient *noise* rather than kinks? · *pre-registered, alternative to A1*
+
+Written before A1's remaining arms landed, because `mclear` — A1's ranked-first
+prediction — came back null-to-slightly-worse and the kink story should not be
+allowed to absorb that quietly.
+
+**What does not fit a pure-kink story.** In base, `reduced_fine` and `full_fine`
+sit at **0.0%** η-at-floor and still flip 28.0% and 27.2%. So a ~27% flip rate
+exists with no step collapse at all, and only the excess above it —
+`reduced_coarse`'s rise to 35.6% at 57.4% floored — tracks the floor.
+
+**The alternative.** Phase 1's gradient is computed over **bfloat16** collision
+grids, which round each stored distance to about 0.4% of its value. As RProp's
+step falls to 1e-4 mm the displacement between iterations drops below what those
+grids resolve, so the gradient's *sign* becomes quantization noise. A coordinate
+whose gradient is pure noise flips about half the time, at random, and needs no
+kink to do it. That predicts exactly the observed shape: a flip rate that *rises*
+as the step collapses, toward 50% rather than toward 0%.
+
+**This is B2's territory, and it makes B2 critical rather than cosmetic.**
+`build_cw_fns` hard-codes `jnp.bfloat16` (`search/minimizers.py:251`, `:271`),
+so Phase 1's gradient ignores `grid_dtype` entirely and the hypothesis cannot be
+tested until that defect is fixed. The fix honours an existing setting rather
+than changing a default — but it is a solver path, so it needs the parity
+harness and the user's go-ahead.
+
+| | kinks | gradient noise |
+|---|---|---|
+| flip rate as step → `eta_min` | stays put; kinks are where they are | **rises toward 50%** |
+| removing a kinked term | lowers it | no effect |
+| float32 grids in the gradient | no effect | **lowers it at small steps** |
+| fine stages at 0% floor | flips only where terms tie | a floor-independent baseline |
+
+**The discriminator A1 cannot give.** A1 varies which terms are present; both
+hypotheses survive an arm that changes nothing. A2 varies gradient *precision*
+at fixed terms, which only the noise hypothesis predicts will move. Run it as
+one traced arm against the same 504 candidates once B2 is fixed.
+
+**Do not read A1's null arms as evidence for A2.** They are consistent with it
+and also consistent with the kink simply living in a term A1 did not isolate.
+A2 is a positive test or it is nothing.
+
 ### F6 — Phase 1's clearance reward, if A1 names it · *conditional, needs the user*
 
 Prepared so a confirmed A1 has a fix ready, **not** to be applied before A1
