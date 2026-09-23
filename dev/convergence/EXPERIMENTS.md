@@ -1808,3 +1808,41 @@ I2 is the test.
 
 **Same qualification as X32:** 0/40 bitwise at divergence 6.303 is expected for a
 changed objective and is not a determinism result.
+
+## X34 — `angle` is bitwise reproducible, and the case for it is complete (2026-09-23 09:05)
+
+`angle_b`, a second run of X32's configuration on the same 40 candidates and the
+same card.
+
+| `angle_a` vs `angle_b` | |
+|---|---|
+| pose divergence | **0.000** (p90 0.000, max 0.000) |
+| bitwise identical | **40/40** |
+| strictly feasible | 33 vs 33, both 33 |
+| paired objective change | **+0.0000, worse on 0 of 33** |
+
+Every summary figure is identical to the digit: exits, median iterations,
+`settle`, `reach`, `held`, feasible-at-exit, model-optimistic, objective,
+clearance, seconds, and all six per-group violation shares. The reparameterization
+is as deterministic as the baseline, which was the standard four `keep` rows in
+`RECOMMENDATION.md` rest on.
+
+**This completes the case on Phase 2.** Against `compl_ctl_a`, `angle` gives
+strictly feasible 33 against 31, paired objective -0.114 with 9 of 26 worse,
+`reach` 14 against 28, caps 1 against 11, feasible-at-exit 100% against 85%,
+model-optimistic 7 against 8, and median wall time 25 s against 43 s. No measure
+in the goal moves the wrong way, and the one constraint group that improves is
+`thread`, where the singular `arctan2` acts.
+
+**The 0/40 bitwise against the control is not a counter-argument.** Two arms
+solving in different coordinates cannot produce identical poses; the
+reproducibility question is whether a configuration repeats *itself*, and it
+does, at 40/40. Scoring a reparameterization by pose agreement with a differently
+parameterized run is a category error, and it is the error that
+`RECOMMENDATION.md` previously encoded when it rejected this arm.
+
+**Still not transferable to Phase 1.** Phase 1 implements the setting by
+composing `from_angle_layout` into the traced objective and treating theta as a
+periodic RProp coordinate with a rescaled eta; Phase 2 wraps the model in NumPy
+outside the trace. Different mechanisms, and Phase 1's has never been measured.
+I2 remains the test.
