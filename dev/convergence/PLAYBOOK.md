@@ -3,57 +3,64 @@
 The ordered work to make Phase-2 IPOPT solves converge and Phase-1 RProp behave,
 with what counts as done, what counts as enough, and where the user has to decide.
 
-## Goal — set 2026-09-22, target Friday 2026-09-26
+## Goal — set 2026-09-23
 
-**A defensible recommendation on Phase-2 production defaults, backed by a settled
-answer to what Phase 2 should be converging to, with Phase-1 instrumentation built
-and waiting on the card.**
+**Put the two load-bearing legs of the defaults recommendation on the reference
+platform: the control's own reproducibility, and `nothread`.**
 
-Stated in terms of yield rather than stationarity on purpose: X1 has `f32` keeping
-9/10 against `nothread`'s 4/10 while being four times *worse* on `inf_du`, so a
-goal phrased as "drive `inf_du` down" would optimize a number that may move
-opposite to the outcome. Whether `inf_du` is the right target is a question this
-goal answers, not one it assumes.
+Done when both hold:
 
-Done when all four hold:
+1. Pose divergence, bitwise-identical count and label agreement for the baseline
+   configuration, measured on this tree, recorded in `EXPERIMENTS.md`.
+2. `nothread` at n=40 on the card, scored against `compl_ctl_a` on kept and on
+   model-feasible-but-FCL-rejected.
 
-1. All six arms read, control included (D1); every intervention has a signed
-   effect against `base`.
-2. D2, D3 and D4 each answered in one sentence in `EXPERIMENTS.md`, and *"is
-   `inf_du` the right target"* has a yes or a no behind it.
-3. A written defaults recommendation, validated by *running* the 40-candidate × 2
-   protocol of `dev/PHASE2_CONDITIONING.md` against a control solved on the same
-   tree and the same platform. Three exclusions, each one measured rather than
-   assumed:
-   - **Not** against that document's recorded table. X23 ran the baseline at n=40
-     on the protocol's own ranks and it no longer reproduces the table's row for
-     the same configuration — median 737 iterations against 1000, 11 of 40 at the
-     cap against 42 of 80, on candidate-for-candidate identical problems. The
-     code moved; the protocol is still the instrument, its recorded numbers are
-     no longer the reference.
-   - **Not** across platforms. X22 found the platform moves threading margin,
-     clearance and coverage on a fixed candidate under fixed settings by more than
-     most settings under test. The prior art is GPU, so the GPU is the reference
-     and CPU arms are indicative only.
-   - **Not** on the capped-10, which is a hand-picked tail and cannot justify
-     changing a default.
+**Stopping rule.** Kept is unresolvable at n=40 by the prior art's own standard,
+so no arm changes a default on kept alone. Absent a divergence result that beats
+the control without losing kept, the outcome is "confirmed on the reference
+platform" and `RECOMMENDATION.md` stands unchanged — which is a success here, not
+a null result.
 
-   So `f32`'s 9/10 is not on its own sufficient to flip `RUTTER_GRID_DTYPE`: that
-   also doubles grid memory per worker (296 → 593 MiB), costing worker count on
-   CPU and VRAM on the card, so the flip depends on I2's numbers too.
-4. I1 built, default-off parity bitwise, checks green, so I2 fires the moment
-   `nvidia-smi` drops under 2.5 GiB.
+**Non-goals:** `f32`, `smooth`, `angle`, `ip_acc_du_tol`, flipping any default,
+any push or PR.
 
-**Non-goals this window:** F1, C2, flipping any default, any push or PR. Naming
-them keeps diagnosis from sliding into implementation before we know what binds.
+### Why these two and not the others
 
-**Gate.** If D2 finds `inf_pr` is what fails the `acceptable` test, or D3 finds the
-active Jacobian rank-deficient, stop and re-rank with the user — either result
-means the smoothness program is aimed at the wrong thing.
+The 2026-09-22 goal is closed — its recommendation is written and its answer is
+*change no default* (`RECOMMENDATION.md`, X25). What that answer lacks is
+evidence on the reference platform: the arm series ran on CPU at n=10 across two
+trees, and the reproducibility numbers four `keep` rows cite come from the
+2026-09-16 table that X23 ruled out for this code. The conclusion is probably
+right; almost none of it was measured where it counts.
 
-**Stopping rule.** If no arm beats `base` on kept-plan yield, stop tuning and take
-F1 and the threading-reward question to the user as a decision. The formulation is
-then the problem, and more solver experiments will not find it.
+- **The control repeat is the gap that matters.** Divergence and bitwise
+  agreement have *never* been measured on this tree — `compl_ctl_a` is a single
+  run, and a repeat is the only way to get them, since X20 showed the CPU path is
+  deterministic and would return 0.000 by construction. `ip_hist`, `ip_acc_tol`,
+  `ip_cvtol`, `drop_dead_rows` and the rejection of the smooth reward all cite
+  that measurement. One arm, ~10 min.
+- **There is a mechanism for it to fail, not just an absence of evidence.** The
+  property is code-dependent — the doc's own table ranges from 40/40 to 0/40 —
+  and the code moved. The table also measured it when the median solve ran to the
+  1000 cap, where two runs take exactly 1000 iterations; here the median exits
+  acceptable at 737, so a reduction-order difference can flip which iteration
+  first satisfies the 8-iteration window and return a different pose.
+- **`nothread` is the only arm worth the card.** X19 applied the prior art's
+  standard to the series and only `nothread` clears it: −6/10 kept with a second,
+  independent signature at 5/10 model-feasible-but-FCL-rejected. `f32`, `smooth`
+  and `angle` are ±1–2 candidates, which that standard calls noise. If
+  `nothread`'s effect does not reproduce on the card, the one durable finding of
+  the arm series was a CPU artifact.
+
+**Prerequisite.** `compare_arms.py` reports exits, iterations, `inf_du`, kept and
+objective — not divergence. `compare_repeat.py` computes all three protocol
+metrics (pose max|Δx| median, identical count, kept agreement) but reads `.pkl`
+on a fixed naming scheme; it needs to read the `_g40_*_{a,b}.json.gz` handoffs
+before criterion 1 can be scored.
+
+**Retired, do not restart:** the `throughput` batch and `compl_5_a`/`compl_5_b`
+(X25). `compl_ctl_b` was retired with that batch by mistake — it is the control
+repeat criterion 1 needs, and answers reproducibility, not complementarity.
 
 ## The three documents
 
