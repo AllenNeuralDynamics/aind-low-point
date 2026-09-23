@@ -1302,3 +1302,50 @@ early stopping is doing real work — rather than as a production setting.
 
 Weight: n=4, one platform, and `du_1` has no handoff. Enough to close the question
 against the change, not enough to support any positive claim.
+
+## X25 — both throughput candidates die on the control's own diagnostics (2026-09-22 17:23)
+
+Ran against `837772_g40_compl_ctl_a` alone, no card needed. Two false starts
+first, and they matter for anything that reads `diag_hist` later.
+
+**`diag_hist` does not record what the acceptable test uses.** `inf_pr`/`inf_du`
+arrive from IPOPT's `intermediate_callback`, so they are the *scaled* iteration-log
+values, while the acceptable test runs on unscaled quantities; `mu` is the barrier
+parameter, not complementarity. Comparing either to `ip_cvtol` or
+`ip_acc_compl_tol` is a category error, and a first pass here did exactly that.
+The one unscaled feasibility measure recorded is `group_min`/`group_nviol`, built
+from `get_current_iterate(scaled=False)`. Everything below uses those, thresholded
+at the real `ip_cvtol` of 1e-4; a strict-zero threshold gives identical counts.
+
+**Rank 1, `ip_acc_compl_tol` 0.01 -> 5.0: at most 1 of 40 solves can move.**
+
+| exit | n | feasible on all of the last `ip_acc_iter` iterations |
+|---|---|---|
+| acceptable | 27 | 26/27 |
+| cap | 11 | **1/11** |
+| infeas | 2 | 0/2 |
+
+Ten of the eleven caps are not feasible at the cap — five still hold strictly
+violated constraint entries at the final iterate, worst margin from -0.012 to
+-4.911, and the rest flicker in and out inside the window. They are still looking
+for a feasible point, and no acceptance tolerance reaches them. Only rank 11356 is
+feasible throughout with margin in hand (+0.038), which makes it the single
+candidate a complementarity bound could plausibly be gating.
+
+**Rank 2, `ip_acc_iter` 8 -> 3-5: binding, and worth under 2%.** On acceptable
+exits the trailing feasible run is median 8, and exactly 8 on 17 of 27 — so
+`acc_iter` genuinely is what ends those solves. But the median solve is 570
+iterations and is feasible for 8 of them: **1.5% of the solve**. Dropping to 3
+saves 5 iterations where it binds. Six of 27 have runs above 12 (up to 91), where
+another leg gated the exit and lowering `acc_iter` saves nothing at all.
+
+**The structural finding, which is worth more than either knob.** A Phase-2 solve
+spends ~98.5% of its iterations *reaching* a feasible point and ~1.5% proving the
+point acceptable. Throughput is therefore not in the acceptance tolerances — the
+whole family is tuning the last 1.5%. It is in how fast the solver reaches
+feasibility, which is a formulation and basin question, not a tolerance one.
+
+**Verdict: adopt neither.** `ip_acc_compl_tol` stays at IPOPT's 0.01 and
+`ip_acc_iter` at 8. This also retires the `throughput` batch in
+`resume_gpu_arms.sh` — its two arms now have predicted effects of at most 1
+converted cap and ~1% wall time, which the benchmark cannot resolve.

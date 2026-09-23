@@ -6,16 +6,20 @@ numbered findings (X1–X23); neither needs reading to restart.
 
 ## One paragraph of state
 
-The recommendation is written and is **change no default** — the one real
-improvement found, `bab0970`, is a bug fix already committed, not a setting. Two
-of the four goal criteria are verified done. The other two need the card: seven
-of eight GPU arms are unrun, and the one that completed (`compl_ctl_a`) is the
-control everything else is scored against.
+The recommendation is written and is **change no default**, for yield and now for
+throughput too — the one real improvement found, `bab0970`, is a bug fix already
+committed, not a setting. X25 (2026-09-22) retired the last two live candidates,
+`ip_acc_compl_tol` and `ip_acc_iter`, from the control's own diagnostics without
+needing the card, and found why: a solve spends ~98.5% of its iterations reaching
+feasibility and ~1.5% proving acceptability, so the acceptance tolerances tune the
+wrong 1.5%. Two of the four goal criteria are verified done; the remaining GPU
+work is the four intervention arms, which measure kept differences the benchmark
+cannot resolve at n=40.
 
 ## Restart command
 
 ```bash
-scratch/estimators/resume_gpu_arms.sh both     # or: compl | interventions
+scratch/estimators/resume_gpu_arms.sh interventions   # `throughput` is retired (X25)
 ```
 
 It refuses to start if any compute app holds the card, or if it reads over
@@ -71,6 +75,10 @@ hand-picked tail, and `f32`'s 9/10 still does not on its own justify flipping
   on the same candidate with the same settings, by more than most settings move
   them. The prior art is GPU, so the GPU is the reference and the entire CPU arm
   series is indicative only.
+- **`diag_hist`'s `inf_pr`/`inf_du` are scaled** and `mu` is the barrier
+  parameter, not complementarity (X25). Comparing any of them to `ip_cvtol` or
+  `ip_acc_compl_tol` is a category error. Use `group_min`/`group_nviol`, the only
+  unscaled measure recorded.
 - **Use `repeat_ranks.txt`**, the protocol's own 40 (starts 12 15 22 35 39 49).
   Not the first 40 of `benchmark_ranks.txt` — those start at rank 202 and are a
   different, much worse-ranked set.
