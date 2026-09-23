@@ -552,12 +552,21 @@ exists with no step collapse at all, and only the excess above it —
 `reduced_coarse`'s rise to 35.6% at 57.4% floored — tracks the floor.
 
 **The alternative.** Phase 1's gradient is computed over **bfloat16** collision
-grids, which round each stored distance to about 0.4% of its value. As RProp's
-step falls to 1e-4 mm the displacement between iterations drops below what those
-grids resolve, so the gradient's *sign* becomes quantization noise. A coordinate
-whose gradient is pure noise flips about half the time, at random, and needs no
-kink to do it. That predicts exactly the observed shape: a flip rate that *rises*
-as the step collapses, toward 50% rather than toward 0%.
+grids, which round each stored distance to about 0.4% of its value. The gradient
+is analytic — the exact derivative of the trilinear interpolant — so a small step
+does not blur it; what matters instead is that interpolating quantized samples
+gives a *bumpy* function whose gradient carries a roughly fixed error of order
+(quantization / voxel pitch), independent of where the optimiser is. As a
+coordinate approaches its minimum the true partial shrinks toward zero while that
+error does not, so the ratio degrades until the sign is decided by quantization
+rather than by the objective. A coordinate in that regime flips about half the
+time, at random, and needs no kink to do it.
+
+That predicts the observed shape: the flip rate rises as `‖∇f‖` falls, toward 50%
+rather than toward 0%, and the step collapse is a *consequence* of the flips
+rather than their cause. Note what this makes of the two clocks — the step and
+the gradient shrink together here, so η-at-floor is a proxy for a small gradient
+and not independent evidence.
 
 **This is B2's territory, and it makes B2 critical rather than cosmetic.**
 `build_cw_fns` hard-codes `jnp.bfloat16` (`search/minimizers.py:251`, `:271`),
@@ -568,7 +577,7 @@ harness and the user's go-ahead.
 
 | | kinks | gradient noise |
 |---|---|---|
-| flip rate as step → `eta_min` | stays put; kinks are where they are | **rises toward 50%** |
+| flip rate as `‖∇f‖` → 0 | stays put; kinks are where they are | **rises toward 50%** |
 | removing a kinked term | lowers it | no effect |
 | float32 grids in the gradient | no effect | **lowers it at small steps** |
 | fine stages at 0% floor | flips only where terms tie | a floor-independent baseline |
