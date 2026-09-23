@@ -24,14 +24,19 @@ decides the plan. `inf_du` is a **gate to be set, not a target to be minimised**
 (X9, X18) — it is honest within one objective and parameterization (X6) but is not
 comparable across arms that change either.
 
-**What that exit does not certify is margin.** X21 caught a candidate exiting at
-`max_g_thread` = -0.000 — feasible, kept, and sitting exactly on the threading
-constraint with nothing in hand. Re-solved under a tightened dual bound the same
-candidate reaches -0.146. So the distance between the acceptable exit and
-stationarity is not merely cosmetic: it is paid in margin, on a gate whose kept
-candidates already clear by a median of only +0.021 mm. This is the strongest
-argument in the series for keeping the threading reward, which is what pushes a
-solution off that boundary while the solve is still running.
+**What that exit does not certify is margin.** Solves do land on the threading
+constraint with nothing in hand — `max_g_thread` = -0.000 appears on more than one
+candidate, feasible and kept but with no margin at all. That is a real property of
+a feasibility-gated exit, on a gate whose kept candidates already clear by a
+median of only +0.021 mm.
+
+What does *not* follow, and what X21 wrongly inferred, is that tightening
+stationarity recovers that margin. X22 showed the same candidate reaches -0.196 on
+the GPU under the ordinary settings, so the zero-margin exit was substantially a
+CPU-path artifact; and X24 found the tightened bound ending with the constraint
+marginally *violated* and the plan rejected. Margin comes from the formulation —
+the threading reward, or an explicit `RUTTER_THREADING_MARGIN_MM` — not from
+making the solver work longer on the same objective.
 
 ## Per-setting
 
@@ -41,7 +46,7 @@ solution off that boundary while the solve is still running.
 | `lam_thread` | **keep `1.0`** | `nothread` is the only arm whose effect clears the noise floor: −6 kept, and 5/10 cases where constraints are satisfied and FCL still rejects. It converges cleanly to the wrong problem (X18, X19) |
 | smooth threading reward | **do not enable** | +2 kept is noise at n=10 by the prior art's own standard; on the metric with resolution it is among the worst settings measured — 3.932 divergence and 0/40 bitwise on its own, and paired with memory 60 it is *the* worst configuration in the table at 6.989 (X19) |
 | `spin_param` | **keep `unit_vector`** | `blend_angle` is −1 kept, inside noise, with no resolvable benefit |
-| `ip_acc_du_tol` | **keep `1e10`**, but as a cost decision, not because the knob is inert | `acceptable_tol` already bounds the dual leg at 5.0, so the field is not a hole (X16). Setting it to 1.0 is a real trade: on the two candidates complete in both arms it costs 3.7x and 17x wall time and buys threading margin and coverage, one of them moving off a zero-margin exit at `max_g_thread` = -0.000 (X21). At n=2 that is suggestive only, and 4-17x is prohibitive for a production sweep |
+| `ip_acc_du_tol` | **keep `1e10`** | `acceptable_tol` already bounds the dual leg at 5.0, so the field is not a hole (X16). Tightening it to 1.0 is not a cost/margin trade as X21 read it: over four shared candidates it keeps 2/4 against the control's 3/4, losing one outright to a *violated* threading constraint, and the margin gain it shows on two others did not survive a platform change (X22, X24). It removes the early acceptable exits and pushes nearly everything to the cap. Valuable as a diagnostic, not as a default |
 | `ip_acc_tol`, `ip_cvtol`, `ip_hist`, `drop_dead_rows` | **unchanged** | Chosen on the 40×2 benchmark, where they gave 0.000 divergence, 40/40 bitwise and 100% label agreement against every alternative measured. That evidence is from the 2026-09-16 tree and X23 shows the baseline has moved since, so it justifies *keeping* them — the burden is on a change — but it is no longer a live measurement of today's code |
 | `ip_acc_compl_tol` | **pending** | The one setting the benchmark never covered, and the only live candidate. X11 showed it turns a 1000-iteration cap into a 120-iteration exit on one candidate; whether that costs yield is what the running pair decides |
 

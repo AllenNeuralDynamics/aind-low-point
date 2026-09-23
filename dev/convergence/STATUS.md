@@ -601,3 +601,20 @@ document's table no longer scores this tree. The protocol itself is still the
 right instrument and is set up and half-run; what is dead is using the doc's
 recorded numbers as the comparison. Criterion 3 should be re-worded to validation
 against an own same-tree control, which is what `compl_ctl_a` is.
+
+**17:11** — X24 closes the dual-bound question. `du_ctl` finished 10/10
+(acceptable 9, cap 1, median 474 it, kept 8/10, median `inf_du` 1.29) — kept
+8/10 matches `blend`, as X20 predicted. With `du_1`'s 4 log-only candidates
+there are now four shared ranks, and rank 57 is the one X21 could not see: under
+the tightened bound the solve ends with the threading constraint *violated*
+(g +0.000) and FCL rejects a plan the control keeps. Kept 3/4 against 2/4.
+
+The cost structure also reads differently: the 3.7x/17x multipliers came from the
+two candidates where the control exited early, and where it already ran long the
+two arms are comparable. The tightened bound removes the early acceptable exits
+and pushes everything toward the cap.
+
+Verdict: keep `ip_acc_du_tol` at 1e10. Corrected the recommendation, which had
+carried X21's cost/margin-trade framing, and the convergence section, which had
+claimed tightening stationarity buys margin — X22 and X24 both contradict it.
+Margin is a formulation question, not a solver-effort one.

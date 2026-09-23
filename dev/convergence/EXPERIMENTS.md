@@ -1264,3 +1264,41 @@ comparison needs its own control from the same tree, which is what `compl_ctl_a`
 is and why the batch was built around one. Median `inf_du` at exit of 1.36 is also
 a direct n=40 confirmation of X16: `acceptable_tol` = 5.0 is what bounds the dual
 leg, and exits land well inside it.
+
+## X24 — the dual-bound question closes against the tightened bound
+
+`du_ctl` completed 10/10 (handoff written): acceptable 9, cap 1, median 474
+iterations, median terminal `inf_du` 1.29, kept 8/10, median 1700s. Kept 8/10
+matches `blend` exactly, as X20 predicted. `du_1` was stopped at 4/10 and has no
+handoff, so it is log lines only — no iteration counts or exit statuses for it.
+
+Four shared ranks, against X21's two:
+
+| rank | `du_ctl` (1e10) | `du_1` (1.0) |
+|---|---|---|
+| 35 | +0.038, g -0.143, 861s | +0.034, g -0.249, 3176s |
+| 39 | +0.008, g -0.000, 230s | +0.017, g -0.146, 3898s |
+| 51 | -1.000, g -0.003, 2701s | -1.000, g -0.002, 3636s |
+| 57 | **+0.004 kept**, g -0.000, 3502s | **-1.000 reject**, g **+0.000**, 3534s |
+
+**Kept: `du_ctl` 3/4, `du_1` 2/4.** Rank 57 is the case X21 could not see: under the
+tightened bound the solve ends with the threading constraint marginally
+*violated* — g positive, where <= 0 is required — and FCL rejects a plan the
+control keeps.
+
+The cost structure is also clearer than X21 made it. The 3.7x and 17x multipliers
+came from the two candidates where the control exited early (230s, 861s); where
+the control already ran long the arms are comparable (2701 to 3636s, 3502 to
+3534s). So the tightened bound is not uniformly slower — it *removes the early
+acceptable exits* and pushes nearly everything toward the cap, landing all four
+candidates in a 3176-3898s band.
+
+**Verdict: keep `ip_acc_du_tol` at 1e10.** X21 framed this as a cost/margin trade
+worth considering. It is not a trade: the margin gain appears on 2 of 4, X22
+showed that gain does not survive a platform change, and the fourth candidate
+loses a plan outright. Paying 1.4x to 17x to lose yield is not a trade-off, and
+the knob's value is as a diagnostic — it is what proved the acceptable exit's
+early stopping is doing real work — rather than as a production setting.
+
+Weight: n=4, one platform, and `du_1` has no handoff. Enough to close the question
+against the change, not enough to support any positive claim.
