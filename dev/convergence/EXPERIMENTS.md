@@ -2126,3 +2126,252 @@ they are handed.
 coarse, so it reproduces X36's *shape* — flips rising while the step collapses
 and η-at-floor climbs — at a lower level (19.2% against 35.6%). Read the term
 shares and the trend, not the absolute flip rate.
+
+## X40 — the coarse-to-fine prune is not the kink, and its refinement was inert (2026-09-23 12:00)
+
+X39 named the c2f cell prune as the suspect behind Phase 1's flips. A paired arm
+against an identical baseline says it is not.
+
+```
+oldcode → base        (504 shared candidates)
+  reduced_coarse  flip 30.7% → 30.2%   (-0.4%)
+  reduced_fine    flip 28.0% → 28.1%   (+0.1%)
+  full_coarse     flip 25.4% → 25.5%   (+0.1%)
+  full_fine       flip 27.2% → 27.2%   (+0.0%)
+```
+
+**It could not have been.** A slot replay at real poses found **100% of probe
+pairs losing all 16 refinement slots to off-grid cells** — cells whose fine points
+are off-grid too, so a slot spent there refines nothing. A discontinuity in a
+selection that never fires produces no kink.
+
+**Why the slots were wasted.** A coarse point outside the other probe's grid read
+the constant out-of-grid sentinel, so its bound reduced to a constant minus the
+cell radius: among off-grid cells the ranking was purely **cell size, descending**.
+`outside_min` is 2.000/2.001 mm on all eleven cached grids because the grid is the
+body's bbox padded by 2.0 mm — it is the pad, and carries no geometry.
+
+Bounding such a point by its distance to the grid box plus the boundary margin
+makes the refinement live. The quality signal is weak but points the right way:
+`min_clear` −0.011 median and feasible 15 → 10 of 504, which is the sign a
+correctness fix produces — penetration that was previously invisible.
+
+## X41 — the refinement budget binds, and the cells are discs (2026-09-23 12:20)
+
+The coarse points sit ON the surface, so `U = min(coarse)` is an achieved
+distance and a valid upper bound on a pair's true minimum. A cell whose lower
+bound exceeds `U` provably cannot hold that minimum, so `#(bound < U)` counts the
+cells that genuinely compete for a refinement slot.
+
+```
+336 probe pairs at real poses, capped cells (C=1341, W=64)
+  bound                   p50  p90  max   exact@16  exact@32  exact@64  exact@128
+  sphere  d(c) - r         30   58  187       12%       59%       92%        99%
+  disc    d(c) - s(u)      16   30   93       53%       93%       99%       100%
+```
+
+At the shipped 16 slots the query was an approximation for **94% of pairs**.
+
+**Two independent fixes, and the cheap one dominates.** A cell's whole population
+is gathered when it is refined and one gather width serves every kind, so a few
+crowded contact-band cells made ~85% of every slot padding. Capping population
+collapses the width 375 → 64, which makes 64 slots cost *less* per pair than 16
+did before (6778 vs 8000 lookups, −15%) and takes exactness 6% → 92%.
+
+**The sphere bound is the wrong summary.** A Voronoi cell of surface points is a
+disc, not a ball: measured over 5468 cells its thickness is 12% of its tangential
+extent at the median (`r_t` 0.320 mm, `h` 0.038 mm, ratio 8.2× median, 2.7× p10).
+The Lipschitz bound pays `r_t` in every direction including the one the patch is
+thin in — and the worst case is realised exactly when two probes approach face-on,
+which is what closest approach between near-parallel probes looks like. Bounding
+with the patch's support function `s(u) = r_t·sin + h·cos` against the SDF
+gradient is tight there and degrades to the sphere edge-on, where the spread
+across the cell is real. It halves the competitor count and is the only
+configuration reaching 100%.
+
+Not implemented: the linearisation `d(x) ≥ d(c) + ∇d·(x−c)` is exact for a convex
+body and violable by a concave feature, so the disc row is optimistic by an
+unmeasured amount. The sphere row carries no such assumption, and 64 slots with
+the population cap already reaches 92%.
+
+## X42 — the jumps are real, and they survive the SAT blend (2026-09-23 12:40)
+
+Walking the objective along one real iRprop⁻ step and differencing the
+directional derivative, at iteration 300, per candidate's own step, stopping
+where the first coordinate would reach a bound (clipping is itself a
+discontinuity, and sampling through it manufactures the result):
+
+```
+step norm            median 5.394e-04      usable span median 2.571e-04
+median |df/ds|       8.2060e+01
+candidates with >=1 big jump   38%      big jumps per candidate  1.8
+largest jump / |df/ds|         10.3x    sharpest: -6.67e+02 -> +7.30e+01
+```
+
+**This closes the alternative explanation for X36.** The flips are not an artifact
+of a step small enough that ordinary curvature reads as noise: the derivative
+reverses sign across a gap of 2.4e-8 in `s`, eight orders of magnitude above
+float32's quantization floor at this magnitude. 38% of candidates cross at least
+one such kink inside a single step, which is exactly what iRprop⁻ punishes.
+
+Do **not** read the near-zero median successive change as proof the objective is
+piecewise linear. At `|df/ds| ≈ 82` a float32 ULP is ~9.8e-6 and the sample
+spacing is 6.4e-7, so any curvature below that reads as exactly zero. The quiet
+stretches are unresolved, not proven flat.
+
+**Scope.** This run already had the SAT gradient blend enabled, so 38% is the
+post-blend number. The matched hard-argmax arm is what says whether the blend
+moved it.
+
+## X43 — the jump is a true discontinuity, and four suspects are out (2026-09-23 13:10)
+
+Bisecting on the *derivative* rather than on any state change — the half whose
+endpoints disagree more is the half holding the discontinuity — brackets X42's
+sharpest jump to a float32 ulp:
+
+```
+bracket    [2.916689647e-05, 2.916689876e-05]   width 2.286e-12
+df/ds      -6.674858e+02 -> +6.952734e+01       step 7.370e+02
+x coords that differ: 1 of 45, max |dx| 2.384e-07
+```
+
+**Curvature is excluded.** The same jump measured across a bracket 2.397e-07
+wide steps by 740.5; across one 2.286e-12 wide — five orders of magnitude
+narrower — it steps by 737.0. Genuine curvature shrinks with the bracket. This
+does not, so the objective truly kinks. Bisecting on state instead would have
+converged on whichever branch moved first, which need not be the one that steps
+the gradient.
+
+Tapping each selection branch and diffing across the bracket, with an
+intervention arm for each:
+
+```
+site          entries    moved   changed   arm                        verdict
+cells            2688       43         0   refine all / fade off      out
+sat_axis15         21        0         0   hard argmax vs blend       out
+pool              840       25         5   top_k = 2^20            raised
+voxel          638106     7163      1619   smoothstep weights    unchanged
+sat_axis3      263354      463         3   —                    untested
+```
+
+The `changed` column is a multiset difference, because `jax.lax.top_k` returns
+picks in rank order and one insertion renumbers every rank below it. **It is the
+right metric only for `cells` and `pool`.** For `voxel` and `sat_axis3` each
+position is a specific sample point, so positional identity means something and
+the multiset cancels coincidental swaps between different points; but `cells`
+permuting 43 ranks may also scramble downstream sample order, so the positional
+count is inflated by an unknown amount. Both readings are recorded above; the
+verdicts do not turn on which is right.
+
+**Rates, not counts.** Sites differ in size by three orders of magnitude, so the
+largest raw count is mostly the largest array. As rates the ranking inverts:
+`pool` 0.60%, `voxel` 0.25%, `sat_axis3` 0.001%, `cells` and `sat_axis15` zero.
+Reading "1619 vs 5" as voxel dominance was wrong.
+
+**`top_k` cannot simply be deleted.** The soft minimum's downward bias is
+log(k)/β, so an unbounded pool reports closer clearances, not a smoothed version
+of the same number — measured at p50 0.010 mm, p90 0.138 mm. Removing the
+boundary *raised* the jump rate (40% → 62%), which rules the boundary out and is
+confounded in the same breath: a wider pool also activates more samples.
+
+**Scope.** Every branch-diff number is one jump on one candidate. Only the
+intervention arms are populations, and each is a separate trajectory compared as
+a population, never pairwise.
+
+## X44 — smoothstep on the trilinear weights does not remove the jumps (2026-09-23 13:25)
+
+Trilinear interpolation is C⁰ and not C¹: within a cell the derivative is the
+constant `c_{i+1} − c_i`, and at each voxel face it steps by the local second
+difference. Blending on `s(f) = f²(3−2f)` instead of `f` closes that exactly —
+`s'(0) = s'(1) = 0`, so the weight's derivative vanishes where the corner set
+changes hands, whatever the node values are. Prototyped by duplicating both
+lookup bodies with the weight replaced, verified against the closed form
+(`0.25 → 0.15625`), and censused as its own trajectory:
+
+```
+                              smoothstep   default
+candidates with >=1 big jump      43%        40%
+big jumps per candidate           1.9        2.4
+median |df/ds|                 2.0191e+02  1.805e+02
+```
+
+**The fix does not work, and voxel faces are not the mechanism.** 43% against
+40% at n≈55 per arm is well inside the standard error on a proportion that size.
+The verdict rule was fixed before the run. X43's 1619 voxel-index changes were a
+correlate: 0.25% of a large point cloud crossing faces is what a small pose
+change produces anyway.
+
+Two costs that would have been paid for nothing, recorded because they apply to
+any future C¹ blend: the interpolated value moves by up to 0.096 of a
+corner-to-corner difference, and the interpolant goes from 1- to 1.5-Lipschitz,
+which invalidates the coarse-to-fine bound's `coarse − radius` until the radius
+term is widened to match.
+
+**One argument survives the falsification, untested.** Trilinear is linear in
+each variable separately, so `∂²/∂x_k²` is identically zero and Phase 2 runs
+IPOPT on a Hessian with no diagonal in the voxel basis. Smoothstep gives it one
+(`s'' = 6 − 12f`), at the price of a Hessian discontinuous at faces; the quintic
+`6f⁵ − 15f⁴ + 10f³` is C² and would not. That is a Phase-2 question and has no
+bearing on the Phase-1 jumps.
+
+**What is left.** Every suspect put forward so far is now eliminated by an
+intervention arm. All five tapped sites are *selections*. The instrument never
+recorded an *activation* — a hinge or a clamp, whose value is continuous while
+its derivative steps from zero to the full slope. `_fade_at_cut`'s `jnp.clip` is
+a known-C⁰ example sitting directly in this path.
+
+## X45 — the fade is not the cause either, and the census metric is saturated (2026-09-23 13:55)
+
+Tapping *activation* branches — hinges and clamps, whose value is continuous
+while the derivative steps from zero to the full slope — across X43's bracket,
+2,976,855 branch integers over 68 sites:
+
+```
+site              entries   moved     rate  changed   what it is
+pool                  840      25   2.976%        5   soft-min top-k pool
+cells                2688      43   1.600%        0   c2f rank permutation
+pairs.where#2..#8    1344x7      20x7 1.488%       0   of_a, one shared mask
+voxel              638106    7163   1.123%     1619   trilinear voxel index
+pairs.minimum#1     86016     606   0.705%        0   members padding clamp
+pairs.maximum#5     86016     565   0.657%        3   fade park clamp
+pairs.clip#1         1344       3   0.223%        1   fade gate
+unchanged (37 sites) — every hinge in soft, threading, rewards, coverage, metrics
+```
+
+**The objective's top-level hinges are out.** Brain containment, both saturating
+rewards and the hole-wall walls change activation nowhere across the jump. The
+action is entirely in `pairs` and `boxes`.
+
+**Seven sites move in lockstep** — same count, same first position, same
+direction — which is one boolean consumed seven times: `jnp.where(of_a, ...)` at
+`pairs.py:503-512`, a shadow of the `cells` rank permutation. Multiset zero, so
+inert, as are the `members` masks at the same rate.
+
+Both kinks in `_fade_at_cut` moved genuinely, so both were smoothed at once,
+leaving the cut, the width and every cell's weight untouched — smoothness
+isolated from budget, which `fade 20x` could not do. The gate became a
+smoothstep on the clamped ramp, and the park clamp was factored out of it
+(`max(fine, parked - g*(parked-fine)) == fine + (1-g)*relu(parked-fine)`, since
+`1-g >= 0`) and its one hinge softened. Verified exact where the gate saturates:
+
+```
+                              C1 fade    default
+candidates with >=1 big jump     40%        40%
+big jumps per candidate          2.3        2.4
+median |df/ds|                2.1510e+02  1.805e+02
+```
+
+**Five arms have now each removed one discontinuity and left the rate at ~40%:**
+the SAT blend (38%), an unbounded top-k pool (62%), refine-all/fade-off (step
+unchanged), smoothstep trilinear weights (43%), and this. That pattern indicts
+the metric, not the fifth suspect. With ~30 sites changing branch at every
+bracketed jump, the chance that *something* kinks inside one step is near one
+whatever single source is removed; "candidates with at least one big jump in 400
+samples" is saturated and cannot resolve a mechanism.
+
+**The outcome measure was in every run's output and went unread.** X36 located
+the pathology as iRprop⁻ churning at the step-size floor. Median step norm at
+iteration 300: default 5.394e-04, smoothstep 4.264e-04, **C1 fade 7.919e-04** —
+47% larger, i.e. markedly less step-size collapse, in the arm the jump rate
+called a null. One run per arm on separate trajectories, so this is a reason to
+measure step size and feasibility properly, not yet a result.
