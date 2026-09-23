@@ -3,64 +3,75 @@
 The ordered work to make Phase-2 IPOPT solves converge and Phase-1 RProp behave,
 with what counts as done, what counts as enough, and where the user has to decide.
 
-## Goal — set 2026-09-23
+## Goal — set 2026-09-23 (supersedes the two-criterion goal, both answered by X26)
 
-**Put the two load-bearing legs of the defaults recommendation on the reference
-platform: the control's own reproducibility, and `nothread`.**
+**Make both solvers reach a feasible point when one exists, and get a good
+objective there. Judge every change on feasibility and objective — never on
+`kept`.**
 
-Done when both hold:
+The three things a solve should do, in the user's order:
 
-1. Pose divergence, bitwise-identical count and label agreement for the baseline
-   configuration, measured on this tree, recorded in `EXPERIMENTS.md`.
-2. `nothread` at n=40 on the card, scored against `compl_ctl_a` on kept and on
-   model-feasible-but-FCL-rejected.
+1. **Find a feasible solution if one exists.**
+2. **Maximize the objective where it can.**
+3. **Not spend iterations after the best solution is already found.**
 
-**Stopping rule.** Kept is unresolvable at n=40 by the prior art's own standard,
-so no arm changes a default on kept alone. Absent a divergence result that beats
-the control without losing kept, the outcome is "confirmed on the reference
-platform" and `RECOMMENDATION.md` stands unchanged — which is a success here, not
-a null result.
+**Goal 3 is closed and has no headroom.** X31 measures `waste` — the fraction of
+a solve running past the earliest iteration it could have stopped unchanged — at
+**0% on both arms**. The objective is still descending at the exit of every
+solve. Capped solves are not spinning; they are still improving. So every
+stopping-rule knob is off the table as a *win*: shortening a solve now costs
+objective by construction, which is exactly what `compl5` does (X31: +0.92 median
+objective regression, worse on 27 of 31).
 
-**Non-goals:** `f32`, `smooth`, `angle`, `ip_acc_du_tol`, flipping any default,
-any push or PR.
+**That leaves one lever: the landscape.** Only a change that makes the problem
+easier to solve can serve goals 1 and 2 together. Those are the conditioning and
+smoothness changes — `angle`, `smooth`, and anything F-tier — and they apply to
+both phases, because Phase 1's RProp steps on the **sign** of each partial
+derivative alone, so a kink does not merely slow it but reverses the step and
+decays that coordinate's step size.
 
-### Why these two and not the others
+### Done when
 
-The 2026-09-22 goal is closed — its recommendation is written and its answer is
-*change no default* (`RECOMMENDATION.md`, X25). What that answer lacks is
-evidence on the reference platform: the arm series ran on CPU at n=10 across two
-trees, and the reproducibility numbers four `keep` rows cite come from the
-2026-09-16 table that X23 ruled out for this code. The conclusion is probably
-right; almost none of it was measured where it counts.
+| | test | measure |
+|---|---|---|
+| Phase 2 | `angle` and `smooth` at n=40 on the card, against `compl_ctl_a` | strictly feasible count; **paired objective** on candidates both arms solve; `reach`; model-optimistic count |
+| Phase 1 | I2's four-arm instrumented replay on a real subject | **flip rate** (the direct kink indicator for a sign-only optimizer), η-at-floor/ceiling, `‖∇f‖` at handoff |
+| both | a named verdict per change: improves, regresses, or unresolved | recorded in `EXPERIMENTS.md` with its scope stated |
 
-- **The control repeat is the gap that matters.** Divergence and bitwise
-  agreement have *never* been measured on this tree — `compl_ctl_a` is a single
-  run, and a repeat is the only way to get them, since X20 showed the CPU path is
-  deterministic and would return 0.000 by construction. `ip_hist`, `ip_acc_tol`,
-  `ip_cvtol`, `drop_dead_rows` and the rejection of the smooth reward all cite
-  that measurement. One arm, ~10 min.
-- **There is a mechanism for it to fail, not just an absence of evidence.** The
-  property is code-dependent — the doc's own table ranges from 40/40 to 0/40 —
-  and the code moved. The table also measured it when the median solve ran to the
-  1000 cap, where two runs take exactly 1000 iterations; here the median exits
-  acceptable at 737, so a reduction-order difference can flip which iteration
-  first satisfies the 8-iteration window and return a different pose.
-- **`nothread` is the only arm worth the card.** X19 applied the prior art's
-  standard to the series and only `nothread` clears it: −6/10 kept with a second,
-  independent signature at 5/10 model-feasible-but-FCL-rejected. `f32`, `smooth`
-  and `angle` are ±1–2 candidates, which that standard calls noise. If
-  `nothread`'s effect does not reproduce on the card, the one durable finding of
-  the arm series was a CPU artifact.
+A change is adopted only if it does not regress the paired objective and does not
+raise the model-optimistic count. A change that gains feasible plans while losing
+objective is a **trade**, is reported as one, and goes to the user.
 
-**Prerequisite.** `compare_arms.py` reports exits, iterations, `inf_du`, kept and
-objective — not divergence. `compare_repeat.py` computes all three protocol
-metrics (pose max|Δx| median, identical count, kept agreement) but reads `.pkl`
-on a fixed naming scheme; it needs to read the `_g40_*_{a,b}.json.gz` handoffs
-before criterion 1 can be scored.
+**Stopping rule.** If neither `angle` nor `smooth` moves feasibility or objective
+outside run-to-run noise, the landscape hypothesis is not supported at this scale
+and the next move is the user's — not another knob.
 
-**Retired, do not restart:** the `throughput` batch and `compl_5_a`/`compl_5_b`
-(X25). `compl_ctl_b` was retired with that batch by mistake — it is the control
-repeat criterion 1 needs, and answers reproducibility, not complementarity.
+**Test on the GPU.** Production runs on the card, so the card is the reference
+platform. A CPU result is a hint, not an answer.
+
+**Why not `kept`.** It is a binary gate on plans clearing by a median +0.021 mm,
+which `PHASE2_CONDITIONING.md` calls unresolvable at this scale. It licenses
+"unresolved", never "no effect", and using it for the latter is how `smooth` and
+`angle` were dropped once already. This supersedes the older blockquoted scoring
+rule below, which said to score a recommendation on `kept` and coverage.
+
+**Non-goals:** `f32` (bf16 storage with float32 blending is better and is what
+`bab0970` gave — do not reopen), `ip_acc_iter`, `ip_cvtol` (X30), any further
+stopping-rule knob, flipping any default, any push or PR.
+
+### Reading a trace before it carries a verdict
+
+Four verdicts have been withdrawn for want of one sentence about scope. The
+specific traps, all in `diag_hist`:
+
+- `inf_pr`/`inf_du` are IPOPT's **scaled** iteration-log values; `mu` is the
+  barrier parameter, not complementarity. Only `group_min`/`group_nviol` are
+  unscaled, and only they may be compared against `ip_cvtol`.
+- `obj` is the **restoration** objective wherever `restoration` is 1 — a
+  violation norm, not f(x). Mask it, and take the final objective from the last
+  non-restoration iteration; 2 of 40 control solves end inside restoration.
+- A terminal or trailing-window figure describes that window, not the trajectory.
+- Before calling a setting untested, check whether it was *chosen* (X30).
 
 ## The three documents
 
@@ -157,6 +168,22 @@ uv run --python 3.13 python scratch/estimators/compare_arms.py \
 `blend=` is empty because the worktree already carries the float32 blend, so it is
 the branch's own baseline. Settings are `RUTTER_` plus the field name upper-cased;
 `pipeline/settings.py` is the authority, not this file.
+
+**Score on `compare_protocol.py`, not `compare_arms.py`** — it is the tool that
+reports the goal's measures:
+
+```bash
+uv run --python 3.13 python scratch/estimators/compare_protocol.py \
+  scratch/estimators/837772_g40 compl_ctl_a angle_a smooth_a
+```
+
+| column | what it answers |
+|---|---|
+| `feas` | goal 1 — strictly feasible plans, not `kept` |
+| `obj`, and the pair's `objective change` | goal 2 — paired, on candidates both arms solve feasibly, restoration masked |
+| `settle`, `waste` | goal 3 — the earliest iteration a solve could have stopped unchanged, and how much ran past it |
+| `reach` | how fast feasibility is found, the conditioning indicator |
+| `opt` | model says feasible, FCL disagrees — must not rise |
 
 **Never edit a shell script while an invocation of it is running** — bash reads
 scripts incrementally and the running copy will corrupt.
@@ -393,14 +420,47 @@ checks are green; and the channels produce sane values on a four-candidate run.
 Note for later reading: tracing changes fusion, so a traced run will not match an
 untraced one in the last bits. All arms must be traced to be comparable.
 
-### I2 — Four-arm instrumented Phase-1 replay · *GPU-gated*
+### I2 — Four-arm instrumented Phase-1 replay · *the Phase-1 half of the goal*
 
 `base`, smooth reward, f32 blend, angle — on a real subject, matching the Phase-2
 arms. **Gate on `nvidia-smi` under 2.5 GiB.**
 
-**Done when** each arm reports η-at-floor and η-at-ceiling fractions, flip rate,
+**Flip rate is the headline measure, not a side channel.** RProp steps on the
+sign of each partial derivative and nothing else, so a kinked objective does not
+merely slow it: the sign reverses, RProp reads that as overshoot and cuts that
+coordinate's η by `eta_minus`. A coordinate that keeps meeting kinks ratchets
+down to `eta_min` and stops moving while its gradient is still large. That makes
+the flip fraction (`prod < 0`, `search/minimizers.py:159`) a direct readout of
+how kinked the landscape is, and it is why `smooth` and `angle` should show up
+more clearly in Phase 1 than in Phase 2 — L-BFGS and IPOPT use magnitudes and can
+average a kink out; RProp cannot.
+
+**Done when** each arm reports flip rate, η-at-floor and η-at-ceiling fractions,
 clip rate, how long candidates sit frozen at the cap, and `‖∇f‖` at the handoff —
 plus VRAM and throughput for the f32 blend, which is still unmeasured on the card.
+
+**Adopt on** a lower flip rate *with* an objective at handoff no worse than
+`base`. A smoother objective that reaches a worse point is a trade, not a fix.
+
+**Both flags are wired into Phase 1 and have never been measured there.**
+`spin_param` and `smooth_thread_reward` both live on the shared
+`PipelineSettings`, so `Phase1Settings` inherits them; `RECOMMENDATION.md`'s
+"keep `unit_vector`" and "do not enable" verdicts come from Phase-2 CPU arms at
+n=10 and say nothing about Phase 1. The two phases implement `angle` by
+different mechanisms — Phase 2 wraps the model in NumPy outside the trace
+(`objectives/spin_angle.py:34-106`), while Phase 1 composes `from_angle_layout`
+*into* the traced objective (`search/minimizers.py:266-268`) and then treats θ as
+a periodic RProp coordinate with a rescaled η — so a Phase-2 result does not
+transfer.
+
+**The trace already exists on this branch**: `RUTTER_TRACE=N` records N
+iterations per stage to `<out>_trace_<n>arc.npz`, channels `flip`, `eta_floor`,
+`eta_ceil`, `clipped`, `wrapped`, `step` (`search/minimizers.py:119-121`). All
+arms must be traced to be comparable — tracing changes fusion.
+
+**Note the asymmetry** the arms cannot control for: `smooth_reward`, which swaps
+hard clearances for soft ones in the reward, is Phase-2 only. Phase 1's identical
+`jnp.min` at `objectives/soft.py:533` and `:561` has no counterpart flag.
 
 This single run closes five open items: the η-collapse question, the sizing for
 F2 and F3, the handoff-quality question (C4), the Phase-1 spin-angle A/B that has
@@ -429,6 +489,40 @@ and an arms re-run shows the effect.
 
 **Ask the user before implementing.** Row counts change, so slack layout, handoff
 and metrics bookkeeping move with them; that is a design decision, not a tidy-up.
+
+### F4 — Smooth the hole-wall `max` · *the newest kink, and it has no flag*
+
+`objectives/threading.py:169` returns
+`jnp.maximum(g, jnp.max(wall_dist, axis=-1) * (2.0 / safe_b))` — two stacked hard
+maxima, kinked wherever a wall takes over from the oval and wherever two walls
+tie. **Both phases reach it on every objective evaluation**, it is this branch's
+own addition, and unlike every other smoothing in the package it has neither a
+smooth variant nor a setting.
+
+It is the prime suspect for goal 1. X32 gives circumstantial support: the one
+constraint group `angle` improved was **thread**, 20.6% to 10.7% of iterations
+violated, which is the group this `max` sits in.
+
+**Done when** a softmax variant behind a setting reproduces the hard value within
+its stated bias, parity passes, and an arms pair scores it on the goal's
+measures in both phases.
+
+**Ask the user before implementing** — it changes a constraint row's value, so
+it is a formulation change, not a tidy-up.
+
+### B2 — Phase 1's gradient ignores `grid_dtype` · *defect, reproduction in hand*
+
+`phase1.py:353-362` builds the objective through `make_batched_phase1_chunked`
+honouring `grid_dtype`, but the *gradient* comes from `build_cw_fns`, which
+hard-codes `jnp.bfloat16` at `search/minimizers.py:251` and `:271`. With
+`RUTTER_BF16_STORE=false` the reported objective runs on fp32 grids while the
+descent direction still runs on bf16 — the flag silently does not reach the
+thing that moves the optimizer.
+
+Phase 2 has no such split; `grid_dtype` flows straight through at
+`phase2.py:514`.
+
+**Fix in a tree no run imports**, with a test that the two paths agree on dtype.
 
 ### F2 — RProp bound-clip η reset
 

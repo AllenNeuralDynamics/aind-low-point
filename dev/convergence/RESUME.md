@@ -30,7 +30,7 @@ experiment worktrees are gone.
 | | state |
 |---|---|
 | `ip_acc_compl_tol` 0.01 → 5.0 | **measured, and it is large (X29).** 40/40 acceptable exits, 7x faster, +6 kept. What is missing is `compl5_b` for run-to-run divergence and bitwise agreement — the expected price is the control's 40/40 determinism. That trade is a policy call, not a tuning one |
-| `ip_cvtol`'s acceptable leg | **never tested (X28).** `ip_cvtol` drives `acceptable_constr_viol_tol` too, at 1e-4 against IPOPT's 0.01. Deliberate — `settings.py` says 1e-2 "would accept 0.01 mm of overlap" — but it sets the threshold X27's 7.1-iteration feasible runs are measured against, so decoupling the two is an untested throughput candidate |
+| `ip_cvtol`'s acceptable leg | **closed (X30).** X28 called it untested; the solver bake-off had tested it. The constraint vector is mixed-unit (mm rows gain 1, OBB rows ×100), so 1e-2 admits 0.01 mm of overlap that FCL then calls a collision — the model-optimistic failure X29 just halved. Do not loosen it |
 | `angle`, `smooth`, `f32` | **unrun on GPU.** Score on the continuous measures, not kept. `angle` is `PHASE2_CONDITIONING.md`'s own prescribed fix for a defect in the current default, not a tuning knob |
 | `ip_acc_iter` 8 → 3 | **un-retired (X27).** X25's "1.5% of wall time" read the trailing feasible run as the total and is wrong by ~30x. Note the mean feasible run is 7.1 against an `acc_iter` of 8 |
 | what gates the exit | **answered (X29): complementarity.** The feasibility leg qualifies by iteration 77 and the median solve exits at 570; loosening the complementarity bound collapses that gap |
@@ -72,6 +72,13 @@ scored against and is already done — do not re-run it. An arm is ~10 minutes.
   Nothing here had, and it cost three wrong statements: `ip_acc_iter = 8` is not
   IPOPT's default (15 is), the acceptable test has five legs rather than four,
   and `acceptable_tol` is scaled where the other legs are not.
+- **Check whether a setting was *chosen* before calling it untested** (X30).
+  `hessian_approximation` and `ip_cvtol`'s acceptable leg were both settled by a
+  head-to-head run that predates this investigation and is not in `STATUS.md`:
+  the exact Hessian rescued 8 of 11 against limited-memory's 9, drove a feasible
+  control into collision, ran 2–5x slower and does not run on the card. The
+  project's memory holds that bake-off; the probe is
+  `scratch/ipopt_exact_vs_lm.out`.
 - **Use `repeat_ranks.txt`**, the protocol's own 40 (starts 12 15 22 35 39 49).
   Not the first 40 of `benchmark_ranks.txt` — those start at rank 202 and are a
   different, much worse-ranked set.

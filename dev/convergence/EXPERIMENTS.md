@@ -1567,7 +1567,10 @@ the reference: `tol`, `constr_viol_tol`, `acceptable_tol`, `acceptable_iter`,
 `acceptable_compl_inf_tol`, `limited_memory_max_history`,
 `hessian_approximation`, `mu_strategy`, `max_iter`, `resto.acceptable_iter`.
 
-**A documented knob nothing has tested.** `ip_cvtol` drives both
+**A documented knob nothing has tested.** *(QUALIFIED BY X30: the acceptable
+leg was tested, in the solver bake-off that chose IPOPT. Loosening it was
+measured to return colliding plans, so it is a rejected candidate rather than an
+unexplored one.)* `ip_cvtol` drives both
 `constr_viol_tol` and `acceptable_constr_viol_tol`, at 1e-4 against IPOPT's
 acceptable default of 0.01 — 100x tighter. `settings.py` gives the reason
 ("whose IPOPT default of 1e-2 would accept 0.01 mm of overlap"), so the coupling
@@ -1577,6 +1580,12 @@ those runs directly. Decoupling the two is a throughput candidate that has never
 been run, and its cost is returning plans with up to 0.01 mm of model overlap.
 
 ## X29 — `acceptable_compl_inf_tol` 0.01 → 5.0 converts every cap and gains six plans (2026-09-23 08:38)
+
+> **CORRECTED BY X31.** This entry scores the arm on counts and never looks
+> at the objective. With the objective measured, `compl5` is a **trade**: it
+> gains six feasible plans and loses 0.92 of objective on 27 of the 31
+> candidates both arms solve. The premise that capped solves were wasting
+> iterations is also false — `waste` is 0%.
 
 `compl5_a` at n=40 on `repeat_ranks.txt`, GPU, against `compl_ctl_a`. This is
 the arm X25 retired and X26/X27 un-retired, and the hypothesis
@@ -1611,3 +1620,191 @@ a tuning one, now with a measured price on both sides.
 **Also confirmed here: the rebase is clean.** `compl_ctl_c`, the baseline re-run
 from the merged checkout, is bitwise identical to `compl_ctl_a` at 40/40 with
 every summary figure equal, so results from the former worktree carry over.
+
+## X30 — the Hessian and the violation tolerance were both chosen by measurement (2026-09-23 08:45)
+
+Two of the solver settings this investigation has been reasoning about from
+first principles were in fact decided by a head-to-head run when IPOPT was
+adopted. The record is the solver bake-off on the tuned-545 set, probe
+`scratch/ipopt_exact_vs_lm.out`, and it corrects X28 on one point and closes a
+question this investigation had not asked out loud.
+
+**`hessian_approximation = limited-memory` beat the exact Hessian on every
+axis.** Thirteen candidates — eleven that had stalled under BFGS plus two
+feasible controls — were solved both ways on CPU:
+
+| | exact Hessian @400 | limited-memory @1000 |
+|---|---|---|
+| stalled candidates rescued | 8 of 11 | **9 of 11** |
+| regressions | lost 1221; drove control 506 from `+0.200` to `-1.000` | none |
+| seconds per candidate | 255–798 | **29–166** |
+| GPU | broken — the constraint HVP kernel crashes XLA autotuning | runs |
+
+The reason is structural rather than incidental: this NLP is nonconvex — soft-min
+over clearances, OBB-SAT, the well SDF — so the exact Lagrangian Hessian is
+indefinite away from the optimum. IPOPT regularizes it, and that regularized
+direction is worse than L-BFGS's guaranteed positive-definite approximation. The
+bake-off's own summary is that restoration does more for reaching feasibility
+from an infeasible start than curvature does, which is the same conclusion X26
+and X29 reached from the other end: what gates these solves is the acceptance
+test, not the quality of the step.
+
+This also gives `ip_hist` its weight. With no exact Hessian,
+`limited_memory_max_history` is the only curvature information the solver holds,
+which is why 60 — above `n` at 44–45 — is not the idle setting it looks like.
+
+**X28's `ip_cvtol` candidate is rejected, not untested.** X28 listed decoupling
+`acceptable_constr_viol_tol` from `constr_viol_tol` as a throughput candidate
+nothing had run. The bake-off had run it, and recorded the 1e-2 default as
+*dangerous*: the constraint vector is mixed-unit — body and voxel rows are
+mm-native at gain 1, OBB rows are scaled by 100 — so `constr_viol_tol` is set for
+the mm rows at 1e-4, and accepting 1e-2 there means accepting 0.01 mm of overlap,
+which FCL then rejects as a collision. That is the same failure X29 measures as
+the model-optimistic count, and X29 moved it the right way (8 → 3) by loosening a
+*different* leg. Loosening this one would move it back, by construction.
+
+The general lesson is the one the header states: before a setting is called
+untested, check whether it was chosen. Both of these were, in a run that
+predates this investigation and is not in `STATUS.md`.
+
+## X31 — the solves waste no iterations, and `compl5` buys feasibility with objective (2026-09-23 08:47)
+
+`compl_ctl_a` and `compl5_a` rescored on measures aimed at what the solver is
+supposed to do rather than at how many plans survive the keep gate: find a
+feasible point if one exists, get a good objective there, and stop once it has.
+
+Two measures are new. `settle` is the earliest iteration after which the solve is
+feasible and its objective stays within 1e-3 relative of its final value for the
+rest of the run — the first point it could have stopped without changing what it
+returned. `waste` is the fraction of the solve past that point. Both mask
+restoration iterations, where the callback's `obj_value` is the restoration
+subproblem's objective and not f(x).
+
+| | `compl_ctl_a` | `compl5_a` |
+|---|---|---|
+| median iterations | 737 | 164 |
+| `settle` | 742 | 165 |
+| **`waste`** | **0%** | **0%** |
+| strictly feasible | 31/40 | 37/40 |
+| model-optimistic | 8 | 3 |
+| median final objective | **-5.4488** | -4.3237 |
+| paired objective change | — | **+0.9186 median, +2.6869 p90, worse on 27 of 31** |
+
+**`waste` is 0% everywhere, so there are no wasted iterations to reclaim.** The
+objective is still descending when each solve exits. The capped solves are not
+spinning on a converged answer; they are still improving it. This retires the
+whole class of stopping-rule interventions as a source of *gain*: any of them now
+costs objective by construction.
+
+**`compl5` is therefore a trade, not a win.** It gains six strictly feasible
+plans and gives up 0.92 of objective on almost every candidate both arms solve.
+X29 reported only the gain because it scored counts.
+
+**A hypothesis the flips support.** The six plans `compl5` gains were hard
+failures for the control — `fcl -1.000` — at tiny model violations (`g -0.006`,
+`-0.008`, `-0.078`). Read with the model-optimistic count falling 8 to 3, the
+reading is that running longer drives plans harder against a model boundary that
+sits slightly outside FCL's, so the extra objective is partly bought by packing
+into collision. If that holds, the defect is model fidelity and stopping early
+only masks it. Untested: it predicts the control's losses sit at systematically
+smaller FCL clearance than its keeps, which the handoffs can answer without a
+run.
+
+**Method note.** `obj` had to be masked before any of this could be said. The
+callback records `obj_value` verbatim and `restoration` is `alg_mod`, so entries
+where it is 1 measure the restoration subproblem instead. Masking changed none of
+the figures here — the median restoration fraction is 0.2% — but 2 of 40 control
+solves end inside restoration, so their raw final `obj` is not an NLP objective
+at all. Checked rather than assumed.
+
+## X32 — `spin_param=angle` improves feasibility and objective together (2026-09-23 08:55)
+
+`angle_a` at n=40 on `repeat_ranks.txt`, GPU, against `compl_ctl_a`. This is the
+arm X19 dropped on kept at n=10 and the fix `PHASE2_CONDITIONING.md` prescribes
+for a defect in the current default.
+
+| | `compl_ctl_a` | `angle_a` |
+|---|---|---|
+| exits | acceptable 27, cap 11, infeas 2 | acceptable 33, infeas 6, cap 1 |
+| strictly feasible | 31/40 | **33/40** |
+| median final objective | -5.4488 | **-5.9910** |
+| paired objective change | — | **-0.1143 median, worse on 9 of 26** |
+| `reach` | 28 | **14** |
+| feasible at exit | 85% | **100%** |
+| model-optimistic | 8 | 7 |
+| median iterations / seconds | 737 / 43 | 431 / 25 |
+| thread group violated | 20.6% | **10.7%** |
+
+**It improves both goals at once**, which no other arm in this investigation has
+done: more feasible plans *and* a better objective, with iterations to first
+feasible halved. `compl5` by contrast bought feasibility with objective (X31).
+
+**The improvement is where the mechanism predicts.** `spin_deg_from_sxy` is
+`arctan2(sy, sx)` (`clearance/poses.py:127`), reached on every objective
+evaluation in both phases, and the `(sx, sy)` box is `+/-1.1` on both axes
+(`pipeline/fixtures.py:45-46`), so the singular origin is interior and nothing
+but `unit_circle_penalty` keeps the iterate away from it. Spin is what drives a
+probe through its bore, and **thread** is the one constraint group whose
+violated-iteration share fell — 20.6% to 10.7%. `probe_pair` and `probe_fixture`
+rose, so this is a redistribution toward the group the reparameterization acts
+on, not a uniform improvement.
+
+**Three qualifications.**
+
+- **It loses 5 plans and gains 7**, net +2. Not uniformly better per candidate.
+  The five losses are at small model violations (`g -0.001` to `-0.086`).
+- **The 6 "infeasible" exits are not failures.** All six ended inside
+  restoration with a feasible last iterate; five of six are strictly feasible
+  with positive FCL clearance. The status code describes the restoration
+  subproblem. The control has 2 of the same. Do not read `solver_status == 2`
+  as a lost plan without checking the iterate.
+- **Bitwise 0/40 and divergence 5.560 are expected and are not a determinism
+  result.** The arms solve in different coordinates, so poses are not comparable
+  run-to-run. Scoring this the way `PHASE2_CONDITIONING.md`'s table scores a
+  tolerance change would reject the best arm measured here. Reproducibility for
+  `angle` needs `angle_b`, against `angle_a`.
+
+**Unresolved:** whether the gain survives a repeat, and whether it holds in
+Phase 1, where the setting is also wired but by an entirely different mechanism
+and has never been measured (I2).
+
+## X33 — `smooth_thread_reward` regresses Phase 2 on every goal measure (2026-09-23 08:55)
+
+`smooth_a` at n=40 on `repeat_ranks.txt`, GPU, against `compl_ctl_a`, scored
+beside `angle_a` from X32.
+
+| | `compl_ctl_a` | `smooth_a` | `angle_a` |
+|---|---|---|---|
+| strictly feasible | 31/40 | **27/40** | 33/40 |
+| median final objective | -5.4488 | **-5.3511** | -5.9910 |
+| paired objective vs control | — | **+0.0270, worse on 14 of 24** | -0.1143, worse on 9 of 26 |
+| `reach` | 28 | **40** | 14 |
+| feasible at exit | 85% | **78%** | 100% |
+| model-optimistic | 8 | **10** | 7 |
+| caps | 11 | **15** | 1 |
+| **thread group violated** | 20.6% | **26.9%** | 10.7% |
+
+**Six independent measures move the wrong way**, so unlike X19's n=10 verdict this
+is directionally negative rather than unresolved. Head to head, `angle` beats
+`smooth` by -0.3118 median objective, worse on only 4 of 23, and 33 feasible
+against 27.
+
+**It fails on the group it acts on.** The reward's whole subject is threading,
+and `smooth_a` spends *more* of its iterations violating the thread group than
+the control does. A mechanism that would explain it, untested: the smooth branch
+replaces `jnp.maximum(0.0, worst)` with `softplus(beta*worst)/beta`
+(`objectives/rewards.py:53-64`), and softplus is strictly positive at negative
+slack where the hard gate is exactly zero. The smooth form therefore pays a
+reward for being *near* the bore while still outside it, weakening the pressure
+to get inside. If that is right, the fix is a gate that is smooth but still zero
+below zero, not a return to the hard clamp.
+
+**This does not settle `smooth` for Phase 1, where it is also wired and has never
+been run.** The argument for smoothing is strongest exactly where it is untested:
+RProp steps on the sign of each partial derivative, so a kink reverses its step
+and decays that coordinate's step size, whereas IPOPT uses magnitudes and can
+average one out. A Phase-2 regression is evidence about IPOPT, not about RProp.
+I2 is the test.
+
+**Same qualification as X32:** 0/40 bitwise at divergence 6.303 is expected for a
+changed objective and is not a determinism result.
