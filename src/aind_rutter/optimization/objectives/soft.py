@@ -48,6 +48,7 @@ from aind_rutter.optimization.clearance.aggregate import (
     FIXTURE_PAIR_SLACK_GAINS,
     PROBE_PAIR_SLACK_GAINS,
 )
+from aind_rutter.optimization.clearance.boxes import SAT_SMOOTH_BETA
 from aind_rutter.optimization.clearance.grids import trilinear_sdf
 from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
@@ -526,6 +527,7 @@ def _build_jit(  # noqa: C901
                 top_k_body_body=tk_bb,
                 top_k_body_shank=tk_bs,
                 top_k_shank_shank=tk_ss,
+                sat_beta=SAT_SMOOTH_BETA,
             )
             _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
             _short = jnp.maximum(0.0, min_clear - _soft) * _gains  # (n_pairs, 4)

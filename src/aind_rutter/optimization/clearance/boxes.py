@@ -123,6 +123,12 @@ def obb_sdf_world_to_local(
     return obb_sdf(q_local, half_extents)
 
 
+# Softmax width for the SAT gradient blend, as 1/mm of separation: axes within
+# about 1/SAT_SMOOTH_BETA of the winning one share the gradient. Same scale as
+# the clearance soft-min, so the two smooth over comparable distances.
+SAT_SMOOTH_BETA = 20.0
+
+
 def obb_obb_signed_distance(
     R_a: Array,
     t_a: Array,
@@ -132,6 +138,8 @@ def obb_obb_signed_distance(
     t_b: Array,
     center_b: Array,
     halves_b: Array,
+    *,
+    sat_beta: float | None = None,
 ) -> Array:
     """Signed distance between two oriented boxes via Separating Axis
     Theorem. Closed-form, exact, fully differentiable.
@@ -219,7 +227,15 @@ def obb_obb_signed_distance(
     # The actual signed distance is the MAX over all candidate separations
     # (the strongest separator). When all separations are negative, the
     # boxes overlap and the magnitude of max equals the penetration depth.
-    return jnp.max(all_separations)
+    if sat_beta is None:
+        return jnp.max(all_separations)
+    # Straight-through blend: the value is still exactly the max, so reported
+    # clearance and every feasibility test are untouched, but the derivative is
+    # the softmax-weighted one, which does not step when the separating axis
+    # changes hands. Only a solver that reads the gradient's sign may ask for
+    # this — what comes back is not the derivative of what is returned.
+    soft = jax.nn.logsumexp(all_separations * sat_beta) / sat_beta
+    return jax.lax.stop_gradient(jnp.max(all_separations) - soft) + soft
 
 
 def boxes_sdf(points_world, R, t, centers, halves, mask):

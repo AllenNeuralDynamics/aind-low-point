@@ -271,6 +271,7 @@ def swept_pair_clearances(
     top_k_body_body: int,
     top_k_body_shank: int,
     top_k_shank_shank: int,
+    sat_beta: float | None = None,
 ):
     """Per-pair dual-rep clearance, ``vmap``'d over the static pair index list.
 
@@ -408,6 +409,7 @@ def swept_pair_clearances(
                 ohb,
                 beta=beta,
                 top_k=top_k_shank_shank,
+                sat_beta=sat_beta,
                 shank_mask_a=oma,
                 shank_mask_b=omb,
             )

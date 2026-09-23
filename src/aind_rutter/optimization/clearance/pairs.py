@@ -239,6 +239,7 @@ def shank_shank_pair_clearance(
     *,
     beta: float = 20.0,
     top_k: int = 8,
+    sat_beta: float | None = None,
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
     dtype=jnp.float32,
@@ -251,7 +252,9 @@ def shank_shank_pair_clearance(
 
     d_sa_vs_sb = jax.vmap(
         lambda ca, ha: jax.vmap(
-            lambda cb, hb: obb_obb_signed_distance(R_a, t_a, ca, ha, R_b, t_b, cb, hb)
+            lambda cb, hb: obb_obb_signed_distance(
+                R_a, t_a, ca, ha, R_b, t_b, cb, hb, sat_beta=sat_beta
+            )
         )(shank_centers_b, shank_halves_b)
     )(shank_centers_a, shank_halves_a)  # (Sa, Sb)
     if shank_mask_a is not None or shank_mask_b is not None:
