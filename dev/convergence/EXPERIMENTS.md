@@ -1349,3 +1349,78 @@ feasibility, which is a formulation and basin question, not a tolerance one.
 `ip_acc_iter` at 8. This also retires the `throughput` batch in
 `resume_gpu_arms.sh` — its two arms now have predicted effects of at most 1
 converted cap and ~1% wall time, which the benchmark cannot resolve.
+
+## X26 — the control is bitwise reproducible here, `nothread` confirms on the card, and X25's structural finding is wrong (2026-09-23 08:16)
+
+Three results from one GPU batch on `repeat_ranks.txt`, all scored against
+`compl_ctl_a` with `scratch/estimators/compare_protocol.py`. Note that
+`compl_ctl_a`/`compl_ctl_b` are the **baseline pair** — both run with no
+overrides, byte-identical headers. The `compl_` prefix is the batch they were
+born in, not their configuration.
+
+**The reproducibility property holds on this tree.** `compl_ctl_b` against
+`compl_ctl_a`: pose divergence 0.000, 40/40 bitwise identical, 100% label
+agreement, and every summary figure matches — acceptable 27, cap 11, infeas 2,
+median 737 iterations, kept 31/40. The pre-registered doubt was that the doc
+measured this when the median solve ran to the 1000 cap, where two runs take the
+same number of iterations, while here the median exits acceptable at 737, so a
+reduction-order difference could flip which iteration first satisfies the
+8-iteration window. It does not. `ip_hist`, `ip_acc_tol`, `ip_cvtol` and
+`drop_dead_rows` now rest on a same-tree measurement rather than the 2026-09-16
+table.
+
+**`nothread` reproduces on the reference platform, larger than on CPU.**
+
+| | `compl_ctl_a` | `nothread_a` |
+|---|---|---|
+| kept | 31/40 | **21/40** |
+| threading satisfied, FCL rejects | 8/40 | **19/40** |
+| exits | acc 27, cap 11, infeas 2 | acc 28, infeas 9, cap 3 |
+| median iterations | 737 | 574 |
+| median seconds | 43 | 27 |
+
+The flips carry the mechanism: 1274, 2020 and 2161 exit with threading satisfied
+by a hair (g -0.002, -0.010, -0.007) and `fcl -1.000`, a hard collision, where
+the control lands the same candidates at -0.106, -0.103, -0.164 with FCL
+positive. Removing the reward parks the solve on the constraint boundary and
+calls it done — faster, and wrong. X19's CPU reading (-6/10 kept, 5/10
+model-optimistic) was directionally right.
+
+**X25's structural finding is wrong, and the error is an inference, not a
+measurement.** Measuring where feasibility is *first* reached, from the same
+unscaled `group_min`:
+
+| exit | n | median first feasible | % of iterations feasible | feasible runs | longest run | median nit |
+|---|---|---|---|---|---|---|
+| acceptable | 27 | 33 | 48.9% | 30 | 38 | 572 |
+| cap | 11 | **24** | **53.0%** | **62** | **60** | 1001 |
+| infeas | 2 | 26 | 55.8% | 40 | 44 | 606 |
+
+No solve in the set fails to reach feasibility. A capped solve reaches it at
+iteration 24, is feasible for 53% of its iterations, crosses in and out 62
+times, and holds a sustained feasible run of 60 iterations against an
+`acc_iter` of 8. X25's table — 10 of 11 caps infeasible on the last
+`acc_iter` iterations — is correct and still stands. What does not follow, and
+what X25 asserted, is that those solves are "still looking for a feasible
+point". Infeasible *at the final iterate* is not the same claim as never
+feasible.
+
+**What this overturns.** The 98.5%/1.5% split is wrong: solves reach feasibility
+in roughly 4% of their iterations and then fail to *hold* it while improving the
+objective. `ip_acc_compl_tol` is therefore un-retired — a cap that satisfies the
+constraint-violation leg for 60 consecutive iterations was stopped by a different
+leg, which is exactly the complementarity hypothesis `PHASE2_CONDITIONING.md`
+pre-registered. "Throughput is a formulation question, not a tuning one" may
+still be true but is no longer established.
+
+`diag_hist` cannot say which leg gated those runs: `mu` is the barrier parameter
+and `inf_pr`/`inf_du` are scaled. Settling it needs the arm run, not more
+analysis of this payload.
+
+**Method note.** Kept is a binary gate on plans clearing by a median +0.021 mm,
+so it cannot support a directional claim about a formulation change in either
+direction — including the absence of one. X19 used that to call `smooth` and
+`angle` noise; this file used it to retire them. That reasoning only licenses
+"unresolved", not "no effect". Iterations to first feasible, feasible fraction,
+crossing count and the margin distribution are continuous and are what a
+better-conditioned parameterization should move.

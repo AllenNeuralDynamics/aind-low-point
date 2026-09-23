@@ -1,8 +1,15 @@
 # Phase-2 production defaults — recommendation
 
-**Status 2026-09-22 17:23:** settled for both yield and throughput. The two
-throughput candidates were measured on the control's own diagnostics (X25) and
-both are dead, so the recommendation is now **change no default**, full stop.
+**Status 2026-09-23 08:16:** settled for yield; **reopened for throughput.** X26
+found X25's structural finding wrong — caps are not solves that never reached
+feasibility, they reach it at iteration 24 and hold 60-iteration feasible runs —
+so `ip_acc_compl_tol` is un-retired and needs its arm run. The yield half is
+now *stronger*: the reproducibility property four `keep` rows cite reproduces on
+this tree (0.000 divergence, 40/40 bitwise), and `nothread` confirms on the
+reference platform at -10 kept.
+
+**Read every "measured ceiling" and "98.5%" claim below as retracted pending
+that arm.** They are left in place so the reasoning that failed stays legible.
 
 ## Executive summary
 
@@ -100,7 +107,7 @@ making the solver work longer on the same objective.
 | `spin_param` | **keep `unit_vector`** | `blend_angle` is −1 kept, inside noise, with no resolvable benefit |
 | `ip_acc_du_tol` | **keep `1e10`** | `acceptable_tol` already bounds the dual leg at 5.0, so the field is not a hole (X16). Tightening it to 1.0 is not a cost/margin trade as X21 read it: over four shared candidates it keeps 2/4 against the control's 3/4, losing one outright to a *violated* threading constraint, and the margin gain it shows on two others did not survive a platform change (X22, X24). It removes the early acceptable exits and pushes nearly everything to the cap. Valuable as a diagnostic, not as a default |
 | `ip_acc_tol`, `ip_cvtol`, `ip_hist`, `drop_dead_rows` | **unchanged** | Chosen on the 40×2 benchmark, where they gave 0.000 divergence, 40/40 bitwise and 100% label agreement against every alternative measured. That evidence is from the 2026-09-16 tree and X23 shows the baseline has moved since, so it justifies *keeping* them — the burden is on a change — but it is no longer a live measurement of today's code |
-| `ip_acc_compl_tol` | **keep IPOPT's `0.01`** | Measured and retired (X25). Of the 11 capped solves, 10 are still infeasible at the cap, so complementarity is not what blocks them; the ceiling on this change is 1 converted solve in 40 |
+| `ip_acc_compl_tol` | **unresolved — run the arm** | X25 retired it on the reading that caps never reach feasibility. X26 measured that directly and it is false: caps reach feasibility at iteration 24 and hold runs of 60 against an `acc_iter` of 8, so the constraint-violation leg was satisfied and something else stopped them. Complementarity is the pre-registered candidate and `diag_hist` cannot settle it — `mu` is the barrier parameter and `inf_pr` is scaled |
 | `ip_acc_iter` | **keep IPOPT's `8`** | Measured and retired (X25). It is the binding leg on 17 of 27 acceptable exits, but the median solve is feasible for 8 of its 570 iterations, so the whole knob is worth ~1.5% of wall time |
 | `ip_hist` | **keep `60`** | 50 would also clear the variable count (44 at two arcs, 45 at three), so truncation is not what separates them — and the cost of the extra 10 pairs is ~7 KB of storage and an O(mn) two-loop recursion that is invisible behind a 402×45 Jacobian. 60 is the value the 40/40 bitwise result was measured at, and that result is empirical and all-or-nothing: the same m ≥ n reasoning would have called memory 20 a mild degradation, and it measured 0/40 bitwise. Do not trade a measured property for a theoretical one to save nothing |
 
@@ -133,8 +140,18 @@ comparing `diag_hist` to a tolerance must use those.
 - **`kept` on the capped-10.** `PHASE2_CONDITIONING.md` states kept rate is not
   resolvable at this scale — kept candidates clear by a median +0.021 mm, the
   order of the sampling gap, so differences of a few candidates are noise. Only
-  `nothread`'s −6 clears that bar. Every "+2" and "−1" in the arm series is noise
-  and is not load-bearing here (X19).
+  `nothread`'s −6 clears that bar, and X26 confirms it at −10 of 40 on the card.
+
+  **This cuts both ways, which X19 and X25 both missed.** An unresolvable metric
+  licenses "unresolved", not "no effect". `smooth` and `angle` were retired on
+  ±1–2 kept at n=10, and that is not evidence they do nothing. `angle` in
+  particular is `PHASE2_CONDITIONING.md`'s own prescribed fix for a defect it
+  documents in the *current default*: `(sx, sy)` is an exact null direction of
+  all 402 constraint rows, and the bounds contain the origin where `arctan2`
+  gradients diverge as 1/r. Judging a conditioning fix by a binary gate on
+  marginal plans measures the wrong thing. The continuous measures — iterations
+  to first feasible, feasible fraction, crossing count, margin distribution —
+  are what should decide it.
 - **The doc's table, as a reference for today's code.** X23 ran the baseline at
   n=40 on the protocol's own candidates and it does not reproduce the table's row
   for the same configuration: median iterations 737 against 1000, cap rate 27%
