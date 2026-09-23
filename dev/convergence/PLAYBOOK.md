@@ -709,7 +709,21 @@ thing that moves the optimizer.
 Phase 2 has no such split; `grid_dtype` flows straight through at
 `phase2.py:514`.
 
-**Fix in a tree no run imports**, with a test that the two paths agree on dtype.
+**Promoted: A2 cannot run until this is fixed.** It stopped being a tidiness
+item the moment gradient precision became a candidate explanation for Phase 1's
+churn — `RUTTER_BF16_STORE=0` is A2's whole experiment, and today it changes the
+scored objective while leaving the descent direction untouched.
+
+The change is small and **does not move any default**: `build_cw_fns` takes no
+`grid_dtype` argument at all, so add one defaulting to `jnp.bfloat16`, use it in
+place of the two hard-coded casts, and pass it from `_kernel`, which already
+holds the resolved dtype (`phase1.py:336`) and currently forwards it only to the
+objective builder. Default behaviour is bit-identical; only `bf16_store=False`
+changes, and today that setting is half-wired.
+
+**Ask the user first anyway** — it is a solver path, so it owes the parity
+harness, and the honest description is "a setting starts working", which is a
+behaviour change for anyone who set it.
 
 ### F2 — RProp bound-clip η reset
 
