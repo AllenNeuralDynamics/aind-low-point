@@ -1995,3 +1995,134 @@ being a production default, but not a design question any more.
 effect anywhere", and the disjointness is a reason to keep watching it: a change
 that reshuffles which candidates succeed can still matter downstream even when
 the counts match. The Phase-2 handoff is where that would show.
+
+
+## X38 — A1: the clearance penalty owns Phase 1's flips, and my prediction was wrong (2026-09-23 10:40)
+
+Seven arms, one weight zeroed each, 504 candidates on the same slice, every arm
+traced. `unit` is the control: the unit-circle pull is smooth, so whatever its
+removal moves is what an ablation moves by relocating the optimizer rather than
+by removing a kink.
+
+| arm | flip, reduced_coarse | vs base | reading |
+|---|---|---|---|
+| base | 30.7% | — | |
+| `mthread` | 30.7% | +0.1 | null |
+| `brain` | 30.9% | +0.2 | null |
+| **`unit` (control)** | **31.3%** | **+0.6** | **the noise floor** |
+| `mclear` | 31.7% | +1.0 | at the floor |
+| `thread` | 29.1% | −1.6 | marginal |
+| **`clear`** | **34.7%** | **+4.0** | **the only signal** |
+
+**No term's removal reduces flipping**, and only `clear` leaves the control band.
+It leaves it the wrong way: dropping the clearance penalty raises flips four
+points, pushes η-at-floor to 47.5% and takes feasibility to **0/504**. The term
+is not the source of a pathology to be removed; it is what the optimizer is
+mostly doing.
+
+**The pre-registered prediction failed.** `mclear` — the saturating clearance
+reward, which Phase 2 runs at zero for exactly the kinked-hard-min mechanism —
+was predicted to own the flips. Removing it *raised* them by 1.0 points, inside
+the control band. Phase 2's reason for zeroing it does not transfer.
+
+**`thread` is not a quality win.** Feasible goes 15 → 169 and `min_clear` +0.70,
+but that is the bore-threading constraint being removed, not satisfied. What it
+does say is that the pool is severely over-constrained: one constraint lifted
+frees eleven times the candidates.
+
+**What an ablation cannot do** is attribute a flip, because zeroing a weight
+sends the optimizer somewhere else and then compares two different places. X39
+is the fixed-point version of the same question.
+
+
+## X39 — the gradient decomposition puts 86% of Phase 1's gradient in probe↔probe clearance (2026-09-23 10:55)
+
+The objective is a weighted sum, so a term's gradient is exactly the full
+gradient minus the gradient with that term's weight at zero — an attribution at
+a fixed point, which is what X38 could not give. `scratch/estimators/p1_grad_probe.py`
+captures one real chunk's statics, bounds and start pose, then steps the shipped
+iRprop⁻ update itself and decomposes the gradient as it flips. 128 candidates,
+450 iterations, fine-only SDF.
+
+| iters | flip | η-floor | cancel | fp32 agree | noise>signal |
+|---|---|---|---|---|---|
+| 0–10 | 16.1% | 0.0% | 1.00 | 99.9% | 0.2% |
+| 10–50 | 14.5% | 0.0% | 1.11 | 99.1% | 1.8% |
+| 50–150 | 13.3% | 14.7% | 1.39 | 95.8% | 6.7% |
+| 150–300 | 17.1% | 44.3% | 1.35 | 94.3% | 8.3% |
+| 300–450 | 19.2% | 59.4% | 1.32 | 94.1% | 8.4% |
+
+| term | share of ‖g‖ | own sign flips |
+|---|---|---|
+| **`clear_pp`** (probe↔probe) | **86.3%** | **47.7%** |
+| `thread` | 10.0% | 3.0% |
+| `clear_fx` (probe↔fixture) | 2.8% | 3.6% |
+| `kinematic` | 0.8% | 0.4% |
+| `mclear` | 0.0% | 26.4% |
+| everything else | ~0% | ≤3.3% |
+
+**Probe↔probe clearance, not probe↔fixture**, by a factor of thirty. The pooled
+`clear` weight cannot separate those and the split was the measurement.
+
+**`mclear` carries 0.0% of the magnitude** while flipping its own sign 26.4% of
+the time — a term can be as kinked as it likes and still decide nothing. That is
+why X38's prediction failed, and it retires the hard-min reward as a suspect.
+
+**A2 (bf16 rounding) is largely wrong.** float32 and bfloat16 still agree on
+94.1% of flipping coordinates at the end, and the rounding error exceeds the
+total gradient on 8.4%. Real, minority, not the mechanism.
+
+**`cancel` says the gradient jumps rather than crosses.** `cancel` = max|term| /
+|total| on flipping coordinates holds at 1.3–1.4 through the churn. A continuous
+gradient crossing zero has |total| → 0 at the flip and `cancel` → ∞; it does not.
+The total has substantial magnitude on both sides of its own sign change.
+
+**`clear_pp` owns the magnitude but flips its own sign on only 47.7%** of
+flipping coordinates. On the other half the dominant term held its sign and the
+total reversed anyway — genuine contention, most plausibly against `thread`,
+which is the only other term with weight. Both stories are live and they are not
+exclusive.
+
+**What `cancel` cannot see.** It measures cancellation *between* the nine terms.
+`clear_pp` is itself a sum over every probe pair and four contact categories, so
+contention *inside* it — one pair's gradient against another's — is invisible by
+construction.
+
+### The suspect this names
+
+`clearance/pairs.py:449`, in the coarse-to-fine body-body query:
+
+```python
+_, chosen = jax.lax.top_k(-bound, n_cells)   # 16 cells of 2000
+...
+pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
+return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+```
+
+The top-k *inside* `soft_min_topk` is harmless: it ranks and aggregates the same
+values, so at a membership swap the two are tied and the softmax weight moves
+continuously. This one ranks by `coarse value − cell radius` and aggregates the
+**fine** points of the winning cells — different quantities, so at a swap the
+incoming and outgoing values are not tied and the pool moves discontinuously.
+
+**It couples to crowding**, which is what makes it a candidate for both stories
+at once. At β=20/mm a value 0.5 mm above the minimum carries weight e⁻¹⁰, so on
+a loose pose the prune is invisible; on a crowded one many cells sit within a few
+hundred µm of the minimum, the 16-of-2000 cut lands among near-ties, and the
+pool churns every step. Tight packing is what switches the kink on.
+
+Two further hard selections in the same path, lower priority until the prune is
+ruled in or out: `jnp.max` over the 15 SAT separating axes
+(`clearance/boxes.py:222`) and `per_box.min(axis=0)` over a probe's shank boxes
+(`:235`). Both C⁰.
+
+**F5 is answered where it was aimed.** `j_clear` is already
+`Σ max(0, min_clear − soft_min_topk(pool))²` — a squared hinge over a C¹ top-k
+softmin. Adding a quadratic hinge and a top-k softmin to the term that carries
+86% of the gradient would change nothing; the kink is below them, in the values
+they are handed.
+
+**Scope.** The probe runs fine-only SDF where the pipeline's reduced stage runs
+coarse, so it reproduces X36's *shape* — flips rising while the step collapses
+and η-at-floor climbs — at a lower level (19.2% against 35.6%). Read the term
+shares and the trend, not the absolute flip rate.

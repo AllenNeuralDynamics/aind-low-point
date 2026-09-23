@@ -16,8 +16,9 @@ legs `spin_param=angle` is the clear win (X32, X34) and `smooth_thread_reward`
 is a clear loss (X33). Phase 1 got the same treatment and came back different:
 both interventions are null there, and the real finding is that flips *rise*
 while the RProp step collapses (X36) — so Phase 1, unlike Phase 2, does have
-iterations to reclaim. A1 is now running to find which objective term owns those
-flips.
+iterations to reclaim. Those flips are now attributed: **86% of the gradient is
+probe↔probe clearance** (X39), and the named suspect inside it is the
+coarse-to-fine cell prune at `clearance/pairs.py:449`.
 
 All the investigation's solver work is on `implant-hole-walls` and the
 experiment worktrees are gone.
@@ -39,15 +40,23 @@ experiment worktrees are gone.
 
 | | state |
 |---|---|
-| **A1 — which term owns Phase 1's flips** | **running.** Seven arms, one weight zeroed each, prediction pre-registered in `PLAYBOOK.md`: the clearance margin reward, which Phase 2 already runs at zero for this exact mechanism and Phase 1 hard-codes on |
+| **c2f cell prune — is it the kink?** | **running.** `C2F_REFINED_CELLS` 16 → 64 → 128 against the 16-cell control (flip 19.2%, η-floor 59.4% over iters 300–450). Flips falling with the budget names the prune; flat exonerates it and moves to the SAT max |
+| A1 / A2 — which term, kink or rounding | **closed (X38, X39).** Probe↔probe clearance owns 86% of the gradient; probe↔fixture 2.8%; the hard-min rewards 0.0%. bf16 rounding is a minority contributor, not the mechanism |
 | `spin_param` per-phase | **closed — not needed (X37).** Phase 1 pays nothing measurable, so one global flip to `angle` is the whole change. Still the user's call as a production default |
-| F4 / F5 — the kink fixes | **designed, not implemented.** Both change an objective term, so both need the user first |
+| F5 — quadratic hinge + top-k softmin | **closed as already shipped (X39).** `j_clear` is `Σ max(0, min_clear − soft_min_topk(pool))²`. Both ingredients are already on the term that carries the gradient; the kink is in the values they are handed |
+| F4 — smooth the hole-wall `max` | **designed, not implemented.** Changes an objective term, so it needs the user first. `thread` is 10% of the gradient, so it is second in line |
 | B2 — Phase 1's gradient ignores `grid_dtype` | **verified defect, unfixed.** `build_cw_fns` hard-codes `jnp.bfloat16` |
 | `angle`+`compl5` combination | **unrun.** The two best arms, with disjoint unique candidates |
 | `compl5_b` | **unrun.** Reproducibility of the complementarity setting |
 
 ```bash
-# Phase 1 term ablation (A1)
+# Per-term gradient decomposition along the real iRprop- trajectory (X39).
+# PROBE_C2F_CELLS overrides the coarse-to-fine cell budget; unset uses the
+# shipped 16.
+PROBE_C2F_CELLS=64 uv run --python 3.13 python scratch/estimators/p1_grad_probe.py 450
+scratch/estimators/run_c2f_dose.sh 450 64 128
+
+# Phase 1 term ablation (X38)
 scratch/estimators/run_p1_ablate_gpu.sh 837772-config scratch/estimators/p1abl 512 500 \
   base mclear mthread thread clear brain unit
 uv run --python 3.13 python scratch/estimators/compare_p1_arms.py \
