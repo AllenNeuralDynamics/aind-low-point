@@ -50,10 +50,13 @@ def test_cells_partition_the_fine_set_and_radii_bound_their_members() -> None:
     s = build_clearance_samples(body, SMALL, use_cache=False)
 
     assert s.fine.shape == (SMALL.fine_n, 3)
-    assert s.coarse.shape == (SMALL.coarse_n, 3)
+    # Splitting the crowded cells adds coarse points, so the count is a floor.
+    assert s.coarse.shape[0] >= SMALL.coarse_n
+    assert s.coarse.shape[1] == 3
+    assert s.cells.shape[1] <= SMALL.cell_pop_cap
     members = s.cells[s.cells < SMALL.fine_n]
     np.testing.assert_array_equal(np.sort(members), np.arange(SMALL.fine_n))
-    for c in range(SMALL.coarse_n):
+    for c in range(len(s.coarse)):
         row = s.cells[c][s.cells[c] < SMALL.fine_n]
         if row.size:
             far = np.linalg.norm(s.fine[row] - s.coarse[c], axis=1).max()

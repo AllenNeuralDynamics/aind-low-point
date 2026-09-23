@@ -8,7 +8,9 @@ happen, and are grouped for a two-pass query:
 - fine points, drawn by area × convex curvature × closeness to the local convex
   hull, most of them in the band just above the shanks;
 - coarse points (evenly spaced, plus a subset of the fine points), each owning the
-  fine points nearest to it — a cell — with the cell's radius.
+  fine points nearest to it — a cell — with the cell's radius. Cells over the
+  population cap are split, since one gather width serves every kind and the
+  crowded cells in the contact band would otherwise set it for all of them.
 
 A query looks up the coarse points, ranks cells by ``coarse value − radius`` and looks
 up the fine points of the best cells. No fine point in a cell reads below that bound,
@@ -41,8 +43,15 @@ class SampleParams:
     fine_n: int = 32_000
     band_mm: float = 10.0  # contact band: this far above the body's lowest point
     band_share: float = 0.8
-    coarse_n: int = 1_000
+    coarse_n: int = 1_000  # cells before the cap below splits any of them
     coarse_even: int = 500
+    # Refining a cell gathers its whole population, and one gather width serves
+    # every kind, so a few crowded cells in the contact band make most of every
+    # refinement slot padding. Splitting them costs extra coarse points and still
+    # pays for itself several times over, which is what makes a refinement budget
+    # large enough to stop discarding live cells affordable.
+    cell_pop_cap: int = 64
+    cap_rounds: int = 60
     curvature_radius_mm: float = 0.5
     curvature_ref: float = 1.0  # 1/mm; weight saturates relative to this
     curvature_floor: float = 0.05
@@ -175,6 +184,18 @@ def build_clearance_samples(
     rng = np.random.default_rng(params.seed + 3)
     extra = rng.choice(len(fine), params.coarse_n - len(even), replace=False)
     coarse = np.vstack([even, fine[extra]]).astype(np.float32)
+
+    # Split until no cell is over the population cap. Promoting a cell's farthest
+    # member roughly halves it, so a handful of rounds settles even the worst.
+    for _ in range(params.cap_rounds):
+        distance, owner = cKDTree(coarse).query(fine)
+        counts = np.bincount(owner, minlength=len(coarse))
+        over = np.nonzero(counts > params.cell_pop_cap)[0]
+        if not over.size:
+            break
+        order = np.lexsort((-distance, owner))
+        farthest = order[np.searchsorted(owner[order], over)]
+        coarse = np.vstack([coarse, fine[farthest]]).astype(np.float32)
 
     distance, owner = cKDTree(coarse).query(fine)
     counts = np.bincount(owner, minlength=len(coarse))
