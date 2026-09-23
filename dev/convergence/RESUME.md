@@ -1,7 +1,7 @@
 # Resume here — solver convergence investigation
 
 Updated 2026-09-23 10:00. Read this file, then `RECOMMENDATION.md`. `STATUS.md`
-is the running log and `EXPERIMENTS.md` the numbered findings (X1–X36).
+is the running log and `EXPERIMENTS.md` the numbered findings (X1–X37).
 `PLAYBOOK.md` opens with the goal this is all scored against.
 
 ## One paragraph of state
@@ -27,7 +27,7 @@ experiment worktrees are gone.
 | | verdict |
 |---|---|
 | goal 3, wasted iterations | **closed (X31).** `waste` 0% everywhere. No stopping-rule knob is a win; each one trades objective |
-| `spin_param=angle`, Phase 2 | **adopt — awaiting the user's approval to flip a production default.** feas 33/40 vs 31, `reach` 14 vs 28, caps 1 vs 11, 100% feasible at exit, 25s vs 43s, and bitwise reproducible against itself (X32, X34) |
+| `spin_param=angle` | **adopt — awaiting the user's approval to flip a production default.** Null in Phase 1 (X37), so flip it globally. feas 33/40 vs 31, `reach` 14 vs 28, caps 1 vs 11, 100% feasible at exit, 25s vs 43s, and bitwise reproducible against itself (X32, X34) |
 | `smooth_thread_reward`, Phase 2 | **do not enable (X33).** Regresses six measures including the thread group its own reward targets, and contributes 0 unique candidates to the satisfiable union |
 | `ip_acc_compl_tol` 0.01 → 5.0 | **a trade, and the user's call (X31).** Buys feasibility with +0.92 objective, worse on 27/31. Its premise — wasted iterations — is false |
 | `ip_cvtol`'s acceptable leg | **closed (X30).** Mixed-unit constraint vector; 1e-2 admits 0.01 mm of overlap that FCL then calls a collision. Do not loosen |
@@ -40,7 +40,7 @@ experiment worktrees are gone.
 | | state |
 |---|---|
 | **A1 — which term owns Phase 1's flips** | **running.** Seven arms, one weight zeroed each, prediction pre-registered in `PLAYBOOK.md`: the clearance margin reward, which Phase 2 already runs at zero for this exact mechanism and Phase 1 hard-codes on |
-| `spin_param` per-phase | **a design question for the user.** It sits on the shared `PipelineSettings`; Phase 2 gains a lot and Phase 1 pays a little (X32, X36) |
+| `spin_param` per-phase | **closed — not needed (X37).** Phase 1 pays nothing measurable, so one global flip to `angle` is the whole change. Still the user's call as a production default |
 | F4 / F5 — the kink fixes | **designed, not implemented.** Both change an objective term, so both need the user first |
 | B2 — Phase 1's gradient ignores `grid_dtype` | **verified defect, unfixed.** `build_cw_fns` hard-codes `jnp.bfloat16` |
 | `angle`+`compl5` combination | **unrun.** The two best arms, with disjoint unique candidates |

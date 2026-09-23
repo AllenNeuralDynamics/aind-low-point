@@ -1912,9 +1912,12 @@ grows as 1/r. IPOPT builds search directions from magnitudes, so that wrecks its
 conditioning and X32 measured a large win. **RProp uses only the sign**, and a
 gradient diverging in magnitude does not change its sign, so RProp was already
 immune and removing the singularity buys it nothing. The asymmetry is
-mechanical, not a measurement artifact, and it means `spin_param` — which sits
-on the shared `PipelineSettings` — trades a small Phase-1 cost for a large
-Phase-2 gain. Whether it should be per-phase is a design question for the user.
+mechanical, not a measurement artifact.
+
+> **CORRECTED BY X37.** This entry read the 15/504 → 9/504 feasible column as a
+> cost and raised a per-phase split on the strength of it. Tested, that drop is
+> not significant (McNemar p = 0.31), so **every** Phase-1 measure of `angle` is
+> null and there is no Phase-1 cost to trade against.
 
 ### The finding is in the trajectory, not the average
 
@@ -1955,3 +1958,40 @@ step is about 3300x smaller than at the start while the flip rate is *higher*.
 are a systematic slice and not a random sample of the pool; the arms are paired
 on the same slice, which is what the comparison needs, but the absolute feasible
 counts do not characterize the subject.
+
+
+## X37 — `angle` has no measured Phase-1 cost, so `spin_param` needs no per-phase split (2026-09-23 10:10)
+
+X36's three arms are paired on the same 504 candidates, so the feasible column
+it reported as a cost can be tested rather than eyeballed.
+
+| | count |
+|---|---|
+| base feasible | 15/504 |
+| `angle` feasible | 9/504 |
+| feasible in **both** | **0** |
+| discordant pairs | 24 (15 base-only, 9 angle-only) |
+| McNemar, exact two-sided | **p = 0.31** |
+
+**Not significant.** With flips moving under two points and the objective a coin
+flip at 262/504, that makes every Phase-1 measure of `angle` null — X36's own
+conclusion, which its closing paragraph then walked back by calling the
+feasibility column a cost.
+
+**Zero candidates are feasible in both arms.** The 15 and the 9 are disjoint
+sets. The parameterization relocates where Phase 1 lands rather than making it
+better or worse, which is what a change that is null on average and disjoint in
+outcome looks like, and it is the same union logic the Phase-2 arms are read
+with: neither arm dominates, and together they cover 24.
+
+### What it changes
+
+`spin_param` sits on the shared `PipelineSettings`, and the case for splitting it
+per phase rested entirely on Phase 1 paying for Phase 2's gain. Phase 1 does not
+pay. **One global flip to `angle` is the whole change** — still the user's call,
+being a production default, but not a design question any more.
+
+**What this does not say.** Null on 504 candidates of one subject is not "no
+effect anywhere", and the disjointness is a reason to keep watching it: a change
+that reshuffles which candidates succeed can still matter downstream even when
+the counts match. The Phase-2 handoff is where that would show.
