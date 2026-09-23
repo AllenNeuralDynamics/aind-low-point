@@ -35,7 +35,7 @@ decays that coordinate's step size.
 | | test | measure |
 |---|---|---|
 | Phase 2 | `angle` and `smooth` at n=40 on the card, against `compl_ctl_a` | strictly feasible count; **paired objective** on candidates both arms solve; `reach`; model-optimistic count |
-| Phase 1 | I2's four-arm instrumented replay on a real subject | **flip rate** (the direct kink indicator for a sign-only optimizer), η-at-floor/ceiling, `‖∇f‖` at handoff |
+| Phase 1 | **answered by I2/X36 (three arms; `f32` closed).** Both interventions null; the finding is that flips *rise* while η collapses | flip rate and η-at-floor **split by iteration** — the pooled mean is ambiguous, since RProp flips near a minimum by design |
 | both | a named verdict per change: improves, regresses, or unresolved | recorded in `EXPERIMENTS.md` with its scope stated |
 
 A change is adopted only if it does not regress the paired objective and does not
