@@ -1,7 +1,7 @@
 # Resume here — Phase-2 defaults investigation
 
-Updated 2026-09-23 08:22. Read this file, then `RECOMMENDATION.md`. `STATUS.md`
-is the running log and `EXPERIMENTS.md` the numbered findings (X1–X26).
+Updated 2026-09-23 08:40. Read this file, then `RECOMMENDATION.md`. `STATUS.md`
+is the running log and `EXPERIMENTS.md` the numbered findings (X1–X29).
 
 ## One paragraph of state
 
@@ -13,9 +13,14 @@ clean: the baseline is bitwise reproducible on this tree (0.000 divergence,
 stays. The same run overturned X25's structural finding: capped solves are *not*
 still searching for a feasible point — they reach feasibility at iteration 24,
 are feasible for 53% of their iterations and hold runs of 60 against an
-`acc_iter` of 8. So something other than feasibility stops them,
-`ip_acc_compl_tol` is un-retired, and "throughput is a formulation question" is
-no longer established.
+`acc_iter` of 8. So something other than feasibility stopped them —
+and X29 identified it. `acceptable_compl_inf_tol` 0.01 → 5.0 turns **all 11 caps
+and both infeasible exits into acceptable exits**, cuts median iterations 737 →
+164 and wall time about 7x, and *raises* kept from 31/40 to 37/40 with all six
+label flips going the same way. Complementarity was the blocking leg, exactly as
+`PHASE2_CONDITIONING.md` pre-registered and X10/X11 measured. The open cost is
+reproducibility: `compl5_b` has not run, and the doc's table puts a loosened
+acceptance at 0/40 bitwise against the control's 40/40.
 
 All the investigation's solver work is now on `implant-hole-walls` and the
 experiment worktrees are gone.
@@ -24,23 +29,26 @@ experiment worktrees are gone.
 
 | | state |
 |---|---|
-| `ip_acc_compl_tol` 0.01 → 5.0 | **un-retired (X26).** `resume_gpu_arms.sh compl`. `diag_hist` cannot settle which leg gated those feasible runs — `mu` is the barrier parameter and `inf_pr` is scaled — so it needs the arm, not more analysis |
+| `ip_acc_compl_tol` 0.01 → 5.0 | **measured, and it is large (X29).** 40/40 acceptable exits, 7x faster, +6 kept. What is missing is `compl5_b` for run-to-run divergence and bitwise agreement — the expected price is the control's 40/40 determinism. That trade is a policy call, not a tuning one |
+| `ip_cvtol`'s acceptable leg | **never tested (X28).** `ip_cvtol` drives `acceptable_constr_viol_tol` too, at 1e-4 against IPOPT's 0.01. Deliberate — `settings.py` says 1e-2 "would accept 0.01 mm of overlap" — but it sets the threshold X27's 7.1-iteration feasible runs are measured against, so decoupling the two is an untested throughput candidate |
 | `angle`, `smooth`, `f32` | **unrun on GPU.** Score on the continuous measures, not kept. `angle` is `PHASE2_CONDITIONING.md`'s own prescribed fix for a defect in the current default, not a tuning knob |
 | `ip_acc_iter` 8 → 3 | **un-retired (X27).** X25's "1.5% of wall time" read the trailing feasible run as the total and is wrong by ~30x. Note the mean feasible run is 7.1 against an `acc_iter` of 8 |
-| what gates the exit | **the open question.** The feasibility leg qualifies by iteration 77; the median solve exits at 570. Another leg — `ip_acc_tol` = 5.0 or complementarity at 0.01 — is unsatisfied for ~87% of the solve. X10/X11 measured this directly and X25 displaced them; X26 restores them |
+| what gates the exit | **answered (X29): complementarity.** The feasibility leg qualifies by iteration 77 and the median solve exits at 570; loosening the complementarity bound collapses that gap |
 
 ```bash
-scratch/estimators/resume_gpu_arms.sh compl           # compl5_a
-scratch/estimators/resume_gpu_arms.sh interventions   # angle, smooth, f32
+scratch/estimators/resume_gpu_arms.sh interventions   # angle, smooth
 uv run --python 3.13 python scratch/estimators/compare_protocol.py \
-  scratch/estimators/837772_g40 compl_ctl_a compl5_a angle_a smooth_a f32_a
+  scratch/estimators/837772_g40 compl_ctl_a compl5_a angle_a smooth_a
 ```
+
+`f32` is closed: bfloat16 storage with float32 blending is what `bab0970` gave
+and is better than float32 storage, which also doubles grid memory per worker.
 
 Each refuses to start if any compute app holds the card, or if it reads over
 2500 MiB across a 30-second window. `compl_ctl_a` is the control everything is
 scored against and is already done — do not re-run it. An arm is ~10 minutes.
 
-## Five traps that cost time
+## Six traps that cost time
 
 - **Kept cannot retire a formulation change.** It is a binary gate on plans
   clearing by a median +0.021 mm. `PHASE2_CONDITIONING.md` calls it unresolvable
@@ -52,12 +60,18 @@ scored against and is already done — do not re-run it. An arm is ~10 minutes.
   statistic implies about the whole trajectory before generalising it.
 - **`diag_hist`'s `inf_pr`/`inf_du` are IPOPT's *scaled* iteration-log values**,
   and `mu` is the barrier parameter, not complementarity (X25). The acceptable
-  test runs on unscaled quantities, so comparing any of the three to `ip_cvtol`
-  or `ip_acc_compl_tol` is a category error. `group_min`/`group_nviol`, built
+  test's constraint-violation, dual and complementarity legs bound unscaled
+  quantities, so comparing any `diag_hist` field to `ip_cvtol` or
+  `ip_acc_compl_tol` is a category error. `ip_acc_tol` is the exception and is
+  scaled (X28). `group_min`/`group_nviol`, built
   from `get_current_iterate(scaled=False)`, are the only unscaled measures.
 - **Never score a run on this tree against the doc's table** (X23). Same
   configuration, identical problems, median 737 iterations against the table's
   1000 and 11/40 at the cap against 42/80. Use `compl_ctl_a`.
+- **Read IPOPT's options reference before reasoning about a tolerance** (X28).
+  Nothing here had, and it cost three wrong statements: `ip_acc_iter = 8` is not
+  IPOPT's default (15 is), the acceptable test has five legs rather than four,
+  and `acceptable_tol` is scaled where the other legs are not.
 - **Use `repeat_ranks.txt`**, the protocol's own 40 (starts 12 15 22 35 39 49).
   Not the first 40 of `benchmark_ranks.txt` — those start at rank 202 and are a
   different, much worse-ranked set.

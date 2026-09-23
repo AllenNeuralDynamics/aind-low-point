@@ -18,8 +18,10 @@ it measures *over*.
   solve is feasible for 8 iterations". The total was 245 of 570 (X25 → X27).
 - **Scaled vs unscaled.** `diag_hist`'s `inf_pr`/`inf_du` are IPOPT's *scaled*
   iteration-log values and `mu` is the barrier parameter, not complementarity.
-  The acceptable test reads unscaled quantities; `group_min`/`group_nviol` are
-  the only unscaled records (X25).
+  Three of the acceptable test's five legs bound unscaled quantities, so none
+  of those three may be compared to a `diag_hist` field; `acceptable_tol` is the
+  exception and *is* scaled. `group_min`/`group_nviol` are the only unscaled
+  records (X25, narrowed by X28).
 - **Unresolvable vs null.** A metric the prior art calls unresolvable licenses
   "unresolved", never "no effect" (X19 → X26).
 - **Raw counts vs rates.** A count that grows with solve length (crossings,
@@ -1531,3 +1533,81 @@ displaced them.
 **Not concluded.** Which leg binds over those 490 iterations is not measured
 here: `diag_hist` records no unscaled complementarity, and `mu` is the barrier
 parameter. `compl5_a` at n=40 is the direct test.
+
+## X28 — the IPOPT options reference, read at last, and three errors it corrects (2026-09-23 08:38)
+
+Nothing in this investigation had consulted IPOPT's own options documentation;
+the acceptable test's semantics were reconstructed from `settings.py` and the
+prior art. Reading the reference corrects three things.
+
+**`ip_acc_iter = 8` is not "IPOPT's 8".** IPOPT's `acceptable_iter` default is
+**15**. X25 and `RECOMMENDATION.md` both call 8 the stock value; it is a project
+setting already *below* default, so 8 → 3 continues a move already made rather
+than departing from stock.
+
+**The acceptable test has five legs, not four.** `acceptable_obj_change_tol`
+(default 1e20) — "if the relative change of the objective function is less than
+this value, this part of the acceptable tolerance termination is satisfied". We
+do not set it and at 1e20 it is inert, so no conclusion moves, but "all four
+legs" appears throughout these documents and is wrong.
+
+**`acceptable_tol` is on the *scaled* error; the other three legs are unscaled.**
+The reference is explicit: `acceptable_tol` "determines which (scaled) overall
+optimality error is considered to be 'acceptable'", while
+`acceptable_constr_viol_tol`, `acceptable_dual_inf_tol` and
+`acceptable_compl_inf_tol` each bound a "max-norm of the (unscaled)" quantity.
+X25's trap note — that comparing `diag_hist` to any tolerance is a category error
+— is therefore too broad. It holds for the three unscaled legs. It does not hold
+for `acceptable_tol`, whose leg is exactly what the scaled iteration-log values
+feed.
+
+**None of the twelve options this project sets is deprecated**, checked against
+the reference: `tol`, `constr_viol_tol`, `acceptable_tol`, `acceptable_iter`,
+`acceptable_constr_viol_tol`, `acceptable_dual_inf_tol`,
+`acceptable_compl_inf_tol`, `limited_memory_max_history`,
+`hessian_approximation`, `mu_strategy`, `max_iter`, `resto.acceptable_iter`.
+
+**A documented knob nothing has tested.** `ip_cvtol` drives both
+`constr_viol_tol` and `acceptable_constr_viol_tol`, at 1e-4 against IPOPT's
+acceptable default of 0.01 — 100x tighter. `settings.py` gives the reason
+("whose IPOPT default of 1e-2 would accept 0.01 mm of overlap"), so the coupling
+is deliberate. It is still load-bearing on X27: the 7.1-iteration mean feasible
+run is measured at 1e-4, and a looser acceptable-leg threshold would lengthen
+those runs directly. Decoupling the two is a throughput candidate that has never
+been run, and its cost is returning plans with up to 0.01 mm of model overlap.
+
+## X29 — `acceptable_compl_inf_tol` 0.01 → 5.0 converts every cap and gains six plans (2026-09-23 08:38)
+
+`compl5_a` at n=40 on `repeat_ranks.txt`, GPU, against `compl_ctl_a`. This is
+the arm X25 retired and X26/X27 un-retired, and the hypothesis
+`PHASE2_CONDITIONING.md` pre-registered.
+
+| | `compl_ctl_a` | `compl5_a` |
+|---|---|---|
+| exits | acceptable 27, cap 11, infeas 2 | **acceptable 40** |
+| median iterations | 737 | **164** |
+| median seconds | 43 | **6** |
+| kept | 31/40 | **37/40** |
+| model-optimistic | 8 | **3** |
+| feasible at exit | 85% | **100%** |
+| reach / held / runlen | 28 / 60% / 7.1 | 28 / 63% / 6.4 |
+
+**Every cap and both infeasible exits become acceptable exits**, wall time drops
+about 7x, and yield goes *up*. All six kept-label flips run the same way —
+control rejects, `compl5` keeps — with none lost. Among them is idx 1684, which
+X25 cited as proof that caps were hopelessly infeasible at `g +4.911`; under the
+loosened bound it lands at `g -0.137` and is kept. Complementarity was the
+blocking leg, as X10 and X11 measured directly on one candidate and as the prior
+art predicted.
+
+**Not concluded: reproducibility.** The 1.942 divergence and 4/40 bitwise above
+are `compl_ctl_a` against `compl5_a` — two different settings, so that is effect
+size, not run-to-run reproducibility. `compl5_b` is needed for the latter, and
+the doc's table has `acceptable tol 5` at divergence 4.536 and 0/40, so the
+expected cost of this change is the bitwise determinism the control has at 40/40.
+That is the trade `RECOMMENDATION.md` already named a policy question rather than
+a tuning one, now with a measured price on both sides.
+
+**Also confirmed here: the rebase is clean.** `compl_ctl_c`, the baseline re-run
+from the merged checkout, is bitwise identical to `compl_ctl_a` at 40/40 with
+every summary figure equal, so results from the former worktree carry over.
