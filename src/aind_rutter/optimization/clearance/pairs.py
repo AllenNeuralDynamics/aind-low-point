@@ -385,6 +385,42 @@ def body_body_pair_clearance(
 # Clearance read for padded cell slots; large enough never to be the minimum.
 _PAD_CLEARANCE_MM = 1e3
 
+# Bound width over which a cell's refinement fades in, and how far above its own
+# coarse value a faded-out cell's samples are parked. The margin only has to
+# outrun the softmin's weighting: at beta = 20/mm, 0.5 mm is a factor of e^-10.
+_CUT_FADE_MM = 0.25
+_CUT_PARK_MM = 0.5
+
+
+def _select_cells(bound: Array, n_cells: int) -> tuple[Array, Array, Array]:
+    """The ``n_cells`` lowest-bound cells, their bounds, and the cut bound.
+
+    The cut is the first rejected cell's bound, which :func:`_fade_at_cut` needs.
+    Refining every cell leaves nothing rejected, and the cut is then infinite so
+    no cell fades.
+    """
+    k = min(n_cells + 1, int(bound.shape[0]))
+    neg, order = jax.lax.top_k(-bound, k)
+    cut = -neg[n_cells] if k > n_cells else jnp.asarray(jnp.inf, bound.dtype)
+    return order[:n_cells], -neg[:n_cells], cut
+
+
+def _fade_at_cut(
+    fine_values: Array, cell_coarse: Array, bounds: Array, cut: Array
+) -> Array:
+    """Fade a refined cell's samples out as its bound approaches the cut.
+
+    Refining a fixed number of cells is a hard selection, so a cell crossing the
+    cut swaps a pool of fine samples for its single coarse value and the soft
+    minimum steps. A cell at the cut gets weight zero and contributes exactly what
+    it would unrefined, so the swap moves nothing. The cut is an order statistic
+    and so moves continuously itself.
+    """
+    gate = jnp.clip((cut - bounds) / _CUT_FADE_MM, 0.0, 1.0)[:, None]
+    parked = cell_coarse[:, None] + _CUT_PARK_MM
+    # Samples already above the parking level stay where they are.
+    return jnp.maximum(fine_values, parked - gate * (parked - fine_values))
+
 
 def body_body_pair_clearance_c2f(
     R_a: Array,
@@ -459,7 +495,7 @@ def body_body_pair_clearance_c2f(
     bound = jnp.where(off_grid, floor, coarse_values) - jnp.concatenate(
         [radius[kind_b], radius[kind_a]]
     )
-    _, chosen = jax.lax.top_k(-bound, n_cells)
+    chosen, sel_bounds, cut = _select_cells(bound, n_cells)
     of_a = chosen >= n_coarse  # the cell holds probe a's points, read in b's SDF
     owner = jnp.where(of_a, kind_a, kind_b)
     members = cells[owner, jnp.where(of_a, chosen - n_coarse, chosen)]  # (n_cells, W)
@@ -472,8 +508,11 @@ def body_body_pair_clearance_c2f(
     local = jnp.einsum("cwk,ckj->cwj", world - t_dst[:, None, :], R_dst)
     fine_values = lookup(jnp.where(of_a, kind_b, kind_a)[:, None], local)
     fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
-    pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
-    return jnp.min(pool), soft_min_topk(pool, beta=beta, top_k=top_k)
+    hard = jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values))
+    faded = _fade_at_cut(fine_values, coarse_values[chosen], sel_bounds, cut)
+    return hard, soft_min_topk(
+        jnp.concatenate([coarse_values, faded.reshape(-1)]), beta=beta, top_k=top_k
+    )
 
 
 def body_shank_box_clearance_c2f(
@@ -535,7 +574,7 @@ def body_shank_box_clearance_c2f(
         ]
     )
     bound = coarse_values - jnp.concatenate([radius[kind_b], radius[kind_a]])
-    _, chosen = jax.lax.top_k(-bound, n_cells)
+    chosen, sel_bounds, cut = _select_cells(bound, n_cells)
     of_a = chosen >= n_coarse  # the cell holds probe a's points, read against b
     owner = jnp.where(of_a, kind_a, kind_b)
     members = cells[owner, jnp.where(of_a, chosen - n_coarse, chosen)]  # (n_cells, W)
@@ -550,5 +589,8 @@ def body_shank_box_clearance_c2f(
         jnp.repeat(of_a, members.shape[1]), against_b, against_a
     ).reshape(members.shape)
     fine_values = jnp.where(members < n_fine, fine_values, EMPTY_CLEARANCE_SENTINEL)
-    pool = jnp.concatenate([coarse_values, fine_values.reshape(-1)])
-    return hard_soft(pool, beta=beta, top_k=top_k)
+    hard = jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values))
+    faded = _fade_at_cut(fine_values, coarse_values[chosen], sel_bounds, cut)
+    return hard, soft_min_topk(
+        jnp.concatenate([coarse_values, faded.reshape(-1)]), beta=beta, top_k=top_k
+    )
