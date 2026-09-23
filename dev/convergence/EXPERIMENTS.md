@@ -3,7 +3,31 @@
 One entry per measurement, appended, never rewritten. An entry records what was
 asked, how it was measured, what came back, and what may not be concluded from
 it. Corrections are new entries that cite the old one, so a wrong reading stays
-visible next to its retraction.
+visible next to its retraction, and the corrected entry gets a one-line banner
+pointing forward — the reader who stops at the old entry is the one being
+protected.
+
+**State a statistic's scope before it carries an argument.** Every wrong reading
+in this file came from the same move: a recorded field used without checking what
+it measures *over*.
+
+- **Final iterate vs trajectory.** "Infeasible at the cap" describes the last
+  iterate, not the solve. The capped solves reached feasibility at iteration 24
+  and held runs of 60 (X25 → X26).
+- **Trailing window vs total.** "The trailing feasible run is 8" is not "the
+  solve is feasible for 8 iterations". The total was 245 of 570 (X25 → X27).
+- **Scaled vs unscaled.** `diag_hist`'s `inf_pr`/`inf_du` are IPOPT's *scaled*
+  iteration-log values and `mu` is the barrier parameter, not complementarity.
+  The acceptable test reads unscaled quantities; `group_min`/`group_nviol` are
+  the only unscaled records (X25).
+- **Unresolvable vs null.** A metric the prior art calls unresolvable licenses
+  "unresolved", never "no effect" (X19 → X26).
+- **Raw counts vs rates.** A count that grows with solve length (crossings,
+  iterations spent anywhere) must be normalised before two arms are compared on
+  it (X27).
+
+So: name the axis a figure runs over, and say whether it is scaled, in the
+sentence that first uses it.
 
 Prior art lives in `dev/PHASE2_CONDITIONING.md` (measured state of the Phase-2
 solve as of 2026-09-16: build capabilities, constraint scaling, why solves exit
@@ -531,6 +555,10 @@ be defined there before it is used anywhere else.
 ---
 
 ## X10 — Complementarity is what caps the solve, measured from IPOPT directly
+> **CONTESTED BY X25, RESTORED BY X26.** X25 argued the capped solves never reach
+> feasibility so no acceptance tolerance could reach them. That is false on direct
+> measurement, and this entry's method — `get_current_violations(scaled=False)`,
+> the unscaled quantities the acceptable test compares against — is the right one.
 
 **Date:** 2026-09-22 · **Item:** C5 · **Status:** first arm settled; `cfg` arm running
 
@@ -583,6 +611,11 @@ itself, is still running. One candidate, one arm; a default change needs the
 ---
 
 ## X11 — Setting `acceptable_compl_inf_tol` turns a 1000-iteration cap into a 120-iteration exit
+> **CONTESTED BY X25, RESTORED BY X26.** See X10's note. Caveat unchanged and
+> independent of that dispute: this arm moved `acceptable_dual_inf_tol` to 5.0
+> alongside the complementarity bound, so it is a two-factor change on one
+> candidate, and the 1000 → 120 result cannot be attributed to the complementarity
+> bound alone. `compl5_a` at n=40 moves only the one setting.
 
 **Date:** 2026-09-22 13:43 · **Item:** C5 · **Status:** mechanism settled on one candidate
 
@@ -1061,6 +1094,12 @@ X9; X18 changes none of its conclusions and only supplies the arm-level
 arithmetic.
 
 ## X19 — The prior art says `kept` cannot resolve these differences; most of the series is noise
+> **QUALIFIED BY X26.** The core claim — kept cannot resolve a few candidates at
+> this scale — is right and confirmed. What does not follow is the use made of it
+> here and in X25: an unresolvable metric licenses "unresolved", not "no effect".
+> `smooth` and `angle` were dropped on that reasoning, and `angle` is the prior
+> art's own prescribed fix for a defect in the current default. Score formulation
+> changes on the continuous measures instead.
 
 Found while preparing criterion 3's benchmark. `dev/PHASE2_CONDITIONING.md`
 states it outright, and stated it before any arm in this series ran:
@@ -1304,6 +1343,16 @@ Weight: n=4, one platform, and `du_1` has no handoff. Enough to close the questi
 against the change, not enough to support any positive claim.
 
 ## X25 — both throughput candidates die on the control's own diagnostics (2026-09-22 17:23)
+> **CORRECTED BY X26 — both verdicts below are withdrawn.** This entry reads two
+> trailing-window statistics as statements about whole trajectories, and both
+> inferences are false on direct measurement. "10 of 11 caps are infeasible at
+> the cap" does not mean those solves never reached feasibility: they reach it at
+> iteration 24 and hold runs of 60. "The median solve is feasible for 8 of its
+> 570 iterations" reports the *trailing* run as if it were the total; the total
+> is 245 of 570. The 98.5%/1.5% split and the "adopt neither" verdict both rest
+> on those errors, and this entry's overturning of X10 and X11 does not stand.
+> The measurements in the tables are correct; the readings taken from them are
+> not.
 
 Ran against `837772_g40_compl_ctl_a` alone, no card needed. Two false starts
 first, and they matter for anything that reads `diag_hist` later.
@@ -1424,3 +1473,61 @@ direction — including the absence of one. X19 used that to call `smooth` and
 "unresolved", not "no effect". Iterations to first feasible, feasible fraction,
 crossing count and the margin distribution are continuous and are what a
 better-conditioned parameterization should move.
+
+## X27 — how a solve holds feasibility, and X25's second arithmetic error (2026-09-23 08:29)
+
+Follows X26. Measured with `scratch/estimators/compare_protocol.py` on
+`compl_ctl_a`, from `group_min`, the only unscaled feasibility record.
+Definitions, since raw counts mislead here: **reach** is the iteration of the
+first feasible iterate; **held** is the feasible fraction of the iterations after
+that, which drops the pre-feasible transient; **osc/100** is feasible runs per
+100 iterations, normalised because a 1000-iteration cap crosses more often than a
+200-iteration solve without tracking the constraint surface any worse;
+**runlen** is the mean feasible run.
+
+| arm | reach | held | osc/100 | runlen | feasible at exit | kept | model-optimistic |
+|---|---|---|---|---|---|---|---|
+| `compl_ctl_a` | 28 | 60% | 7.5 | **7.1** | 85% | 31/40 | 8 |
+| `nothread_a` | 46 | 40% | 9.3 | 4.0 | 92% | 21/40 | 19 |
+
+**The mean feasible run is 7.1 iterations against an `acc_iter` of 8.** The solve
+repeatedly achieves feasibility in runs just short of the window the acceptable
+test demands, so it exits at roughly the first run that survives to 8.
+
+Fraction of iterations each constraint group spends violated:
+
+| arm | thread | probe_pair | probe_fixture | brain | arc_sep | ml_sep |
+|---|---|---|---|---|---|---|
+| `compl_ctl_a` | 20.6% | **39.1%** | 12.9% | 0.9% | 0.0% | 0.0% |
+| `nothread_a` | 34.1% | **59.0%** | 20.3% | 1.3% | 0.0% | 0.0% |
+
+`probe_pair` is the group the solver cannot hold, not threading. Removing the
+threading reward makes every group worse, which is a second reading of why
+`nothread` converges cleanly to the wrong problem.
+
+**X25's second error, on the 27 acceptable exits.**
+
+| | |
+|---|---|
+| median iterations | 570 |
+| median **total** feasible iterations | **245 (43% of the solve)** |
+| median **trailing** feasible run | 8 |
+| median iteration of the first feasible run reaching 8 | **77** |
+| median iteration of the first feasible run reaching 3 | 40 |
+
+X25 wrote "the median solve is 570 iterations and is feasible for 8 of them:
+1.5% of the solve". The 8 is the trailing run; the total is 245. The figure is
+wrong by a factor of about 30, and `ip_acc_iter` is un-retired with
+`ip_acc_compl_tol`.
+
+**What actually gates the exit.** The feasibility leg is satisfied for 8
+consecutive iterations by iteration 77, and the median solve exits at 570. So
+the constraint-violation leg qualified 490 iterations before the exit, and some
+other leg — the overall NLP error bound of `ip_acc_tol` = 5.0, or complementarity
+at 0.01 — was unsatisfied for roughly 87% of the solve. That is where the
+throughput is, and it is the hypothesis X10 and X11 measured directly before X25
+displaced them.
+
+**Not concluded.** Which leg binds over those 490 iterations is not measured
+here: `diag_hist` records no unscaled complementarity, and `mu` is the barrier
+parameter. `compl5_a` at n=40 is the direct test.

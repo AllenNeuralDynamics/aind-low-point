@@ -66,6 +66,14 @@ wrong.
 - **`tests/architecture/` fails in both directions.** Each rule carries a
   baseline of today's exceptions that may only shrink, so a rule also fails
   when a listed exception stops violating it.
+- **Phase-2's `diag_hist` measures narrower things than the names suggest.**
+  `inf_pr`/`inf_du` are IPOPT's *scaled* iteration-log values and `mu` is the
+  barrier parameter, not complementarity, so none of them may be compared
+  against `ip_cvtol` or `ip_acc_compl_tol`, which are unscaled;
+  `group_min`/`group_nviol` are the only unscaled records. A terminal or
+  trailing-window figure describes that window and not the trajectory — a solve
+  infeasible at the cap was typically feasible for half its iterations. Read
+  what writes a field before it carries a conclusion.
 - **One-off tests go in `/tmp`, prototypes in `scratch/`.** `scripts/` is for
   tracked production drivers.
 

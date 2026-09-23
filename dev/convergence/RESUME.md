@@ -26,7 +26,8 @@ experiment worktrees are gone.
 |---|---|
 | `ip_acc_compl_tol` 0.01 → 5.0 | **un-retired (X26).** `resume_gpu_arms.sh compl`. `diag_hist` cannot settle which leg gated those feasible runs — `mu` is the barrier parameter and `inf_pr` is scaled — so it needs the arm, not more analysis |
 | `angle`, `smooth`, `f32` | **unrun on GPU.** Score on the continuous measures, not kept. `angle` is `PHASE2_CONDITIONING.md`'s own prescribed fix for a defect in the current default, not a tuning knob |
-| the `throughput` batch (`ip_acc_iter`) | **retired.** X25's `acc_iter` arithmetic does not depend on the claim X26 overturned |
+| `ip_acc_iter` 8 → 3 | **un-retired (X27).** X25's "1.5% of wall time" read the trailing feasible run as the total and is wrong by ~30x. Note the mean feasible run is 7.1 against an `acc_iter` of 8 |
+| what gates the exit | **the open question.** The feasibility leg qualifies by iteration 77; the median solve exits at 570. Another leg — `ip_acc_tol` = 5.0 or complementarity at 0.01 — is unsatisfied for ~87% of the solve. X10/X11 measured this directly and X25 displaced them; X26 restores them |
 
 ```bash
 scratch/estimators/resume_gpu_arms.sh compl           # compl5_a

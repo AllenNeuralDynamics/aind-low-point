@@ -93,12 +93,19 @@ cat dev/convergence/STATUS.md            # where we are; read the log at the bot
 git status --short && git log --oneline -3
 ```
 
-Worktrees. The main checkout is `implant-hole-walls` and is where production runs
-from; branch work is on `smooth-model`:
+**One tree since 2026-09-23.** `implant-hole-walls` was rebased onto
+`smooth-model-p1trace`, so the main checkout carries every solver commit this
+investigation produced and the `-p1angle` and `-smooth` worktrees were removed.
+Run everything from here. The `-motion` and `-rig` worktrees are other work,
+hold uncommitted changes on the pre-`f986af6` package layout, and must be left
+alone.
 
-```bash
-git -C /home/galen.lynch/Documents/Code/aind-low-point-smooth log --oneline -3
-```
+**Before a measured number becomes a verdict, say what it measures over.** Three
+verdicts in `EXPERIMENTS.md` had to be withdrawn for want of that one sentence —
+a terminal value read as a trajectory, a trailing window read as a total, a
+scaled log field read as the unscaled quantity a tolerance is compared against.
+Its header lists the specific confusions. When a diagnostic is about to carry an
+argument, read the code that writes it first.
 
 Everything runs on 3.13, and the tools below are on PATH rather than in the venv:
 
