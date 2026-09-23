@@ -576,6 +576,29 @@ Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
 ``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
 ``all`` list for inspection.
 
+Trading Objective For Feasibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``RUTTER_IP_ACC_COMPL_TOL`` (default ``1e-2``) bounds the complementarity leg of
+IPOPT's acceptable-point test. Raising it to the same scale as ``ip_acc_tol``
+lets a solve stop at an acceptable point much sooner, and that is a deliberate
+trade rather than a free win, because the two axes behave differently along an
+IPOPT trajectory:
+
+* The objective descends monotonically and is still descending when a solve
+  exits, so every iteration the looser tolerance cuts costs objective on every
+  solve that would have converged anyway.
+* Feasibility does not. A path that enters restoration leaves the feasible set
+  and can return an infeasible iterate at the iteration cap having been feasible
+  for much of the solve. Accepting earlier captures one of those iterates.
+
+So loosen it when more plans matter more than each plan's quality, and leave it
+alone when the reverse holds. The looser setting is not a substitute for raising
+``RUTTER_P2_ITER``: it stops solves sooner, it does not make them converge. Do
+not loosen ``ip_cvtol`` for the same purpose — its constraint vector is
+mixed-unit, and ``1e-2`` there admits overlap that FCL then reports as a
+collision.
+
 The final ``ranked`` list is MMR-ranked: high post-Phase-2 coverage is balanced
 against similarity to already selected hole assignments. This keeps the handoff
 set useful to a human reviewer instead of returning many nearly identical
