@@ -37,7 +37,7 @@ uv run --python 3.13 python scratch/estimators/compare_arms.py \
 |---|---|
 | 1 — six arms read, signed effect against base | **open**, needs the card |
 | 2 — D2/D3/D4 + the `inf_du` question | **done**; `inf_du` answered "No, not as a cross-arm ranking metric" |
-| 3 — recommendation validated on the 40×2 protocol | **open**, and see the decision below |
+| 3 — recommendation validated by running the 40×2 protocol against a same-tree, same-platform control | **open**, needs the card |
 | 4 — I1 built, parity bitwise, checks green | **done**; `abeb9f0`+`81fbefe`, 906 passed / 2 skipped |
 
 Neither gate tripped: D2 did not find `inf_pr` at fault, D3 found the active
@@ -45,16 +45,23 @@ Jacobian well conditioned. The stopping rule has not fired only because the
 pending arms are unrun — nothing so far beats `base` on kept yield except noise,
 and the one effect clearing the noise floor, `nothread`'s −6, is a worsening.
 
-## The one decision waiting on the user
+## Criterion 3, as amended 2026-09-22
 
-Criterion 3 says the recommendation must be validated on the 40×2 protocol
-**from `dev/PHASE2_CONDITIONING.md`**. X23 shows that document's table no longer
-scores this tree: the same configuration on candidate-for-candidate identical
-problems now gives median 737 iterations and 11/40 at the cap, against the
-table's 1000 and 42/80. The protocol is still the right instrument; what is dead
-is using the doc's recorded numbers as the comparison. Criterion 3 wants
-re-wording to validation against an **own same-tree control**, which is what
-`compl_ctl_a` is and why the batch was built around one.
+Criterion 3 originally required validation *on* the 40×2 protocol from
+`dev/PHASE2_CONDITIONING.md`, which read as scoring against that document's
+recorded table. X23 showed the table no longer scores this tree — same
+configuration, candidate-for-candidate identical problems, median 737 iterations
+against 1000 and 11/40 at the cap against 42/80.
+
+It now requires **running** the protocol against a control solved on the same
+tree and the same platform. The protocol was always the right instrument; only
+its recorded numbers stopped being the reference. `compl_ctl_a` is that control,
+which is why the batch was built around one. `PLAYBOOK.md` carries the full
+wording, including the platform exclusion from X22.
+
+Nothing else about the criterion changed: the capped-10 is still excluded as a
+hand-picked tail, and `f32`'s 9/10 still does not on its own justify flipping
+`RUTTER_GRID_DTYPE`.
 
 ## Three traps that cost time today
 

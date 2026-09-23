@@ -103,7 +103,9 @@ figure is out of 40.
   GPU/MPS — which is where the nondeterminism the divergence column measures comes
   from. The pending pair is therefore the literal protocol: both settings solved
   twice, on the protocol's own 40 ranks, with the divergence and bitwise columns
-  intact and directly comparable to the doc's table.
+  intact. They are comparable **to each other and to `compl_ctl_a`**, the control
+  from the same tree and platform — not to the doc's recorded table, which X23
+  ruled out as a reference for this code.
 
 ## Open decisions for the user
 

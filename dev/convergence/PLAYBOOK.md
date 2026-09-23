@@ -21,12 +21,26 @@ Done when all four hold:
    effect against `base`.
 2. D2, D3 and D4 each answered in one sentence in `EXPERIMENTS.md`, and *"is
    `inf_du` the right target"* has a yes or a no behind it.
-3. A written defaults recommendation, validated on the 40-candidate × 2 protocol
-   in `dev/PHASE2_CONDITIONING.md` — **not** on the capped-10, which is a
-   hand-picked tail and cannot justify changing a default. So `f32`'s 9/10 is not
-   on its own sufficient to flip `RUTTER_GRID_DTYPE`: that also doubles grid
-   memory per worker (296 → 593 MiB), costing worker count on CPU and VRAM on the
-   card, so the flip depends on I2's numbers too.
+3. A written defaults recommendation, validated by *running* the 40-candidate × 2
+   protocol of `dev/PHASE2_CONDITIONING.md` against a control solved on the same
+   tree and the same platform. Three exclusions, each one measured rather than
+   assumed:
+   - **Not** against that document's recorded table. X23 ran the baseline at n=40
+     on the protocol's own ranks and it no longer reproduces the table's row for
+     the same configuration — median 737 iterations against 1000, 11 of 40 at the
+     cap against 42 of 80, on candidate-for-candidate identical problems. The
+     code moved; the protocol is still the instrument, its recorded numbers are
+     no longer the reference.
+   - **Not** across platforms. X22 found the platform moves threading margin,
+     clearance and coverage on a fixed candidate under fixed settings by more than
+     most settings under test. The prior art is GPU, so the GPU is the reference
+     and CPU arms are indicative only.
+   - **Not** on the capped-10, which is a hand-picked tail and cannot justify
+     changing a default.
+
+   So `f32`'s 9/10 is not on its own sufficient to flip `RUTTER_GRID_DTYPE`: that
+   also doubles grid memory per worker (296 → 593 MiB), costing worker count on
+   CPU and VRAM on the card, so the flip depends on I2's numbers too.
 4. I1 built, default-off parity bitwise, checks green, so I2 fires the moment
    `nvidia-smi` drops under 2.5 GiB.
 
