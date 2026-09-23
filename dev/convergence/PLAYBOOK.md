@@ -131,13 +131,13 @@ cannot be fixed, only restarted.
 ### Running and comparing Phase-2 arms
 
 ```bash
-# from the main checkout; TREE= runs a worktree's code instead
+# one tree since the 2026-09-23 rebase; TREE= would run another checkout's code
 scratch/estimators/run_arms_cpu.sh 837772-config \
   scratch/estimators/837772-config/capped10_ranks.txt \
   scratch/estimators/837772_cpu 3 \
   base= nothread=RUTTER_LAM_THREAD=0 f32=RUTTER_GRID_DTYPE=float32
 
-TREE=/home/galen.lynch/Documents/Code/aind-low-point-smooth taskset -c 6-17 \
+taskset -c 6-17 \
   scratch/estimators/run_arms_cpu.sh 837772-config \
   scratch/estimators/837772-config/capped10_ranks.txt \
   scratch/estimators/837772_cpu 2 \
@@ -472,6 +472,5 @@ take right after a kink-induced flip. Run as one comparison, not three.
 
 ## Housekeeping owed
 
-- Discard the three uncommitted files in the main checkout once `base` finishes;
-  they duplicate `smooth-model` and exist only to feed the running arm.
-- The `smooth-model-p1angle` worktree is redundant now that `a4826e8` is folded in.
+- **Done 2026-09-23.** `implant-hole-walls` rebased onto `smooth-model-p1trace`;
+  the `-p1angle` and `-smooth` worktrees are removed and arms run from here.
