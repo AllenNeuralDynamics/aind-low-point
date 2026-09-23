@@ -420,7 +420,22 @@ checks are green; and the channels produce sane values on a four-candidate run.
 Note for later reading: tracing changes fusion, so a traced run will not match an
 untraced one in the last bits. All arms must be traced to be comparable.
 
-### I2 — Four-arm instrumented Phase-1 replay · *the Phase-1 half of the goal*
+### I2 — Instrumented Phase-1 replay · **done, see X36**
+
+Ran as three arms, not four: `f32` is closed and B2 means a Phase-1 dtype arm
+would not reach the gradient anyway. **Both interventions are null** and the
+finding is elsewhere: flips *rise* late while the step collapses, and 57% of
+movable coordinates end `reduced_coarse` pinned at `eta_min` still reversing
+sign a third of the time. `angle` does nothing here because `arctan2`'s defect
+is a magnitude singularity and RProp reads only the sign.
+
+**Next is a per-term ablation, not another whole-pipeline arm** — F4's hole-wall
+`max`, the hard `min`s at `objectives/soft.py:533`/`:561`, and the OBB-SAT `max`
+at `clearance/boxes.py:222`. `clipped` at 0.4% rules out F2's mechanism.
+
+The spec it ran to follows.
+
+
 
 `base`, smooth reward, f32 blend, angle — on a real subject, matching the Phase-2
 arms. **Gate on `nvidia-smi` under 2.5 GiB.**
@@ -509,6 +524,46 @@ measures in both phases.
 
 **Ask the user before implementing** — it changes a constraint row's value, so
 it is a formulation change, not a tidy-up.
+
+### F5 — A threading reward that is smooth *and* zero below zero
+
+X33 rejected `smooth_thread_reward`, but it rejected one particular smoothing,
+not the idea. `objectives/rewards.py:53-64` makes two separate substitutions and
+both look wrong for this term:
+
+- **The gate.** `softplus(beta*w)/beta` is `ln(2)/beta = 0.035` at *zero* slack
+  and still positive at a violation, where `jnp.maximum(0.0, w)` is exactly 0.
+  It pays for sitting at or just outside the bore wall. A quadratic hinge is C1
+  and still exactly zero for every `w <= 0`:
+
+  ```python
+  c = jnp.clip(w, 0.0, delta)
+  g = 0.5 * c * c / delta + jnp.maximum(w - delta, 0.0)
+  ```
+
+  `g'` runs 0 -> w/delta -> 1 continuously, so the kink at zero slack goes
+  without the offset. `delta` sets the smoothing width.
+- **The minimum.** A log-sum-exp softmin over all K section-shank entries
+  spreads gradient across every near-tied section, and threading needs the
+  *worst* section to clear. `clearance/smooth.py:17-46` already has
+  `soft_min_topk`, which blends only the k smallest — smoothing real ties
+  without diffusing over K.
+
+**Done when** the pair is measured against both the hard reward and the current
+smooth one, on the goal's measures, in both phases.
+
+**Ask the user before implementing** — it changes an objective term.
+
+### B3 — Phase 1's chunk is fixed, not sized to the card
+
+`RUTTER_CHUNK` defaults to 256, which needs 6.59 GiB for the batch alone and
+fails on a 10 GiB card once grids, atlas, coverage and restore buffers are
+resident — before any tracing. `RUTTER_RESTORE_CHUNK` has the same problem one
+stage earlier and is 16 spins wide. Nothing consults available VRAM, so a
+smaller card gets `RESOURCE_EXHAUSTED` rather than more chunks.
+
+Measured on this card: `chunk=64` completes 256 candidates in 115 s; `chunk=256`
+fails identically with tracing on and off, so the trace is not the cause.
 
 ### B2 — Phase 1's gradient ignores `grid_dtype` · *defect, reproduction in hand*
 

@@ -1846,3 +1846,112 @@ composing `from_angle_layout` into the traced objective and treating theta as a
 periodic RProp coordinate with a rescaled eta; Phase 2 wraps the model in NumPy
 outside the trace. Different mechanisms, and Phase 1's has never been measured.
 I2 remains the test.
+
+## X35 — Phase 1's chunk, not tracing or dtype, is what exhausts the card (2026-09-23 09:25)
+
+Setting up I2 hit `RESOURCE_EXHAUSTED` repeatedly. Three candidate causes were
+proposed and all three are wrong; the measurements are cheap and worth recording
+so they are not re-proposed.
+
+| run | `chunk` | `restore_chunk` | `trace` | result |
+|---|---|---|---|---|
+| default | 256 | 128 | 10 | OOM 6.59 GiB, in RProp |
+| no tracing | 256 | 128 | **0** | **OOM 6.59 GiB, identical** |
+| tiny restore | 256 | **16** | 0 | **OOM 6.59 GiB, identical** |
+| halved | **128** | 128 | 500 | **completes**, 256 candidates in 105.8 s |
+| quartered | 64 | 128 | 500 | completes, 256 candidates in 114.9 s |
+
+- **Not tracing.** `trace=0` fails at the same byte count, so the per-iteration
+  buffers are not the cost, despite the in-code warning that tracing changes
+  fusion. That warning is about comparability, not memory.
+- **Not the stages overlapping.** Shrinking restore eightfold changes nothing,
+  and `restore_group` returns host arrays (`np.asarray(y_r[b], np.float64)`), so
+  its results are not resident when RProp runs. The stages are already
+  sequential.
+- **Not float32 blending.** `bf16_store` governs the *grids*, about 296 MiB
+  against 593 MiB; blending casts sampled values at use and makes small
+  temporaries. It is not a multi-GiB term.
+
+**It is simply the RProp batch width.** At `chunk=256` the batch alone wants
+6.59 GiB, which does not fit beside the resident grids, atlas and coverage
+volumes in the 8 GiB arena that `XLA_PYTHON_CLIENT_MEM_FRACTION=0.8` reserves on
+a 10 GiB card. Nothing consults available VRAM, so a smaller card gets an
+exception instead of more chunks (B3).
+
+**One real configuration error was found on the way.** The estimator script had
+copied `XLA_PYTHON_CLIENT_PREALLOCATE=false` from the Phase-2 runner. That flag
+is there because Phase 2 runs several worker processes on one card; Phase 1 is a
+single process, and without a preallocated arena its allocations fragment. The
+production driver `scripts/run_subject_overnight.sh:116` sets
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.8` and does not disable preallocation. Copy
+the production driver's environment, not an adjacent script's.
+
+## X36 — I2: Phase 1 churns at the step-size floor, and neither intervention touches it (2026-09-23 09:45)
+
+Three traced Phase-1 arms, 512 candidates each (504 in the 3-arc group), GPU,
+`chunk=128`, `trace=500`. `f32` was dropped: the user closed `grid_dtype`, and
+B2 means a Phase-1 dtype arm would not change the gradient anyway.
+
+### The arms are null
+
+| | base | `angle` | `smooth` |
+|---|---|---|---|
+| flip, reduced_coarse | 30.7% | 32.5% | 30.7% |
+| flip, full_coarse | 25.3% | 25.8% | 24.5% |
+| eta_floor, full_coarse | 21.3% | 22.8% | **19.0%** |
+| feasible (`min_clear > 0`) | 15/504 | 9/504 | 14/504 |
+| objective vs base | — | +12.8, worse on 262/504 | +5.4, worse on 255/504 |
+
+Both "worse on" counts are coin flips at n=504, and the flip rate moves by under
+two points either way. **Neither intervention addresses Phase 1's kinks.**
+
+### Why `angle` does nothing here, having transformed Phase 2
+
+`arctan2`'s defect at the origin is a **magnitude** singularity — the gradient
+grows as 1/r. IPOPT builds search directions from magnitudes, so that wrecks its
+conditioning and X32 measured a large win. **RProp uses only the sign**, and a
+gradient diverging in magnitude does not change its sign, so RProp was already
+immune and removing the singularity buys it nothing. The asymmetry is
+mechanical, not a measurement artifact, and it means `spin_param` — which sits
+on the shared `PipelineSettings` — trades a small Phase-1 cost for a large
+Phase-2 gain. Whether it should be per-phase is a design question for the user.
+
+### The finding is in the trajectory, not the average
+
+The pooled 25-31% flip rate is ambiguous: RProp flips near a minimum by design.
+Split by iteration, base, `reduced_coarse` (450 iterations):
+
+| iterations | flip | eta_floor | mean step |
+|---|---|---|---|
+| 0-10 | 30.1% | 0.0% | 0.363 |
+| 10-50 | 27.1% | 0.0% | 0.029 |
+| 50-150 | 25.1% | 15.0% | 0.0016 |
+| 150-300 | 30.5% | 40.7% | 0.00044 |
+| **300-450** | **35.6%** | **57.4%** | **0.00011** |
+
+**Flips rise late while the step collapses.** Converging RProp does the
+opposite: flips fall as coordinates settle. Here, by the end of the stage 57% of
+movable coordinates sit at `eta_min` and still reverse sign more than a third of
+the time — oscillating at the smallest step they are allowed, not converged. The
+step is about 3300x smaller than at the start while the flip rate is *higher*.
+`full_coarse` repeats it more mildly, 27.9% flip at 35.1% floored.
+
+### What it rules in and out
+
+- **Bound clipping is not the cause.** `clipped` is 0.4% in `reduced_coarse` and
+  2.1-3.0% elsewhere, so F2, which targets clip-driven eta inflation, is aimed
+  at a mechanism that is barely present.
+- **The dominant kink source is unidentified.** The remaining candidates are
+  F4's hole-wall `jnp.maximum` over `jnp.max(wall_dist)`, the hard `jnp.min` over
+  the four clearance categories (`objectives/soft.py:533`, `:561`, which unlike
+  Phase 2 have no smooth variant), and the OBB-SAT `jnp.max` over 15 axes
+  (`clearance/boxes.py:222`). A per-term ablation is the next measurement, not
+  another whole-pipeline arm.
+- **Phase 1 does have iterations to reclaim**, unlike Phase 2 (X31): the last
+  150 of 450 reduced-coarse iterations run at step 1e-4 with over half the
+  coordinates frozen.
+
+**Scope.** `RUTTER_LIMIT` takes the first N in enumeration order, so these 504
+are a systematic slice and not a random sample of the pool; the arms are paired
+on the same slice, which is what the comparison needs, but the absolute feasible
+counts do not characterize the subject.
