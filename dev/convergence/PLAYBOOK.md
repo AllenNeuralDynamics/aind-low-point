@@ -540,6 +540,32 @@ invites the X29 mistake in new clothes.
 `Phase1Weights`, so every arm enters RProp from the same restored seeds and the
 comparison is properly paired.
 
+### F6 — Phase 1's clearance reward, if A1 names it · *conditional, needs the user*
+
+Prepared so a confirmed A1 has a fix ready, **not** to be applied before A1
+lands. Both options change a production default.
+
+Phase 1 already computes the smooth clearance values it would need. One call
+returns both and the objective uses each for a different thing:
+`_hard, _soft = swept_pair_clearances(...)`, then the *penalty* takes `_soft`
+while the *reward* takes `jnp.min(_hard, axis=1)` (`objectives/soft.py:533`, and
+`:561` for fixtures). So the kinked min is a choice, not a cost.
+
+| option | what it does | what it gives up |
+|---|---|---|
+| **smooth it** | `_soft` in place of `_hard` at `soft.py:533`/`:561`, behind a `Phase1Weights.smooth_clearance_reward` plumbed from a setting | nothing computed — `_soft` is already in hand. Mirrors `constrained.py:407`/`:428` exactly |
+| **zero it** | `lambda_margin_clear = 0.0`, which is what Phase 2 ships | the margin incentive that keeps Phase-1 poses off surfaces rather than merely clear of them |
+
+**Phase 2 chose the second**, and note what that means for the first: its
+`smooth_clearance_reward` flag is *inert* there, because `lam_clear = 0` has
+already switched the reward off. So Phase 2's default is evidence that zeroing
+works in Phase 2, and no evidence at all about smoothing — that path is
+genuinely untested in either phase.
+
+**Whichever is chosen, score it on `min_clear` and on the Phase-2 outcome**, not
+on the flip rate it was picked to lower. A1 measures a mechanism; only the
+handoff says whether fixing it produced better plans.
+
 ### F1 — Split the hard-`min` constraint rows · **DROPPED 2026-09-22**
 
 Dropped after Tier 0: the line search is healthy and the active set is tiny and
