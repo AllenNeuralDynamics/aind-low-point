@@ -49,10 +49,7 @@ from aind_rutter.optimization.clearance.boxes import (
 from aind_rutter.optimization.clearance.pairs import (
     body_body_pair_clearance,
     body_body_pair_clearance_c2f,
-    body_shank_box_clearance_c2f,
     body_shank_box_sdf_clearance,
-    body_shank_corners_pair_clearance,
-    shank_only_pair_clearance,
     shank_shank_pair_clearance,
 )
 
@@ -218,15 +215,6 @@ def build_padded_probe_tables(
     return table
 
 
-def with_dense_box_samples(
-    tables: dict, n_long: int = BOX_SAMPLES_LONG, n_wide: int = BOX_SAMPLES_WIDE
-) -> dict:
-    """``tables`` with body-vs-shank-box clearance measured by
-    :func:`body_shank_box_sdf_clearance` in the body-SDF category, leaving the
-    body-sample-vs-box category empty."""
-    return {**tables, "box_fractions": box_face_fractions(n_long, n_wide)}
-
-
 def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) -> dict:
     """Per-kind coarse-to-fine sample tables, padded to the widest kind.
 
@@ -304,7 +292,9 @@ def swept_pair_clearances(
     -------
     hard, soft : (n_pairs, 4) — per-pair clearance in category order
         (body_body, body_shank_corners, body_shank_obb, shank_shank), matching
-        ``PROBE_PAIR_SLACK_GAINS`` and the unrolled loop.
+        ``PROBE_PAIR_SLACK_GAINS`` and the unrolled loop. Body-vs-shank-box
+        clearance is measured once, by :func:`body_shank_box_sdf_clearance` in the
+        second category; the third reads the empty sentinel.
     """
     grids = tables["grids"]
     origins = tables["origins"]
@@ -316,7 +306,8 @@ def swept_pair_clearances(
     real_shapes = tables["real_shapes"]
     kind_id = tables["kind_id"]  # (P,) probe → kind
     coarse_to_fine = "c2f_fine" in tables
-    dense_box = "box_fractions" in tables
+    box_fractions = box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE)
+    empty = jnp.asarray(EMPTY_CLEARANCE_SENTINEL, jnp.float32)
     # World-frame body surfaces, once per PROBE: gather the per-kind local
     # surface by kind, then transform by the probe's pose.
     world_surf = (
@@ -372,129 +363,46 @@ def swept_pair_clearances(
                 n_real_a=nra,
                 n_real_b=nrb,
             )
-        if dense_box:
-            bsc = body_shank_box_sdf_clearance(
-                Ra,
-                ta,
-                Rb,
-                tb,
-                ga,
-                oa,
-                sa,
-                gb,
-                ob,
-                sb,
-                oca,
-                oha,
-                ocb,
-                ohb,
-                tables["box_fractions"],
-                beta=beta,
-                top_k=top_k_body_shank,
-                shank_mask_a=oma,
-                shank_mask_b=omb,
-                n_real_a=nra,
-                n_real_b=nrb,
-            )
-            empty = jnp.asarray(EMPTY_CLEARANCE_SENTINEL, jnp.float32)
-            bso = (empty, empty)
-            sss = shank_shank_pair_clearance(
-                Ra,
-                ta,
-                Rb,
-                tb,
-                oca,
-                oha,
-                ocb,
-                ohb,
-                beta=beta,
-                top_k=top_k_shank_shank,
-                sat_beta=sat_beta,
-                shank_mask_a=oma,
-                shank_mask_b=omb,
-            )
-        else:
-            bsc = body_shank_corners_pair_clearance(
-                Ra,
-                ta,
-                Rb,
-                tb,
-                ga,
-                oa,
-                sa,
-                gb,
-                ob,
-                sb,
-                oca,
-                oha,
-                ocb,
-                ohb,
-                beta=beta,
-                top_k=top_k_body_shank,
-                shank_mask_a=oma,
-                shank_mask_b=omb,
-                n_real_a=nra,
-                n_real_b=nrb,
-            )
-            if coarse_to_fine:
-                # Body samples vs the other probe's shank boxes have the same blind
-                # spots as body-body, so they use the same cells.
-                bso = body_shank_box_clearance_c2f(
-                    Ra,
-                    ta,
-                    Rb,
-                    tb,
-                    ka,
-                    kb,
-                    tables["c2f_coarse"],
-                    tables["c2f_fine"],
-                    tables["c2f_cells"],
-                    tables["c2f_radius"],
-                    oca,
-                    oha,
-                    ocb,
-                    ohb,
-                    beta=beta,
-                    top_k=top_k_body_shank,
-                    n_cells=C2F_REFINED_CELLS,
-                    shank_mask_a=oma,
-                    shank_mask_b=omb,
-                )
-                sss = shank_shank_pair_clearance(
-                    Ra,
-                    ta,
-                    Rb,
-                    tb,
-                    oca,
-                    oha,
-                    ocb,
-                    ohb,
-                    beta=beta,
-                    top_k=top_k_shank_shank,
-                    sat_beta=sat_beta,
-                    shank_mask_a=oma,
-                    shank_mask_b=omb,
-                )
-            else:
-                bso, sss = shank_only_pair_clearance(
-                    Ra,
-                    ta,
-                    Rb,
-                    tb,
-                    sfa,
-                    sfb,
-                    oca,
-                    oha,
-                    ocb,
-                    ohb,
-                    beta=beta,
-                    top_k_body_shank=top_k_body_shank,
-                    top_k_shank_shank=top_k_shank_shank,
-                    shank_mask_a=oma,
-                    shank_mask_b=omb,
-                )
-        hard = jnp.stack([bb[0], bsc[0], bso[0], sss[0]])
-        soft = jnp.stack([bb[1], bsc[1], bso[1], sss[1]])
+        bsc = body_shank_box_sdf_clearance(
+            Ra,
+            ta,
+            Rb,
+            tb,
+            ga,
+            oa,
+            sa,
+            gb,
+            ob,
+            sb,
+            oca,
+            oha,
+            ocb,
+            ohb,
+            box_fractions,
+            beta=beta,
+            top_k=top_k_body_shank,
+            shank_mask_a=oma,
+            shank_mask_b=omb,
+            n_real_a=nra,
+            n_real_b=nrb,
+        )
+        sss = shank_shank_pair_clearance(
+            Ra,
+            ta,
+            Rb,
+            tb,
+            oca,
+            oha,
+            ocb,
+            ohb,
+            beta=beta,
+            top_k=top_k_shank_shank,
+            sat_beta=sat_beta,
+            shank_mask_a=oma,
+            shank_mask_b=omb,
+        )
+        hard = jnp.stack([bb[0], bsc[0], empty, sss[0]])
+        soft = jnp.stack([bb[1], bsc[1], empty, sss[1]])
         return hard, soft
 
     return jax.vmap(_pair)(pair_a, pair_b)

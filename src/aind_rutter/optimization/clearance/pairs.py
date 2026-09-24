@@ -14,7 +14,6 @@ from jax import Array
 from aind_rutter.optimization.clearance.boxes import (
     EMPTY_CLEARANCE_SENTINEL,
     SHANK_SAMPLES_PER_BOX,
-    boxes_sdf,
     obb_obb_signed_distance,
     obb_sdf_world_to_local,
     shank_world_samples,
@@ -571,87 +570,6 @@ def body_body_pair_clearance_c2f(
     local = jnp.einsum("cwk,ckj->cwj", world - t_dst[:, None, :], R_dst)
     fine_values = lookup(jnp.where(of_a, kind_b, kind_a)[:, None], local)
     fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
-    hard = jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values))
-    faded = _fade_at_cut(fine_values, coarse_values[chosen], sel_bounds, cut)
-    return hard, soft_min_topk(
-        jnp.concatenate([coarse_values, faded.reshape(-1)]), beta=beta, top_k=top_k
-    )
-
-
-def body_shank_box_clearance_c2f(
-    R_a: Array,
-    t_a: Array,
-    R_b: Array,
-    t_b: Array,
-    kind_a: Array,
-    kind_b: Array,
-    coarse: Array,
-    fine: Array,
-    cells: Array,
-    radius: Array,
-    shank_centers_a: Array,
-    shank_halves_a: Array,
-    shank_centers_b: Array,
-    shank_halves_b: Array,
-    *,
-    beta: float = 20.0,
-    top_k: int = 8,
-    n_cells: int = 16,
-    shank_mask_a: Array | None = None,
-    shank_mask_b: Array | None = None,
-) -> tuple[Array, Array]:
-    """Body-vs-shank-box category from the coarse-to-fine body samples, returning
-    ``(hard_min, soft_min_topk)`` like the body-vs-OBB pool of
-    :func:`shank_only_pair_clearance`.
-
-    Each probe's coarse body points are measured against the other probe's shank
-    boxes, cells are ranked by ``coarse value − cell radius`` (the box distance is
-    also 1-Lipschitz, so no cell member reads lower), and the fine points of the
-    ``n_cells`` best cells are measured. Sample tables are those of
-    :func:`body_body_pair_clearance_c2f`; masked-out boxes and padded cell slots
-    read the no-collision sentinel.
-    """
-    n_coarse, n_fine = coarse.shape[1], fine.shape[1]
-
-    def to_world(points, R, t):
-        return points @ R.T + t
-
-    coarse_values = jnp.concatenate(
-        [
-            boxes_sdf(
-                to_world(coarse[kind_b], R_b, t_b),
-                R_a,
-                t_a,
-                shank_centers_a,
-                shank_halves_a,
-                shank_mask_a,
-            ),
-            boxes_sdf(
-                to_world(coarse[kind_a], R_a, t_a),
-                R_b,
-                t_b,
-                shank_centers_b,
-                shank_halves_b,
-                shank_mask_b,
-            ),
-        ]
-    )
-    bound = coarse_values - jnp.concatenate([radius[kind_b], radius[kind_a]])
-    chosen, sel_bounds, cut = _select_cells(bound, n_cells)
-    of_a = chosen >= n_coarse  # the cell holds probe a's points, read against b
-    owner = jnp.where(of_a, kind_a, kind_b)
-    members = cells[owner, jnp.where(of_a, chosen - n_coarse, chosen)]  # (n_cells, W)
-    points = fine[owner[:, None], jnp.minimum(members, n_fine - 1)]
-    source_R = jnp.where(of_a[:, None, None], R_a, R_b)
-    source_t = jnp.where(of_a[:, None], t_a, t_b)
-    world = jnp.einsum("cwj,ckj->cwk", points, source_R) + source_t[:, None, :]
-    flat = world.reshape(-1, 3)
-    against_a = boxes_sdf(flat, R_a, t_a, shank_centers_a, shank_halves_a, shank_mask_a)
-    against_b = boxes_sdf(flat, R_b, t_b, shank_centers_b, shank_halves_b, shank_mask_b)
-    fine_values = jnp.where(
-        jnp.repeat(of_a, members.shape[1]), against_b, against_a
-    ).reshape(members.shape)
-    fine_values = jnp.where(members < n_fine, fine_values, EMPTY_CLEARANCE_SENTINEL)
     hard = jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values))
     faded = _fade_at_cut(fine_values, coarse_values[chosen], sel_bounds, cut)
     return hard, soft_min_topk(

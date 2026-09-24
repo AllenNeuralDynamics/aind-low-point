@@ -238,18 +238,6 @@ def obb_obb_signed_distance(
     return jax.lax.stop_gradient(jnp.max(all_separations) - soft) + soft
 
 
-def boxes_sdf(points_world, R, t, centers, halves, mask):
-    """Distance from world points to the nearest of one probe's shank boxes."""
-    per_box = jax.vmap(
-        lambda c, h: obb_sdf_world_to_local(points_world, R, t, c, h),
-    )(centers, halves)  # (S, N)
-    if mask is not None:
-        per_box = jnp.where(
-            mask.astype(bool)[:, None], per_box, EMPTY_CLEARANCE_SENTINEL
-        )
-    return per_box.min(axis=0)
-
-
 def box_face_fractions(n_long: int, n_wide: int) -> Array:
     """``(n_long * n_wide, 3)`` points on a box's broad mid-plane as fractions of
     its half-extents: x (the thin axis) is 0, y spans the width, z the length."""

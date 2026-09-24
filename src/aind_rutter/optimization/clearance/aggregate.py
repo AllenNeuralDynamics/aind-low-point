@@ -57,12 +57,14 @@ from aind_rutter.optimization.clearance.pairs import (
 SLACK_GAIN_BODY_BODY = 1.0
 
 
-SLACK_GAIN_BODY_SHANK_CORNERS = 1.0  # voxel-SDF lookup → mm-native magnitude
+# Voxel-SDF lookup → mm-native magnitude. The pair sweep measures all
+# body-vs-shank-box clearance here, from dense samples of each box.
+SLACK_GAIN_BODY_SHANK_CORNERS = 1.0
 
 
-# Body samples against the exact box read true depths, so a boost squared into the
-# Phase-1 penalty swamps every other term under its sign-based steps. Phase 2
-# weights this category by its own ``obb_gain`` setting.
+# Only :func:`dual_rep_pair_clearance` fills this category; the pair sweep leaves
+# it empty. A boost squared into a penalty swamps every other term under
+# sign-based steps.
 SLACK_GAIN_BODY_SHANK_OBB = 1.0
 
 

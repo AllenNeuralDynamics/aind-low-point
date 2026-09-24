@@ -8,10 +8,19 @@ import numpy as np
 import pytest
 import trimesh
 
-from aind_rutter.optimization.clearance.boxes import box_face_fractions
+from aind_rutter.optimization.clearance.boxes import (
+    EMPTY_CLEARANCE_SENTINEL,
+    box_face_fractions,
+)
 from aind_rutter.optimization.clearance.pairs import (
     body_shank_box_sdf_clearance,
     body_shank_corners_pair_clearance,
+)
+from aind_rutter.optimization.clearance.sweep import (
+    BOX_SAMPLES_LONG,
+    BOX_SAMPLES_WIDE,
+    build_padded_probe_tables,
+    swept_pair_clearances,
 )
 from aind_rutter.optimization.clearance.voxel_sdf import build_probe_sdf
 
@@ -91,3 +100,36 @@ def test_overlap_reads_negative_with_finite_gradient(body) -> None:
     g = jax.jit(jax.grad(soft))(jnp.asarray(t, jnp.float32))
     assert np.all(np.isfinite(np.asarray(g)))
     assert float(g[0]) > 0.5  # moving away along the face normal clears it
+
+
+def test_pair_sweep_measures_body_vs_box_once(body) -> None:
+    """The sweep fills the body-SDF shank category with the dense query and leaves
+    the body-sample-vs-box category empty."""
+    R, t = _shank_pose((1, 0, 0), (0, 1, 0), (1.5, 0.0, 20.0), 0.1)
+    grid = jnp.asarray(body.grid)
+    centers = jnp.asarray(SHANK_CENTER, jnp.float32)
+    halves = jnp.asarray(SHANK_HALVES, jnp.float32)
+    # One kind for both probes: same grid object, so both carry the shank box.
+    table = build_padded_probe_tables(
+        (grid, grid),
+        (jnp.asarray(body.origin, jnp.float32),) * 2,
+        (jnp.float32(body.spacing),) * 2,
+        (jnp.asarray(body.surface_points, jnp.float32),) * 2,
+        (centers, centers),
+        (halves, halves),
+    )
+    Rs = jnp.asarray(np.stack([R, np.eye(3)]), jnp.float32)
+    ts = jnp.asarray(np.stack([t, np.zeros(3)]), jnp.float32)
+    hard, _ = swept_pair_clearances(
+        Rs, ts, table, jnp.asarray([0]), jnp.asarray([1]), beta=20.0,
+        top_k_body_body=16, top_k_body_shank=8, top_k_shank_shank=8,
+    )  # fmt: skip
+    direct = body_shank_box_sdf_clearance(
+        Rs[0], ts[0], Rs[1], ts[1],
+        grid, body.origin, body.spacing, grid, body.origin, body.spacing,
+        centers, halves, centers, halves,
+        box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE), top_k=8,
+    )  # fmt: skip
+    assert float(hard[0, 1]) == pytest.approx(float(direct[0]), abs=1e-5)
+    assert float(hard[0, 1]) == pytest.approx(0.1, abs=0.02)
+    assert float(hard[0, 2]) == EMPTY_CLEARANCE_SENTINEL
