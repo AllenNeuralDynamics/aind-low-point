@@ -60,7 +60,10 @@ SLACK_GAIN_BODY_BODY = 1.0
 SLACK_GAIN_BODY_SHANK_CORNERS = 1.0  # voxel-SDF lookup → mm-native magnitude
 
 
-SLACK_GAIN_BODY_SHANK_OBB = 100.0
+# Body samples against the exact box read true depths, so a boost squared into the
+# Phase-1 penalty swamps every other term under its sign-based steps. Phase 2
+# weights this category by its own ``obb_gain`` setting.
+SLACK_GAIN_BODY_SHANK_OBB = 1.0
 
 
 SLACK_GAIN_SHANK_SHANK = 100.0
