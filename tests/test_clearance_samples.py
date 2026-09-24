@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, replace
+
 import numpy as np
 import pytest
 import trimesh
+from scipy.spatial import cKDTree
 
 from aind_rutter.optimization.clearance.samples import (
+    ClearanceSamples,
     SampleParams,
+    balance_cells,
     build_clearance_samples,
     convex_mean_curvature,
     local_hull_distance,
@@ -50,10 +55,9 @@ def test_cells_partition_the_fine_set_and_radii_bound_their_members() -> None:
     s = build_clearance_samples(body, SMALL, use_cache=False)
 
     assert s.fine.shape == (SMALL.fine_n, 3)
-    # Splitting the crowded cells adds coarse points, so the count is a floor.
-    assert s.coarse.shape[0] >= SMALL.coarse_n
     assert s.coarse.shape[1] == 3
     assert s.cells.shape[1] <= SMALL.cell_pop_cap
+    assert np.all((s.cells < SMALL.fine_n).sum(1) >= 1)  # empty cells are dropped
     members = s.cells[s.cells < SMALL.fine_n]
     np.testing.assert_array_equal(np.sort(members), np.arange(SMALL.fine_n))
     for c in range(len(s.coarse)):
@@ -66,6 +70,29 @@ def test_cells_partition_the_fine_set_and_radii_bound_their_members() -> None:
     assert np.mean(height <= SMALL.band_mm) == pytest.approx(SMALL.band_share, abs=0.01)
 
 
+def test_balancing_holds_the_cap_and_mostly_the_floor() -> None:
+    body = _column((3.0, 3.0, 40.0))
+    params = replace(SMALL, cell_pop_floor=12, cell_pop_cap=32)
+    s = build_clearance_samples(body, params, use_cache=False)
+    population = (s.cells < params.fine_n).sum(1)
+    assert s.cells.shape[1] <= 32 and population.max() <= 32
+    assert np.mean(population >= 12) > 0.85
+    members = s.cells[s.cells < params.fine_n]
+    np.testing.assert_array_equal(np.sort(members), np.arange(params.fine_n))
+
+
+def test_balance_cells_retires_sparse_centres_into_neighbours_with_room() -> None:
+    rng = np.random.default_rng(0)
+    points = rng.uniform(0.0, 10.0, size=(2000, 2))
+    centres = np.vstack([rng.uniform(0.0, 10.0, size=(150, 2)), [[50.0, 50.0]]])
+    out = balance_cells(points, centres, floor=10, cap=30, rounds=60)
+    _, owner = cKDTree(out).query(points)
+    counts = np.bincount(owner, minlength=len(out))
+    assert counts.max() <= 30
+    assert counts.min() >= 1  # the far centre owned nothing and is gone
+    assert np.mean(counts >= 10) > 0.9
+
+
 def test_samples_are_deterministic_and_cached(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AIND_LOW_POINT_CACHE_DIR", str(tmp_path))
     body = _column((3.0, 3.0, 40.0))
@@ -73,7 +100,7 @@ def test_samples_are_deterministic_and_cached(tmp_path, monkeypatch) -> None:
     assert list(tmp_path.rglob("c2f_*.npz"))
     again = build_clearance_samples(body, SMALL, use_cache=False)
     cached = build_clearance_samples(body, SMALL)
-    for field in ("fine", "coarse", "cells", "radius"):
+    for field in (f.name for f in fields(ClearanceSamples)):
         np.testing.assert_array_equal(getattr(first, field), getattr(again, field))
         np.testing.assert_array_equal(getattr(first, field), getattr(cached, field))
 

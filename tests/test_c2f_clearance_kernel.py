@@ -53,7 +53,8 @@ def tables():
         )  # fmt: skip
         samples = build_clearance_samples(
             body,
-            SampleParams(fine_n=4000, coarse_n=200, coarse_even=100),
+            # Floor 0 keeps both kinds' coarse counts equal, so they stack as-is.
+            SampleParams(fine_n=4000, coarse_n=200, coarse_even=100, cell_pop_floor=0),
             use_cache=False,
         )
         kinds.append((sdf, samples))

@@ -8,9 +8,9 @@ happen, and are grouped for a two-pass query:
 - fine points, drawn by area × convex curvature × closeness to the local convex
   hull, most of them in the band just above the shanks;
 - coarse points (evenly spaced, plus a subset of the fine points), each owning the
-  fine points nearest to it — a cell — with the cell's radius. Cells over the
-  population cap are split, since one gather width serves every kind and the
-  crowded cells in the contact band would otherwise set it for all of them.
+  fine points nearest to it — a cell — with the cell's radius. Cells are held
+  between a population floor and cap, since one gather width serves every kind
+  and every coarse point costs a lookup whatever its cell holds.
 
 A query looks up the coarse points, ranks cells by ``coarse value − radius`` and looks
 up the fine points of the best cells. No fine point in a cell reads below that bound,
@@ -51,6 +51,10 @@ class SampleParams:
     # pays for itself several times over, which is what makes a refinement budget
     # large enough to stop discarding live cells affordable.
     cell_pop_cap: int = 64
+    # Cells under this merge into their neighbours. Every cell costs a coarse
+    # lookup in every pair, the larger part of a query, while sparse cells above
+    # the band cover little; the larger cells rank a little less sharply.
+    cell_pop_floor: int = 32
     cap_rounds: int = 60
     curvature_radius_mm: float = 0.5
     curvature_ref: float = 1.0  # 1/mm; weight saturates relative to this
@@ -140,6 +144,55 @@ def face_weights(
     return weight * in_band, weight * ~in_band
 
 
+def balance_cells(
+    points: NDArray, centres: NDArray, *, floor: int, cap: int, rounds: int
+) -> NDArray:
+    """Centres whose nearest-point cells hold at most ``cap`` points and, as far as
+    the cap allows, at least ``floor``.
+
+    Each round retires under-floor centres, smallest first, and splits over-cap
+    cells by promoting the member farthest from the centre, which roughly halves a
+    cell. A retired centre's members fall to their next-nearest centre, so one is
+    retired only when those centres stay within the cap and none is itself retiring.
+    """
+    for _ in range(rounds):
+        distance, near = cKDTree(centres).query(points, k=2)
+        owner = near[:, 0]
+        counts = np.bincount(owner, minlength=len(centres))
+        order = np.argsort(owner, kind="stable")
+        starts = np.concatenate([[0], np.cumsum(counts)])
+        load = counts.copy()
+        retire = np.zeros(len(centres), bool)
+        receiving = np.zeros(len(centres), bool)
+        under = np.nonzero(counts < floor)[0]
+        for c in under[np.argsort(counts[under], kind="stable")]:
+            dest, n = np.unique(
+                near[order[starts[c] : starts[c + 1]], 1], return_counts=True
+            )
+            if receiving[c] or retire[dest].any() or np.any(load[dest] + n > cap):
+                continue
+            retire[c] = True
+            load[dest] += n
+            receiving[dest] = True
+        over = np.nonzero((counts > cap) & ~retire)[0]
+        if not over.size and not retire.any():
+            return centres
+        by_distance = np.lexsort((-distance[:, 0], owner))
+        farthest = by_distance[np.searchsorted(owner[by_distance], over)]
+        centres = np.vstack([centres[~retire], points[farthest]])
+    # The cap sets the gather width, so it holds even where the floor does not.
+    for _ in range(rounds):
+        distance, owner = cKDTree(centres).query(points)
+        counts = np.bincount(owner, minlength=len(centres))
+        over = np.nonzero(counts > cap)[0]
+        if not over.size:
+            break
+        by_distance = np.lexsort((-distance, owner))
+        farthest = by_distance[np.searchsorted(owner[by_distance], over)]
+        centres = np.vstack([centres, points[farthest]])
+    return centres
+
+
 def _cache_path(mesh: trimesh.Trimesh, params: SampleParams) -> Path:
     key = hashlib.sha256(repr(sorted(asdict(params).items())).encode()).hexdigest()[:12]
     return _cache_dir() / f"c2f_{_mesh_hash(mesh)}_{key}.npz"
@@ -185,17 +238,13 @@ def build_clearance_samples(
     extra = rng.choice(len(fine), params.coarse_n - len(even), replace=False)
     coarse = np.vstack([even, fine[extra]]).astype(np.float32)
 
-    # Split until no cell is over the population cap. Promoting a cell's farthest
-    # member roughly halves it, so a handful of rounds settles even the worst.
-    for _ in range(params.cap_rounds):
-        distance, owner = cKDTree(coarse).query(fine)
-        counts = np.bincount(owner, minlength=len(coarse))
-        over = np.nonzero(counts > params.cell_pop_cap)[0]
-        if not over.size:
-            break
-        order = np.lexsort((-distance, owner))
-        farthest = order[np.searchsorted(owner[order], over)]
-        coarse = np.vstack([coarse, fine[farthest]]).astype(np.float32)
+    coarse = balance_cells(
+        fine,
+        coarse,
+        floor=params.cell_pop_floor,
+        cap=params.cell_pop_cap,
+        rounds=params.cap_rounds,
+    ).astype(np.float32)
 
     distance, owner = cKDTree(coarse).query(fine)
     counts = np.bincount(owner, minlength=len(coarse))
