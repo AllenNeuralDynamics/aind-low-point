@@ -341,6 +341,66 @@ def body_shank_corners_pair_clearance(
     return hard_soft(pool, beta=beta, top_k=top_k)
 
 
+def body_shank_box_sdf_clearance(
+    R_a: Array,
+    t_a: Array,
+    R_b: Array,
+    t_b: Array,
+    sdf_a_grid: Array,
+    sdf_a_origin: Array,
+    sdf_a_spacing: Array,
+    sdf_b_grid: Array,
+    sdf_b_origin: Array,
+    sdf_b_spacing: Array,
+    shank_centers_a: Array,
+    shank_halves_a: Array,
+    shank_centers_b: Array,
+    shank_halves_b: Array,
+    face_fractions: Array,
+    *,
+    beta: float = 20.0,
+    top_k: int = 8,
+    shank_mask_a: Array | None = None,
+    shank_mask_b: Array | None = None,
+    n_real_a: Array | None = None,
+    n_real_b: Array | None = None,
+) -> tuple[Array, Array]:
+    """Body-vs-shank-box clearance from each shank box's mid-plane, densely
+    sampled, looked up in the other probe's body SDF.
+
+    A shank box is nearly a plane, so sampling it covers the contact whatever the
+    body's shape, where body surface samples miss features between them. Each
+    value is reduced by the box's half-thickness, which the SDF's 1-Lipschitz
+    bound makes a lower bound over the box's thickness.
+    """
+    chunks = []
+    for R_s, t_s, cs, hs, ms, R_o, t_o, g, o, sp, nr in (
+        (R_a, t_a, shank_centers_a, shank_halves_a, shank_mask_a,
+         R_b, t_b, sdf_b_grid, sdf_b_origin, sdf_b_spacing, n_real_b),
+        (R_b, t_b, shank_centers_b, shank_halves_b, shank_mask_b,
+         R_a, t_a, sdf_a_grid, sdf_a_origin, sdf_a_spacing, n_real_a),
+    ):  # fmt: skip
+        if cs.shape[0] == 0:
+            continue
+        local = cs[:, None, :] + face_fractions[None] * hs[:, None, :]  # (S, M, 3)
+        world = local @ R_s.T + t_s
+        in_other = (world - t_o) @ R_o
+        kw = {} if nr is None else {"n_real": nr}
+        d = (
+            trilinear_sdf(g, o, sp, in_other.reshape(-1, 3), **kw).reshape(
+                local.shape[:2]
+            )
+            - hs[:, None, 0]
+        )
+        if ms is not None:
+            d = jnp.where(ms.astype(bool)[:, None], d, EMPTY_CLEARANCE_SENTINEL)
+        chunks.append(d.reshape(-1))
+    pool = (
+        jnp.concatenate(chunks, axis=0) if chunks else jnp.zeros((0,), dtype=R_a.dtype)
+    )
+    return hard_soft(pool, beta=beta, top_k=top_k)
+
+
 def body_body_pair_clearance(
     R_a: Array,
     t_a: Array,

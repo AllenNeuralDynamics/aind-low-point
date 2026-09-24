@@ -248,3 +248,12 @@ def boxes_sdf(points_world, R, t, centers, halves, mask):
             mask.astype(bool)[:, None], per_box, EMPTY_CLEARANCE_SENTINEL
         )
     return per_box.min(axis=0)
+
+
+def box_face_fractions(n_long: int, n_wide: int) -> Array:
+    """``(n_long * n_wide, 3)`` points on a box's broad mid-plane as fractions of
+    its half-extents: x (the thin axis) is 0, y spans the width, z the length."""
+    y = jnp.linspace(-1.0, 1.0, n_wide, dtype=jnp.float32)
+    z = jnp.linspace(-1.0, 1.0, n_long, dtype=jnp.float32)
+    yy, zz = jnp.meshgrid(y, z, indexing="ij")
+    return jnp.stack([jnp.zeros_like(yy), yy, zz], axis=-1).reshape(-1, 3)
