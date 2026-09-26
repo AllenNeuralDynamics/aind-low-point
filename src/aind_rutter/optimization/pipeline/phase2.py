@@ -170,7 +170,11 @@ def _init(
     )
 
     clear_jit_cache()
-    opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
+    opt = OptimizationRuntime.from_config_path(
+        settings.config,
+        settings.holes,
+        thread_corners=settings.thread_shank == "corners",
+    )
     assets = opt.build_problem_assets(well_mode=settings.well, include_brain=True)
     # The FCL gate uses the same fixture names plus the world-frame implant BVH.
     # The implant remains excluded from soft SDF constraints because probes pass
@@ -253,7 +257,7 @@ def _live_group_sizes(slack_start: dict, live_rows, rows_dropped: bool) -> list[
 
 
 def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
-    from scipy.optimize import minimize
+    from scipy.optimize import Bounds, minimize
 
     from aind_rutter.optimization.objectives.coverage import (
         coverage_total_over_probes,
@@ -368,12 +372,15 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             mkw["hess"] = p2["hess"]
         if p2["hessp"] is not None:
             mkw["hessp"] = p2["hessp"]
+        # Without keep_feasible, trust-constr treats bounds as constraints it
+        # may leave, so an unconverged solve can hand off an out-of-bounds pose.
+        lo, hi = np.asarray(bounds, dtype=float).T
         res = minimize(
             p2["fun"],
             pose_start,
             jac=p2["jac"],
             method="trust-constr",
-            bounds=bounds,
+            bounds=Bounds(lo, hi, keep_feasible=True),
             constraints=p2["constraints_nlc"],
             options=dict(
                 maxiter=s.p2_iter,

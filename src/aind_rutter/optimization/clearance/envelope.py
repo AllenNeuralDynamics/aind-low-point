@@ -183,6 +183,24 @@ def extract_shank_obbs(
     )
 
 
+def shank_half_extents_xy(
+    mesh: trimesh.Trimesh, tips_local: np.ndarray
+) -> np.ndarray | None:
+    """Half-width ``(x, y)`` of the widest shank cross-section about its tip.
+
+    Each shank-sheet vertex belongs to the tip nearest it in ``xy``. ``None``
+    when the mesh has no shank component.
+    """
+    comps = [c for c in mesh.split(only_watertight=False) if is_shank_component(c)]
+    if not comps:
+        return None
+    verts = np.vstack([np.asarray(c.vertices, dtype=np.float64) for c in comps])
+    tips_xy = np.asarray(tips_local, dtype=np.float64)[:, :2]
+    rel = verts[:, None, :2] - tips_xy[None]  # (V, S, 2)
+    nearest = np.argmin(np.einsum("vsd,vsd->vs", rel, rel), axis=1)
+    return np.abs(rel[np.arange(len(verts)), nearest]).max(axis=0)
+
+
 def floor_shank_half_extents(
     half_extents: np.ndarray,
     *,

@@ -86,6 +86,8 @@ def make_batched_spin_restore_partial(
     pivot_local = static.probe_pivot_local[0]  # (K, 3)
     shank_tips = static.probe_shank_tips[0]  # (K, SH, 3)
     shank_mask = static.probe_shank_mask[0].astype(jnp.float32)  # (K, SH)
+    half_xy = static.probe_shank_half_xy
+    shank_half_xy = None if half_xy is None else half_xy[0]  # (K, 2)
     kind_np = np.asarray(static.sdf_kind_id[0])  # (K,) static
     kind_id = jnp.asarray(kind_np, jnp.int32)  # (K,) dyn gather
     sdf_grids = static.sdf_grids
@@ -167,7 +169,15 @@ def make_batched_spin_restore_partial(
                 recording_center_local=piv_i,
             )
             surf_i = sdf_surface_points[ki] @ R_i.T + t_i
-            thr = _threading_g_for_probe(R_i, t_i, tips_i, smask_i, *sec_i, thr_tol)
+            thr = _threading_g_for_probe(
+                R_i,
+                t_i,
+                tips_i,
+                smask_i,
+                *sec_i,
+                thr_tol,
+                None if shank_half_xy is None else shank_half_xy[i],
+            )
 
             def cj(j):
                 R_j, t_j, surf_j = Rs[j], ts[j], surfs[j]

@@ -318,6 +318,7 @@ def _build_jit(  # noqa: C901
         sdf_table=None,
         w_normals=None,
         w_offsets=None,
+        shank_half_xy=None,
     ):
         arc_aps = arc_angles_of(x, n_arcs)
         Rs, ts = poses_from_x(
@@ -379,6 +380,7 @@ def _build_jit(  # noqa: C901
             shank_mask,
             w_normals,
             w_offsets,
+            shank_half_xy,
             shaft_len=shaft_len,
         )
         # (P, -1): per-probe view for worst-shank reward. Hard constraint
@@ -485,6 +487,7 @@ def _build_jit(  # noqa: C901
         sdf_table=None,
         w_normals=None,
         w_offsets=None,
+        shank_half_xy=None,
     ):
         arc_aps = arc_angles_of(x, n_arcs)
         Rs, ts = poses_from_x(
@@ -514,6 +517,7 @@ def _build_jit(  # noqa: C901
             shank_mask,
             w_normals,
             w_offsets,
+            shank_half_xy,
             shaft_len=shaft_len,
         )
         thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, LARGE_SLACK)

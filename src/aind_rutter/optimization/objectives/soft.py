@@ -212,6 +212,7 @@ PACKED_ARG_ORDER: tuple[str, ...] = (
     "sdf_table",
     "w_normals",
     "w_offsets",
+    "shank_half_xy",
 )
 
 # Keys that vary per candidate. Everything else in PACKED_ARG_ORDER is fixed for
@@ -402,6 +403,7 @@ def _build_jit(  # noqa: C901
         sdf_table=None,
         w_normals=None,
         w_offsets=None,
+        shank_half_xy=None,
     ):
         # ``cov_weight`` scales the coverage term at RUNTIME (1.0 = full,
         # 0.0 = clearance-first reduced stage). Default 1.0 is a Python
@@ -437,6 +439,7 @@ def _build_jit(  # noqa: C901
             sh_m,
             wn,
             wo,
+            sh_xy,
         ):
             R, t = pose_from_optimizer_vars(
                 target_LPS=target,
@@ -463,6 +466,7 @@ def _build_jit(  # noqa: C901
                 shaft_length_mm=shaft_len,
                 w_normals=wn,
                 w_offsets=wo,
+                shank_half_xy=sh_xy,
             )  # (S, SH)
             valid_g = sec_m[:, None] * sh_m[None, :]
             # Penalty (Patch A: clamped, finite — no inf): max(0, g - tol)²
@@ -489,6 +493,7 @@ def _build_jit(  # noqa: C901
             shank_mask,
             w_normals,
             w_offsets,
+            shank_half_xy,
         )
         j_thread = jnp.sum(_jts)
 
@@ -726,6 +731,8 @@ def pack_statics(
     section_mask = np.zeros((P, max_sections), dtype=np.float32)
     w_normals = np.zeros((P, MAX_WALLS_PAD, 3), dtype=np.float32)
     w_offsets = np.full((P, MAX_WALLS_PAD), NO_WALL_OFFSET_MM, dtype=np.float32)
+    shank_half_xy = np.zeros((P, 2), dtype=np.float32)
+    any_corners = any(s.shank_half_xy is not None for s in statics)
     for i, s in enumerate(statics):
         target_LPS[i] = s.target_LPS
         pivot_local[i] = s.pivot_local
@@ -747,6 +754,8 @@ def pack_statics(
             section_mask[i, :nsec] = 1.0
         w_normals[i] = s.wall_normals
         w_offsets[i] = s.wall_offsets
+        if s.shank_half_xy is not None:
+            shank_half_xy[i] = s.shank_half_xy
 
     same_arc_mask = np.zeros((P, P), dtype=np.float32)
     for i in range(P):
@@ -772,6 +781,8 @@ def pack_statics(
         same_arc_mask=jnp.asarray(same_arc_mask),
         w_normals=jnp.asarray(w_normals),
         w_offsets=jnp.asarray(w_offsets),
+        # None keeps a centreline-only problem on the kernel's centreline path.
+        shank_half_xy=jnp.asarray(shank_half_xy) if any_corners else None,
     )
     # SDF + shank-OBB tuples + the padded swept-pair table. Per-probe-FIXED
     # (identical across candidates of the same probe set): skipped when

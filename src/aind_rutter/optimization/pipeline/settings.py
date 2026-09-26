@@ -67,6 +67,14 @@ class PipelineSettings(BaseSettings):
         "thick",
         description="Well SDF mode; thick solidifies the thin-skin envelope.",
     )
+    thread_shank: Literal["corners", "centreline"] = Field(
+        "corners",
+        description=(
+            "What must stay inside each bore: the four corner edges of the "
+            "shank's cross-section, or its centreline, whose bore inset "
+            "(RUTTER_THREADING_MARGIN_MM) must also cover the shank's width."
+        ),
+    )
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
     # the coverage-vs-clearance gain. Both phases must agree for the objective to

@@ -74,7 +74,11 @@ def build_or_load_atlas(settings: PipelineSettings) -> AtlasCachePayload:
     )
     from aind_rutter.optimization.pipeline.subject import OptimizationRuntime
 
-    opt = OptimizationRuntime.from_config_path(settings.config, settings.holes)
+    opt = OptimizationRuntime.from_config_path(
+        settings.config,
+        settings.holes,
+        thread_corners=settings.thread_shank == "corners",
+    )
     t0 = time.time()
     atlas = build_visibility_atlas(
         opt.probes, opt.holes, n_top=128, n_spin=72, verbose=False

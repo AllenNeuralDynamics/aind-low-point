@@ -44,6 +44,8 @@ from aind_rutter.optimization.objectives.layout import (
 )
 
 MAX_SHANKS_PAD = 4
+# A shank's cross-section corners, as signs on its (x, y) half-widths.
+_CORNER_SIGNS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 MAX_SECTIONS_PAD = 8
 
 _JIT_CACHE: dict[Hashable, tuple[Callable, Callable]] = {}
@@ -120,6 +122,7 @@ def threading_g_matrix(
     *,
     w_normals: jnp.ndarray | None = None,
     w_offsets: jnp.ndarray | None = None,
+    shank_half_xy: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Raw (n_sections, n_shanks) bore g values for one probe pose.
 
@@ -130,7 +133,23 @@ def threading_g_matrix(
     ``w_normals`` (W, 3) and ``w_offsets`` (W,) add the hole's wall planes (see
     ``holes.pack_walls``). Each section's g becomes the larger of the oval value and
     ``2 (n·p − offset) / b``: the wall distance scaled to the oval's slope across its
-    minor axis, so one g tolerance means about the same distance for both."""
+    minor axis, so one g tolerance means about the same distance for both.
+
+    ``shank_half_xy`` (2,) is the shank's cross-section half-width along local x and
+    y. Given, the rectangle's four edges are tested in place of the centreline and
+    each entry is the worst edge's. A straight prism cuts a section plane in a
+    parallelogram whose corners are those edges' crossings, and g is convex in the
+    crossing point, so the rectangle clears exactly when its corners do."""
+    n_shanks = tips_local.shape[0]
+    if shank_half_xy is not None:
+        offsets = jnp.concatenate(
+            [
+                jnp.asarray(_CORNER_SIGNS, tips_local.dtype) * shank_half_xy,
+                jnp.zeros((4, 1), tips_local.dtype),
+            ],
+            axis=1,
+        )
+        tips_local = (tips_local[:, None, :] + offsets[None]).reshape(-1, 3)
     tip_world = tips_local @ R.T + pose_tip
     shaft_dir = R @ jnp.array([0.0, 0.0, 1.0])
     line_d = shaft_length_mm * shaft_dir
@@ -163,10 +182,12 @@ def threading_g_matrix(
     safe_a = jnp.where(jnp.abs(s_a) < 1e-12, 1.0, s_a)
     safe_b = jnp.where(jnp.abs(s_b) < 1e-12, 1.0, s_b)
     g = (u / safe_a[:, None]) ** 2 + (v / safe_b[:, None]) ** 2 - 1.0
-    if w_normals is None:
+    if w_normals is not None:
+        wall_dist = jnp.einsum("skd,wd->skw", pts, w_normals) - w_offsets
+        g = jnp.maximum(g, jnp.max(wall_dist, axis=-1) * (2.0 / safe_b[:, None]))
+    if shank_half_xy is None:
         return g
-    wall_dist = jnp.einsum("skd,wd->skw", pts, w_normals) - w_offsets
-    return jnp.maximum(g, jnp.max(wall_dist, axis=-1) * (2.0 / safe_b[:, None]))
+    return jnp.max(g.reshape(g.shape[0], n_shanks, 4), axis=-1)
 
 
 def _build_jit(signature: tuple, weights) -> tuple[Callable, Callable]:

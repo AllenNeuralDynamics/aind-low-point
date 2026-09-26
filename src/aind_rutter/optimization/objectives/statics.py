@@ -71,6 +71,8 @@ class _ProbeStatic:
     # Assigned hole's wall planes, padded by holes.pack_walls and margin-inset.
     wall_normals: NDArray = field(default_factory=lambda: pack_walls((), 0.0)[0])
     wall_offsets: NDArray = field(default_factory=lambda: pack_walls((), 0.0)[1])
+    # Shank cross-section half-width (x, y); None threads the centreline.
+    shank_half_xy: NDArray | None = None
 
 
 class SDFPayload(dict):
@@ -153,7 +155,7 @@ def _build_probe_static(
         s_thetas = np.array([float(s.theta) for s in sections])
         s_a = np.array([float(s.a) for s in sections])
         s_b = np.array([float(s.b) for s in sections])
-        margin = threading_margin_mm()
+        margin = threading_margin_mm(p.shank_half_xy is not None)
         if margin:
             s_a = np.maximum(s_a - margin, 1e-3)
             s_b = np.maximum(s_b - margin, 1e-3)
@@ -191,6 +193,7 @@ def _build_probe_static(
                 kind=str(p.kind),
                 wall_normals=wall_normals,
                 wall_offsets=wall_offsets,
+                shank_half_xy=p.shank_half_xy,
             )
         )
     return out

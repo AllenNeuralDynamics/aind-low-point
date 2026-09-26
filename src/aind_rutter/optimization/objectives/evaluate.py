@@ -58,6 +58,7 @@ def threading_g_per_probe(
     shank_mask,
     w_normals=None,
     w_offsets=None,
+    shank_half_xy=None,
     *,
     shaft_len,
 ):
@@ -66,7 +67,9 @@ def threading_g_per_probe(
     the objective (reward) and the constraint vector consume this; flatten with
     ``.reshape(-1)`` for the probe-major order the old per-probe loop produced."""
 
-    def _one(R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m, wn, wo):
+    def _one(
+        R, t, tips, sax, scen, se1, se2, scos, ssin, sa, sb, sec_m, sh_m, wn, wo, sh_xy
+    ):
         g = threading_g_matrix(
             R,
             t,
@@ -82,6 +85,7 @@ def threading_g_per_probe(
             shaft_length_mm=shaft_len,
             w_normals=wn,
             w_offsets=wo,
+            shank_half_xy=sh_xy,
         )
         return g, sec_m[:, None] * sh_m[None, :]
 
@@ -101,4 +105,5 @@ def threading_g_per_probe(
         shank_mask,
         w_normals,
         w_offsets,
+        shank_half_xy,
     )

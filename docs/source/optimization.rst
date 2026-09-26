@@ -528,7 +528,14 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
 * Threading: ``threading_oval_tolerance - g_thread`` for each real
   probe/section/shank tuple. Where a hole has walls, ``g_thread`` is the larger of
   the oval value and the wall distance scaled by ``2 / b``, so one tolerance means
-  about the same distance for both.
+  about the same distance for both. ``g_thread`` is the worst of the shank's four
+  cross-section corner edges, whose half-widths come from the collision mesh;
+  since ``g`` is convex over a section, the corners bound the whole blade.
+  Ovals and walls are inset by ``RUTTER_THREADING_MARGIN_MM``, a buffer against
+  the soft penalty settling just past ``g = 0`` (default 0.04 mm).
+  ``RUTTER_THREAD_SHANK=centreline`` tests the centreline instead, whose inset
+  (default 0.07 mm) must also cover the shank's half-width. Every stage — spin restore, the reduced stage, Phase 1 and Phase 2 —
+  threads the same way; the hole-assignment gate stays centreline.
 * Probe-probe clearance: soft dual-rep clearance minus ``min_clearance_mm`` for
   each pair/category.
 * Probe-fixture clearance: fixture clearance minus ``min_clearance_mm``.

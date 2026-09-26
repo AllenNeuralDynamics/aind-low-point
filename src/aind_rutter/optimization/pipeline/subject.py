@@ -98,6 +98,7 @@ class OptimizationRuntime:
         *,
         retro_opts: RetroDensityOpts | None = None,
         use_env_retro: bool = True,
+        thread_corners: bool = True,
     ) -> "OptimizationRuntime":
         cfg = ConfigModel.from_yaml(config_path)
         return cls.from_config(
@@ -105,6 +106,7 @@ class OptimizationRuntime:
             holes_path,
             retro_opts=retro_opts,
             use_env_retro=use_env_retro,
+            thread_corners=thread_corners,
         )
 
     @classmethod
@@ -115,6 +117,7 @@ class OptimizationRuntime:
         *,
         retro_opts: RetroDensityOpts | None = None,
         use_env_retro: bool = True,
+        thread_corners: bool = True,
     ) -> "OptimizationRuntime":
         runtime = build_runtime_from_config(cfg)
         resolved_retro: RetroDensityOpts | None
@@ -125,7 +128,13 @@ class OptimizationRuntime:
         else:
             resolved_retro = None
         probes = tuple(
-            _probe_static_info(runtime.plan_state, runtime, name, resolved_retro)
+            _probe_static_info(
+                runtime.plan_state,
+                runtime,
+                name,
+                resolved_retro,
+                thread_corners=thread_corners,
+            )
             for name in runtime.plan_state.probes
         )
         compiled_transforms = compile_all_transforms(cfg.transforms)

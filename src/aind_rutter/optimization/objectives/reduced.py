@@ -62,6 +62,7 @@ def _threading_g_for_probe(
     w_normals: jnp.ndarray,  # (W, 3)
     w_offsets: jnp.ndarray,  # (W,)
     threading_tol: float,
+    shank_half_xy: jnp.ndarray | None = None,  # (2,)
 ) -> jnp.ndarray:
     """Scalar threading penalty for one probe.
 
@@ -83,6 +84,7 @@ def _threading_g_for_probe(
         s_b,
         w_normals=w_normals,
         w_offsets=w_offsets,
+        shank_half_xy=shank_half_xy,
     )  # shape (S, SH); g <= 0 ⇒ inside oval and clear of walls
     valid = section_mask[:, None] * shank_mask[None, :]  # (S, SH)
     excess = jnp.maximum(0.0, g - threading_tol)
@@ -122,6 +124,8 @@ def make_batched_reduced_objective(  # noqa: C901
     pivot_local = static.probe_pivot_local[0]  # (K, 3)
     shank_tips = static.probe_shank_tips[0]  # (K, SH, 3)
     shank_mask = static.probe_shank_mask[0].astype(jnp.float32)  # (K, SH)
+    half_xy = static.probe_shank_half_xy
+    shank_half_xy = None if half_xy is None else half_xy[0]  # (K, 2)
 
     # SDF kind table (constant). sdf_kind_id is per (B, K), but per-probe
     # kind doesn't change across candidates in this problem — capture
@@ -242,6 +246,7 @@ def make_batched_reduced_objective(  # noqa: C901
                 w_normals[i],
                 w_offsets[i],
                 threading_tol,
+                None if shank_half_xy is None else shank_half_xy[i],
             )
 
         # AP separation. ``smooth_abs`` (Patch A) keeps the gradient

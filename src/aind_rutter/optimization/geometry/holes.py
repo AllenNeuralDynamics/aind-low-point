@@ -39,27 +39,22 @@ from numpy.typing import NDArray
 
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 
-# Threading margin: the threading check models each shank as a thin CENTERLINE,
-# so ``g <= 0`` only means the centerline is inside the bore oval — a centerline
-# grazing the wall puts the finite-width shank EDGE through it (which FCL then
-# reports as a collision). Inset each bore oval's semi-axes by this effective
-# shank radius (mm) so ``g <= 0`` instead means the real shank clears the real
-# wall, mapping threading feasibility onto FCL feasibility. Empirically
-# 0.06–0.08 mm perfectly separates the FCL-clearing probes from the FCL-colliders
-# on the 837229 density plans (0.07 is the robust midpoint). Applied at both
-# probe-static builders (``_build_probe_static`` and ``build_batched_probe_static``)
-# so every optimizer stage — spin restore, Phase-1, Phase-2 — sees the inset.
-# NOT applied to the hole-assignment gate (``static_threading_max_g``), which
-# stays pure centerline geometry. ``RUTTER_THREADING_MARGIN_MM=0`` reproduces the
-# legacy centerline check.
+# Inset (mm) of each bore oval's semi-axes and wall planes before threading is
+# tested. Threading's penalty is soft, so Phase 1 settles slightly past g = 0 and
+# needs a buffer inside the wall. Corner threading tests the true cross-section,
+# so its inset is that buffer alone; a centreline's must also stand in for the
+# shank's half-width, which varies with spin and tilt. Applied by both
+# probe-static builders; the hole-assignment gate (``static_threading_max_g``)
+# stays uninset centreline geometry.
 DEFAULT_THREADING_MARGIN_MM: float = 0.07
+CORNER_THREADING_MARGIN_MM: float = 0.04
 
 
-def threading_margin_mm() -> float:
-    """Effective shank-radius inset (mm) applied to bore ovals (env-overridable)."""
-    return float(
-        os.environ.get("RUTTER_THREADING_MARGIN_MM", DEFAULT_THREADING_MARGIN_MM)
-    )
+def threading_margin_mm(corners: bool = False) -> float:
+    """Bore inset (mm): ``RUTTER_THREADING_MARGIN_MM`` when set, else the
+    default for corner or centreline threading."""
+    default = CORNER_THREADING_MARGIN_MM if corners else DEFAULT_THREADING_MARGIN_MM
+    return float(os.environ.get("RUTTER_THREADING_MARGIN_MM", default))
 
 
 @dataclass(frozen=True, slots=True)

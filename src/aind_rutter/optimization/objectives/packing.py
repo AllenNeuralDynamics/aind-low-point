@@ -76,6 +76,7 @@ class BatchedProbeStatic:
     probe_pivot_local: jnp.ndarray  # (B, K, 3)
     probe_shank_tips: jnp.ndarray  # (B, K, SH, 3)
     probe_shank_mask: jnp.ndarray  # (B, K, SH) bool
+    probe_shank_half_xy: jnp.ndarray | None  # (B, K, 2); None threads centrelines
 
     # ---- Per-(probe, section) hole geometry ----
     section_axes: jnp.ndarray  # (B, K, S, 3)
@@ -227,6 +228,7 @@ def build_batched_probe_static(
     probe_pivot = np.zeros((K, 3), dtype=np.float32)
     probe_tips_padded = np.zeros((K, SH, 3), dtype=np.float32)
     probe_shank_mask_per_k = np.zeros((K, SH), dtype=bool)
+    probe_half_xy = np.zeros((K, 2), dtype=np.float32)
     for i, p in enumerate(probes):
         # Config first, then the built-in table for the kind, then a
         # stand-in: a caller that builds statics by hand states only a kind.
@@ -242,6 +244,8 @@ def build_batched_probe_static(
         nsh = min(tips.shape[0], SH)
         probe_tips_padded[i, :nsh] = tips[:nsh]
         probe_shank_mask_per_k[i, :nsh] = True
+        if p.shank_half_xy is not None:
+            probe_half_xy[i] = p.shank_half_xy
 
     # SDF kind table (shared across batch)
     sdf_table, name_to_kind = _build_per_kind_sdf_table(sdf_by_name, probes)
@@ -274,7 +278,7 @@ def build_batched_probe_static(
     ml_lo, ml_hi = -ML_LIMIT_DEG, ML_LIMIT_DEG
     sxy_lo, sxy_hi = -1.5, 1.5
 
-    _t_margin = threading_margin_mm()
+    t_margins = [threading_margin_mm(p.shank_half_xy is not None) for p in probes]
     for b, (ha, aa) in enumerate(candidates):
         # Per-arc AP bounds
         for a in range(n_arcs):
@@ -309,11 +313,11 @@ def build_batched_probe_static(
                 )
                 section_cos_np[b, i, s_idx] = float(np.cos(sec.theta))
                 section_sin_np[b, i, s_idx] = float(np.sin(sec.theta))
-                section_a_np[b, i, s_idx] = max(float(sec.a) - _t_margin, 1e-3)
-                section_b_np[b, i, s_idx] = max(float(sec.b) - _t_margin, 1e-3)
+                section_a_np[b, i, s_idx] = max(float(sec.a) - t_margins[i], 1e-3)
+                section_b_np[b, i, s_idx] = max(float(sec.b) - t_margins[i], 1e-3)
                 section_mask_np[b, i, s_idx] = True
             wall_normals_np[b, i], wall_offsets_np[b, i] = pack_walls(
-                hole.walls, _t_margin, n_pad=W
+                hole.walls, t_margins[i], n_pad=W
             )
 
             if p.name in name_to_kind:
@@ -324,6 +328,7 @@ def build_batched_probe_static(
     probe_pivot_local = np.broadcast_to(probe_pivot[None], (B, K, 3)).copy()
     probe_shank_tips = np.broadcast_to(probe_tips_padded[None], (B, K, SH, 3)).copy()
     probe_shank_mask = np.broadcast_to(probe_shank_mask_per_k[None], (B, K, SH)).copy()
+    probe_shank_half_xy = np.broadcast_to(probe_half_xy[None], (B, K, 2)).copy()
 
     # SDF table (placeholders if no SDFs)
     if sdf_table is None:
@@ -383,6 +388,9 @@ def build_batched_probe_static(
         probe_pivot_local=jnp.asarray(probe_pivot_local),
         probe_shank_tips=jnp.asarray(probe_shank_tips),
         probe_shank_mask=jnp.asarray(probe_shank_mask),
+        probe_shank_half_xy=jnp.asarray(probe_shank_half_xy)
+        if any(p.shank_half_xy is not None for p in probes)
+        else None,
         section_axes=jnp.asarray(section_axes_np),
         section_e1=jnp.asarray(section_e1_np),
         section_e2=jnp.asarray(section_e2_np),

@@ -32,7 +32,11 @@ PPV = PHASE1_PER_PROBE_VARS
 
 def setup_runtime(settings: PipelineSettings) -> OptimizationRuntime:
     """The subject selected by ``settings``: its config and its bore file."""
-    return OptimizationRuntime.from_config_path(settings.config, settings.holes)
+    return OptimizationRuntime.from_config_path(
+        settings.config,
+        settings.holes,
+        thread_corners=settings.thread_shank == "corners",
+    )
 
 
 def setup(settings: PipelineSettings, runtime: OptimizationRuntime | None = None):

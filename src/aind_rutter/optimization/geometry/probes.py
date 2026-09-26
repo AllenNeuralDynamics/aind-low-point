@@ -52,3 +52,6 @@ class ProbeStaticInfo:
     # Kinematic pivot in the probe's local frame. None means "derive it from the
     # shank tips", which is what a caller building this by hand gets.
     pivot_local: NDArray[np.floating] | None = field(default=None, compare=False)
+    # Shank cross-section half-width along local (x, y), from the collision mesh.
+    # None threads each shank's centreline.
+    shank_half_xy: NDArray[np.floating] | None = field(default=None, compare=False)

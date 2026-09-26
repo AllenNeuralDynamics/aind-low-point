@@ -76,8 +76,8 @@ def _poses(st, x, n_arcs):
 def worst_threading_g(statics, x, n_arcs) -> float:
     """Worst-case threading ``g`` across all probes/shanks/sections at pose ``x``.
 
-    ``g <= 0`` means the (margin-inset) shank centerline clears its bore oval;
-    ``g > 0`` means it pierces the wall. Returns the single worst (max) ``g``
+    ``g <= 0`` means the shank clears its bore oval; ``g > 0`` means it pierces
+    the wall. Returns the single worst (max) ``g``
     over every probe — a scalar threading-feasibility summary for a final pose.
 
     Evaluated at the **full** world pose from :func:`_poses` (offsets and depth
@@ -108,6 +108,9 @@ def worst_threading_g(statics, x, n_arcs) -> float:
                 s.section_b,
                 w_normals=jnp.asarray(s.wall_normals, jnp.float32),
                 w_offsets=jnp.asarray(s.wall_offsets, jnp.float32),
+                shank_half_xy=None
+                if s.shank_half_xy is None
+                else jnp.asarray(s.shank_half_xy, jnp.float32),
             )
         )
         if g.size:
