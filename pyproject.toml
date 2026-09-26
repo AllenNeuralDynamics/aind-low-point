@@ -75,6 +75,9 @@ optimization = [
 # IPOPT that has to be on the system already. Without it Phase 2 still runs, on
 # scipy's trust-constr — set ``RUTTER_SOLVER=trust-constr``.
 ipopt = ["cyipopt>=1.7.0"]
+# STEP (CAD) assets: OpenCascade, read and tessellated in-process. The novtk
+# build, because cadquery-ocp pins its own VTK against the viewer's.
+step = ["cadquery-ocp-novtk>=8.0.1,<9"]
 
 [project.scripts]
 rutter-plan = "aind_rutter.web.cli:main"
@@ -94,8 +97,10 @@ dev = [
     # The solver stack, so `uv sync` gives a working test run. It stays an
     # extra for installs (a planner-only user does not want ~1 GB of JAX and
     # IPOPT) and a default group for development, where 18 test modules import
-    # it. CI installs with a plain `uv sync --locked`.
+    # it. CI installs with a plain `uv sync --locked`. `step` is here for the
+    # same reason: the STEP loader's tests need OpenCascade.
     "aind-rutter[optimization]",
+    "aind-rutter[step]",
     "codespell",
     "pytest",
     "pytest-cov",

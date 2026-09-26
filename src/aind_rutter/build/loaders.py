@@ -13,6 +13,7 @@ from aind_anatomical_utils.slicer import read_slicer_fcsv
 from aind_mri_utils.meshes import mask_to_trimesh
 from numpy.typing import NDArray
 
+from aind_rutter.build.step import load_step
 from aind_rutter.domain.transforms import Float3, FloatNx3
 
 GeometryOut = Union[
@@ -97,6 +98,9 @@ register_loader_fn(read_slicer_fcsv)
 @register_loader("trimesh")
 def _load_trimesh(path: str) -> trimesh.Trimesh:
     return trimesh.load(path, force="mesh")
+
+
+register_loader_fn(load_step, "step")
 
 
 @register_loader

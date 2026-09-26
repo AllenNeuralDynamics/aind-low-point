@@ -73,6 +73,7 @@ Module Organization
     ├── build/                 # config → runtime
     │   ├── assemble.py        # build_runtime_from_config
     │   ├── loaders.py         # the loader registry
+    │   ├── step.py            # STEP solids tessellated to closed meshes
     │   ├── reducers.py        # the reducer registry
     │   ├── canonicalize.py    # orientation, scale and inline transform
     │   ├── chem_shift.py      # the per-ppm correction

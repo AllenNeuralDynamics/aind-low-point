@@ -83,6 +83,10 @@ Without it Phase 2 still runs, on scipy's `trust-constr`. That is the fallback
 rather than the intent: on a stalled-candidate comparison, IPOPT's
 limited-memory mode recovered 7 of 11 where `trust-constr` recovered 4.
 
+A config asset may also be a STEP file, read and tessellated at load. That
+needs the `step` extra (OpenCascade, from wheels), which the planner and solver
+otherwise do without.
+
 ## Commands
 
 | Command | Does |

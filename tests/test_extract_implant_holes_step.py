@@ -4,11 +4,7 @@ The part is a plate with a 15°-tilted elliptical bore and a slab fused through
 the bore 0.2 mm from its axis, so the channel is cut by a wall with solid beyond
 it — the same shape as the edge-cut bores of implant 0283-300-06.
 
-Needs cadquery-ocp, which the project does not depend on::
-
-    uv run --no-project --python 3.13 --with cadquery-ocp==8.0.1.0.0 --with pytest \\
-        --with numpy --with scipy --with pyyaml --with trimesh \\
-        pytest tests/test_extract_implant_holes_step.py -q
+Needs OpenCascade, which the dev group installs through the ``step`` extra.
 """
 
 from __future__ import annotations

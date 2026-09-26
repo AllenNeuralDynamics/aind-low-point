@@ -23,6 +23,8 @@ EXTENSION_DEFAULTS: dict[str, dict[str, str]] = {
     ".obj": {"kind": "mesh", "loader": "trimesh"},
     ".stl": {"kind": "mesh", "loader": "trimesh"},
     ".ply": {"kind": "mesh", "loader": "trimesh"},
+    ".step": {"kind": "mesh", "loader": "step"},
+    ".stp": {"kind": "mesh", "loader": "step"},
     ".nrrd": {"kind": "mesh", "loader": "sitk_volume"},
     ".nii": {"kind": "mesh", "loader": "sitk_volume"},
     ".nii.gz": {"kind": "mesh", "loader": "sitk_volume"},
@@ -44,20 +46,27 @@ ROLE_PREFIX_DEFAULTS: list[tuple[str, Role]] = [
 ]
 
 
+def extension_defaults(src: object) -> dict[str, str] | None:
+    """The kind and loader implied by ``src``'s extension, in any case."""
+    name = str(src).lower()
+    # Longest first, so .nii.gz wins over .nii.
+    for ext in sorted(EXTENSION_DEFAULTS, key=len, reverse=True):
+        if name.endswith(ext):
+            return EXTENSION_DEFAULTS[ext]
+    return None
+
+
 def infer_from_extension(spec: "AssetSpecModel | TargetSpecModel") -> None:
     """Mutate spec to fill in kind/loader from src extension if not set."""
     if spec.src is None:
         return
-    src_str = str(spec.src)
-    # Check longer extensions first (e.g., .nii.gz before .nii)
-    for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
-        if src_str.endswith(ext):
-            defaults = EXTENSION_DEFAULTS[ext]
-            if spec.kind is None:
-                object.__setattr__(spec, "kind", Kind(defaults["kind"]))
-            if spec.loader is None:
-                object.__setattr__(spec, "loader", defaults["loader"])
-            break
+    defaults = extension_defaults(spec.src)
+    if defaults is None:
+        return
+    if spec.kind is None:
+        object.__setattr__(spec, "kind", Kind(defaults["kind"]))
+    if spec.loader is None:
+        object.__setattr__(spec, "loader", defaults["loader"])
 
 
 def infer_role_from_key(spec: "AssetSpecModel | TargetSpecModel") -> None:
@@ -221,18 +230,13 @@ class AssetSpecModel(BaseSpecModel):
         if not isinstance(data, dict):
             return data
         src = data.get("src")
-        if src is None:
+        defaults = None if src is None else extension_defaults(src)
+        if defaults is None:
             return data
-        src_str = str(src)
-        # Check longer extensions first (e.g., .nii.gz before .nii)
-        for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
-            if src_str.endswith(ext):
-                defaults = EXTENSION_DEFAULTS[ext]
-                if data.get("kind") is None:
-                    data["kind"] = defaults["kind"]
-                if data.get("loader") is None:
-                    data["loader"] = defaults["loader"]
-                break
+        if data.get("kind") is None:
+            data["kind"] = defaults["kind"]
+        if data.get("loader") is None:
+            data["loader"] = defaults["loader"]
         return data
 
     @model_validator(mode="after")
@@ -522,17 +526,10 @@ class TargetSpecModel(BaseSpecModel):
         if not isinstance(data, dict):
             return data
         src = data.get("src")
-        if src is None:
-            return data
-        src_str = str(src)
-        # Check longer extensions first (e.g., .nii.gz before .nii)
-        for ext in sorted(EXTENSION_DEFAULTS.keys(), key=len, reverse=True):
-            if src_str.endswith(ext):
-                defaults = EXTENSION_DEFAULTS[ext]
-                # For targets, kind defaults to POINTS, so only infer loader
-                if data.get("loader") is None:
-                    data["loader"] = defaults["loader"]
-                break
+        defaults = None if src is None else extension_defaults(src)
+        # For targets, kind defaults to POINTS, so only infer loader
+        if defaults is not None and data.get("loader") is None:
+            data["loader"] = defaults["loader"]
         return data
 
     @model_validator(mode="after")

@@ -39,6 +39,9 @@ wheels and builds against a native IPOPT:
 
 Without ``ipopt`` Phase 2 falls back to scipy's ``trust-constr``.
 
+Configs whose assets are STEP files need the ``step`` extra
+(``pip install "aind-rutter[step]"``).
+
 
 Your First Configuration
 ------------------------

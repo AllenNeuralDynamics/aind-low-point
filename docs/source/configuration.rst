@@ -301,7 +301,8 @@ The configuration system automatically infers values to reduce boilerplate.
 Kind and Loader from File Extension
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When ``src`` is provided, ``kind`` and ``loader`` are inferred from the extension:
+When ``src`` is provided, ``kind`` and ``loader`` are inferred from the
+extension, in any case:
 
 =============== ========== ================
 Extension       Kind       Loader
@@ -309,6 +310,8 @@ Extension       Kind       Loader
 ``.obj``        mesh       trimesh
 ``.stl``        mesh       trimesh
 ``.ply``        mesh       trimesh
+``.step``       mesh       step
+``.stp``        mesh       step
 ``.nrrd``       mesh       sitk_volume
 ``.nii``        mesh       sitk_volume
 ``.nii.gz``     mesh       sitk_volume
@@ -333,6 +336,41 @@ Explicit values always override inference:
         src: /data/special.npy
         kind: lines        # Override inferred 'points'
         loader: custom     # Override inferred 'numpy_points'
+
+A template's ``loader`` is an explicit value too, so an asset that takes a
+template setting ``loader: trimesh`` must state ``loader: step`` to read a STEP.
+
+STEP Files
+~~~~~~~~~~
+
+The ``step`` loader reads a CAD solid with OpenCascade, which the ``step``
+extra installs, and tessellates it in memory each time the config is built.
+A closed solid comes back as a watertight mesh; a gap the tessellation leaves
+is patched, and a mesh that still is not closed loads with a warning. Two
+``loader_kwargs`` set the fidelity:
+
+=========================== ========= =============================================
+Argument                    Default   Meaning
+=========================== ========= =============================================
+``linear_deflection_mm``    0.01      Largest distance from a triangle to the surface
+``angular_deflection_rad``  0.1       Largest angle between neighbouring triangles
+=========================== ========= =============================================
+
+Coordinates are the part's CAD frame in millimetres, whatever length unit the
+file declares. Give the asset a canonicalization whose ``source_space`` names
+that frame, as for any mesh:
+
+.. code-block:: yaml
+
+    canonicalizations:
+      cad-part:
+        source_space: ALS
+    assets:
+      - key: well
+        role: fixture
+        src: /cad/well.step
+        canonicalization_ref: cad-part
+        loader_kwargs: {linear_deflection_mm: 0.005}
 
 Role from Key Prefix
 ~~~~~~~~~~~~~~~~~~~~

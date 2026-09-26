@@ -12,7 +12,9 @@ uv sync --python 3.13
 
 The `dev` group pulls in the `optimization` extra, so a plain sync gives a
 working test run. It stays an extra for *installs*, because someone who only
-wants the planner should not have to take a gigabyte of solver with it.
+wants the planner should not have to take a gigabyte of solver with it. The
+`step` extra is in the group for the same reason: the STEP loader's tests need
+OpenCascade.
 
 The `ipopt` extra is deliberately not in that group. cyipopt publishes no
 wheels, so every install builds from source against a native IPOPT, which a CI
