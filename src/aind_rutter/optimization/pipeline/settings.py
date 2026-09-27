@@ -254,6 +254,8 @@ class Phase2Settings(PipelineSettings):
     warmup: bool = Field(True)
 
     # Objective weights.
+    # Exact probe-probe and probe-fixture clearance (mm); the constraint rows add
+    # back each category's soft-minimum bias.
     minclear: float = Field(0.2)
     # The clearance reward duplicates the min_clearance constraint and takes its
     # gradient from the single closest surface sample, which flips between

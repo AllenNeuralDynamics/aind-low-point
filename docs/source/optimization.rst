@@ -536,9 +536,11 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   ``RUTTER_THREAD_SHANK=centreline`` tests the centreline instead, whose inset
   (default 0.07 mm) must also cover the shank's half-width. Every stage — spin restore, the reduced stage, Phase 1 and Phase 2 —
   threads the same way; the hole-assignment gate stays centreline.
-* Probe-probe clearance: soft dual-rep clearance minus ``min_clearance_mm`` for
-  each pair/category.
-* Probe-fixture clearance: fixture clearance minus ``min_clearance_mm``.
+* Probe-probe clearance: soft dual-rep clearance, plus the category's soft-min
+  bias, minus ``min_clearance_mm`` for each pair/category. The soft minimum reads
+  below the exact one by up to ``ln(k)/beta``; adding the typical bias back
+  (``PROBE_PAIR_SOFTMIN_BIAS_MM``) makes ``RUTTER_MINCLEAR`` an exact distance.
+* Probe-fixture clearance: likewise, with ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``.
 * Brain containment, when present: negative signed distance margin at shank
   tips.
 * Arc AP separation: ``abs_smooth(ap_i - ap_j) - 16 deg``.

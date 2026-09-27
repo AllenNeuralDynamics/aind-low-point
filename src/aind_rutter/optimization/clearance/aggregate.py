@@ -126,6 +126,14 @@ FIXTURE_PAIR_SLACK_GAINS = (
     SLACK_GAIN_FIXTURE_OBB,
 )
 
+# How far each category's soft minimum typically reads below the exact minimum of
+# the same samples (mm), in the order of the gains above, so that a clearance
+# margin states an exact distance. Near-tied samples approach the ln(k)/beta bound
+# and isolated ones read none, so a single pair can land up to its offset short.
+# Measured at softmin_beta 20 and the default top-k; changing either stales them.
+PROBE_PAIR_SOFTMIN_BIAS_MM = (0.10, 0.09, 0.0, 0.0)
+FIXTURE_PAIR_SOFTMIN_BIAS_MM = (0.05, 0.06)
+
 
 def dual_rep_pair_clearance(
     R_a: Array,

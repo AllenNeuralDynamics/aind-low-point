@@ -6,7 +6,7 @@ all feasibility terms from the objective into solver inequality
 constraints:
 
   - Threading: ``g_thread ≤ tol`` per (probe, shank, section)
-  - Clearance probe-probe (dual-rep): ``d_soft ≥ min_clear`` per
+  - Clearance probe-probe (dual-rep): ``d_soft + bias ≥ min_clear`` per
     (pair, category)
   - Clearance probe-fixture (body): same, per (probe, fixture)
   - Arc-AP separation: ``smooth_abs(ap_diff) ≥ min_sep`` per arc pair
@@ -32,6 +32,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.optimization.clearance.aggregate import (
+    FIXTURE_PAIR_SOFTMIN_BIAS_MM,
+    PROBE_PAIR_SOFTMIN_BIAS_MM,
     SLACK_GAIN_BODY_BODY,
     SLACK_GAIN_BODY_SHANK_CORNERS,
     SLACK_GAIN_FIXTURE_BODY,
@@ -542,7 +544,8 @@ def _build_jit(  # noqa: C901
                 top_k_shank_shank=tk_ss,
             )
             _gains = jnp.asarray(pair_gains, jnp.float32)
-            clear_pp_vec = (_soft - min_clear) * _gains
+            _bias = jnp.asarray(PROBE_PAIR_SOFTMIN_BIAS_MM, jnp.float32)
+            clear_pp_vec = (_soft + _bias - min_clear) * _gains
         else:
             clear_pp_vec = jnp.zeros(0)
 
@@ -568,7 +571,8 @@ def _build_jit(  # noqa: C901
                 top_k_obb=tk_bs,
             )
             _fgains = jnp.asarray(fixture_gains, jnp.float32)
-            clear_pf_vec = (_fsoft - min_clear) * _fgains
+            _fbias = jnp.asarray(FIXTURE_PAIR_SOFTMIN_BIAS_MM, jnp.float32)
+            clear_pf_vec = (_fsoft + _fbias - min_clear) * _fgains
         else:
             clear_pf_vec = jnp.zeros(0)
 
