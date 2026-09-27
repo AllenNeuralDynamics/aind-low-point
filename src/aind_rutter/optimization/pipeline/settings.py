@@ -125,9 +125,9 @@ class EmitSettings(PipelineSettings):
         Path("scratch/phase2_handoff.json"),
         description="Phase-2 handoff to emit from.",
     )
-    plans: int = Field(
-        15,
-        description="How many of the ranked feasible plans to write.",
+    plans: int | None = Field(
+        None,
+        description="How many of the ranked feasible plans to write; unset writes all.",
     )
     outdir: Path = Field(
         Path("scratch/plans"),

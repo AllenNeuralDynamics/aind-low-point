@@ -20,7 +20,7 @@
 # Optional env (with defaults):
 #   RUTTER_HOLES=scratch/0283-300-04.holes.yml  RUTTER_TOPK=200
 #   RUTTER_P2_ITER=1000  RUTTER_COARSE_N=1000  RUTTER_REDUCED_FINE=50
-#   RUTTER_FULL_FINE=50  RUTTER_WORKERS=4  RUTTER_PLANS=15
+#   RUTTER_FULL_FINE=50  RUTTER_WORKERS=4  RUTTER_PLANS=<all feasible>
 #   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -59,7 +59,7 @@ MAX_PROBES_PER_ARC="${RUTTER_MAX_PROBES_PER_ARC:-4}"
 N_SPINS="${RUTTER_N_SPINS:-16}"
 COARSE_N="${RUTTER_COARSE_N:-1000}"; REDUCED_FINE="${RUTTER_REDUCED_FINE:-50}"
 FULL_FINE="${RUTTER_FULL_FINE:-50}"
-PLANS="${RUTTER_PLANS:-15}"
+PLANS="${RUTTER_PLANS:-}"
 
 # Gotcha 1: the atlas + seed caches are keyed only by the config stem, but their
 # CONTENTS depend on probe geometry (meshes, kinds), the implant holes, and the
@@ -127,9 +127,9 @@ RUTTER_SOLVER=ipopt RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
   RUTTER_TOPK="$TOPK" RUTTER_P2_ITER="$P2_ITER" \
   JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 
-echo "[$(date +%H:%M)] Emit top-${PLANS} trame configs → ${PLANDIR}/"
-RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" RUTTER_HANDOFF="$HANDOFF" \
-  RUTTER_PLANS="$PLANS" RUTTER_OUTDIR="$PLANDIR" \
+echo "[$(date +%H:%M)] Emit ${PLANS:-all feasible} trame configs → ${PLANDIR}/"
+env RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" RUTTER_HANDOFF="$HANDOFF" \
+  ${PLANS:+RUTTER_PLANS="$PLANS"} RUTTER_OUTDIR="$PLANDIR" \
   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 
 echo "[$(date +%H:%M)] === DONE: pool=${POOL} handoff=${HANDOFF} plans=${PLANDIR}/ ==="

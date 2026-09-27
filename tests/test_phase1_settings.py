@@ -133,3 +133,13 @@ def test_the_caches_are_named_for_the_subject() -> None:
     b = Phase1Settings(config="examples/837229-config.yml")
     assert a.atlas_cache != b.atlas_cache
     assert a.seed_cache != b.seed_cache
+
+
+def test_emit_writes_every_feasible_plan_unless_capped(monkeypatch) -> None:
+    """A delivery is the whole feasible set, navigated by the decision tree."""
+    from aind_rutter.optimization.pipeline.settings import EmitSettings
+
+    monkeypatch.delenv("RUTTER_PLANS", raising=False)
+    assert EmitSettings().plans is None
+    monkeypatch.setenv("RUTTER_PLANS", "7")
+    assert EmitSettings().plans == 7

@@ -635,7 +635,7 @@ Run directly:
    RUTTER_CONFIG=examples/837229-config.yml \
    RUTTER_HOLES=scratch/0283-300-04.holes.yml \
    RUTTER_HANDOFF=scratch/837229_phase2_handoff.json \
-   RUTTER_PLANS=15 RUTTER_OUTDIR=scratch/837229_plans \
+   RUTTER_OUTDIR=scratch/837229_plans \
    JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 
 Outputs:

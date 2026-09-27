@@ -1,6 +1,6 @@
 """Emit trame-app plan YAMLs from a Phase-2 handoff.
 
-For each of the top-N MMR-ranked *feasible* plans,
+For each MMR-ranked *feasible* plan (all of them unless ``RUTTER_PLANS`` caps it),
 rebuild the plan_state from the saved pose + arc assignment and round-trip it
 through ``save_plan_to_config`` — one ready-to-open config per candidate.
 
@@ -14,7 +14,7 @@ Run:
   RUTTER_CONFIG=examples/837229-config.yml \\
   RUTTER_HOLES=scratch/0283-300-04.holes.yml \\
   RUTTER_HANDOFF=scratch/837229_phase2_handoff.json \\
-  RUTTER_PLANS=15 RUTTER_OUTDIR=examples/837229_plans \\
+  RUTTER_OUTDIR=examples/837229_plans \\
   JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit
 """
 
@@ -147,11 +147,11 @@ def run(settings: EmitSettings) -> int:
     out = Path(settings.outdir)
     plans_dir = out / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
-    n_emit = min(settings.plans, len(ranked))
+    n_emit = len(ranked) if settings.plans is None else min(settings.plans, len(ranked))
     print(f"{len(ranked)} feasible plans in handoff; emitting {n_emit} + tree/manifest")
 
     meta = []
-    for i, r in enumerate(ranked[: settings.plans]):
+    for i, r in enumerate(ranked[:n_emit]):
         n_arcs = r["n_arcs"]
         # Lightweight statics: _apply_x_to_plan_state reads only .name and
         # .arc_idx (the pose values come from the x-vector), both in the handoff.
