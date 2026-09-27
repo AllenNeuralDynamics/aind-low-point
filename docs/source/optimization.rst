@@ -569,7 +569,7 @@ Run directly:
    RUTTER_HOLES=scratch/0283-300-04.holes.yml \
    RUTTER_POSES=scratch/837229_pool.json.gz \
    RUTTER_OUT=scratch/837229_phase2_handoff.json \
-   RUTTER_TOPK=200 RUTTER_P2_ITER=1000 \
+   RUTTER_TOPK=200 \
    RUTTER_PLATFORM=gpu RUTTER_POOL=thread RUTTER_WORKERS=4 \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase2
 
@@ -582,6 +582,13 @@ Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
 ``kept`` band is intentionally looser by default: ``RUTTER_FCL_TOL=0.2`` and
 ``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
 ``all`` list for inspection.
+
+``RUTTER_IP_MU_MAX`` (default ``1e-2``) caps IPOPT's adaptive barrier parameter.
+Uncapped, the update raises it by orders of magnitude from an infeasible start —
+and every Phase-1 pose is slightly infeasible to Phase 2 — so the solve first
+leaves the start and then spends most of its iterations returning. With the cap,
+the default ``RUTTER_P2_ITER=300`` reaches the kept count and coverage of 1000
+uncapped iterations.
 
 Trading Objective For Feasibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

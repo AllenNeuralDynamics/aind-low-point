@@ -285,11 +285,15 @@ class Phase2Settings(PipelineSettings):
     # trust-constr only: none (BFGS), dense (exact n×n Hessian, slow) or hessp
     # (exact Hessian-vector products at about the cost of a gradient).
     hess: Literal["none", "dense", "hessp"] = Field("none")
-    p2_iter: int = Field(200)
+    p2_iter: int = Field(300)
     # Above the variable count, so the L-BFGS model can represent a full Hessian
     # and a longer history buys nothing.
     ip_hist: int = Field(60)
     ip_mu: Literal["adaptive", "monotone"] = Field("adaptive")
+    # Upper bound on the adaptive barrier parameter. From an infeasible start the
+    # adaptive update otherwise raises it by orders of magnitude, throwing the
+    # iterate far from the start, and walking back costs most of a solve.
+    ip_mu_max: float = Field(1e-2)
     # tol thresholds the overall NLP error, which is built from float32
     # derivatives over bfloat16 collision grids; IPOPT's 1e-6 default asks for
     # more precision than those gradients carry.
