@@ -131,12 +131,12 @@ class PoolFile(_Model):
     max_ppa: int
     minimizer: str
     well: str
-    reduced_fine: int
-    full_fine: int
     records: list[PoolRecord]
-    # Surface samples of a coarse pass, which no build runs now; accepted so the
-    # pools that record one still load.
+    # A coarse pass's surface samples and the steps after a step-size restart,
+    # which no build runs now; accepted so the pools that record them still load.
     coarse_n: int | None = None
+    reduced_fine: int | None = None
+    full_fine: int | None = None
     # The feasibility spec and objective the pool was built under.
     feasibility: dict[str, Any] | None = None
     objective: dict[str, Any] | None = None

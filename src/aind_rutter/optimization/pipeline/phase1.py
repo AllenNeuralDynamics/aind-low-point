@@ -15,8 +15,7 @@ Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-Env:  RUTTER_WELL=thick RUTTER_REDUCED_FINE=0
-      RUTTER_FULL_FINE=50 RUTTER_STAGE1=0 RUTTER_STAGE2=500
+Env:  RUTTER_WELL=thick RUTTER_STAGE1=0 RUTTER_STAGE2=500
       RUTTER_N_SPINS=16 RUTTER_CHUNK=256 RUTTER_RESTORE_CHUNK=128
 """
 
@@ -490,12 +489,10 @@ def run_group(  # noqa: C901
     n_tot = x0.shape[0]
     x0_dev = jnp.asarray(x0, jnp.float32)
 
-    rc, rf = settings.stage1 - settings.reduced_fine, settings.reduced_fine
-    fc, ff = settings.stage2 - settings.full_fine, settings.full_fine
     n_chunks = n_tot // settings.chunk
     print(
-        f"  rprop (chunk={settings.chunk}, reduced {rc}c+{rf}f → "
-        f"full {fc}c+{ff}f, {n_chunks} chunks)...",
+        f"  rprop (chunk={settings.chunk}, reduced {settings.stage1} → "
+        f"full {settings.stage2}, {n_chunks} chunks)...",
         flush=True,
     )
     t0 = time.time()
@@ -515,15 +512,11 @@ def run_group(  # noqa: C901
     for ci, s in enumerate(range(0, n_tot, settings.chunk)):
         cargs = barg(statics[s : s + settings.chunk])
         x = x0_dev[s : s + settings.chunk]
-        if rc > 0:
-            x = stage(rprop, "reduced_coarse", x, cargs, lo_r, hi_r, 0.0, rc)
-        if rf > 0:
-            x = stage(rprop, "reduced_fine", x, cargs, lo_r, hi_r, 0.0, rf)
+        if settings.stage1 > 0:
+            x = stage(rprop, "reduced", x, cargs, lo_r, hi_r, 0.0, settings.stage1)
         x_red[s : s + settings.chunk] = np.asarray(x)
-        if fc > 0:
-            x = stage(rprop, "full_coarse", x, cargs, lo, hi, 1.0, fc)
-        if ff > 0:
-            x = stage(rprop, "full_fine", x, cargs, lo, hi, 1.0, ff)
+        if settings.stage2 > 0:
+            x = stage(rprop, "full", x, cargs, lo, hi, 1.0, settings.stage2)
         x_out[s : s + settings.chunk] = np.asarray(x)
         if (ci + 1) % settings.progress_every == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
@@ -626,8 +619,6 @@ def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> N
         max_ppa=settings.max_probes_per_arc,
         minimizer="rprop",
         well=settings.well,
-        reduced_fine=settings.reduced_fine,
-        full_fine=settings.full_fine,
         feasibility=pinned["feasibility"],
         objective=pinned["objective"],
     )
@@ -732,14 +723,11 @@ def run(settings: Phase1Settings) -> int:
     well_soft = (
         opt.thick_well_fixture(well_thin) if settings.well == "thick" else well_thin
     )
-    reduced_coarse = settings.stage1 - settings.reduced_fine
-    full_coarse = settings.stage2 - settings.full_fine
     print(
         f"config: well={settings.well} spin={settings.spin_param} "
         f"feasibility={settings.feasibility_spec()} "
         f"objective={settings.objective_spec()} "
-        f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
-        f"full {full_coarse}c+{settings.full_fine}f → {settings.out}",
+        f"reduced {settings.stage1} → full {settings.stage2} → {settings.out}",
         flush=True,
     )
 

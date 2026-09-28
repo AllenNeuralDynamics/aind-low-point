@@ -49,6 +49,8 @@ from aind_rutter.optimization.pipeline.payloads import check_payload_path
 RETIRED_VARIABLES = {
     "RUTTER_MINCLEAR": "set RUTTER_MIN_CLEARANCE, read by every stage",
     "RUTTER_COARSE_N": "Phase 1 always reads every surface sample",
+    "RUTTER_REDUCED_FINE": "each Phase-1 stage runs as one pass",
+    "RUTTER_FULL_FINE": "each Phase-1 stage runs as one pass",
 }
 
 
@@ -202,9 +204,6 @@ class Phase1Settings(PipelineSettings):
     stage2: int = Field(500)
     n_spins: int = Field(16)
     restore_rounds: int = Field(4)
-    # RProp's step sizes restart this many steps before each stage ends.
-    reduced_fine: int = Field(0)
-    full_fine: int = Field(50)
 
     # Batch shapes. VRAM is ~9.5 MB per candidate plus a ~2.2 GB baseline.
     chunk: int = Field(256)

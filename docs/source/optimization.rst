@@ -520,14 +520,10 @@ small collision, a slightly bad threading value, or a cramped AP/ML separation
 can still move through the batch. That is deliberate: the pool builder is a
 throughput-oriented ranking stage, not the final feasibility judge.
 
-Step-Size Restart
-~~~~~~~~~~~~~~~~~
-
-Every step reads the probe surface samples Phase 2 reads (``RUTTER_N_SURF``).
-RProp's step sizes restart ``RUTTER_REDUCED_FINE`` and ``RUTTER_FULL_FINE``
-steps before the reduced and full stages end. The restart is a perturbation: it
-knocks a converged candidate out of the basin its first pass settled in, and the
-candidate is still moving when the stage ends.
+Each stage is a single RProp pass over the probe surface samples Phase 2 reads
+(``RUTTER_N_SURF``). Restarting the step sizes partway through a stage, or
+reading fewer samples in its first steps, changes Phase 1's pool but not the
+layouts Phase 2 delivers from it.
 
 The current tuned defaults are:
 
@@ -535,12 +531,9 @@ The current tuned defaults are:
   large collision-gradient spikes.
 * ``RUTTER_WELL=thick``: soft SDF uses a solidified well body; final FCL still
   checks the true mesh.
-* ``RUTTER_FULL_FINE=50``: the full stage restarts its step sizes for its last
-  50 steps.
-* ``RUTTER_STAGE1=0``, ``RUTTER_REDUCED_FINE=0``, ``RUTTER_STAGE2=500``: the full
-  stage alone. Adding the reduced stage (500 steps, 50 fine) doubles Phase 1's
-  time and delivers the same layouts after Phase 2; so does spending those steps
-  in the full stage.
+* ``RUTTER_STAGE1=0``, ``RUTTER_STAGE2=500``: the full stage alone. Adding the
+  reduced stage (500 steps) doubles Phase 1's time and delivers the same layouts
+  after Phase 2; so does spending those steps in the full stage.
 
 Run directly:
 

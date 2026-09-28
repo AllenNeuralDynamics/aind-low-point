@@ -87,8 +87,6 @@ class Phase1PoolPayloadRequired(TypedDict):
     max_ppa: int
     minimizer: str
     well: str
-    reduced_fine: int
-    full_fine: int
 
 
 class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
@@ -97,8 +95,11 @@ class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
 
     feasibility: dict[str, Any]
     objective: dict[str, Any]
-    # Read from a pool that recorded a coarse pass; no build writes it.
+    # Read from a pool built with a coarse pass or a step-size restart; no build
+    # writes them.
     coarse_n: int
+    reduced_fine: int
+    full_fine: int
 
 
 class Phase2InputRecordRequired(TypedDict):

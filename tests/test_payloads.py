@@ -67,8 +67,6 @@ def _pool(records: list[dict[str, Any]]) -> Any:
         "max_ppa": 4,
         "minimizer": "rprop",
         "well": "thick",
-        "reduced_fine": 50,
-        "full_fine": 50,
     }
 
 
@@ -169,10 +167,12 @@ def test_a_pool_reads_back_exactly(tmp_path: Path, suffix: str) -> None:
     assert "feasibility" not in back, "a pool recording no specs reads back without"
 
 
-def test_a_pool_recording_a_coarse_pass_still_reads(tmp_path: Path) -> None:
+def test_a_pool_recording_a_retired_schedule_still_reads(tmp_path: Path) -> None:
+    retired = {"coarse_n": 1000, "reduced_fine": 0, "full_fine": 50}
     path = tmp_path / "pool.json.gz"
-    write_pool(path, {**_pool([_pool_record()]), "coarse_n": 1000})
-    assert read_pool(path)["coarse_n"] == 1000
+    write_pool(path, {**_pool([_pool_record()]), **retired})
+    back = read_pool(path)
+    assert {k: back[k] for k in retired} == retired
 
 
 def test_the_specs_a_pool_records_read_back_as_pinned(tmp_path: Path) -> None:

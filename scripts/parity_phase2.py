@@ -100,7 +100,8 @@ def write_synthetic_inputs(work: Path, n_candidates: int) -> tuple[Path, Path, P
             "max_ppa": len(probes),
             "minimizer": "synthetic",
             "well": "thin",
-            # A baseline from before Phase 1 dropped its coarse pass requires it.
+            # A baseline from before Phase 1 ran each stage as one pass at full
+            # samples requires these three.
             "coarse_n": 0,
             "reduced_fine": 0,
             "full_fine": 0,
