@@ -34,21 +34,17 @@ FIELDS: dict[str, str] = {
     "PROGRESS_EVERY": "progress_every",
     "OUT": "out",
     "SEED_CACHE": "seed_cache",
-    "COARSE_N": "coarse_n",
     "REDUCED_FINE": "reduced_fine",
     "FULL_FINE": "full_fine",
     "WELL_MODE": "well",
     "COV_NORM": "cov_norm",
     "COV_ALPHA": "cov_alpha",
     "COV_WEIGHT": "cov_weight",
-    "TWO_FIDELITY": "two_fidelity",
 }
 
 # A value per variable that is not its default, so a field that ignores its
 # variable is visible. The names are the prefixed ones the pipeline reads today;
-# the tables above are keyed by the globals they replaced. RUTTER_COARSE_N sits
-# at the threshold where the coarse pass collapses to all-fine, which is what
-# flips TWO_FIDELITY.
+# the tables above are keyed by the globals they replaced.
 SAMPLE: dict[str, str] = {
     "RUTTER_STAGE1": "300",
     "RUTTER_STAGE2": "400",
@@ -65,7 +61,6 @@ SAMPLE: dict[str, str] = {
     "RUTTER_PROGRESS_EVERY": "13",
     "RUTTER_OUT": "scratch/other_pool.json.gz",
     "RUTTER_SEED_CACHE": "scratch/other_seeds.json.gz",
-    "RUTTER_COARSE_N": "5000",
     "RUTTER_REDUCED_FINE": "100",
     "RUTTER_FULL_FINE": "90",
     "RUTTER_WELL": "thin",
@@ -81,7 +76,6 @@ DEFAULT_ENV: dict[str, str] = {"RUTTER_CONFIG": "examples/836656-config.yml"}
 RESOLVED_SAMPLE: dict[str, str] = {
     "BF16": "False",
     "CHUNK": "64",
-    "COARSE_N": "5000",
     "COV_ALPHA": "0.4",
     "COV_NORM": "True",
     "COV_WEIGHT": "2.5",
@@ -100,7 +94,6 @@ RESOLVED_SAMPLE: dict[str, str] = {
     "SEED_CACHE": "scratch/other_seeds.json.gz",
     "STAGE1": "300",
     "STAGE2": "400",
-    "TWO_FIDELITY": "False",
     "WELL_MODE": "thin",
 }
 
@@ -108,7 +101,6 @@ RESOLVED_SAMPLE: dict[str, str] = {
 RESOLVED_DEFAULT: dict[str, str] = {
     "BF16": "True",
     "CHUNK": "256",
-    "COARSE_N": "1000",
     "COV_ALPHA": "0.2",
     "COV_NORM": "False",
     "COV_WEIGHT": "1.0",
@@ -127,6 +119,5 @@ RESOLVED_DEFAULT: dict[str, str] = {
     "SEED_CACHE": "scratch/mrv_seeds_836656-config.json.gz",
     "STAGE1": "0",
     "STAGE2": "500",
-    "TWO_FIDELITY": "True",
     "WELL_MODE": "thick",
 }

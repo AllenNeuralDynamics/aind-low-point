@@ -45,8 +45,11 @@ from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
 
-# Retired variables, refused by name, and what replaces each.
-RETIRED_VARIABLES = {"RUTTER_MINCLEAR": "RUTTER_MIN_CLEARANCE"}
+# Retired variables, refused by name, and what to do instead.
+RETIRED_VARIABLES = {
+    "RUTTER_MINCLEAR": "set RUTTER_MIN_CLEARANCE, read by every stage",
+    "RUTTER_COARSE_N": "Phase 1 always reads every surface sample",
+}
 
 
 class PipelineSettings(BaseSettings):
@@ -151,9 +154,9 @@ class PipelineSettings(BaseSettings):
     def _refuse_retired_variables(cls, data: Any) -> Any:
         # An unknown RUTTER_ variable is ignored, so a run still setting a retired
         # one would silently get the default instead.
-        for old, new in RETIRED_VARIABLES.items():
+        for old, instead in RETIRED_VARIABLES.items():
             if old in os.environ:
-                raise ValueError(f"{old} is retired; set {new}, read by every stage")
+                raise ValueError(f"{old} is retired: {instead}")
         return data
 
     @model_validator(mode="after")
@@ -188,11 +191,7 @@ class EmitSettings(PipelineSettings):
 
 
 class Phase1Settings(PipelineSettings):
-    """Inputs to the Phase-1 pool build.
-
-    Defaults are the THROUGHPUT preset; ``dev/POOL_RUN_CONFIGS.md`` says what
-    each lever was measured to be worth.
-    """
+    """Inputs to the Phase-1 pool build."""
 
     # Optimization schedule. The two stages run the same compiled kernel, so
     # their step counts are runtime arguments rather than separate compiles.
@@ -203,10 +202,7 @@ class Phase1Settings(PipelineSettings):
     stage2: int = Field(500)
     n_spins: int = Field(16)
     restore_rounds: int = Field(4)
-    # Coarse surf count, then the fine steps that finish each stage. Running the
-    # bulk coarse and finishing fine is a homotopy: it is both faster and finds
-    # more feasible candidates. coarse_n at or above 5000 collapses to all-fine.
-    coarse_n: int = Field(1000)
+    # RProp's step sizes restart this many steps before each stage ends.
     reduced_fine: int = Field(0)
     full_fine: int = Field(50)
 
@@ -250,11 +246,6 @@ class Phase1Settings(PipelineSettings):
         0,
         description="Record this many RProp iterations per stage to <out>_trace.npz.",
     )
-
-    @property
-    def two_fidelity(self) -> bool:
-        """Whether a coarse pass runs at all."""
-        return self.coarse_n < 5000
 
     @model_validator(mode="after")
     def _seed_cache_follows_the_config(self) -> "Phase1Settings":

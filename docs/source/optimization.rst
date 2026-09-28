@@ -16,7 +16,7 @@ The three stages run in order:
 .. code-block:: text
 
    RUTTER_CONFIG + RUTTER_HOLES
-     -> rutter-phase1  (MRV enumerate, spin restore, batched RProp/coarse-fine pool)
+     -> rutter-phase1  (MRV enumerate, spin restore, batched RProp pool)
      -> rutter-phase2  (IPOPT/trust-constr polish, FCL/threading gate, MMR ranking)
      -> rutter-emit    (plan-only YAMLs, tree.txt, manifest.md)
 
@@ -394,8 +394,6 @@ Where a stage departs from the spec, the site says why:
 * ``min_clear`` is the worst clearance slack, before gains and without Phase
   2's 1.5 mm cap (`Phase 2 Handoff`_), so a candidate scoring ``>= 0`` meets
   Phase 2's clearance rows on the well.
-* Phase 1's coarse passes read fewer surface samples; its final score is at
-  full fidelity.
 * Phase 1's straight-through SAT changes the gradient, not the value.
 
 
@@ -522,29 +520,14 @@ small collision, a slightly bad threading value, or a cramped AP/ML separation
 can still move through the batch. That is deliberate: the pool builder is a
 throughput-oriented ranking stage, not the final feasibility judge.
 
-Coarse Versus Fine Fidelity
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step-Size Restart
+~~~~~~~~~~~~~~~~~
 
-The coarse/fine schedule changes the SDF surface-sample count used by the
-clearance terms.
-
-``RUTTER_COARSE_N``
-   Number of surface samples for the coarse pass. The default ``1000`` is much
-   cheaper than the fine 5000-sample representation and tends to smooth narrow
-   collision features.
-
-``RUTTER_REDUCED_FINE`` and ``RUTTER_FULL_FINE``
-   Number of final steps in each pass that rerun at fine fidelity. The preceding
-   steps run at ``RUTTER_COARSE_N`` when it is below 5000.
-
-The practical effect is a homotopy:
-
-* Coarse steps are faster and often easier to optimize because they smooth the
-  collision landscape.
-* Fine finish steps reintroduce the higher-resolution geometry before the pose
-  is scored and handed downstream.
-* A stage that runs gets a fine finish; skipping the reduced stage's fine
-  finish changes the basin handed to the full pass.
+Every step reads the probe surface samples Phase 2 reads (``RUTTER_N_SURF``).
+RProp's step sizes restart ``RUTTER_REDUCED_FINE`` and ``RUTTER_FULL_FINE``
+steps before the reduced and full stages end. The restart is a perturbation: it
+knocks a converged candidate out of the basin its first pass settled in, and the
+candidate is still moving when the stage ends.
 
 The current tuned defaults are:
 
@@ -552,8 +535,8 @@ The current tuned defaults are:
   large collision-gradient spikes.
 * ``RUTTER_WELL=thick``: soft SDF uses a solidified well body; final FCL still
   checks the true mesh.
-* ``RUTTER_COARSE_N=1000``, ``RUTTER_FULL_FINE=50``: coarse-to-fine SDF surface
-  schedule.
+* ``RUTTER_FULL_FINE=50``: the full stage restarts its step sizes for its last
+  50 steps.
 * ``RUTTER_STAGE1=0``, ``RUTTER_REDUCED_FINE=0``, ``RUTTER_STAGE2=500``: the full
   stage alone. Adding the reduced stage (500 steps, 50 fine) doubles Phase 1's
   time and delivers the same layouts after Phase 2; so does spending those steps
@@ -809,7 +792,3 @@ Key Modules
   both phases optimise, vmapped over pairs and fixtures).
 * ``scripts/run_subject_overnight.sh``: recommended unattended production
   wrapper.
-* ``scripts/staged_adam.py``, ``scripts/manual_mrv_chain.py``,
-  ``scripts/coarse_fine_surf.py``, and ``scripts/instrument_adam_freeze.py``:
-  diagnostic and experimental scripts. Do not treat them as production entry
-  points unless their module docstring says so.

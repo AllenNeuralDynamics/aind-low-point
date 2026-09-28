@@ -10,19 +10,12 @@ The optimizer is TUNED (see dev/POOL_RUN_CONFIGS.md for the measurements):
   - thick well   — solidified well SDF (fixes the thin-skin false-negative);
                    FCL still uses the true thin mesh (honest gate).
   - iRprop− — sign-based; immune to the ADAM v-freeze that stalls long runs.
-  - coarse→fine surf — reduced/full each run (stage minus the fine steps)
-                   at the coarse surf count, then the fine finish @5000.
-
-Two documented presets (copy-paste commands in dev/POOL_RUN_CONFIGS.md):
-  THROUGHPUT: coarse_n=1000, reduced_fine=full_fine=50   (~2.16x; 545:105/20)
-  YIELD:      coarse_n=3000, reduced_fine=full_fine=100  (~1.31x; 545:123/21)
-Both predate the default of no reduced stage.
 
 Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-Env:  RUTTER_WELL=thick RUTTER_COARSE_N=1000 RUTTER_REDUCED_FINE=0
+Env:  RUTTER_WELL=thick RUTTER_REDUCED_FINE=0
       RUTTER_FULL_FINE=50 RUTTER_STAGE1=0 RUTTER_STAGE2=500
       RUTTER_N_SPINS=16 RUTTER_CHUNK=256 RUTTER_RESTORE_CHUNK=128
 """
@@ -354,7 +347,7 @@ def _kernel(
     periodic=None,
     step_scale=1.0,
 ) -> tuple[Callable, ArglistBuilder, Callable]:
-    """Build (vobj, build_arglist, run) for one fidelity's template statics.
+    """Build (vobj, build_arglist, run) for the template statics.
 
     ``vobj`` scores the full layout; ``run`` steps the angle layout when
     ``settings.spin_param`` asks for it.
@@ -394,8 +387,7 @@ def run_group(  # noqa: C901
     settings: Phase1Settings,
     probes,
     holes,
-    sdf_fine,
-    sdf_coarse,
+    sdf_by_name,
     bvh,
     well_soft,
     brain_sdf,
@@ -420,35 +412,24 @@ def run_group(  # noqa: C901
         settings=settings,
         probes=probes,
         holes=holes,
-        sdf_by_name=sdf_fine,
+        sdf_by_name=sdf_by_name,
         well=well_soft,
         head_pitch_deg=head_pitch_deg,
     )
     print(f"  restore {time.time() - t0:.1f}s", flush=True)
 
-    st_f, st_c, x0_rows = [], [], []
+    statics, x0_rows = [], []
     for c, sp in zip(cands, spins):
-        st_f.append(
+        statics.append(
             _build_probe_static(
                 probes,
                 holes,
                 cast(Any, c.ha),
                 cast(Any, c.aa),
                 bvh_cache=bvh,
-                sdf_by_name=sdf_fine,
+                sdf_by_name=sdf_by_name,
             )
         )
-        if settings.two_fidelity:
-            st_c.append(
-                _build_probe_static(
-                    probes,
-                    holes,
-                    cast(Any, c.ha),
-                    cast(Any, c.aa),
-                    bvh_cache=bvh,
-                    sdf_by_name=sdf_coarse,
-                )
-            )
         arc_aps = np.zeros(n_arcs)
         for a in range(min(n_arcs, len(c.aa.arc_centroids_deg))):
             arc_aps[a] = float(c.aa.arc_centroids_deg[a])
@@ -459,7 +440,7 @@ def run_group(  # noqa: C901
     if spin_angle:
         x0 = to_angle_layout(x0, n_arcs)
 
-    cov = build_coverage_data(probes, st_f[0])
+    cov = build_coverage_data(probes, statics[0])
     # Per-region normalization: ceilings (achievable per-probe coverage) +
     # per-target priority weights are per-probe-fixed (target/σ/density/geometry),
     # so compute once per group from any candidate's statics. Only active when
@@ -473,7 +454,7 @@ def run_group(  # noqa: C901
         ceilings = tuple(
             float(c)
             for c in coverage_ceiling_per_probe(
-                st_f[0], cov, ap_window_deg=reachable_ap_window_deg(head_pitch_deg)
+                statics[0], cov, ap_window_deg=reachable_ap_window_deg(head_pitch_deg)
             )
         )
         cov_weights = tuple(float(p.coverage_weight) for p in probes)
@@ -487,8 +468,8 @@ def run_group(  # noqa: C901
             )
             _group_log_once[0] = False
     grid_dtype = _grid_dtype(settings)
-    vobj, barg_f, run_f = _kernel(
-        st_f[0],
+    vobj, barg, rprop = _kernel(
+        statics[0],
         n_arcs,
         cov,
         well_soft,
@@ -500,28 +481,11 @@ def run_group(  # noqa: C901
         periodic=periodic,
         step_scale=step_scale,
     )
-    if settings.two_fidelity:
-        _vo, barg_c, run_c = _kernel(
-            st_c[0],
-            n_arcs,
-            cov,
-            well_soft,
-            brain_sdf,
-            grid_dtype,
-            settings=settings,
-            ceilings=ceilings,
-            cov_weights=cov_weights,
-            periodic=periodic,
-            step_scale=step_scale,
-        )
-    else:
-        barg_c, run_c, st_c = barg_f, run_f, st_f
 
     n_rows = x0.shape[0]
     n_pad = (-n_rows) % settings.chunk
     if n_pad:
-        st_f = st_f + [st_f[-1]] * n_pad
-        st_c = st_c + [st_c[-1]] * n_pad
+        statics = statics + [statics[-1]] * n_pad
         x0 = np.concatenate([x0, np.repeat(x0[-1:], n_pad, 0)], 0)
     n_tot = x0.shape[0]
     x0_dev = jnp.asarray(x0, jnp.float32)
@@ -529,9 +493,8 @@ def run_group(  # noqa: C901
     rc, rf = settings.stage1 - settings.reduced_fine, settings.reduced_fine
     fc, ff = settings.stage2 - settings.full_fine, settings.full_fine
     n_chunks = n_tot // settings.chunk
-    fid = f"coarse{settings.coarse_n}→fine" if settings.two_fidelity else "fine"
     print(
-        f"  rprop {fid} (chunk={settings.chunk}, reduced {rc}c+{rf}f → "
+        f"  rprop (chunk={settings.chunk}, reduced {rc}c+{rf}f → "
         f"full {fc}c+{ff}f, {n_chunks} chunks)...",
         flush=True,
     )
@@ -550,20 +513,17 @@ def run_group(  # noqa: C901
         return x
 
     for ci, s in enumerate(range(0, n_tot, settings.chunk)):
-        cargs_f = barg_f(st_f[s : s + settings.chunk])
-        cargs_c = (
-            barg_c(st_c[s : s + settings.chunk]) if settings.two_fidelity else cargs_f
-        )
+        cargs = barg(statics[s : s + settings.chunk])
         x = x0_dev[s : s + settings.chunk]
         if rc > 0:
-            x = stage(run_c, "reduced_coarse", x, cargs_c, lo_r, hi_r, 0.0, rc)
+            x = stage(rprop, "reduced_coarse", x, cargs, lo_r, hi_r, 0.0, rc)
         if rf > 0:
-            x = stage(run_f, "reduced_fine", x, cargs_f, lo_r, hi_r, 0.0, rf)
+            x = stage(rprop, "reduced_fine", x, cargs, lo_r, hi_r, 0.0, rf)
         x_red[s : s + settings.chunk] = np.asarray(x)
         if fc > 0:
-            x = stage(run_c, "full_coarse", x, cargs_c, lo, hi, 1.0, fc)
+            x = stage(rprop, "full_coarse", x, cargs, lo, hi, 1.0, fc)
         if ff > 0:
-            x = stage(run_f, "full_fine", x, cargs_f, lo, hi, 1.0, ff)
+            x = stage(rprop, "full_fine", x, cargs, lo, hi, 1.0, ff)
         x_out[s : s + settings.chunk] = np.asarray(x)
         if (ci + 1) % settings.progress_every == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
@@ -592,7 +552,7 @@ def run_group(  # noqa: C901
         x_out = np.asarray(from_angle_layout(x_out, n_arcs))
         x_red = np.asarray(from_angle_layout(x_red, n_arcs))
 
-    # Final scores at fine fidelity, on the well Phase 1 checks.
+    # Final scores, on the well Phase 1 checks.
     in_axes = (0,) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
     well_scored = cast_fixture_grids((well_soft,), grid_dtype)
     clear_b = jax.jit(
@@ -607,7 +567,7 @@ def run_group(  # noqa: C901
     x_dev = jnp.asarray(x_out, jnp.float32)
     xr_dev = jnp.asarray(x_red, jnp.float32)
     for s in range(0, n_tot, settings.chunk):
-        cargs = barg_f(st_f[s : s + settings.chunk])
+        cargs = barg(statics[s : s + settings.chunk])
         obj[s : s + settings.chunk] = np.asarray(
             vobj(x_dev[s : s + settings.chunk], *cargs)
         )
@@ -618,7 +578,7 @@ def run_group(  # noqa: C901
             clear_b(xr_dev[s : s + settings.chunk], *cargs)
         )
     return (
-        st_f[:n_rows],
+        statics[:n_rows],
         x_out[:n_rows],
         x_red[:n_rows],
         obj[:n_rows],
@@ -666,7 +626,6 @@ def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> N
         max_ppa=settings.max_probes_per_arc,
         minimizer="rprop",
         well=settings.well,
-        coarse_n=settings.coarse_n,
         reduced_fine=settings.reduced_fine,
         full_fine=settings.full_fine,
         feasibility=pinned["feasibility"],
@@ -764,25 +723,19 @@ def run(settings: Phase1Settings) -> int:
     # Explicit, because no import configures the compile cache any more.
     configure_compile_cache()
     opt = setup_runtime(settings)
-    _cfg, _rt, probes, holes, sdf_fine, bvh, fixtures, well_thin, _fbvh = setup(
+    _cfg, _rt, probes, holes, sdf_by_name, bvh, fixtures, well_thin, _fbvh = setup(
         settings, opt
     )
     brain = opt.brain_sdf()
 
-    # Tuned optimizer: thick well (soft side only; FCL uses true mesh) + coarse SDF.
+    # Thick well on the soft side only; FCL checks the true mesh.
     well_soft = (
         opt.thick_well_fixture(well_thin) if settings.well == "thick" else well_thin
-    )
-    sdf_coarse = (
-        opt.probe_sdfs(settings.coarse_n) if settings.two_fidelity else sdf_fine
-    )
-    fidelity = (
-        f"coarse{settings.coarse_n}→fine" if settings.two_fidelity else "fine-only"
     )
     reduced_coarse = settings.stage1 - settings.reduced_fine
     full_coarse = settings.stage2 - settings.full_fine
     print(
-        f"config: well={settings.well} {fidelity} spin={settings.spin_param} "
+        f"config: well={settings.well} spin={settings.spin_param} "
         f"feasibility={settings.feasibility_spec()} "
         f"objective={settings.objective_spec()} "
         f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
@@ -851,8 +804,7 @@ def run(settings: Phase1Settings) -> int:
             settings=settings,
             probes=probes,
             holes=holes,
-            sdf_fine=sdf_fine,
-            sdf_coarse=sdf_coarse,
+            sdf_by_name=sdf_by_name,
             bvh=bvh,
             well_soft=well_soft,
             brain_sdf=brain,

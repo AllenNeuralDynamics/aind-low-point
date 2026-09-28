@@ -90,9 +90,8 @@ def test_the_seed_cache_is_named_for_the_subject() -> None:
 
 def test_a_caller_may_pass_values_directly() -> None:
     """The point of the conversion: `run()` can be told, not just configured."""
-    settings = Phase1Settings(stage1=10, stage2=20, chunk=8, coarse_n=5000)
+    settings = Phase1Settings(stage1=10, stage2=20, chunk=8)
     assert (settings.stage1, settings.stage2, settings.chunk) == (10, 20, 8)
-    assert settings.two_fidelity is False
 
 
 def test_a_constructor_argument_beats_the_environment(monkeypatch) -> None:

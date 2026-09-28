@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -140,9 +141,11 @@ def test_every_stage_reads_one_feasibility_spec(
 
 
 @pytest.mark.parametrize("settings_cls", [Phase1Settings, Phase2Settings])
+@pytest.mark.parametrize("name", sorted(RETIRED_VARIABLES))
 def test_a_retired_variable_is_refused_by_name(
-    settings_cls: type, monkeypatch: pytest.MonkeyPatch
+    settings_cls: type, name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RUTTER_MINCLEAR", "0.2")
-    with pytest.raises(ValidationError, match="RUTTER_MIN_CLEARANCE"):
+    monkeypatch.setenv(name, "0.2")
+    instead = re.escape(RETIRED_VARIABLES[name])
+    with pytest.raises(ValidationError, match=f"{name} is retired: {instead}"):
         settings_cls()

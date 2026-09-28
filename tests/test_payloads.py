@@ -67,7 +67,6 @@ def _pool(records: list[dict[str, Any]]) -> Any:
         "max_ppa": 4,
         "minimizer": "rprop",
         "well": "thick",
-        "coarse_n": 1000,
         "reduced_fine": 50,
         "full_fine": 50,
     }
@@ -168,6 +167,12 @@ def test_a_pool_reads_back_exactly(tmp_path: Path, suffix: str) -> None:
     assert _same(dict(payload), dict(back))
     assert "idx" not in back["records"][0], "an absent optional key stays absent"
     assert "feasibility" not in back, "a pool recording no specs reads back without"
+
+
+def test_a_pool_recording_a_coarse_pass_still_reads(tmp_path: Path) -> None:
+    path = tmp_path / "pool.json.gz"
+    write_pool(path, {**_pool([_pool_record()]), "coarse_n": 1000})
+    assert read_pool(path)["coarse_n"] == 1000
 
 
 def test_the_specs_a_pool_records_read_back_as_pinned(tmp_path: Path) -> None:
