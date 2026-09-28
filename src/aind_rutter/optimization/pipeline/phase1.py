@@ -1,10 +1,10 @@
-"""Run the FULL MRV pool through restore → reduced 500 → full 500 (TUNED).
+"""Run the FULL MRV pool through restore → (reduced) → full 500 (TUNED).
 
 Enumerates the MRV pool (3 arcs, <=4 probes/arc; ~19k candidates), seeds each
 from the joint ``emit_seed`` (arc/ml/spin) via ``Enumerator.seed``, spin-restores
-(16 spins), then runs each candidate through a two-stage (reduced→full)
-optimization and a per-candidate FCL gate. Output → RUTTER_OUT (then cull/select/
-trust-constr from there).
+(16 spins), then runs each candidate through the full stage, preceded by the
+reduced stage when ``stage1`` is set (off by default), and a per-candidate FCL
+gate. Output → RUTTER_OUT (then cull/select/trust-constr from there).
 
 The optimizer is TUNED (see dev/POOL_RUN_CONFIGS.md for the measurements):
   - thick well   — solidified well SDF (fixes the thin-skin false-negative);
@@ -14,15 +14,16 @@ The optimizer is TUNED (see dev/POOL_RUN_CONFIGS.md for the measurements):
                    at the coarse surf count, then the fine finish @5000.
 
 Two documented presets (copy-paste commands in dev/POOL_RUN_CONFIGS.md):
-  THROUGHPUT (default): coarse_n=1000, reduced_fine=full_fine=50   (~2.16x; 545:105/20)
-  YIELD:                coarse_n=3000, reduced_fine=full_fine=100  (~1.31x; 545:123/21)
+  THROUGHPUT: coarse_n=1000, reduced_fine=full_fine=50   (~2.16x; 545:105/20)
+  YIELD:      coarse_n=3000, reduced_fine=full_fine=100  (~1.31x; 545:123/21)
+Both predate the default of no reduced stage.
 
 Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 (the cull metric), coverage, the discrete decision, and the MRV seed gap.
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
-Env:  RUTTER_WELL=thick RUTTER_COARSE_N=1000 RUTTER_REDUCED_FINE=50
-      RUTTER_FULL_FINE=50 RUTTER_STAGE1=500 RUTTER_STAGE2=500
+Env:  RUTTER_WELL=thick RUTTER_COARSE_N=1000 RUTTER_REDUCED_FINE=0
+      RUTTER_FULL_FINE=50 RUTTER_STAGE1=0 RUTTER_STAGE2=500
       RUTTER_N_SPINS=16 RUTTER_CHUNK=256 RUTTER_RESTORE_CHUNK=128
 """
 

@@ -144,7 +144,10 @@ class Phase1Settings(PipelineSettings):
 
     # Optimization schedule. The two stages run the same compiled kernel, so
     # their step counts are runtime arguments rather than separate compiles.
-    stage1: int = Field(500)
+    # stage1 is the reduced stage (offsets and depth pinned, no coverage term);
+    # off by default, since the full stage alone delivers the same layouts in half
+    # the time.
+    stage1: int = Field(0)
     stage2: int = Field(500)
     n_spins: int = Field(16)
     restore_rounds: int = Field(4)
@@ -152,7 +155,7 @@ class Phase1Settings(PipelineSettings):
     # bulk coarse and finishing fine is a homotopy: it is both faster and finds
     # more feasible candidates. coarse_n at or above 5000 collapses to all-fine.
     coarse_n: int = Field(1000)
-    reduced_fine: int = Field(50)
+    reduced_fine: int = Field(0)
     full_fine: int = Field(50)
 
     # Batch shapes. VRAM is ~9.5 MB per candidate plus a ~2.2 GB baseline.

@@ -19,7 +19,7 @@
 #   RUTTER_CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
 # Optional env (with defaults):
 #   RUTTER_HOLES=scratch/0283-300-04.holes.yml  RUTTER_TOPK=200
-#   RUTTER_P2_ITER=1000  RUTTER_COARSE_N=1000  RUTTER_REDUCED_FINE=50
+#   RUTTER_P2_ITER=1000  RUTTER_COARSE_N=1000  RUTTER_REDUCED_FINE=0
 #   RUTTER_FULL_FINE=50  RUTTER_WORKERS=4  RUTTER_PLANS=<all feasible>
 #   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
@@ -57,7 +57,7 @@ WORKERS="${RUTTER_WORKERS:-4}"
 MAX_ARCS="${RUTTER_MAX_ARCS:-3}"  # Phase 1 loops n_arcs down to 1, one process each
 MAX_PROBES_PER_ARC="${RUTTER_MAX_PROBES_PER_ARC:-4}"
 N_SPINS="${RUTTER_N_SPINS:-16}"
-COARSE_N="${RUTTER_COARSE_N:-1000}"; REDUCED_FINE="${RUTTER_REDUCED_FINE:-50}"
+COARSE_N="${RUTTER_COARSE_N:-1000}"; REDUCED_FINE="${RUTTER_REDUCED_FINE:-0}"
 FULL_FINE="${RUTTER_FULL_FINE:-50}"
 PLANS="${RUTTER_PLANS:-}"
 

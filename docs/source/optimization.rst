@@ -98,7 +98,7 @@ problem by separating cheap combinatorics from expensive continuous geometry.
    spin restore
       |
       v
-   Phase 1 pool: reduced RProp -> full RProp -> soft clearance ranking
+   Phase 1 pool: full RProp -> soft clearance ranking
       |
       v
    Phase 2: IPOPT/trust-constr constrained polish -> FCL/threading gate
@@ -426,7 +426,8 @@ instead step each spin angle, held in the ``sx`` slot and wrapped into
 Phase 2 reads the same setting for its IPOPT solve. The pool stores the pair
 either way.
 
-Phase 1 has two continuous passes:
+Phase 1 has two continuous passes, of which only ``full`` runs by default
+(``RUTTER_STAGE1=0``):
 
 ``reduced``
    Offsets and depth are pinned to zero and coverage is off. The goal is to
@@ -495,8 +496,8 @@ The practical effect is a homotopy:
   collision landscape.
 * Fine finish steps reintroduce the higher-resolution geometry before the pose
   is scored and handed downstream.
-* Both the reduced and full passes get a fine finish by default; skipping the
-  reduced fine finish changes the basin handed to the full pass.
+* A stage that runs gets a fine finish; skipping the reduced stage's fine
+  finish changes the basin handed to the full pass.
 
 The current tuned defaults are:
 
@@ -504,9 +505,12 @@ The current tuned defaults are:
   large collision-gradient spikes.
 * ``RUTTER_WELL=thick``: soft SDF uses a solidified well body; final FCL still
   checks the true mesh.
-* ``RUTTER_COARSE_N=1000``, ``RUTTER_REDUCED_FINE=50``, ``RUTTER_FULL_FINE=50``:
-  coarse-to-fine SDF surface schedule.
-* ``RUTTER_STAGE1=500``, ``RUTTER_STAGE2=500`` total reduced/full steps.
+* ``RUTTER_COARSE_N=1000``, ``RUTTER_FULL_FINE=50``: coarse-to-fine SDF surface
+  schedule.
+* ``RUTTER_STAGE1=0``, ``RUTTER_REDUCED_FINE=0``, ``RUTTER_STAGE2=500``: the full
+  stage alone. Adding the reduced stage (500 steps, 50 fine) doubles Phase 1's
+  time and delivers the same layouts after Phase 2; so does spending those steps
+  in the full stage.
 
 Run directly:
 
@@ -552,7 +556,8 @@ Useful Phase-1 environment knobs:
      - Optional normalized/weighted coverage objective.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
-full pose ``x``, reduced checkpoint ``x_reduced``, objective, soft clearance
+full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
+reduced stage is off), objective, soft clearance
 metrics, and optional top-K FCL slack. Phase 2 rebuilds statics from the saved
 assignment; it does not re-run enumeration or infer arc ordering from a
 ``frozenset``.
