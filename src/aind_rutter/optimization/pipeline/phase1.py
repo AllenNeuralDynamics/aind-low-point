@@ -16,7 +16,7 @@ Per candidate saves the final + reduced-checkpoint pose, min dual-rep clearance
 
 Run:  JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 Env:  RUTTER_WELL=thick RUTTER_STAGE1=0 RUTTER_STAGE2=500
-      RUTTER_N_SPINS=16 RUTTER_CHUNK=256 RUTTER_RESTORE_CHUNK=128
+      RUTTER_N_SPINS=16 RUTTER_CHUNK=128 RUTTER_RESTORE_CHUNK=128
 """
 
 from __future__ import annotations

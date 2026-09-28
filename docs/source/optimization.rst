@@ -572,7 +572,7 @@ Useful Phase-1 environment knobs:
      - ``0``
      - Candidate cap for smoke tests.
    * - ``RUTTER_CHUNK``, ``RUTTER_RESTORE_CHUNK``
-     - ``256``, ``128``
+     - ``128``, ``128``
      - Batched JAX chunk sizes.
    * - ``RUTTER_COV_NORM``, ``RUTTER_COV_ALPHA``, ``RUTTER_COV_WEIGHT``
      - ``0``, ``0.2``, ``1.0``

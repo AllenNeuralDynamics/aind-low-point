@@ -205,8 +205,10 @@ class Phase1Settings(PipelineSettings):
     n_spins: int = Field(16)
     restore_rounds: int = Field(4)
 
-    # Batch shapes. VRAM is ~9.5 MB per candidate plus a ~2.2 GB baseline.
-    chunk: int = Field(256)
+    # Batch shapes. A full-sample RProp step's largest buffer is ~17 MB per
+    # candidate, which at 256 does not fit a 10 GB card beside a whole group's
+    # restore; 128 runs as fast.
+    chunk: int = Field(128)
     restore_chunk: int = Field(128)
     pipeline_depth: int = Field(2)
     bf16_store: bool = Field(True)

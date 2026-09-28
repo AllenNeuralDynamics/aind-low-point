@@ -94,7 +94,7 @@ RESOLVED_SAMPLE: dict[str, str] = {
 # And with nothing set but the subject.
 RESOLVED_DEFAULT: dict[str, str] = {
     "BF16": "True",
-    "CHUNK": "256",
+    "CHUNK": "128",
     "COV_ALPHA": "0.2",
     "COV_NORM": "False",
     "COV_WEIGHT": "1.0",
