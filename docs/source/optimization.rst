@@ -337,21 +337,73 @@ seed with ``min_ml_gap`` set below threshold.
 Spin Restore
 ------------
 
-Phase 1 does not trust atlas spin seeds as final basins. It first runs batched
-round-robin spin restore over the reduced objective:
+Phase 1 does not trust atlas spin seeds as final basins. It first runs a
+batched round-robin spin restore:
 
 * ``phase1.restore_group`` builds seed rows from arc APs, ML seeds, and
   spin seeds.
-* ``optimization.objectives.spin_restore.make_batched_spin_restore_partial``
+* ``optimization.search.spin_restore.make_batched_spin_restore_partial``
   sweeps a full circle of spin proposals for each probe.
 * The default production knobs are ``RUTTER_N_SPINS=16`` and
   ``RUTTER_RESTORE_ROUNDS=4`` in ``rutter-phase1``.
-* The restore uses the well-aware reduced clearance objective and returns one
-  spin vector per candidate.
+* Each proposal is scored by its threading and clearance shortfall under the
+  restore's spec (see `Feasibility`_), with the well as the only fixture. The
+  restore returns one spin vector per candidate.
 
 This restore is the production spin-basin finder. Heuristic beam-search spin
 proposal scripts are exploratory tools and are not part of the production
 pipeline.
+
+
+Feasibility
+-----------
+
+What a stage counts as a feasible plan is a ``FeasibilitySpec``
+(``optimization.objectives.feasibility``): the clearance margin, whether the
+soft minimum is corrected, the threading tolerance and shaft length, the arc AP
+and same-arc ML separations, the brain margin, and the soft minimum's ``beta``
+and top-k. ``optimization.objectives.slacks`` turns each condition into a slack
+that is ``>= 0`` where it is met. Phase 2 constrains ``gain * slack >= 0``;
+Phase 1 and the spin restore penalise ``(gain * shortfall)^2``. A pose that
+Phase 1 charges nothing for is therefore one that Phase 2 accepts under the same
+spec. The gains (``clearance.aggregate``) scale the solver's view of a row and
+never change its sign.
+
+The soft minimum reads below the exact one by up to ``ln(k)/beta``. With
+``softmin_correction`` the spec adds each category's typical shortfall
+(``PROBE_PAIR_SOFTMIN_BIAS_MM``, ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``) back, so the
+margin reads as a distance between surfaces. The offsets were measured at
+``beta`` 20 and top-k 16/8/8, and a spec with the correction refuses any other.
+
+Each stage states its spec, and the three still differ:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Stage
+     - Clearance margin
+     - Fixtures checked
+   * - Spin restore
+     - ``phase1.RESTORE_SPEC``: 0.0 mm, uncorrected
+     - well
+   * - Phase 1
+     - ``phase1.PHASE1_SPEC``: 0.1 mm, uncorrected
+     - well
+   * - Phase 2
+     - ``RUTTER_MINCLEAR`` (default 0.2 mm), corrected
+     - every fixture
+
+Where a stage departs from the spec it holds, the site says why:
+
+* Phase 1 and the restore check the well alone. The headframe and cone cost
+  VRAM and seldom decide whether a candidate clears.
+* The restore and the pool's ``min_clear`` score read the per-representation
+  pair queries in ``clearance.pairs`` and ``clearance.aggregate``, not the
+  swept ``clearance.sweep.pair_clearance`` that both phases optimise. The
+  restore also weighs every category at unit gain.
+* Phase 1's coarse passes read fewer surface samples; its final score is at
+  full fidelity.
+* Phase 1's straight-through SAT changes the gradient, not the value.
 
 
 Phase 1 Pool
@@ -525,7 +577,7 @@ Phase 2 uses the same Phase-1 x-vector and mostly the same JAX geometry kernels,
 but it changes the mathematical contract. Feasibility terms become scipy
 inequality constraints, each expressed as ``slack(x) >= 0``:
 
-* Threading: ``threading_oval_tolerance - g_thread`` for each real
+* Threading: ``threading_tolerance - g_thread`` for each real
   probe/section/shank tuple. Where a hole has walls, ``g_thread`` is the larger of
   the oval value and the wall distance scaled by ``2 / b``, so one tolerance means
   about the same distance for both. ``g_thread`` is the worst of the shank's four
@@ -536,15 +588,14 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   ``RUTTER_THREAD_SHANK=centreline`` tests the centreline instead, whose inset
   (default 0.07 mm) must also cover the shank's half-width. Every stage — spin restore, the reduced stage, Phase 1 and Phase 2 —
   threads the same way; the hole-assignment gate stays centreline.
-* Probe-probe clearance: soft dual-rep clearance, plus the category's soft-min
-  bias, minus ``min_clearance_mm`` for each pair/category. The soft minimum reads
-  below the exact one by up to ``ln(k)/beta``; adding the typical bias back
-  (``PROBE_PAIR_SOFTMIN_BIAS_MM``) makes ``RUTTER_MINCLEAR`` an exact distance.
-* Probe-fixture clearance: likewise, with ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``.
+* Probe-probe clearance: soft dual-rep clearance, corrected for the soft
+  minimum's shortfall, minus ``RUTTER_MINCLEAR`` for each pair/category (see
+  `Feasibility`_).
+* Probe-fixture clearance: likewise, per fixture, probe and category.
 * Brain containment, when present: negative signed distance margin at shank
   tips.
-* Arc AP separation: ``abs_smooth(ap_i - ap_j) - 16 deg``.
-* Same-arc ML separation: ``abs_smooth(ml_i - ml_j) - 16 deg``.
+* Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.
+* Same-arc ML separation: ``abs_smooth(ml_i - ml_j)`` minus the spec's 16 deg.
 
 The Phase-2 objective is therefore smaller:
 
@@ -593,7 +644,7 @@ the default ``RUTTER_P2_ITER=300`` reaches the kept count and coverage of 1000
 uncapped iterations.
 
 Trading Objective For Feasibility
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``RUTTER_IP_ACC_COMPL_TOL`` (default ``1e-2``) bounds the complementarity leg of
 IPOPT's acceptable-point test. Raising it to the same scale as ``ip_acc_tol``
@@ -681,8 +732,10 @@ Key Modules
   builders. This is where per-candidate packed statics become reusable vmapped
   kernels.
 * ``optimization.search.spin_restore``: the round-robin spin-basin search.
-* ``optimization.objectives.statics``: per-candidate static geometry builder
-  and optimization weight contract.
+* ``optimization.objectives.statics``: per-candidate static geometry builder.
+* ``optimization.objectives.feasibility`` and ``optimization.objectives.slacks``:
+  the feasibility spec and one slack function per condition, shared by every
+  stage.
 * ``optimization.objectives.soft`` and ``optimization.objectives.constrained``:
   the differentiable objectives and constraints Phase 1 and Phase 2 use. The
   terms both phases compute identically — reading the variable vector, the
@@ -693,8 +746,9 @@ Key Modules
   ``ProbeStaticInfo`` input carrier.
 * ``optimization.clearance``: SDF builders and alpha-wrap envelopes, plus the
   JAX terms over them — ``poses``, ``smooth``, ``grids``, ``boxes``, ``pairs``
-  (signed clearance per representation) and ``aggregate`` (the category gains
-  and the dual-representation combination).
+  (signed clearance per representation), ``aggregate`` (the category gains
+  and the dual-representation combination) and ``sweep`` (the per-pair query
+  both phases optimise, vmapped over pairs and fixtures).
 * ``scripts/run_subject_overnight.sh``: recommended unattended production
   wrapper.
 * ``scripts/staged_adam.py``, ``scripts/manual_mrv_chain.py``,

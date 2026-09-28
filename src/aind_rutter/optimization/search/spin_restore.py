@@ -17,13 +17,13 @@ This module provides a JAX-batched round-robin spin sweep:
           y[probe_i_spin] = best_spin
 
 K * n_rounds * n_spins objective evaluations per outer step, fully
-vmapped across the batch. Much simpler than the existing pairwise
-greedy sweep and good enough as a warm-start for Adam.
-
-Phase 4 of the batched-Stage-2 refactor.
+vmapped across the batch. The loss is the threading and clearance shortfall
+under :class:`RestoreWeights`' spec.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
@@ -39,6 +39,7 @@ from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import (
     ML,
     SPIN_COS,
@@ -47,18 +48,75 @@ from aind_rutter.optimization.objectives.layout import (
     reduced_var,
 )
 from aind_rutter.optimization.objectives.packing import BatchedProbeStatic
-from aind_rutter.optimization.objectives.reduced import (
-    _threading_g_for_probe,
+from aind_rutter.optimization.objectives.slacks import (
+    fixture_clearance_slack,
+    pair_clearance_slack,
+    shortfall,
+    threading_slack,
 )
-from aind_rutter.optimization.objectives.statics import JointWeights
+from aind_rutter.optimization.objectives.threading import threading_g_matrix
 from aind_rutter.optimization.pipeline.records import (
     SpinRestoreWithLosses,
 )
 
 
+@dataclass(frozen=True)
+class RestoreWeights:
+    """What the spin restore charges: the spec's threading and clearance
+    shortfall, with every pair and fixture category at unit gain where the
+    phases scale the OBB categories."""
+
+    spec: FeasibilitySpec
+    lambda_thread: float = 100.0
+    lambda_clearance: float = 100.0
+
+
+def _threading_penalty(
+    R: jnp.ndarray,
+    pose_tip: jnp.ndarray,
+    tips_local: jnp.ndarray,  # (SH, 3)
+    shank_mask: jnp.ndarray,  # (SH,)
+    s_axes: jnp.ndarray,  # (S, 3)
+    s_centers: jnp.ndarray,  # (S, 3)
+    s_e1: jnp.ndarray,  # (S, 3)
+    s_e2: jnp.ndarray,  # (S, 3)
+    s_cos: jnp.ndarray,  # (S,)
+    s_sin: jnp.ndarray,  # (S,)
+    s_a: jnp.ndarray,  # (S,)
+    s_b: jnp.ndarray,  # (S,)
+    section_mask: jnp.ndarray,  # (S,)
+    w_normals: jnp.ndarray,  # (W, 3)
+    w_offsets: jnp.ndarray,  # (W,)
+    spec: FeasibilitySpec,
+    shank_half_xy: jnp.ndarray | None,  # (2,)
+) -> jnp.ndarray:
+    """Sum of squared threading shortfall over one probe's real (section, shank)
+    entries."""
+    g = threading_g_matrix(
+        R,
+        pose_tip,
+        tips_local,
+        s_axes,
+        s_centers,
+        s_e1,
+        s_e2,
+        s_cos,
+        s_sin,
+        s_a,
+        s_b,
+        float(spec.shaft_length_mm),
+        w_normals=w_normals,
+        w_offsets=w_offsets,
+        shank_half_xy=shank_half_xy,
+    )  # (S, SH)
+    valid = section_mask[:, None] * shank_mask[None, :]
+    excess = shortfall(threading_slack(g, spec))
+    return jnp.sum(valid * excess * excess)
+
+
 def make_batched_spin_restore_partial(
     static: BatchedProbeStatic,
-    weights: JointWeights,
+    weights: RestoreWeights,
     *,
     n_spins: int = 8,
     n_rounds: int = 4,
@@ -76,7 +134,7 @@ def make_batched_spin_restore_partial(
     Both loops are ``lax.fori_loop`` (dynamic probe index gathers the now-uniform
     per-kind SDF/OBB tables; the ``j==i`` self-pair is masked out).
 
-    ``varying`` comes from the reduced objective's ``extract_arrays``.
+    ``varying`` is :func:`~aind_rutter.optimization.objectives.packing.restore_arrays`.
     Exposes ``.spin_losses(y, i, *varying)`` →
     ``(n_spins,)`` for a single candidate, for argmin-parity testing.
     """
@@ -98,11 +156,9 @@ def make_batched_spin_restore_partial(
     obb_hlv = static.sdf_shank_halves_padded
     obb_msk = static.sdf_shank_obb_mask  # (Nk, max_Sa)
 
+    spec = weights.spec
     lt = float(weights.lambda_thread)
     lc = float(weights.lambda_clearance)
-    lf = float(getattr(weights, "lambda_clearance_fixture", weights.lambda_clearance))
-    thr_tol = float(weights.threading_oval_tolerance)
-    min_clear = float(weights.min_clearance_mm)
     fixture_data = [
         (
             jnp.asarray(fx.grid),
@@ -169,13 +225,13 @@ def make_batched_spin_restore_partial(
                 recording_center_local=piv_i,
             )
             surf_i = sdf_surface_points[ki] @ R_i.T + t_i
-            thr = _threading_g_for_probe(
+            thr = _threading_penalty(
                 R_i,
                 t_i,
                 tips_i,
                 smask_i,
                 *sec_i,
-                thr_tol,
+                spec,
                 None if shank_half_xy is None else shank_half_xy[i],
             )
 
@@ -197,6 +253,8 @@ def make_batched_spin_restore_partial(
                     s_j,
                     surf_i,
                     surf_j,
+                    beta=spec.softmin_beta,
+                    top_k=spec.top_k_body_body,
                 )[1]
                 sbsc = body_shank_corners_pair_clearance(
                     R_i,
@@ -215,6 +273,8 @@ def make_batched_spin_restore_partial(
                     oh_j,
                     shank_mask_a=om_i,
                     shank_mask_b=om_j,
+                    beta=spec.softmin_beta,
+                    top_k=spec.top_k_body_shank,
                 )[1]
                 (_h1, sbso), (_h2, sss) = shank_only_pair_clearance(
                     R_i,
@@ -229,11 +289,16 @@ def make_batched_spin_restore_partial(
                     oh_j,
                     shank_mask_a=om_i,
                     shank_mask_b=om_j,
+                    beta=spec.softmin_beta,
+                    top_k_body_shank=spec.top_k_body_shank,
+                    top_k_shank_shank=spec.top_k_shank_shank,
+                )
+                short = shortfall(
+                    pair_clearance_slack(jnp.stack([sbb, sbsc, sbso, sss]), spec)
                 )
                 cl = jnp.float32(0.0)
-                for d in (sbb, sbsc, sbso, sss):
-                    short = jnp.maximum(0.0, min_clear - d)
-                    cl = cl + short * short
+                for c in range(4):
+                    cl = cl + short[c] * short[c]
                 return jnp.where(j != i, cl, jnp.float32(0.0))
 
             clall = jnp.sum(jax.vmap(cj)(idxK))
@@ -252,11 +317,14 @@ def make_batched_spin_restore_partial(
                     fsurf,
                     oc_i,
                     oh_i,
+                    **spec.fixture_softmin_kwargs(),
                 )
-                for d in (fc.body[1], fc.obb[1]):
-                    short = jnp.maximum(0.0, min_clear - d)
-                    fixv = fixv + short * short
-            return lt * thr + lc * clall + lf * fixv
+                short = shortfall(
+                    fixture_clearance_slack(jnp.stack([fc.body[1], fc.obb[1]]), spec)
+                )
+                for c in range(2):
+                    fixv = fixv + short[c] * short[c]
+            return lt * thr + lc * clall + lc * fixv
 
         return jax.vmap(eval_spin)(spin_xy_grid)  # (n_spins,)
 

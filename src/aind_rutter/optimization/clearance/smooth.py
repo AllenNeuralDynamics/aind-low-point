@@ -14,8 +14,8 @@ from jax import Array
 def soft_min_topk(
     values: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 16,
+    beta: float,
+    top_k: int,
 ) -> Array:
     """Smooth approximation to ``min(values)`` using top-k softmin.
 

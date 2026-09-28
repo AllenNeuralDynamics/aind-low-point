@@ -47,6 +47,7 @@ import numpy as np
 
 from aind_rutter.domain.rig import reachable_ap_window_deg
 from aind_rutter.optimization.jax_env import configure_compile_cache
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import (
     ML,
     SPIN_COS,
@@ -57,9 +58,7 @@ from aind_rutter.optimization.objectives.layout import (
 from aind_rutter.optimization.objectives.metrics import make_min_clear_one
 from aind_rutter.optimization.objectives.packing import (
     build_batched_probe_static,
-)
-from aind_rutter.optimization.objectives.reduced import (
-    make_batched_reduced_objective,
+    restore_arrays,
 )
 from aind_rutter.optimization.objectives.soft import Phase1Weights
 from aind_rutter.optimization.objectives.spin_angle import (
@@ -67,10 +66,7 @@ from aind_rutter.optimization.objectives.spin_angle import (
     spin_slots,
     to_angle_layout,
 )
-from aind_rutter.optimization.objectives.statics import (
-    JointWeights,
-    _build_probe_static,
-)
+from aind_rutter.optimization.objectives.statics import _build_probe_static
 from aind_rutter.optimization.objectives.variables import build_y
 from aind_rutter.optimization.pipeline.candidates import (
     Enumerator,
@@ -113,8 +109,15 @@ from aind_rutter.optimization.search.minimizers import (
     make_staged_rprop,
 )
 from aind_rutter.optimization.search.spin_restore import (
+    RestoreWeights,
     make_batched_spin_restore_partial,
 )
+
+# What the spin restore and Phase 1 accept; Phase 2's spec comes from its
+# settings. The three differ until one spec serves every stage
+# (dev/proposals/feasibility_spec.md).
+RESTORE_SPEC = FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=False)
+PHASE1_SPEC = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
 
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]
@@ -234,7 +237,8 @@ def restore_group(
     restored spin-degrees (parallel to cands)."""
     K = len(probes)
     names = [p.name for p in probes]
-    weights = JointWeights()
+    weights = RestoreWeights(RESTORE_SPEC)
+    # The well alone, as in Phase 1 (see ``_kernel``).
     fixtures = (well,)
     seed_rows: list[np.ndarray] = []
     for c in cands:
@@ -268,8 +272,6 @@ def restore_group(
         n_rounds=settings.restore_rounds,
         fixtures=fixtures,
     )
-    obj_b, _ = make_batched_reduced_objective(bs0, weights, fixtures)
-    obj_b = cast(Any, obj_b)
     out: list[np.ndarray] = []
     for lo in range(0, B, settings.restore_chunk):
         hi = min(lo + settings.restore_chunk, B)
@@ -285,7 +287,7 @@ def restore_group(
                 head_pitch_deg=head_pitch_deg,
             )
         )
-        y_r = restore(jnp.asarray(seeds[lo:hi]), *obj_b.extract_arrays(bs))
+        y_r = restore(jnp.asarray(seeds[lo:hi]), *restore_arrays(bs))
         y_r.block_until_ready()
         out.extend(
             spins_deg_from_reduced(np.asarray(y_r[b], np.float64), n_arcs, K)
@@ -347,6 +349,7 @@ def _kernel(
     ``settings.spin_param`` asks for it.
     """
     weights = Phase1Weights(
+        PHASE1_SPEC,
         cov_alpha=settings.cov_alpha if settings.cov_norm else 0.0,
         smooth_thread_reward=settings.smooth_thread_reward,
     )
@@ -354,6 +357,8 @@ def _kernel(
         st0,
         n_arcs,
         weights,
+        # The well is Phase 1's only fixture: the headframe and cone cost VRAM
+        # and seldom decide whether a candidate clears.
         (well_soft,),
         coverage_data=cov,
         grid_dtype=grid_dtype,
@@ -584,7 +589,7 @@ def run_group(  # noqa: C901
     # Final scores at fine fidelity (soft clearance uses the thick well too).
     in_axes = (0,) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
     clear_b = jax.jit(
-        jax.vmap(make_min_clear_one(n_arcs, K, (well_soft,), Phase1Weights()), in_axes)
+        jax.vmap(make_min_clear_one(n_arcs, K, (well_soft,), PHASE1_SPEC), in_axes)
     )
     obj = np.empty(n_tot, np.float32)
     clr = np.empty(n_tot, np.float32)  # full@end clearance (cull metric)

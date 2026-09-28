@@ -15,7 +15,13 @@ cyipopt = pytest.importorskip("cyipopt")
 from aind_rutter.optimization.geometry.holes import Hole  # noqa: E402
 from aind_rutter.optimization.geometry.primitives import HoleSection  # noqa: E402
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo  # noqa: E402
-from aind_rutter.optimization.objectives.constrained import make_phase2  # noqa: E402
+from aind_rutter.optimization.objectives.constrained import (  # noqa: E402
+    Phase2Weights,
+    make_phase2,
+)
+from aind_rutter.optimization.objectives.feasibility import (  # noqa: E402
+    FeasibilitySpec,
+)
 from aind_rutter.optimization.objectives.slack_layout import (  # noqa: E402
     PADDED_SLACK,
     SLACK_GROUPS,
@@ -32,6 +38,8 @@ from aind_rutter.optimization.pipeline.phase2_diagnostics import (  # noqa: E402
     perturb_pose,
     read_ranks,
 )
+
+WEIGHTS = Phase2Weights(FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True))
 
 
 def _toy_problem():
@@ -168,7 +176,7 @@ def test_slack_parts_concatenate_to_the_constraint_vector() -> None:
     ha = SimpleNamespace(probe_to_hole={"p": 1, "q": 1})
     aa = SimpleNamespace(probe_to_arc_idx={"p": 0, "q": 0}, arc_centroids_deg=(0.0,))
     statics = _build_probe_static(probes, [hole], ha, aa)
-    p2 = make_phase2(statics, 1)
+    p2 = make_phase2(statics, 1, weights=WEIGHTS)
 
     x = np.array(
         [0.0] + [0.0, 1.0, 0.0, 0.0, 0.0, 0.0] + [20.0, 1.0, 0.0, 0.0, 0.0, 0.0]
@@ -210,7 +218,7 @@ def test_group_sizes_span_the_constraint_vector_the_solver_sees(drop: bool) -> N
     ha = SimpleNamespace(probe_to_hole={"p": 1, "q": 1})
     aa = SimpleNamespace(probe_to_arc_idx={"p": 0, "q": 0}, arc_centroids_deg=(0.0,))
     statics = _build_probe_static(probes, [hole], ha, aa)
-    p2 = make_phase2(statics, 1, drop_padded_rows=drop)
+    p2 = make_phase2(statics, 1, weights=WEIGHTS, drop_padded_rows=drop)
     assert p2["rows_dropped"] is drop
     assert not np.asarray(p2["live_rows"]).all(), "fixture must actually pad rows"
 

@@ -22,9 +22,9 @@ from aind_rutter.optimization.jax_env import (
     compile_cache_dir,
 )
 
-# Importing this pulls in the whole objectives chain that used to reconfigure
-# the cache on the way past.
-OBJECTIVES_MODULE = "aind_rutter.optimization.objectives.threading"
+# Importing this pulls in the whole objectives chain, which must leave the cache
+# configuration alone.
+OBJECTIVES_MODULE = "aind_rutter.optimization.objectives.constrained"
 
 
 def _run(code: str) -> str:

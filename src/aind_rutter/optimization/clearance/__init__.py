@@ -5,8 +5,6 @@ from aind_rutter.optimization.clearance.aggregate import (
     PairClearance,
     dual_rep_fixture_clearance,
     dual_rep_pair_clearance,
-    pairwise_signed_clearance_dual,
-    pairwise_signed_clearance_dual_world,
 )
 from aind_rutter.optimization.clearance.envelope import (
     build_alpha_wrap_envelope,
@@ -44,8 +42,6 @@ __all__ = [
     "dual_rep_pair_clearance",
     "extract_shank_obbs",
     "floor_shank_half_extents",
-    "pairwise_signed_clearance_dual",
-    "pairwise_signed_clearance_dual_world",
     "pose_from_optimizer_vars",
     "spin_deg_from_sxy",
     "strip_shanks",

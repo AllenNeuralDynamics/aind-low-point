@@ -11,17 +11,20 @@ of them import each other.
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
+
+
+def _key_value(value):
+    if is_dataclass(value) and not isinstance(value, type):
+        return weights_cache_key(value)
+    return round(value, 6) if isinstance(value, float) else value
 
 
 def weights_cache_key(w) -> tuple:
-    """Every weight of a weights dataclass, by name.
+    """Every weight of a weights dataclass, by name, nested dataclasses (the
+    feasibility spec) included field by field.
 
     Floats round to 6 decimals so float noise in a recomputed weight does not
     force a recompile.
     """
-    return tuple(
-        (f.name, round(value, 6) if isinstance(value, float) else value)
-        for f in fields(w)
-        for value in (getattr(w, f.name),)
-    )
+    return tuple((f.name, _key_value(getattr(w, f.name))) for f in fields(w))

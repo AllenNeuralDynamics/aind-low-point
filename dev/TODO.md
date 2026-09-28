@@ -31,13 +31,6 @@ exist, it reports five, none of them a defect: a `**dict` expansion into a
 Each wants a narrowed annotation rather than a code change.
 
 
-### `pack_statics` is two implementations
-
-`objectives/soft.py` and `objectives/reduced.py`. Deliberate: they pack
-different layouts with different padding, and merging them now that
-`objectives/layout.py` names both would mean a layout-generic packer — more
-abstraction than two call sites earn. Revisit if a third appears.
-
 ### The optimizer does not clamp to rig limits
 
 `ProbePose.from_planning_state` resolves angles through

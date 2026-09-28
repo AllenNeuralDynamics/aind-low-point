@@ -60,8 +60,8 @@ def _clearances(body, R_a, t_a):
         jnp.asarray(SHANK_CENTER, jnp.float32), jnp.asarray(SHANK_HALVES, jnp.float32),
         NO_SHANKS, NO_SHANKS,
     )  # fmt: skip
-    dense = body_shank_box_sdf_clearance(*args, FRACTIONS, top_k=16)
-    corners = body_shank_corners_pair_clearance(*args, top_k=16)
+    dense = body_shank_box_sdf_clearance(*args, FRACTIONS, beta=20.0, top_k=16)
+    corners = body_shank_corners_pair_clearance(*args, beta=20.0, top_k=16)
     return float(dense[0]), float(corners[0])
 
 
@@ -94,7 +94,7 @@ def test_overlap_reads_negative_with_finite_gradient(body) -> None:
             grid, body.origin, body.spacing, grid, body.origin, body.spacing,
             jnp.asarray(SHANK_CENTER, jnp.float32),
             jnp.asarray(SHANK_HALVES, jnp.float32), NO_SHANKS, NO_SHANKS,
-            FRACTIONS, top_k=16,
+            FRACTIONS, beta=20.0, top_k=16,
         )[1]  # fmt: skip
 
     g = jax.jit(jax.grad(soft))(jnp.asarray(t, jnp.float32))
@@ -128,7 +128,7 @@ def test_pair_sweep_measures_body_vs_box_once(body) -> None:
         Rs[0], ts[0], Rs[1], ts[1],
         grid, body.origin, body.spacing, grid, body.origin, body.spacing,
         centers, halves, centers, halves,
-        box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE), top_k=8,
+        box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE), beta=20.0, top_k=8,
     )  # fmt: skip
     assert float(hard[0, 1]) == pytest.approx(float(direct[0]), abs=1e-5)
     assert float(hard[0, 1]) == pytest.approx(0.1, abs=0.02)

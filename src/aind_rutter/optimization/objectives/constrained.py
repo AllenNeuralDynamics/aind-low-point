@@ -6,11 +6,15 @@ all feasibility terms from the objective into solver inequality
 constraints:
 
   - Threading: ``g_thread ≤ tol`` per (probe, shank, section)
-  - Clearance probe-probe (dual-rep): ``d_soft + bias ≥ min_clear`` per
+  - Clearance probe-probe (dual-rep): ``d_soft [+ bias] ≥ min_clear`` per
     (pair, category)
-  - Clearance probe-fixture (body): same, per (probe, fixture)
+  - Clearance probe-fixture: same, per (fixture, probe, category)
+  - Brain containment, when a brain SDF is given: per shank tip
   - Arc-AP separation: ``smooth_abs(ap_diff) ≥ min_sep`` per arc pair
   - Intra-arc ML separation: same per intra-arc pair
+
+Each row is ``gain · slack`` from :mod:`~aind_rutter.optimization.objectives.slacks`
+under the weights' :class:`FeasibilitySpec`, the slacks Phase 1 penalises.
 
 The objective shrinks to coverage + soft bounds + saturating margin
 bonuses (clearance + threading) — exactly the bonuses from Phase 1.
@@ -32,13 +36,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.optimization.clearance.aggregate import (
-    FIXTURE_PAIR_SOFTMIN_BIAS_MM,
-    PROBE_PAIR_SOFTMIN_BIAS_MM,
-    SLACK_GAIN_BODY_BODY,
-    SLACK_GAIN_BODY_SHANK_CORNERS,
-    SLACK_GAIN_FIXTURE_BODY,
+    OBB_SLACK_GAIN,
     FixtureClearance,
     PairClearance,
+    fixture_slack_gains,
+    probe_pair_slack_gains,
 )
 from aind_rutter.optimization.clearance.grids import trilinear_sdf
 from aind_rutter.optimization.clearance.poses import (
@@ -61,11 +63,20 @@ from aind_rutter.optimization.objectives.evaluate import (
     poses_from_x,
     threading_g_per_probe,
 )
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.slack_layout import (
     LARGE_SLACK,
     SLACK_GROUPS,
     live_row_constraints,
     padding_mask,
+)
+from aind_rutter.optimization.objectives.slacks import (
+    arc_separation_slack,
+    brain_slack,
+    fixture_clearance_slack,
+    ml_separation_slack,
+    pair_clearance_slack,
+    threading_slack,
 )
 from aind_rutter.optimization.objectives.soft import (
     BrainSDFData,
@@ -97,11 +108,12 @@ from aind_rutter.optimization.pipeline.records import Phase2Problem
 class Phase2Weights:
     """Weights for the Phase 2 hard-constrained objective.
 
-    Phase 2 drops the feasibility-penalty λ's (threading, clearance,
-    kinematic) — those terms are now constraints. Keeps coverage, soft
-    bounds, and the two saturating margin bonuses.
+    ``spec`` states the constraints. Phase 2 drops the feasibility-penalty λ's
+    (threading, clearance, kinematic) — those terms are constraints. Keeps
+    coverage, soft bounds, and the two saturating margin bonuses.
     """
 
+    spec: FeasibilitySpec
     lambda_bounds: float = 1.0
     # See sdf.kernels.unit_circle_penalty. Reduced 100 -> 10 (2026-05-26).
     lambda_unit_circle: float = 10.0
@@ -116,33 +128,17 @@ class Phase2Weights:
     smooth_thread_reward: bool = False
     softmin_beta_thread: float = 20.0
 
-    # Constraint thresholds (passed into the slack functions).
-    min_clearance_mm: float = 0.0
-    threading_oval_tolerance: float = 0.0
-    min_arc_ap_sep_deg: float = 16.0
-    min_intra_arc_ml_sep_deg: float = 16.0
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
 
-    # Soft-min knobs for dual-rep clearance.
-    softmin_beta: float = 20.0
     # Gain on the OBB-based slack categories (body-shank box, shank-shank, probe
     # OBB vs fixture). The default keeps them two orders above the mm-native
     # voxel-SDF categories; lowering it evens out the KKT scaling.
-    obb_slack_gain: float = 100.0
+    obb_slack_gain: float = OBB_SLACK_GAIN
     # Shape the clearance reward with the soft minimum instead of the hard one:
     # the hard min's gradient is one sample's and jumps as the closest sample
     # changes, which stalls the line search.
     smooth_clearance_reward: bool = False
-    top_k_body_body: int = 16
-    top_k_body_shank: int = 8
-    top_k_shank_shank: int = 8
-
-    shaft_length_mm: float = 10.0
-
-    # Brain containment: each shank tip must stay this far inside the brain
-    # surface (hard constraint, only active when a brain SDF is passed).
-    brain_margin_mm: float = 0.2
 
     # Coverage. ``lambda_cov`` is the overall coverage-vs-clearance gain
     # (multiplies the coverage scalar in the objective). When
@@ -247,27 +243,14 @@ def _build_jit(  # noqa: C901
     beta_t = (
         float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
     )
-    min_clear = float(weights.min_clearance_mm)
+    spec = weights.spec
     obb_gain = float(weights.obb_slack_gain)
     smooth_reward = bool(weights.smooth_clearance_reward)
-    pair_gains = (
-        SLACK_GAIN_BODY_BODY,
-        SLACK_GAIN_BODY_SHANK_CORNERS,
-        obb_gain,
-        obb_gain,
-    )
-    fixture_gains = (SLACK_GAIN_FIXTURE_BODY, obb_gain)
-    thread_tol = float(weights.threading_oval_tolerance)
-    min_arc_ap = float(weights.min_arc_ap_sep_deg)
-    min_intra_ml = float(weights.min_intra_arc_ml_sep_deg)
+    pair_gains = probe_pair_slack_gains(obb_gain)
+    fixture_gains = fixture_slack_gains(obb_gain)
     cap = float(weights.comfortable_ap_deg)
     cml = float(weights.comfortable_ml_deg)
-    beta = float(weights.softmin_beta)
-    tk_bb = int(weights.top_k_body_body)
-    tk_bs = int(weights.top_k_body_shank)
-    tk_ss = int(weights.top_k_shank_shank)
-    shaft_len = float(weights.shaft_length_mm)
-    brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
+    shaft_len = float(spec.shaft_length_mm)
     if brain_sdf is not None:
         brain_grid = jnp.asarray(brain_sdf.grid)
         brain_origin = jnp.asarray(brain_sdf.origin)
@@ -388,7 +371,7 @@ def _build_jit(  # noqa: C901
         # (P, -1): per-probe view for worst-shank reward. Hard constraint
         # computes its own flat view from _tg/_tvalid below.
         _n_probes_t = _tg.shape[0]
-        _thread_slacks_pp = (thread_tol - _tg).reshape(_n_probes_t, -1)
+        _thread_slacks_pp = threading_slack(_tg, spec).reshape(_n_probes_t, -1)
         _thread_masks_pp = _tvalid.reshape(_n_probes_t, -1)
 
         # Probe-probe clearance, vmapped over the static pair list (one dual-rep
@@ -403,10 +386,7 @@ def _build_jit(  # noqa: C901
                 sdf_table,
                 _pa,
                 _pb,
-                beta=beta,
-                top_k_body_body=tk_bb,
-                top_k_body_shank=tk_bs,
-                top_k_shank_shank=tk_ss,
+                **spec.pair_softmin_kwargs(),
             )
             _pvals = _psoft if smooth_reward else _phard
             pair_hard_clearances = jnp.min(_pvals, axis=1)  # (n_pairs,)
@@ -425,9 +405,7 @@ def _build_jit(  # noqa: C901
                 sdf_table,
                 fix_table,
                 _fidx,
-                beta=beta,
-                top_k_body=tk_bb,
-                top_k_obb=tk_bs,
+                **spec.fixture_softmin_kwargs(),
             )
             _fvals = _fs if smooth_reward else _fh
             fixture_hard_clearances = jnp.min(_fvals, axis=2).reshape(-1)
@@ -522,13 +500,11 @@ def _build_jit(  # noqa: C901
             shank_half_xy,
             shaft_len=shaft_len,
         )
-        thread_vec = jnp.where(_tvalid > 0, thread_tol - _tg, LARGE_SLACK)
+        thread_vec = jnp.where(_tvalid > 0, threading_slack(_tg, spec), LARGE_SLACK)
 
-        # Clearance probe-probe: d_soft − min_clear per (pair, category), vmapped
-        # over the static pair list (one dual-rep subgraph vs C(P,2) unrolled).
-        # ``soft`` is (n_pairs, 4) in PROBE_PAIR_SLACK_GAINS category order, so
-        # ``.reshape(-1)`` reproduces the pair-major/category-minor constraint
-        # order EXACTLY (each slack is independent ⇒ bit-exact, no reduction).
+        # Clearance probe-probe per (pair, category), vmapped over the static
+        # pair list. ``soft`` is (n_pairs, 4) in PairClearance order, so
+        # ``.reshape(-1)`` gives the pair-major/category-minor constraint order.
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
@@ -538,24 +514,17 @@ def _build_jit(  # noqa: C901
                 sdf_table,
                 _pa,
                 _pb,
-                beta=beta,
-                top_k_body_body=tk_bb,
-                top_k_body_shank=tk_bs,
-                top_k_shank_shank=tk_ss,
+                **spec.pair_softmin_kwargs(),
             )
             _gains = jnp.asarray(pair_gains, jnp.float32)
-            _bias = jnp.asarray(PROBE_PAIR_SOFTMIN_BIAS_MM, jnp.float32)
-            clear_pp_vec = (_soft + _bias - min_clear) * _gains
+            clear_pp_vec = pair_clearance_slack(_soft, spec) * _gains
         else:
             clear_pp_vec = jnp.zeros(0)
 
-        # Probe-fixture clearance: dual-rep (body voxel-SDF + probe-OBB
-        # vs fixture surface samples). See PairClearance / FixtureClearance
-        # in sdf.kernels for category definitions.
-        # Probe-fixture clearance, vmapped over probes per fixture. ``soft`` is
-        # (n_fix, n_sdf, 2) in FIXTURE_PAIR_SLACK_GAINS category order, so
-        # ``.reshape(-1)`` reproduces the fixture-major/probe-minor/category-minor
-        # constraint order EXACTLY (each slack independent ⇒ bit-exact).
+        # Probe-fixture clearance (body voxel-SDF, probe OBB vs fixture surface
+        # samples), vmapped over (fixture × probe). ``soft`` is (n_fix, n_sdf, 2)
+        # in FixtureClearance order, so ``.reshape(-1)`` gives the
+        # fixture-major/probe-minor/category-minor constraint order.
         if fixtures and sdf_table is not None:
             _fidx = [
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
@@ -566,19 +535,15 @@ def _build_jit(  # noqa: C901
                 sdf_table,
                 fix_table,
                 _fidx,
-                beta=beta,
-                top_k_body=tk_bb,
-                top_k_obb=tk_bs,
+                **spec.fixture_softmin_kwargs(),
             )
             _fgains = jnp.asarray(fixture_gains, jnp.float32)
-            _fbias = jnp.asarray(FIXTURE_PAIR_SOFTMIN_BIAS_MM, jnp.float32)
-            clear_pf_vec = (_fsoft + _fbias - min_clear) * _fgains
+            clear_pf_vec = fixture_clearance_slack(_fsoft, spec) * _fgains
         else:
             clear_pf_vec = jnp.zeros(0)
 
-        # Brain containment: each shank tip must be inside the brain by at
-        # least ``brain_margin``. SDF is negative inside, so the slack is
-        # ``-(d + margin) ≥ 0``. Padded shanks → +LARGE (don't constrain).
+        # Brain containment: each shank tip inside the brain by the spec's
+        # margin. Padded shanks → +LARGE (don't constrain).
         brain_vec = jnp.zeros(0)
         if brain_sdf is not None:
             # Batched over probes: (P, max_shanks, 3) world tips → one gather.
@@ -587,23 +552,22 @@ def _build_jit(  # noqa: C901
                 jnp.matmul(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
             )
             d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
-            s = -(d + brain_margin)
-            brain_vec = jnp.where(shank_mask > 0, s, LARGE_SLACK)
+            brain_vec = jnp.where(shank_mask > 0, brain_slack(d, spec), LARGE_SLACK)
 
-        # Arc-AP separation: smooth_abs(diff) − min_arc_ap_sep.
+        # Arc-AP separation over smooth_abs of each arc pair's difference.
         if arc_pairs.shape[0] > 0:
             ap_diffs = smooth_abs(
                 arc_aps[arc_pairs_j[:, 0]] - arc_aps[arc_pairs_j[:, 1]]
             )
-            ap_sep_vec = ap_diffs - min_arc_ap
+            ap_sep_vec = arc_separation_slack(ap_diffs, spec)
         else:
             ap_sep_vec = jnp.zeros(0)
 
-        # Intra-arc ML separation: smooth_abs(ml_diff) − min_ml_sep,
-        # but only over same-arc pairs (others get +LARGE so the solver ignores).
+        # Intra-arc ML separation, only over same-arc pairs (others get +LARGE
+        # so the solver ignores them).
         ml_vals = ml_of(x, n_arcs, n_probes)
         ml_diff = ml_pair_separation(ml_vals)
-        ml_slack = ml_diff - min_intra_ml
+        ml_slack = ml_separation_slack(ml_diff, spec)
         # Take upper triangle to avoid duplicates; mask off non-same-arc.
         iu, ju = np.triu_indices(n_probes, k=1)
         if iu.size > 0:
@@ -698,8 +662,8 @@ def make_phase2(
     n_arcs: int,
     coverage_data: tuple[CoverageData, ...] | None = None,
     fixtures: tuple[FixtureSDFData, ...] = (),
-    weights: Phase2Weights = Phase2Weights(),
     *,
+    weights: Phase2Weights,
     coverage_n_samples: int = 41,
     brain_sdf: "BrainSDFData | None" = None,
     coverage_ceilings: "tuple[float, ...] | None" = None,

@@ -1,26 +1,22 @@
 """Phase 1 soft-penalty JAX objective with coverage, offsets, and depth.
 
 Phase 1 is the soft warm-up used by the production pool builder. Phase 2 runs
-afterward to do the hard-constrained final polish.
+afterward to do the hard-constrained final polish. Both read feasibility from
+the weights' :class:`FeasibilitySpec` through the same slack functions: Phase 1
+penalises each slack's shortfall where Phase 2 constrains the slack.
 
-What Phase 1 adds beyond the reduced spin-restore objective:
+Beyond the feasibility penalties:
 
   - Coverage maximisation.
-  - Three new per-probe DOFs: ``off_R, off_A, past_target_mm``
+  - Three per-probe DOFs beyond the restore's: ``off_R, off_A, past_target_mm``
     (offsets along the rig-R and rig-A axes, and insertion depth past
     the target).
   - Saturating per-pair clearance margin reward (rewards every pair
     having clearance, not just the worst).
   - Saturating per-(probe, shank, section) threading margin reward
     (rewards every shank-section being deep inside its oval).
-
-What Phase 1 inherits from the reduced objective:
-
-  - α-wrap envelope SDF body + analytic shank OBBs (dual-rep clearance,
-    three categories: body-body, body-shank, shank-shank).
-  - Soft-min top-k aggregation per category.
-  - ``smooth_abs`` in AP/ML separations and bounds.
-  - ``(sx, sy)`` unit-circle spin reparameterization (no ±180° wrap).
+  - ``smooth_abs`` in AP/ML separations and bounds, and the ``(sx, sy)``
+    unit-circle spin reparameterization (no ±180° wrap).
 
 x layout: ``(arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)`` — 6 DOFs
 per probe. Convert to/from the reduced y layout (n_arcs + 3P) and scalar-spin
@@ -45,8 +41,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.optimization.clearance.aggregate import (
-    FIXTURE_PAIR_SLACK_GAINS,
-    PROBE_PAIR_SLACK_GAINS,
+    fixture_slack_gains,
+    probe_pair_slack_gains,
 )
 from aind_rutter.optimization.clearance.boxes import SAT_SMOOTH_BETA
 from aind_rutter.optimization.clearance.grids import trilinear_sdf
@@ -68,6 +64,7 @@ from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
     coverage_total_over_probes,
 )
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
 from aind_rutter.optimization.objectives.rewards import (
     saturating_reward_mean,
@@ -76,6 +73,15 @@ from aind_rutter.optimization.objectives.rewards import (
 from aind_rutter.optimization.objectives.sdf_inputs import (
     BrainSDFData,
     FixtureSDFData,
+)
+from aind_rutter.optimization.objectives.slacks import (
+    arc_separation_slack,
+    brain_slack,
+    fixture_clearance_slack,
+    ml_separation_slack,
+    pair_clearance_slack,
+    shortfall,
+    threading_slack,
 )
 from aind_rutter.optimization.objectives.terms import (
     arc_angles_of,
@@ -98,7 +104,8 @@ from aind_rutter.optimization.objectives.threading import (
 
 @dataclass(frozen=True)
 class Phase1Weights:
-    """Weights for the Phase 1 soft-penalty objective.
+    """Weights for the Phase 1 soft-penalty objective. What counts as feasible is
+    ``spec``; the penalties are zero exactly where it is met.
 
     Defaults sized so that:
       - Penalty terms (λ_thread, λ_clearance, λ_kinematic) dominate when
@@ -108,6 +115,7 @@ class Phase1Weights:
       - ``smooth_abs`` epsilon is 1e-3 deg.
     """
 
+    spec: FeasibilitySpec
     lambda_thread: float = 100.0
     # Per-category weight (body-body, body-shank, shank-shank). The
     # categories surface different geometric failures (deep body
@@ -137,32 +145,13 @@ class Phase1Weights:
     lambda_clearance_fixture: float = 100.0
     lambda_margin_clear_fixture: float = 1.0
 
-    # Pass-throughs to existing modules. ``min_clearance_mm`` includes
-    # a 0.1 mm safety buffer over the α-wrap envelope's own ~50 µm
-    # offset — covers the ~4% soft-FN rate where the envelope misses a
-    # sharp feature and the raw mesh sticks out past it.
-    min_clearance_mm: float = 0.1  # threshold for the hard clearance penalty
-    threading_oval_tolerance: float = 0.0
-    min_arc_ap_sep_deg: float = 16.0
-    min_intra_arc_ml_sep_deg: float = 16.0
     comfortable_ap_deg: float = 50.0
     comfortable_ml_deg: float = 50.0
 
-    # Soft-min knobs for dual-rep clearance.
-    softmin_beta: float = 20.0
-    top_k_body_body: int = 16
-    top_k_body_shank: int = 8
-    top_k_shank_shank: int = 8
-
-    # Shaft length used by threading_g_matrix.
-    shaft_length_mm: float = 10.0
-
     # Brain containment: each shank tip must stay inside the brain (don't
     # puncture through the bottom). Only active when a brain SDF is passed
-    # to the objective. Large lambda ⇒ near-barrier in the soft ADAM pass;
-    # margin keeps tips this far inside the surface (mm).
+    # to the objective. Large lambda ⇒ near-barrier in the soft pass.
     lambda_brain: float = 500.0
-    brain_margin_mm: float = 0.2
 
     # Coverage average/worst blend. Only active when per-probe ceilings are
     # passed to the objective (which switches coverage to the normalised form
@@ -335,19 +324,11 @@ def _build_jit(  # noqa: C901
     beta_t = (
         float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
     )
-    min_clear = float(weights.min_clearance_mm)
-    thread_tol = float(weights.threading_oval_tolerance)
-    min_arc_ap = float(weights.min_arc_ap_sep_deg)
-    min_intra_ml = float(weights.min_intra_arc_ml_sep_deg)
+    spec = weights.spec
     cap = float(weights.comfortable_ap_deg)
     cml = float(weights.comfortable_ml_deg)
-    beta = float(weights.softmin_beta)
-    tk_bb = int(weights.top_k_body_body)
-    tk_bs = int(weights.top_k_body_shank)
-    tk_ss = int(weights.top_k_shank_shank)
-    shaft_len = float(weights.shaft_length_mm)
+    shaft_len = float(spec.shaft_length_mm)
     lbrain = float(getattr(weights, "lambda_brain", 0.0))
-    brain_margin = float(getattr(weights, "brain_margin_mm", 0.2))
     # Coverage normalisation: per-probe ceilings (constant) + average/worst blend.
     cov_alpha = float(getattr(weights, "cov_alpha", 0.0))
     beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
@@ -469,11 +450,11 @@ def _build_jit(  # noqa: C901
                 shank_half_xy=sh_xy,
             )  # (S, SH)
             valid_g = sec_m[:, None] * sh_m[None, :]
-            # Penalty (Patch A: clamped, finite — no inf): max(0, g - tol)²
-            excess = jnp.maximum(0.0, g - thread_tol)
+            slack = threading_slack(g, spec)
+            excess = shortfall(slack)
             jt = jnp.sum(valid_g * excess * excess)
-            # Slack for the margin reward: tol - g.
-            return R, t, jt, (thread_tol - g).reshape(-1), valid_g.reshape(-1)
+            # The margin reward reads the same slack.
+            return R, t, jt, slack.reshape(-1), valid_g.reshape(-1)
 
         Rs, ts, _jts, _thread_slacks, _thread_masks = jax.vmap(_pose_thread)(
             xp,
@@ -500,7 +481,7 @@ def _build_jit(  # noqa: C901
         # AP separation (smooth_abs over arc-pair differences)
         if arc_pairs.shape[0] > 0:
             ap_diffs = smooth_abs(arc_aps[arc_pairs[:, 0]] - arc_aps[arc_pairs[:, 1]])
-            short_ap = jnp.maximum(0.0, min_arc_ap - ap_diffs)
+            short_ap = shortfall(arc_separation_slack(ap_diffs, spec))
             j_arc_ap = jnp.sum(short_ap * short_ap)
         else:
             j_arc_ap = jnp.float32(0.0)
@@ -508,7 +489,7 @@ def _build_jit(  # noqa: C901
         # Intra-arc ML separation
         ml_vals = ml_of(x, n_arcs, n_probes)
         ml_diff = ml_pair_separation(ml_vals)
-        short_ml = jnp.maximum(0.0, min_intra_ml - ml_diff)
+        short_ml = shortfall(ml_separation_slack(ml_diff, spec))
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
         # Soft bounds (smooth_abs ⇒ comfortable-range pull-back).
@@ -522,20 +503,18 @@ def _build_jit(  # noqa: C901
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
+            # The straight-through SAT changes the gradient, not the value.
             _hard, _soft = swept_pair_clearances(
                 Rs,
                 ts,
                 sdf_table,
                 _pa,
                 _pb,
-                beta=beta,
-                top_k_body_body=tk_bb,
-                top_k_body_shank=tk_bs,
-                top_k_shank_shank=tk_ss,
+                **spec.pair_softmin_kwargs(),
                 sat_beta=SAT_SMOOTH_BETA,
             )
-            _gains = jnp.asarray(PROBE_PAIR_SLACK_GAINS, jnp.float32)
-            _short = jnp.maximum(0.0, min_clear - _soft) * _gains  # (n_pairs, 4)
+            _gains = jnp.asarray(probe_pair_slack_gains(), jnp.float32)
+            _short = shortfall(pair_clearance_slack(_soft, spec)) * _gains
             j_clear = jnp.sum(_short * _short)
             pair_hard_clearances = jnp.min(_hard, axis=1)  # (n_pairs,)
         else:
@@ -558,12 +537,10 @@ def _build_jit(  # noqa: C901
                 sdf_table,
                 fix_table,
                 _fidx,
-                beta=beta,
-                top_k_body=tk_bb,
-                top_k_obb=tk_bs,
+                **spec.fixture_softmin_kwargs(),
             )  # (n_fix, n_sdf, 2) in (body, obb)
-            _fgains = jnp.asarray(FIXTURE_PAIR_SLACK_GAINS, jnp.float32)
-            _fshort = jnp.maximum(0.0, min_clear - _fs) * _fgains  # (n_fix, n_sdf, 2)
+            _fgains = jnp.asarray(fixture_slack_gains(), jnp.float32)
+            _fshort = shortfall(fixture_clearance_slack(_fs, spec)) * _fgains
             j_clear_fixture = jnp.sum(_fshort * _fshort)
             fixture_hard_clearances = jnp.min(_fh, axis=2).reshape(-1)  # (n_fix*n_sdf,)
         else:
@@ -586,7 +563,7 @@ def _build_jit(  # noqa: C901
             d = trilinear_sdf(
                 brain_grid, brain_origin, brain_spacing, world_tips
             )  # (P, max_shanks) signed distance, negative inside
-            viol = jnp.maximum(0.0, d + brain_margin)
+            viol = shortfall(brain_slack(d, spec))
             j_brain = jnp.sum(shank_mask * viol * viol)
 
         # Saturating per-pair clearance margin reward (mean form). Combines

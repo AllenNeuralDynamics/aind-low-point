@@ -175,7 +175,7 @@ def _c2f(tables, pose, n_cells, kind_a=0, kind_b=1):
         tables["grids"], tables["origins"], tables["spacings"], tables["n_reals"],
         tables["outside_min"],
         tables["coarse"], tables["fine"], tables["cells"], tables["radius"],
-        n_cells=n_cells,
+        beta=20.0, top_k=16, n_cells=n_cells,
     )  # fmt: skip
 
 
@@ -212,6 +212,7 @@ def test_kernel_jits_vmaps_and_has_finite_gradients(tables) -> None:
             tables["grids"], tables["origins"], tables["spacings"], tables["n_reals"],
             tables["outside_min"],
             tables["coarse"], tables["fine"], tables["cells"], tables["radius"],
+            beta=20.0, top_k=16,
         )[1]  # fmt: skip
 
     batch_t = jnp.stack([t_b, t_b + jnp.asarray([0.5, 0.0, 0.0])])

@@ -1,4 +1,4 @@
-"""Per-candidate static geometry builder and objective weights."""
+"""Per-candidate static geometry builder."""
 
 from __future__ import annotations
 
@@ -26,25 +26,6 @@ from aind_rutter.optimization.geometry.holes import (
     threading_margin_mm,
 )
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-
-
-@dataclass(frozen=True)
-class JointWeights:
-    """Penalty weights shared by the reduced and full optimization stages."""
-
-    lambda_thread: float = 100.0
-    lambda_arc_ap: float = 100.0
-    lambda_ml: float = 100.0
-    lambda_bounds: float = 1.0
-    lambda_clearance: float = 100.0
-    lambda_coverage: float = 0.0
-    lambda_unit_circle: float = 10.0
-    comfortable_ap_deg: float = 50.0
-    comfortable_ml_deg: float = 50.0
-    min_arc_ap_sep_deg: float = 16.0
-    min_intra_arc_ml_sep_deg: float = 16.0
-    threading_oval_tolerance: float = 0.0
-    min_clearance_mm: float = 0.0
 
 
 @dataclass(frozen=True)

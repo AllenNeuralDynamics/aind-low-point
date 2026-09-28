@@ -53,8 +53,7 @@ from aind_rutter.optimization.clearance.pairs import (
     shank_shank_pair_clearance,
 )
 
-# Category order MUST match PROBE_PAIR_SLACK_GAINS and the unrolled loop's
-# (body_body, body_shank_corners, body_shank_obb, shank_shank) tuple order.
+# Category order MUST match aggregate.PairClearance and probe_pair_slack_gains.
 N_PAIR_CATEGORIES = 4
 # Cells refined per probe pair by the coarse-to-fine body-body query. A cell whose
 # Lipschitz bound falls below the best coarse value can still hold the pair's true
@@ -267,6 +266,134 @@ def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) 
     }
 
 
+def pair_clearance(
+    R_a,
+    t_a,
+    surface_a,
+    kind_a,
+    R_b,
+    t_b,
+    surface_b,
+    kind_b,
+    tables: dict,
+    *,
+    beta: float,
+    top_k_body_body: int,
+    top_k_body_shank: int,
+    top_k_shank_shank: int,
+    sat_beta: float | None = None,
+):
+    """One probe pair's clearance, ``(hard, soft)`` of shape ``(4,)`` each in
+    category order (body_body, body_shank_corners, body_shank_obb, shank_shank).
+
+    Body-vs-shank-box clearance is measured once, by
+    :func:`body_shank_box_sdf_clearance` in the second category; the third reads
+    the empty sentinel. ``kind_a``/``kind_b`` index ``tables``
+    (:func:`build_padded_probe_tables`); ``surface_a``/``surface_b`` are the body
+    samples in world, read only by the full-sample body-body query, since the
+    coarse-to-fine one carries its own.
+    """
+    grids = tables["grids"]
+    origins = tables["origins"]
+    spacings = tables["spacings"]
+    real_shapes = tables["real_shapes"]
+    ga, oa, sa = grids[kind_a], origins[kind_a], spacings[kind_a]
+    gb, ob, sb = grids[kind_b], origins[kind_b], spacings[kind_b]
+    nra, nrb = real_shapes[kind_a], real_shapes[kind_b]
+    oca, oha, oma = (
+        tables["obb_centers"][kind_a],
+        tables["obb_halves"][kind_a],
+        tables["obb_mask"][kind_a],
+    )
+    ocb, ohb, omb = (
+        tables["obb_centers"][kind_b],
+        tables["obb_halves"][kind_b],
+        tables["obb_mask"][kind_b],
+    )
+    if "c2f_fine" in tables:
+        bb = body_body_pair_clearance_c2f(
+            R_a,
+            t_a,
+            R_b,
+            t_b,
+            kind_a,
+            kind_b,
+            grids,
+            origins,
+            spacings,
+            real_shapes,
+            tables["outside_min"],
+            tables["c2f_coarse"],
+            tables["c2f_fine"],
+            tables["c2f_cells"],
+            tables["c2f_radius"],
+            beta=beta,
+            top_k=top_k_body_body,
+            n_cells=C2F_REFINED_CELLS,
+        )
+    else:
+        bb = body_body_pair_clearance(
+            R_a,
+            t_a,
+            R_b,
+            t_b,
+            ga,
+            oa,
+            sa,
+            gb,
+            ob,
+            sb,
+            surface_a,
+            surface_b,
+            beta=beta,
+            top_k=top_k_body_body,
+            n_real_a=nra,
+            n_real_b=nrb,
+        )
+    bsc = body_shank_box_sdf_clearance(
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        ga,
+        oa,
+        sa,
+        gb,
+        ob,
+        sb,
+        oca,
+        oha,
+        ocb,
+        ohb,
+        box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE),
+        beta=beta,
+        top_k=top_k_body_shank,
+        shank_mask_a=oma,
+        shank_mask_b=omb,
+        n_real_a=nra,
+        n_real_b=nrb,
+    )
+    sss = shank_shank_pair_clearance(
+        R_a,
+        t_a,
+        R_b,
+        t_b,
+        oca,
+        oha,
+        ocb,
+        ohb,
+        beta=beta,
+        top_k=top_k_shank_shank,
+        sat_beta=sat_beta,
+        shank_mask_a=oma,
+        shank_mask_b=omb,
+    )
+    empty = jnp.asarray(EMPTY_CLEARANCE_SENTINEL, jnp.float32)
+    hard = jnp.stack([bb[0], bsc[0], empty, sss[0]])
+    soft = jnp.stack([bb[1], bsc[1], empty, sss[1]])
+    return hard, soft
+
+
 def swept_pair_clearances(
     Rs,
     ts,
@@ -280,7 +407,7 @@ def swept_pair_clearances(
     top_k_shank_shank: int,
     sat_beta: float | None = None,
 ):
-    """Per-pair dual-rep clearance, ``vmap``'d over the static pair index list.
+    """:func:`pair_clearance`, ``vmap``'d over the static pair index list.
 
     Parameters
     ----------
@@ -290,126 +417,39 @@ def swept_pair_clearances(
 
     Returns
     -------
-    hard, soft : (n_pairs, 4) — per-pair clearance in category order
-        (body_body, body_shank_corners, body_shank_obb, shank_shank), matching
-        ``PROBE_PAIR_SLACK_GAINS`` and the unrolled loop. Body-vs-shank-box
-        clearance is measured once, by :func:`body_shank_box_sdf_clearance` in the
-        second category; the third reads the empty sentinel.
+    hard, soft : (n_pairs, 4) — per-pair clearance in :func:`pair_clearance`'s
+        category order.
     """
-    grids = tables["grids"]
-    origins = tables["origins"]
-    spacings = tables["spacings"]
-    surfaces = tables["surfaces"]
-    obb_c = tables["obb_centers"]
-    obb_h = tables["obb_halves"]
-    obb_m = tables["obb_mask"]
-    real_shapes = tables["real_shapes"]
     kind_id = tables["kind_id"]  # (P,) probe → kind
-    coarse_to_fine = "c2f_fine" in tables
-    box_fractions = box_face_fractions(BOX_SAMPLES_LONG, BOX_SAMPLES_WIDE)
-    empty = jnp.asarray(EMPTY_CLEARANCE_SENTINEL, jnp.float32)
     # World-frame body surfaces, once per PROBE: gather the per-kind local
     # surface by kind, then transform by the probe's pose.
     world_surf = (
-        jnp.matmul(surfaces[kind_id], jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+        jnp.matmul(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
+        + ts[:, None, :]
     )
 
     def _pair(ia, ib):
-        Ra, ta, Rb, tb = Rs[ia], ts[ia], Rs[ib], ts[ib]
-        ka, kb = kind_id[ia], kind_id[ib]  # gather grids/OBB by KIND, not probe
-        ga, oa, sa = grids[ka], origins[ka], spacings[ka]
-        gb, ob, sb = grids[kb], origins[kb], spacings[kb]
-        nra, nrb = real_shapes[ka], real_shapes[kb]
-        sfa, sfb = world_surf[ia], world_surf[ib]
-        oca, oha, oma = obb_c[ka], obb_h[ka], obb_m[ka]
-        ocb, ohb, omb = obb_c[kb], obb_h[kb], obb_m[kb]
-        if coarse_to_fine:
-            bb = body_body_pair_clearance_c2f(
-                Ra,
-                ta,
-                Rb,
-                tb,
-                ka,
-                kb,
-                grids,
-                origins,
-                spacings,
-                real_shapes,
-                tables["outside_min"],
-                tables["c2f_coarse"],
-                tables["c2f_fine"],
-                tables["c2f_cells"],
-                tables["c2f_radius"],
-                beta=beta,
-                top_k=top_k_body_body,
-                n_cells=C2F_REFINED_CELLS,
-            )
-        else:
-            bb = body_body_pair_clearance(
-                Ra,
-                ta,
-                Rb,
-                tb,
-                ga,
-                oa,
-                sa,
-                gb,
-                ob,
-                sb,
-                sfa,
-                sfb,
-                beta=beta,
-                top_k=top_k_body_body,
-                n_real_a=nra,
-                n_real_b=nrb,
-            )
-        bsc = body_shank_box_sdf_clearance(
-            Ra,
-            ta,
-            Rb,
-            tb,
-            ga,
-            oa,
-            sa,
-            gb,
-            ob,
-            sb,
-            oca,
-            oha,
-            ocb,
-            ohb,
-            box_fractions,
+        return pair_clearance(
+            Rs[ia],
+            ts[ia],
+            world_surf[ia],
+            kind_id[ia],
+            Rs[ib],
+            ts[ib],
+            world_surf[ib],
+            kind_id[ib],
+            tables,
             beta=beta,
-            top_k=top_k_body_shank,
-            shank_mask_a=oma,
-            shank_mask_b=omb,
-            n_real_a=nra,
-            n_real_b=nrb,
-        )
-        sss = shank_shank_pair_clearance(
-            Ra,
-            ta,
-            Rb,
-            tb,
-            oca,
-            oha,
-            ocb,
-            ohb,
-            beta=beta,
-            top_k=top_k_shank_shank,
+            top_k_body_body=top_k_body_body,
+            top_k_body_shank=top_k_body_shank,
+            top_k_shank_shank=top_k_shank_shank,
             sat_beta=sat_beta,
-            shank_mask_a=oma,
-            shank_mask_b=omb,
         )
-        hard = jnp.stack([bb[0], bsc[0], empty, sss[0]])
-        soft = jnp.stack([bb[1], bsc[1], empty, sss[1]])
-        return hard, soft
 
     return jax.vmap(_pair)(pair_a, pair_b)
 
 
-# Category order MUST match FIXTURE_PAIR_SLACK_GAINS and the unrolled loop's
-# (body, obb) tuple order.
+# Category order MUST match aggregate.FixtureClearance and fixture_slack_gains.
 N_FIXTURE_CATEGORIES = 2
 
 
@@ -484,8 +524,7 @@ def swept_fixture_clearances(
     Returns
     -------
     hard, soft : (n_fixtures, n_sdf_probes, 2) — per (fixture, probe) clearance in
-        category order (body, obb), matching ``FIXTURE_PAIR_SLACK_GAINS`` and the
-        unrolled ``for fx: for i:`` loop.
+        category order (body, obb), matching ``aggregate.FixtureClearance``.
     """
     grids = tables["grids"]
     origins = tables["origins"]

@@ -234,7 +234,8 @@ def build_cw_fns(
     cov,
     thick,
     brain,
-    weights=None,
+    *,
+    weights: Phase1Weights,
     coverage_ceilings=None,
     coverage_weights=None,
     spin_angle=False,
@@ -244,7 +245,7 @@ def build_cw_fns(
     With ``spin_angle`` both take the angle layout of
     :func:`~aind_rutter.optimization.objectives.spin_angle.to_angle_layout`.
     """
-    w = weights if weights is not None else Phase1Weights()
+    w = weights
     sig = _signature(st, n_arcs, w)
     # bf16 all collision grids (fixture + probe + table), like the chunked
     # builder. See clearance_sweep for the policy.

@@ -498,6 +498,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         Phase2Weights,
         make_phase2,
     )
+    from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 
     s = _G["settings"]
     if _G["cov_data"] is None:
@@ -508,7 +509,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         coverage_data=_G["cov_data"],
         fixtures=tuple(_G["fx"]),
         weights=Phase2Weights(
-            min_clearance_mm=s.minclear,
+            FeasibilitySpec(min_clearance_mm=s.minclear, softmin_correction=True),
             lambda_margin_clear=s.lam_clear,
             tau_clear_mm=s.tau_clear,
             lambda_margin_thread=s.lam_thread,

@@ -2,9 +2,8 @@
 
 A weight left out is baked into the compiled kernel at whatever value it had on
 the first build, and every later build with a different value silently gets the
-old one back. D2 fixed this for Phase 2 by deriving the key from the dataclass
-rather than a hand-written list of names; Phase 1 and the reduced objective kept
-their lists, and both had drifted.
+old one back. The key is derived from the dataclass, the spec's fields
+included, rather than from a hand-written list of names.
 
 The tests are structural — they compare the key against the dataclass — because
 an omission is invisible in any single run's output.
@@ -22,50 +21,54 @@ from aind_rutter.optimization.objectives.constrained import (
 from aind_rutter.optimization.objectives.constrained import (
     _weights_key as phase2_key,
 )
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.soft import (
     Phase1Weights,
 )
 from aind_rutter.optimization.objectives.soft import (
     _weights_key as phase1_key,
 )
-from aind_rutter.optimization.objectives.statics import JointWeights
-from aind_rutter.optimization.objectives.threading import (
-    _weights_key as reduced_key,
-)
+
+SPEC = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
 
 CASES = [
     pytest.param(Phase1Weights, phase1_key, id="phase1"),
-    pytest.param(JointWeights, reduced_key, id="reduced"),
     pytest.param(Phase2Weights, phase2_key, id="phase2"),
 ]
+
+
+def _variants(value, name: str):
+    """(name, changed value) for every field of ``value``, into nested dataclasses."""
+    if isinstance(value, bool):
+        yield name, not value
+    elif isinstance(value, (int, float)):
+        yield name, type(value)(value + 7)
+    elif dc.is_dataclass(value):
+        for field in dc.fields(value):
+            for sub, changed in _variants(getattr(value, field.name), field.name):
+                yield f"{name}.{sub}", dc.replace(value, **{field.name: changed})
 
 
 @pytest.mark.parametrize(("weights_cls", "key"), CASES)
 def test_changing_any_weight_changes_the_key(weights_cls, key) -> None:
     """The defect: `lambda_unit_circle` moved the objective and not the key, so
     a kernel traced at one value was reused at another."""
-    base = weights_cls()
+    base = weights_cls(SPEC)
     collisions = []
     for field in dc.fields(base):
-        value = getattr(base, field.name)
-        if isinstance(value, bool):
-            changed = not value
-        elif isinstance(value, (int, float)):
-            changed = type(value)(value + 7)
-        else:
-            continue
-        if key(dc.replace(base, **{field.name: changed})) == key(base):
-            collisions.append(field.name)
+        for name, changed in _variants(getattr(base, field.name), field.name):
+            if key(dc.replace(base, **{field.name: changed})) == key(base):
+                collisions.append(name)
     assert not collisions, f"weights absent from the cache key: {collisions}"
 
 
 @pytest.mark.parametrize(("weights_cls", "key"), CASES)
 def test_the_key_is_hashable(weights_cls, key) -> None:
     """It is a dict key in the module-level compile cache."""
-    hash(key(weights_cls()))
+    hash(key(weights_cls(SPEC)))
 
 
 @pytest.mark.parametrize(("weights_cls", "key"), CASES)
 def test_equal_weights_give_equal_keys(weights_cls, key) -> None:
     """Otherwise every build recompiles."""
-    assert key(weights_cls()) == key(weights_cls())
+    assert key(weights_cls(SPEC)) == key(weights_cls(SPEC))

@@ -27,11 +27,10 @@ from aind_rutter.optimization.geometry.holes import (
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.objectives.evaluate import threading_g_per_probe
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.packing import (
     build_batched_probe_static,
-)
-from aind_rutter.optimization.objectives.reduced import (
-    make_batched_reduced_objective,
+    restore_arrays,
 )
 from aind_rutter.optimization.objectives.soft import (
     PACKED_ARG_ORDER,
@@ -40,12 +39,13 @@ from aind_rutter.optimization.objectives.soft import (
 from aind_rutter.optimization.objectives.soft import (
     pack_statics as pack_phase1,
 )
-from aind_rutter.optimization.objectives.statics import (
-    JointWeights,
-    _build_probe_static,
-)
+from aind_rutter.optimization.objectives.statics import _build_probe_static
 from aind_rutter.optimization.objectives.threading import threading_g_matrix
 from aind_rutter.optimization.pipeline.probe_setup import _transform_holes
+from aind_rutter.optimization.search.spin_restore import (
+    RestoreWeights,
+    make_batched_spin_restore_partial,
+)
 
 A_MM, B_MM = 0.6, 0.3
 WALL_X = 0.2
@@ -225,21 +225,25 @@ def test_phase2_threading_sees_the_wall() -> None:
     assert float(valid[0, 0, 0]) == 1.0
 
 
-def test_batched_reduced_objective_penalises_the_wall() -> None:
-    # Vertical pose (ap = ml = 0) puts the single shank at the target's x.
+def test_spin_restore_penalises_the_wall() -> None:
+    # Vertical pose (ap = ml = 0) puts the single shank at the target's x, which
+    # no spin moves.
     m = threading_margin_mm()
-    weights = JointWeights()
-    y = jnp.asarray([[0.0, 0.0, 1.0, 0.0]], jnp.float32)
-    objs = []
+    weights = RestoreWeights(
+        FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=False)
+    )
+    y = jnp.asarray([0.0, 0.0, 1.0, 0.0], jnp.float32)
+    losses = []
     for walls in ((), (_wall(),)):
         bs = build_batched_probe_static(
             [(_HA, _AA)], [_probe(0.15)], [_hole(walls)], n_arcs=1
         )
         assert bs.wall_normals.shape == (1, 1, MAX_WALLS_PAD, 3)
-        obj_batched, _ = make_batched_reduced_objective(bs, weights)
-        objs.append(float(obj_batched(y, bs)[0]))
+        restore = make_batched_spin_restore_partial(bs, weights, n_spins=4)
+        per_spin = restore.spin_losses(y, 0, *(a[0] for a in restore_arrays(bs)))
+        losses.append(float(per_spin[0]))
     g_wall = 2 * (0.15 - (WALL_X - m)) / (B_MM - m)
-    assert objs[1] - objs[0] == pytest.approx(
+    assert losses[1] - losses[0] == pytest.approx(
         weights.lambda_thread * g_wall**2, rel=1e-3
     )
 

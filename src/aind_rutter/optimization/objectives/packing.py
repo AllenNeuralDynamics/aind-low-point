@@ -1,18 +1,14 @@
-"""Padded, batched per-candidate static data for reduced batched polish.
+"""Padded, batched per-candidate static data for the batched spin restore.
 
-The scalar ``_ProbeStatic`` in ``probe_static.py`` is per-(probe, HA, AA)
+The scalar ``_ProbeStatic`` in ``statics.py`` is per-(probe, HA, AA)
 with shapes that depend on the assigned hole's section count and the
-probe's shank count. To run the reduced objective across many candidates in a single
+probe's shank count. To run the spin restore across many candidates in a single
 JAX vmap, we need uniform shapes across the batch.
 
 This module builds a ``BatchedProbeStatic`` with all relevant per-probe
 data padded to fixed maxima ``(K, SH, S)`` and per-kind SDF tables
 indexed by ``sdf_kind_id``. Mask arrays mark padded entries so the
 objective can mask their contribution out.
-
-Phase 1 of the batched-Stage-2 refactor — design in
-``dev/proposals/target_valid_atlas_design.md`` and the conversation log of
-2026-05-19.
 """
 
 from __future__ import annotations
@@ -420,4 +416,23 @@ def build_batched_probe_static(
         S=S,
         SH=SH,
         W=W,
+    )
+
+
+def restore_arrays(bs: BatchedProbeStatic) -> tuple[jnp.ndarray, ...]:
+    """The per-candidate arrays the spin restore takes as runtime arguments, so
+    one compile serves every same-shape chunk."""
+    return (
+        bs.probe_arc_idx,
+        bs.section_axes,
+        bs.section_centers,
+        bs.section_e1,
+        bs.section_e2,
+        bs.section_cos_theta,
+        bs.section_sin_theta,
+        bs.section_a,
+        bs.section_b,
+        bs.section_mask.astype(jnp.float32),
+        bs.wall_normals,
+        bs.wall_offsets,
     )

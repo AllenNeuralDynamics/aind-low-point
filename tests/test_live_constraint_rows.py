@@ -9,7 +9,8 @@ import numpy as np
 from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
-from aind_rutter.optimization.objectives.constrained import make_phase2
+from aind_rutter.optimization.objectives.constrained import Phase2Weights, make_phase2
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK, padding_mask
 from aind_rutter.optimization.objectives.statics import _build_probe_static
 
@@ -32,6 +33,10 @@ def _problem(**kwargs):
         [hole],
         SimpleNamespace(probe_to_hole={"p": 1, "q": 1}),
         SimpleNamespace(probe_to_arc_idx={"p": 0, "q": 0}, arc_centroids_deg=(0.0,)),
+    )
+    kwargs.setdefault(
+        "weights",
+        Phase2Weights(FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True)),
     )
     return make_phase2(statics, 1, **kwargs)
 

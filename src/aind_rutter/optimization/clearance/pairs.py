@@ -32,8 +32,8 @@ def pairwise_signed_clearance_probe_obb_fixture_world(
     shank_centers: Array,  # (S, 3) probe OBB centers in probe local
     shank_halves: Array,  # (S, 3) probe OBB half-extents
     *,
-    beta: float = 20.0,
-    top_k: int = 8,
+    beta: float,
+    top_k: int,
     shank_mask: Array | None = None,
 ) -> tuple[Array, Array]:
     """Probe-OBB vs fixture clearance via fixture surface samples →
@@ -87,8 +87,8 @@ def pairwise_signed_clearance_probe_fixture_body_world(
     world_surface_p: Array,  # (Np, 3) pre-transformed probe envelope samples in world
     surface_f: Array,  # (Nf, 3) fixture envelope samples in world LPS
     *,
-    beta: float = 20.0,
-    top_k: int = 16,
+    beta: float,
+    top_k: int,
     n_real_p: Array | None = None,
     n_real_f: Array | None = None,
 ) -> tuple[Array, Array]:
@@ -150,9 +150,9 @@ def shank_only_pair_clearance(
     shank_centers_b: Array,
     shank_halves_b: Array,
     *,
-    beta: float = 20.0,
-    top_k_body_shank: int = 8,
-    top_k_shank_shank: int = 8,
+    beta: float,
+    top_k_body_shank: int,
+    top_k_shank_shank: int,
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
 ) -> tuple[tuple[Array, Array], tuple[Array, Array]]:
@@ -236,8 +236,8 @@ def shank_shank_pair_clearance(
     shank_centers_b: Array,
     shank_halves_b: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 8,
+    beta: float,
+    top_k: int,
     sat_beta: float | None = None,
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
@@ -289,8 +289,8 @@ def body_shank_corners_pair_clearance(
     shank_centers_b: Array,
     shank_halves_b: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 8,
+    beta: float,
+    top_k: int,
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
     n_real_a: Array | None = None,
@@ -357,8 +357,8 @@ def body_shank_box_sdf_clearance(
     shank_halves_b: Array,
     face_fractions: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 8,
+    beta: float,
+    top_k: int,
     shank_mask_a: Array | None = None,
     shank_mask_b: Array | None = None,
     n_real_a: Array | None = None,
@@ -414,8 +414,8 @@ def body_body_pair_clearance(
     world_surface_a: Array,
     world_surface_b: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 16,
+    beta: float,
+    top_k: int,
     n_real_a: Array | None = None,
     n_real_b: Array | None = None,
 ) -> tuple[Array, Array]:
@@ -501,8 +501,8 @@ def body_body_pair_clearance_c2f(
     cells: Array,
     radius: Array,
     *,
-    beta: float = 20.0,
-    top_k: int = 16,
+    beta: float,
+    top_k: int,
     n_cells: int = 16,
 ) -> tuple[Array, Array]:
     """Body-body clearance from coarse-to-fine surface samples, returning

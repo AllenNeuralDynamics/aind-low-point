@@ -17,21 +17,16 @@ from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS
 
 
-def make_min_clear_one(n_arcs, n_probes, fixtures, w):
+def make_min_clear_one(n_arcs, n_probes, fixtures, spec: FeasibilitySpec):
     """Per-candidate min hard dual-rep clearance (mm; <0 = overlap). Same args
     as the batched objective so it vmaps over the shared arglist."""
     pairs = [(i, j) for i in range(n_probes) for j in range(i + 1, n_probes)]
-    beta = float(w.softmin_beta)
-    tk_bb, tk_bs, tk_ss = (
-        int(w.top_k_body_body),
-        int(w.top_k_body_shank),
-        int(w.top_k_shank_shank),
-    )
 
     def min_clear_one(
         x,
@@ -97,10 +92,7 @@ def make_min_clear_one(n_arcs, n_probes, fixtures, w):
                 shank_obb_halves[ia],
                 shank_obb_centers[ib],
                 shank_obb_halves[ib],
-                beta=beta,
-                top_k_body_body=tk_bb,
-                top_k_body_shank=tk_bs,
-                top_k_shank_shank=tk_ss,
+                **spec.pair_softmin_kwargs(),
             )
             clears.append(
                 jnp.min(
@@ -129,9 +121,7 @@ def make_min_clear_one(n_arcs, n_probes, fixtures, w):
                     fx.surface,
                     shank_obb_centers[i],
                     shank_obb_halves[i],
-                    beta=beta,
-                    top_k_body=tk_bb,
-                    top_k_obb=tk_bs,
+                    **spec.fixture_softmin_kwargs(),
                 )
                 clears.append(jnp.minimum(fc.body[0], fc.obb[0]))
         return jnp.min(jnp.stack(clears))
