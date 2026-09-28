@@ -621,8 +621,10 @@ Phase 2 Handoff
 runs a constrained continuous polish, gates the results, and writes
 ``Phase2HandoffPayload``.
 
-Default selection is ``RUTTER_SELECT_BY=min_clear``; ``RUTTER_SELECT_BY=objective``
-is also supported and sorts ascending because lower objective is better.
+Default selection is ``RUTTER_SELECT_BY=objective``, ascending because lower is
+better; any other record field, such as ``min_clear``, sorts descending. ``min_clear``
+is a poor ranker: Phase 1's penalty leaves converged candidates a few micrometres short
+of the spec, so it orders them by that residue, and it ignores threading.
 
 The default solver is ``RUTTER_SOLVER=ipopt`` using ``cyipopt.minimize_ipopt`` with a
 limited-memory Hessian approximation. ``RUTTER_SOLVER=trust-constr`` keeps the scipy

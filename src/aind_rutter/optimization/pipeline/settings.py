@@ -281,8 +281,9 @@ class Phase2Settings(PipelineSettings):
     # Selection and I/O.
     topk: int = Field(80)
     select_by: str = Field(
-        "min_clear",
-        description="Phase-1 record field to rank by; 'objective' sorts ascending.",
+        "objective",
+        description="Phase-1 record field to rank by; 'objective' sorts ascending, "
+        "any other field descending.",
     )
     poses: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),

@@ -44,6 +44,15 @@ def test_objective_ranks_lowest_first() -> None:
     assert rank_order(recs, "objective") == [1, 2, 0]
 
 
+def test_default_selection_takes_the_lowest_objective() -> None:
+    recs = [
+        _rec(0, objective=9.0, min_clear=0.5),
+        _rec(1, objective=-3.0, min_clear=-0.01),
+    ]
+    out = select_records(recs, Phase2Settings(topk=1))
+    assert [r["idx"] for r in out] == [1]
+
+
 def test_records_missing_the_ranking_field_sort_last_either_way() -> None:
     recs = [_rec(0), _rec(1, min_clear=0.2)]
     assert rank_order(recs, "min_clear") == [1, 0]

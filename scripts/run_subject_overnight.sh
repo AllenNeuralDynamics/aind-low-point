@@ -117,9 +117,9 @@ for NA in $(seq "$MAX_ARCS" -1 1); do
     uv run --python 3.13 rutter-phase1
 done
 
-echo "[$(date +%H:%M)] Phase 2: IPOPT + thick well on top-${TOPK} by min_clear (FCL at end) → ${HANDOFF}"
+echo "[$(date +%H:%M)] Phase 2: IPOPT + thick well on top-${TOPK} by objective (FCL at end) → ${HANDOFF}"
 RUTTER_SOLVER=ipopt RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
-  RUTTER_POSES="$POOL" RUTTER_OUT="$HANDOFF" RUTTER_SELECT_BY=min_clear \
+  RUTTER_POSES="$POOL" RUTTER_OUT="$HANDOFF" RUTTER_SELECT_BY=objective \
   RUTTER_WELL=thick RUTTER_POOL=thread RUTTER_PLATFORM=gpu \
   RUTTER_GPU_MEM_FRACTION=0.9 RUTTER_WORKERS="$WORKERS" \
   RUTTER_RETRO_DENSITY="$RETRO_DENSITY" RUTTER_COV_NORM="$COV_NORM" \
