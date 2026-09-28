@@ -11,6 +11,7 @@ from aind_rutter.optimization.geometry.primitives import HoleSection
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.objectives.constrained import Phase2Weights, make_phase2
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK, padding_mask
 from aind_rutter.optimization.objectives.statics import _build_probe_static
 
@@ -36,7 +37,10 @@ def _problem(**kwargs):
     )
     kwargs.setdefault(
         "weights",
-        Phase2Weights(FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True)),
+        Phase2Weights(
+            FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True),
+            ObjectiveSpec(),
+        ),
     )
     return make_phase2(statics, 1, **kwargs)
 

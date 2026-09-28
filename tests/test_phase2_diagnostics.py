@@ -22,6 +22,9 @@ from aind_rutter.optimization.objectives.constrained import (  # noqa: E402
 from aind_rutter.optimization.objectives.feasibility import (  # noqa: E402
     FeasibilitySpec,
 )
+from aind_rutter.optimization.objectives.objective_spec import (  # noqa: E402
+    ObjectiveSpec,
+)
 from aind_rutter.optimization.objectives.slack_layout import (  # noqa: E402
     PADDED_SLACK,
     SLACK_GROUPS,
@@ -39,7 +42,9 @@ from aind_rutter.optimization.pipeline.phase2_diagnostics import (  # noqa: E402
     read_ranks,
 )
 
-WEIGHTS = Phase2Weights(FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True))
+WEIGHTS = Phase2Weights(
+    FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=True), ObjectiveSpec()
+)
 
 
 def _toy_problem():

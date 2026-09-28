@@ -320,7 +320,7 @@ def angle_bounds(
 
 
 def make_runner(vgrad_cw, periodic=None, step_scale=1.0, trace=0) -> Callable:
-    """run(x0, arglist, lo, hi, cov_weight, n_steps)."""
+    """run(x0, arglist, lo, hi, coverage_scale, n_steps)."""
     return make_staged_rprop(
         vgrad_cw,
         eta0_frac=0.02 * step_scale,
@@ -349,11 +349,7 @@ def _kernel(
     ``vobj`` scores the full layout; ``run`` steps the angle layout when
     ``settings.spin_param`` asks for it.
     """
-    weights = Phase1Weights(
-        PHASE1_SPEC,
-        cov_alpha=settings.cov_alpha if settings.cov_norm else 0.0,
-        smooth_thread_reward=settings.smooth_thread_reward,
-    )
+    weights = Phase1Weights(PHASE1_SPEC, settings.objective_spec())
     vobj, _vg, barg = make_batched_phase1_chunked(
         st0,
         n_arcs,
@@ -554,11 +550,10 @@ def run_group(  # noqa: C901
         if rf > 0:
             x = stage(run_f, "reduced_fine", x, cargs_f, lo_r, hi_r, 0.0, rf)
         x_red[s : s + settings.chunk] = np.asarray(x)
-        cw = settings.cov_weight
         if fc > 0:
-            x = stage(run_c, "full_coarse", x, cargs_c, lo, hi, cw, fc)
+            x = stage(run_c, "full_coarse", x, cargs_c, lo, hi, 1.0, fc)
         if ff > 0:
-            x = stage(run_f, "full_fine", x, cargs_f, lo, hi, cw, ff)
+            x = stage(run_f, "full_fine", x, cargs_f, lo, hi, 1.0, ff)
         x_out[s : s + settings.chunk] = np.asarray(x)
         if (ci + 1) % settings.progress_every == 0 or ci + 1 == n_chunks:
             el = time.time() - t0
@@ -771,7 +766,7 @@ def run(settings: Phase1Settings) -> int:
     full_coarse = settings.stage2 - settings.full_fine
     print(
         f"config: well={settings.well} {fidelity} spin={settings.spin_param} "
-        f"smooth_thread={settings.smooth_thread_reward} "
+        f"objective={settings.objective_spec()} "
         f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
         f"full {full_coarse}c+{settings.full_fine}f → {settings.out}",
         flush=True,

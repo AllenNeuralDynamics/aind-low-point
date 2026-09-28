@@ -1,33 +1,14 @@
-"""Phase 1 soft-penalty JAX objective with coverage, offsets, and depth.
+"""Phase 1 soft-penalty JAX objective, the warm start for Phase 2.
 
-Phase 1 is the soft warm-up used by the production pool builder. Phase 2 runs
-afterward to do the hard-constrained final polish. Both read feasibility from
-the weights' :class:`FeasibilitySpec` through the same slack functions: Phase 1
-penalises each slack's shortfall where Phase 2 constrains the slack.
-
-Beyond the feasibility penalties:
-
-  - Coverage maximisation.
-  - Three per-probe DOFs beyond the restore's: ``off_R, off_A, past_target_mm``
-    (offsets along the rig-R and rig-A axes, and insertion depth past
-    the target).
-  - Saturating per-pair clearance margin reward (rewards every pair
-    having clearance, not just the worst).
-  - Saturating per-(probe, shank, section) threading margin reward
-    (rewards every shank-section being deep inside its oval).
-  - ``smooth_abs`` in AP/ML separations and bounds, and the ``(sx, sy)``
-    unit-circle spin reparameterization (no ±180° wrap).
+Phase 1 minimizes Phase 2's objective,
+:func:`~aind_rutter.optimization.objectives.terms.objective_terms` under the
+weights' :class:`ObjectiveSpec`, plus the squared shortfall of the slacks Phase 2
+constrains under the weights' :class:`FeasibilitySpec`. At a pose Phase 2 finds
+feasible the two objectives are equal, the fixtures aside: Phase 1 checks only
+those it is given.
 
 x layout: ``(arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)`` — 6 DOFs
-per probe. Convert to/from the reduced y layout (n_arcs + 3P) and scalar-spin
-full x layout (n_arcs + 5P) at boundaries.
-
-Coverage is supplied as a Python callable that returns a scalar given
-the world poses ``(Rs, ts)``. The JAX kernel computes everything else;
-the coverage term is added back at the final scipy interface (i.e.,
-finite-diff'd through coverage but analytic-grad'd through the JAX
-kernel). A future patch will port coverage to JAX for full analytic
-gradients.
+per probe.
 """
 
 from __future__ import annotations
@@ -49,7 +30,6 @@ from aind_rutter.optimization.clearance.grids import trilinear_sdf
 from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
-    unit_circle_penalty,
 )
 from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.clearance.sweep import (
@@ -66,10 +46,7 @@ from aind_rutter.optimization.objectives.coverage import (
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import PHASE1_PER_PROBE_VARS
-from aind_rutter.optimization.objectives.rewards import (
-    saturating_reward_mean,
-    saturating_reward_worst,
-)
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.sdf_inputs import (
     BrainSDFData,
     FixtureSDFData,
@@ -85,10 +62,10 @@ from aind_rutter.optimization.objectives.slacks import (
 )
 from aind_rutter.optimization.objectives.terms import (
     arc_angles_of,
-    comfort_bound_penalty,
     ml_of,
     ml_pair_separation,
     normalized_coverage,
+    objective_terms,
     spin_components_of,
 )
 from aind_rutter.optimization.objectives.threading import (
@@ -104,66 +81,23 @@ from aind_rutter.optimization.objectives.threading import (
 
 @dataclass(frozen=True)
 class Phase1Weights:
-    """Weights for the Phase 1 soft-penalty objective. What counts as feasible is
-    ``spec``; the penalties are zero exactly where it is met.
+    """``objective`` plus penalties on the shortfall of ``spec``'s slacks.
 
-    Defaults sized so that:
-      - Penalty terms (λ_thread, λ_clearance, λ_kinematic) dominate when
-        infeasible — order ~100s vs coverage ~17.
-      - Saturating margin rewards stay ≤ 12% of coverage in the
-        saturated limit (mean form ⇒ max contribution = λ each).
-      - ``smooth_abs`` epsilon is 1e-3 deg.
+    The penalties are zero exactly where Phase 2's constraints hold, and sized to
+    dominate coverage (order 100s against ~17) where they do not.
     """
 
     spec: FeasibilitySpec
+    objective: ObjectiveSpec
     lambda_thread: float = 100.0
-    # Per-category weight (body-body, body-shank, shank-shank). The
-    # categories surface different geometric failures (deep body
-    # overlap vs grazing shank contact) and weighting each at 100 —
-    # same scale as the reduced objective's single-min term — keeps each
-    # signal effective.
+    # Per category (body-body, body-shank, shank-shank): deep body overlap and
+    # grazing shank contact are different failures, and each needs a signal.
     lambda_clearance: float = 100.0
     lambda_kinematic: float = 100.0
-    lambda_bounds: float = 1.0
-    # See sdf.kernels.unit_circle_penalty: keeps (sx, sy) magnitude ≈ 1
-    # so poses are consistent across stages. Reduced 100 → 10 to
-    # avoid over-dominating iter budget; keep aligned with probe_static weights.
-    lambda_unit_circle: float = 10.0
-
-    # Saturating margin rewards (mean form ⇒ max contribution = λ each).
-    lambda_margin_clear: float = 1.0
-    lambda_margin_thread: float = 1.0
-    tau_clear_mm: float = 0.2  # saturation scale for pair clearance (mm)
-    tau_thread_gunits: float = 0.5  # saturation scale for threading slack (g-units)
-    # Soft minimum over shanks and softplus gate in the threading reward, of
-    # sharpness softmin_beta_thread per g-unit; the hard forms are kinked where
-    # shanks tie and where the tightest one reaches zero slack.
-    smooth_thread_reward: bool = False
-    softmin_beta_thread: float = 20.0
-    # Probe-vs-fixture body clearance: reuses tau_clear_mm; same penalty
-    # form as probe-probe. Set to 0 to disable fixture clearance term.
     lambda_clearance_fixture: float = 100.0
-    lambda_margin_clear_fixture: float = 1.0
-
-    comfortable_ap_deg: float = 50.0
-    comfortable_ml_deg: float = 50.0
-
-    # Brain containment: each shank tip must stay inside the brain (don't
-    # puncture through the bottom). Only active when a brain SDF is passed
-    # to the objective. Large lambda ⇒ near-barrier in the soft pass.
+    # Near-barrier on every shank tip staying inside the brain, against the
+    # coverage gain from inserting deeper. Read only with a brain SDF.
     lambda_brain: float = 500.0
-
-    # Coverage average/worst blend. Only active when per-probe ceilings are
-    # passed to the objective (which switches coverage to the normalised form
-    # cov_p / ceiling_p so regions weigh equally regardless of shank count /
-    # active area / σ / label density). The coverage scalar becomes
-    # ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)`` — a count-free
-    # [0,1] blend. ``cov_alpha`` = 0 ⇒ pure average coverage; 1 ⇒ pure minimax
-    # on the laggard, so the optimiser cannot starve one region for the total.
-    # The overall coverage-vs-clearance gain is the separate runtime
-    # ``cov_weight`` arg, not this.
-    cov_alpha: float = 0.0
-    softmin_beta_cov: float = 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -282,12 +216,12 @@ def _build_jit(  # noqa: C901
     when their respective data is provided. ``coverage_data`` has one
     entry per probe (mixed Gaussian / KDE modes supported). ``fixtures``
     is a tuple of static-in-world fixture SDFs; each contributes a
-    probe-vs-fixture body clearance penalty and a saturating margin
-    reward across the P × n_fixtures pair list.
+    probe-vs-fixture clearance penalty and, to the clearance reward, its
+    P pairs.
 
     ``coverage_ceilings`` (one per probe) switches coverage to the
     normalised [0,1] blend ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)``
-    (``weights.cov_alpha``); when ``None`` coverage is the legacy plain
+    (``weights.objective.cov_alpha``); when ``None`` coverage is the plain
     sum over probes.
     """
     (
@@ -315,23 +249,12 @@ def _build_jit(  # noqa: C901
     lt = float(weights.lambda_thread)
     lc = float(weights.lambda_clearance)
     lk = float(weights.lambda_kinematic)
-    lb = float(weights.lambda_bounds)
-    luc = float(getattr(weights, "lambda_unit_circle", 100.0))
-    lmc = float(weights.lambda_margin_clear)
-    lmt = float(weights.lambda_margin_thread)
-    tau_c = float(weights.tau_clear_mm)
-    tau_t = float(weights.tau_thread_gunits)
-    beta_t = (
-        float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
-    )
-    spec = weights.spec
-    cap = float(weights.comfortable_ap_deg)
-    cml = float(weights.comfortable_ml_deg)
+    lcf = float(weights.lambda_clearance_fixture)
+    lbrain = float(weights.lambda_brain)
+    spec, objective = weights.spec, weights.objective
     shaft_len = float(spec.shaft_length_mm)
-    lbrain = float(getattr(weights, "lambda_brain", 0.0))
-    # Coverage normalisation: per-probe ceilings (constant) + average/worst blend.
-    cov_alpha = float(getattr(weights, "cov_alpha", 0.0))
-    beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
+    cov_alpha = float(objective.cov_alpha)
+    beta_cov = float(objective.softmin_beta_cov)
     cov_ceilings = (
         jnp.asarray(coverage_ceilings, dtype=jnp.float32)
         if coverage_ceilings is not None
@@ -380,17 +303,15 @@ def _build_jit(  # noqa: C901
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
-        cov_weight=1.0,
+        coverage_scale=1.0,
         sdf_table=None,
         w_normals=None,
         w_offsets=None,
         shank_half_xy=None,
     ):
-        # ``cov_weight`` scales the coverage term at RUNTIME (1.0 = full,
-        # 0.0 = clearance-first reduced stage). Default 1.0 is a Python
-        # constant for callers that don't pass it ⇒ byte-identical to the
-        # pre-cov_weight kernel; pass a traced value to share ONE compiled
-        # kernel across the reduced (0) and full (1) ADAM stages.
+        # ``coverage_scale`` multiplies the coverage gain at run time: 0 for the
+        # clearance-first reduced stage, 1 for the full one, so a traced value
+        # shares one compiled kernel between them.
         arc_aps = arc_angles_of(x, n_arcs)
 
         # Pose + threading per probe, vmapped over probes — one
@@ -453,7 +374,7 @@ def _build_jit(  # noqa: C901
             slack = threading_slack(g, spec)
             excess = shortfall(slack)
             jt = jnp.sum(valid_g * excess * excess)
-            # The margin reward reads the same slack.
+            # The threading reward reads the same slack.
             return R, t, jt, slack.reshape(-1), valid_g.reshape(-1)
 
         Rs, ts, _jts, _thread_slacks, _thread_masks = jax.vmap(_pose_thread)(
@@ -492,14 +413,12 @@ def _build_jit(  # noqa: C901
         short_ml = shortfall(ml_separation_slack(ml_diff, spec))
         j_ml = jnp.sum(same_arc_mask * short_ml * short_ml)
 
-        # Soft bounds (smooth_abs ⇒ comfortable-range pull-back).
-        j_bounds = comfort_bound_penalty(arc_aps, ml_vals, cap, cml)
-
         # Probe-probe clearance, vmapped over the static pair list — ONE dual-rep
         # subgraph instead of C(P,2) Python-unrolled copies (the unrolled loop is
         # ~90% of the autodiff compile; see clearance_sweep + T0 measurement). The
         # padded grid/OBB table is built from the loop-invariant per-probe tuples,
         # so XLA hoists it out of the optimiser's fori_loop. Bit-parity gated.
+        clearances = []
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
@@ -516,10 +435,9 @@ def _build_jit(  # noqa: C901
             _gains = jnp.asarray(probe_pair_slack_gains(), jnp.float32)
             _short = shortfall(pair_clearance_slack(_soft, spec)) * _gains
             j_clear = jnp.sum(_short * _short)
-            pair_hard_clearances = jnp.min(_hard, axis=1)  # (n_pairs,)
+            clearances.append((_hard, _soft))
         else:
             j_clear = jnp.float32(0.0)
-            pair_hard_clearances = None
 
         # Probe-vs-fixture clearance, double-vmapped over (fixture × probe) — one
         # dual-rep subgraph in one fused kernel instead of n_fixtures × P unrolled
@@ -542,10 +460,9 @@ def _build_jit(  # noqa: C901
             _fgains = jnp.asarray(fixture_slack_gains(), jnp.float32)
             _fshort = shortfall(fixture_clearance_slack(_fs, spec)) * _fgains
             j_clear_fixture = jnp.sum(_fshort * _fshort)
-            fixture_hard_clearances = jnp.min(_fh, axis=2).reshape(-1)  # (n_fix*n_sdf,)
+            clearances.append((_fh, _fs))
         else:
             j_clear_fixture = jnp.float32(0.0)
-            fixture_hard_clearances = None
 
         # Brain containment: every shank tip must stay inside the brain
         # (don't puncture through the bottom). Point query of the brain SDF
@@ -565,30 +482,6 @@ def _build_jit(  # noqa: C901
             )  # (P, max_shanks) signed distance, negative inside
             viol = shortfall(brain_slack(d, spec))
             j_brain = jnp.sum(shank_mask * viol * viol)
-
-        # Saturating per-pair clearance margin reward (mean form). Combines
-        # probe-probe and probe-fixture clearances under one mean so the
-        # reward is consistent regardless of how many fixtures are loaded.
-        # pair_hard_clearances is a (n_pairs,) array (swept) or None; the fixture
-        # loop still yields a Python list of scalars. Concatenate as arrays.
-        _hard_parts = []
-        if pair_hard_clearances is not None:
-            _hard_parts.append(pair_hard_clearances)
-        if fixture_hard_clearances is not None:
-            _hard_parts.append(fixture_hard_clearances)
-        if _hard_parts:
-            all_clears = jnp.concatenate(_hard_parts)
-            reward_clear = saturating_reward_mean(all_clears, tau_c)
-        else:
-            reward_clear = jnp.float32(0.0)
-
-        # Saturating per-probe worst-shank threading margin reward.
-        # _thread_slacks/_thread_masks are (P, S*SH) from the vmap — pass
-        # directly so saturating_reward_worst sees each probe's tightest
-        # shank rather than averaging across all shanks.
-        reward_thread = saturating_reward_worst(
-            _thread_slacks, tau_t, _thread_masks, beta=beta_t
-        )
 
         # Coverage. ``coverage_data`` is a Python tuple closed over the
         # trace; per-probe mode (Gaussian vs KDE) is fixed at JIT-build time.
@@ -622,22 +515,26 @@ def _build_jit(  # noqa: C901
         else:
             coverage_total = jnp.float32(0.0)
 
-        # Unit-circle pull on (sx, sy). x layout is
-        # (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P) — stride 6.
         sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
-        j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
-
-        return (
-            -cov_weight * coverage_total
-            + lt * j_thread
+        # _thread_slacks/_thread_masks are (P, S*SH) from the vmap, so the reward
+        # sees each probe's tightest shank.
+        return objective_terms(
+            objective,
+            coverage_total,
+            arc_aps,
+            ml_vals,
+            sx_arr,
+            sy_arr,
+            tuple(clearances),
+            _thread_slacks,
+            _thread_masks,
+            coverage_scale=coverage_scale,
+        ) + (
+            lt * j_thread
             + lc * j_clear
-            + float(weights.lambda_clearance_fixture) * j_clear_fixture
+            + lcf * j_clear_fixture
             + lk * (j_arc_ap + j_ml)
-            + lb * j_bounds
-            + luc * j_unit_circle
             + lbrain * j_brain
-            - lmc * reward_clear
-            - lmt * reward_thread
         )
 
     jit_obj = jax.jit(_objective)

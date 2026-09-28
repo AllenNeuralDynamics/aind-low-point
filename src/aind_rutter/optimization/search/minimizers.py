@@ -131,9 +131,9 @@ def make_staged_rprop(
 ) -> Callable[..., Any]:
     """Projected iRprop− (sign-based resilient backprop).
 
-    ``run(x0, arglist, lo, hi, cov_weight, n_steps)`` takes the bounds, the
-    coverage weight and the step count as RUNTIME args, so the reduced
-    (offsets/depth pinned via ``lo==hi``, ``cov_weight=0``) and full stages hit
+    ``run(x0, arglist, lo, hi, coverage_scale, n_steps)`` takes the bounds, the
+    coverage scale and the step count as RUNTIME args, so the reduced
+    (offsets/depth pinned via ``lo==hi``, ``coverage_scale=0``) and full stages hit
     the same XLA executable.
 
     Magnitude-INVARIANT: each coordinate steps ``sign(g)·η_i`` with a per-coord
@@ -146,7 +146,7 @@ def make_staged_rprop(
     ``η`` is initialised/capped RELATIVE TO THE BOUND RANGE per coordinate
     (``η0 = eta0_frac·(hi−lo)``), which preconditions the scale disparity (deg vs
     mm vs cos/sin) and naturally pins ``lo==hi`` coords (reduced offsets/depth) at
-    ``η=0``. Pass the cov_weight-aware grad (``vmapped_grad_cw``).
+    ``η=0``. Pass the coverage-scale-aware grad (``vmapped_grad_cw``).
 
     ``periodic`` marks coordinates that wrap into ``[lo, hi)`` instead of being
     clipped, for variables the objective reads with that period. The wrap leaves
@@ -160,10 +160,10 @@ def make_staged_rprop(
     ``n_steps`` is a runtime argument; rows past the steps actually taken stay
     zero, and steps past ``trace`` are dropped."""
 
-    def run(x0, arglist, lo, hi, cov_weight, n_steps):
+    def run(x0, arglist, lo, hi, coverage_scale, n_steps):
         lo_j = jnp.asarray(lo, jnp.float32)
         hi_j = jnp.asarray(hi, jnp.float32)
-        cw = jnp.asarray(cov_weight, jnp.float32)
+        cw = jnp.asarray(coverage_scale, jnp.float32)
         rng = hi_j - lo_j  # per-coord range; 0 for pinned coords
         eta0 = jnp.broadcast_to(eta0_frac * rng, x0.shape)
         eta_max = etamax_frac * rng
@@ -240,7 +240,8 @@ def build_cw_fns(
     coverage_weights=None,
     spin_angle=False,
 ) -> tuple[BatchedObjectiveFn, BatchedGradientFn, list[Any]]:
-    """Replicate make_batched_phase1_chunked's cov_weight grad/obj (bf16 grids).
+    """make_batched_phase1_chunked's grad and objective with the coverage scale
+    as a runtime argument (bf16 grids).
 
     With ``spin_angle`` both take the angle layout of
     :func:`~aind_rutter.optimization.objectives.spin_angle.to_angle_layout`.
@@ -260,10 +261,10 @@ def build_cw_fns(
         coverage_weights=coverage_weights,
     )
 
-    def obj_cw(x, cov_weight, *args):
+    def obj_cw(x, coverage_scale, *args):
         if spin_angle:
             x = from_angle_layout(x, n_arcs)
-        return jit_obj(x, cov_weight=cov_weight, **dict(zip(ARG_ORDER, args)))
+        return jit_obj(x, coverage_scale=coverage_scale, **dict(zip(ARG_ORDER, args)))
 
     in_axes = (0, None) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
     vobj = jax.jit(jax.vmap(obj_cw, in_axes=in_axes))

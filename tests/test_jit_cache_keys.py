@@ -22,6 +22,7 @@ from aind_rutter.optimization.objectives.constrained import (
     _weights_key as phase2_key,
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.soft import (
     Phase1Weights,
 )
@@ -30,6 +31,7 @@ from aind_rutter.optimization.objectives.soft import (
 )
 
 SPEC = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
+OBJECTIVE = ObjectiveSpec()
 
 CASES = [
     pytest.param(Phase1Weights, phase1_key, id="phase1"),
@@ -53,7 +55,7 @@ def _variants(value, name: str):
 def test_changing_any_weight_changes_the_key(weights_cls, key) -> None:
     """The defect: `lambda_unit_circle` moved the objective and not the key, so
     a kernel traced at one value was reused at another."""
-    base = weights_cls(SPEC)
+    base = weights_cls(SPEC, OBJECTIVE)
     collisions = []
     for field in dc.fields(base):
         for name, changed in _variants(getattr(base, field.name), field.name):
@@ -65,10 +67,10 @@ def test_changing_any_weight_changes_the_key(weights_cls, key) -> None:
 @pytest.mark.parametrize(("weights_cls", "key"), CASES)
 def test_the_key_is_hashable(weights_cls, key) -> None:
     """It is a dict key in the module-level compile cache."""
-    hash(key(weights_cls(SPEC)))
+    hash(key(weights_cls(SPEC, OBJECTIVE)))
 
 
 @pytest.mark.parametrize(("weights_cls", "key"), CASES)
 def test_equal_weights_give_equal_keys(weights_cls, key) -> None:
     """Otherwise every build recompiles."""
-    assert key(weights_cls(SPEC)) == key(weights_cls(SPEC))
+    assert key(weights_cls(SPEC, OBJECTIVE)) == key(weights_cls(SPEC, OBJECTIVE))

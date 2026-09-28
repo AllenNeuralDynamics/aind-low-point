@@ -16,11 +16,9 @@ constraints:
 Each row is ``gain · slack`` from :mod:`~aind_rutter.optimization.objectives.slacks`
 under the weights' :class:`FeasibilitySpec`, the slacks Phase 1 penalises.
 
-The objective shrinks to coverage + soft bounds + saturating margin
-bonuses (clearance + threading) — exactly the bonuses from Phase 1.
-The constrained solver enforces strict feasibility via the constraints; the
-margin bonuses keep the gradient meaningful inside the feasible region (where
-coverage may be locally flat).
+The objective is :func:`~aind_rutter.optimization.objectives.terms.objective_terms`
+under the weights' :class:`ObjectiveSpec`, the objective Phase 1 minimizes before
+its penalties.
 
 Shares all geometry/density kernels with Phase 1 — no duplicate code.
 """
@@ -43,9 +41,6 @@ from aind_rutter.optimization.clearance.aggregate import (
     probe_pair_slack_gains,
 )
 from aind_rutter.optimization.clearance.grids import trilinear_sdf
-from aind_rutter.optimization.clearance.poses import (
-    unit_circle_penalty,
-)
 from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.clearance.sweep import (
     UNMEASURED_PAIR_CATEGORIES,
@@ -65,6 +60,7 @@ from aind_rutter.optimization.objectives.evaluate import (
     threading_g_per_probe,
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.slack_layout import (
     LARGE_SLACK,
     SLACK_GROUPS,
@@ -83,15 +79,13 @@ from aind_rutter.optimization.objectives.soft import (
     BrainSDFData,
     FixtureSDFData,
     pack_statics,
-    saturating_reward_mean,
-    saturating_reward_worst,
 )
 from aind_rutter.optimization.objectives.terms import (
     arc_angles_of,
-    comfort_bound_penalty,
     ml_of,
     ml_pair_separation,
     normalized_coverage,
+    objective_terms,
     spin_components_of,
 )
 from aind_rutter.optimization.objectives.threading import (
@@ -115,48 +109,14 @@ CLEARANCE_CAP_MM = 1.5
 
 @dataclass(frozen=True)
 class Phase2Weights:
-    """Weights for the Phase 2 hard-constrained objective.
-
-    ``spec`` states the constraints. Phase 2 drops the feasibility-penalty λ's
-    (threading, clearance, kinematic) — those terms are constraints. Keeps
-    coverage, soft bounds, and the two saturating margin bonuses.
-    """
+    """What Phase 2 solves: ``objective`` subject to ``spec``'s constraints."""
 
     spec: FeasibilitySpec
-    lambda_bounds: float = 1.0
-    # See sdf.kernels.unit_circle_penalty. Reduced 100 -> 10 (2026-05-26).
-    lambda_unit_circle: float = 10.0
-
-    lambda_margin_clear: float = 1.0
-    lambda_margin_thread: float = 1.0
-    tau_clear_mm: float = 0.2
-    tau_thread_gunits: float = 0.5
-    # Soft minimum over shanks and softplus gate in the threading reward, of
-    # sharpness softmin_beta_thread per g-unit; the hard forms are kinked where
-    # shanks tie and where the tightest one reaches zero slack.
-    smooth_thread_reward: bool = False
-    softmin_beta_thread: float = 20.0
-
-    comfortable_ap_deg: float = 50.0
-    comfortable_ml_deg: float = 50.0
-
+    objective: ObjectiveSpec
     # Gain on the OBB-based slack categories (body-shank box, shank-shank, probe
     # OBB vs fixture). The default keeps them two orders above the mm-native
     # voxel-SDF categories; lowering it evens out the KKT scaling.
     obb_slack_gain: float = OBB_SLACK_GAIN
-    # Shape the clearance reward with the soft minimum instead of the hard one:
-    # the hard min's gradient is one sample's and jumps as the closest sample
-    # changes, which stalls the line search.
-    smooth_clearance_reward: bool = False
-
-    # Coverage. ``lambda_cov`` is the overall coverage-vs-clearance gain
-    # (multiplies the coverage scalar in the objective). When
-    # ``coverage_ceilings`` are passed to make_phase2, coverage becomes the
-    # normalized [0,1] blend ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)``;
-    # ``cov_alpha`` = 0 ⇒ pure average coverage, 1 ⇒ pure minimax on the laggard.
-    lambda_cov: float = 1.0
-    cov_alpha: float = 0.0
-    softmin_beta_cov: float = 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -243,22 +203,10 @@ def _build_jit(  # noqa: C901
     ).reshape(-1, 2)
     arc_pairs_j = jnp.asarray(arc_pairs)
 
-    lb = float(weights.lambda_bounds)
-    luc = float(getattr(weights, "lambda_unit_circle", 100.0))
-    lmc = float(weights.lambda_margin_clear)
-    lmt = float(weights.lambda_margin_thread)
-    tau_c = float(weights.tau_clear_mm)
-    tau_t = float(weights.tau_thread_gunits)
-    beta_t = (
-        float(weights.softmin_beta_thread) if weights.smooth_thread_reward else None
-    )
-    spec = weights.spec
+    spec, objective = weights.spec, weights.objective
     obb_gain = float(weights.obb_slack_gain)
-    smooth_reward = bool(weights.smooth_clearance_reward)
     pair_gains = probe_pair_slack_gains(obb_gain)
     fixture_gains = fixture_slack_gains(obb_gain)
-    cap = float(weights.comfortable_ap_deg)
-    cml = float(weights.comfortable_ml_deg)
     shaft_len = float(spec.shaft_length_mm)
     if brain_sdf is not None:
         brain_grid = jnp.asarray(brain_sdf.grid)
@@ -276,9 +224,8 @@ def _build_jit(  # noqa: C901
         if coverage_weights is not None
         else None
     )
-    lambda_cov = float(getattr(weights, "lambda_cov", 1.0))
-    cov_alpha = float(getattr(weights, "cov_alpha", 0.0))
-    beta_cov = float(getattr(weights, "softmin_beta_cov", 20.0))
+    cov_alpha = float(objective.cov_alpha)
+    beta_cov = float(objective.softmin_beta_cov)
 
     # Padded fixture table (stacked edge-padded grids + n_real_f), built ONCE
     # from the closure-captured fixtures so the fixture × probe clearance is a
@@ -352,12 +299,6 @@ def _build_jit(  # noqa: C901
                         n_samples=coverage_n_samples,
                     )
 
-        # Soft bounds: pull-back from comfort range (smooth_abs).
-        ml_vals = ml_of(x, n_arcs, n_probes)
-        j_bounds = comfort_bound_penalty(arc_aps, ml_vals, cap, cml)
-
-        # Margin bonuses: saturating per-pair (clear) and per-tuple (thread).
-        # Mirror Phase 1's computation but skip the soft penalty terms.
         _tg, _tvalid = threading_g_per_probe(
             Rs,
             ts,
@@ -377,75 +318,55 @@ def _build_jit(  # noqa: C901
             shank_half_xy,
             shaft_len=shaft_len,
         )
-        # (P, -1): per-probe view for worst-shank reward. Hard constraint
-        # computes its own flat view from _tg/_tvalid below.
+        # (P, -1): per-probe view for the worst-shank reward.
         _n_probes_t = _tg.shape[0]
         _thread_slacks_pp = threading_slack(_tg, spec).reshape(_n_probes_t, -1)
         _thread_masks_pp = _tvalid.reshape(_n_probes_t, -1)
 
         # Probe-probe clearance, vmapped over the static pair list (one dual-rep
-        # subgraph vs C(P,2) unrolled — see clearance_sweep). Objective only needs
-        # the per-pair worst-category hard clearance for the saturating reward.
+        # subgraph vs C(P,2) unrolled — see clearance_sweep).
+        clearances = []
         if sdf_pair_list and sdf_table is not None:
             _pa = jnp.asarray([a for a, _ in sdf_pair_list], jnp.int32)
             _pb = jnp.asarray([b for _, b in sdf_pair_list], jnp.int32)
-            _phard, _psoft = swept_pair_clearances(
-                Rs,
-                ts,
-                sdf_table,
-                _pa,
-                _pb,
-                **spec.pair_softmin_kwargs(),
+            clearances.append(
+                swept_pair_clearances(
+                    Rs,
+                    ts,
+                    sdf_table,
+                    _pa,
+                    _pb,
+                    **spec.pair_softmin_kwargs(),
+                )
             )
-            _pvals = _psoft if smooth_reward else _phard
-            pair_hard_clearances = jnp.min(_pvals, axis=1)  # (n_pairs,)
-        else:
-            pair_hard_clearances = None
 
-        # Probe-vs-fixture clearance, vmapped over probes per fixture (objective
-        # needs only the per-(fixture,probe) worst-category hard clearance).
+        # Probe-vs-fixture clearance, vmapped over (fixture × probe).
         if fixtures and sdf_table is not None:
             _fidx = [
                 i for i in range(n_probes) if (not has_sdf) or sdf_shapes[i] is not None
             ]
-            _fh, _fs = swept_fixture_clearances(
-                Rs,
-                ts,
-                sdf_table,
-                fix_table,
-                _fidx,
-                **spec.fixture_softmin_kwargs(),
+            clearances.append(
+                swept_fixture_clearances(
+                    Rs,
+                    ts,
+                    sdf_table,
+                    fix_table,
+                    _fidx,
+                    **spec.fixture_softmin_kwargs(),
+                )
             )
-            _fvals = _fs if smooth_reward else _fh
-            fixture_hard_clearances = jnp.min(_fvals, axis=2).reshape(-1)
-        else:
-            fixture_hard_clearances = None
 
-        # pair_hard_clearances / fixture_hard_clearances are (N,) arrays or None.
-        _hard_parts = []
-        if pair_hard_clearances is not None:
-            _hard_parts.append(pair_hard_clearances)
-        if fixture_hard_clearances is not None:
-            _hard_parts.append(fixture_hard_clearances)
-        reward_clear = (
-            saturating_reward_mean(jnp.concatenate(_hard_parts), tau_c)
-            if _hard_parts
-            else jnp.float32(0.0)
-        )
-        reward_thread = saturating_reward_worst(
-            _thread_slacks_pp, tau_t, _thread_masks_pp, beta=beta_t
-        )
-
-        # Unit-circle pull on (sx, sy). x stride = PHASE1_PER_PROBE_VARS = 6.
         sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
-        j_unit_circle = unit_circle_penalty(sx_arr, sy_arr)
-
-        return (
-            -lambda_cov * coverage_total
-            + lb * j_bounds
-            + luc * j_unit_circle
-            - lmc * reward_clear
-            - lmt * reward_thread
+        return objective_terms(
+            objective,
+            coverage_total,
+            arc_aps,
+            ml_of(x, n_arcs, n_probes),
+            sx_arr,
+            sy_arr,
+            tuple(clearances),
+            _thread_slacks_pp,
+            _thread_masks_pp,
         )
 
     # ---- Slack groups in natural shapes, SLACK_GROUPS order; scipy/IPOPT see ----

@@ -1,10 +1,11 @@
-"""One feasibility spec, read the same way by every stage that tests a plan.
+"""One feasibility spec and one objective, read the same way by both phases.
 
-Phase 2 constrains ``gain · slack ≥ 0`` and Phase 1 penalises the squared
-shortfall of the same rows, so on any pose Phase 1's feasibility penalty is the
-weighted sum of squares of Phase 2's negative rows. The problem here is small
-enough to compile in seconds: three box-bodied probes, one bore each and one box
-fixture, posed once clear of every condition and once violating each.
+Phase 2 minimizes the objective subject to ``gain · slack ≥ 0``, and Phase 1
+minimizes the same objective plus the squared shortfall of the same rows, so on
+any pose Phase 1's objective is Phase 2's plus the weighted sum of squares of
+Phase 2's negative rows. The problem here is small enough to compile in seconds:
+three box-bodied probes, one bore each and one box fixture, posed once clear of
+every condition and once violating each.
 """
 
 from __future__ import annotations
@@ -22,10 +23,12 @@ from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.objectives.constrained import Phase2Weights, make_phase2
+from aind_rutter.optimization.objectives.coverage import GaussianCoverageData
 from aind_rutter.optimization.objectives.feasibility import (
     SOFTMIN_BIAS_MEASURED_AT,
     FeasibilitySpec,
 )
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.sdf_inputs import FixtureSDFData
 from aind_rutter.optimization.objectives.soft import (
     PACKED_ARG_ORDER,
@@ -68,8 +71,9 @@ def _box_sdf(extents, center):
 
 
 @pytest.fixture(scope="module")
-def problem():
-    """Statics and fixture for three single-shank probes with 2 × 2 × 4 mm bodies."""
+def parts():
+    """Three single-shank probes with 2 × 2 × 4 mm bodies, their bores and
+    assignments, and the fixture."""
     body = replace(
         _box_sdf((2.0, 2.0, 4.0), (0.0, 0.0, 5.0)),
         shank_centers=np.array([[0.0, 0.0, 1.5]]),
@@ -109,48 +113,80 @@ def problem():
         )
         for i, x in enumerate(TARGETS_X)
     ]
-    statics = _build_probe_static(
-        probes,
-        holes,
-        SimpleNamespace(probe_to_hole={n: i + 1 for i, n in enumerate(names)}),
-        SimpleNamespace(
+    return SimpleNamespace(
+        probes=probes,
+        holes=holes,
+        ha=SimpleNamespace(probe_to_hole={n: i + 1 for i, n in enumerate(names)}),
+        aa=SimpleNamespace(
             probe_to_arc_idx=dict(zip(names, ARC_OF)), arc_centroids_deg=(0.0, 0.0)
         ),
         sdf_by_name={n: body for n in names},
+        fixtures=(fixture,),
     )
-    return statics, (fixture,)
 
 
-def _phase1_penalty(statics, fixtures, spec, x) -> float:
-    """Phase 1's objective with only the feasibility penalties weighted."""
+@pytest.fixture(scope="module")
+def problem(parts):
+    """Statics and fixtures of ``parts``."""
+    statics = _build_probe_static(
+        parts.probes, parts.holes, parts.ha, parts.aa, sdf_by_name=parts.sdf_by_name
+    )
+    return statics, parts.fixtures
+
+
+# The objective alone, so Phase 1's value is its feasibility penalty.
+NO_OBJECTIVE = ObjectiveSpec(
+    coverage_gain=0.0,
+    lambda_bounds=0.0,
+    lambda_unit_circle=0.0,
+    lambda_margin_clear=0.0,
+    lambda_margin_thread=0.0,
+)
+
+
+def _coverage(statics) -> tuple[GaussianCoverageData, ...]:
+    return tuple(
+        GaussianCoverageData(
+            target_LPS=jnp.asarray(s.target_LPS, jnp.float32),
+            sigma_mm=1.0,
+            active_start_mm=0.0,
+            active_end_mm=3.0,
+        )
+        for s in statics
+    )
+
+
+def _phase1_objective(statics, fixtures, spec, x, objective=NO_OBJECTIVE) -> float:
     weights = Phase1Weights(
         spec,
+        objective,
         lambda_thread=LAMBDA_THREAD,
         lambda_clearance=LAMBDA_PAIR,
         lambda_clearance_fixture=LAMBDA_FIXTURE,
         lambda_kinematic=LAMBDA_KINEMATIC,
-        lambda_bounds=0.0,
-        lambda_unit_circle=0.0,
-        lambda_margin_clear=0.0,
-        lambda_margin_thread=0.0,
     )
     n_arcs = 2
-    objective, _ = _build_jit(
-        _signature(statics, n_arcs, weights), weights, fixtures=fixtures
+    fn, _ = _build_jit(
+        _signature(statics, n_arcs, weights),
+        weights,
+        coverage_data=_coverage(statics),
+        fixtures=fixtures,
     )
     packed = pack_statics(statics, n_arcs)
     return float(
-        objective(
-            jnp.asarray(x, jnp.float32), **{k: packed[k] for k in PACKED_ARG_ORDER}
-        )
+        fn(jnp.asarray(x, jnp.float32), **{k: packed[k] for k in PACKED_ARG_ORDER})
     )
 
 
-def _phase2_rows(statics, fixtures, spec, x) -> dict[str, np.ndarray]:
-    p2 = make_phase2(
-        statics, 2, fixtures=fixtures, weights=Phase2Weights(spec),
-        grid_dtype=jnp.float32,
+def _phase2(statics, fixtures, spec, objective=NO_OBJECTIVE):
+    return make_phase2(
+        statics, 2, coverage_data=_coverage(statics), fixtures=fixtures,
+        weights=Phase2Weights(spec, objective), grid_dtype=jnp.float32,
     )  # fmt: skip
+
+
+def _phase2_rows(statics, fixtures, spec, x) -> dict[str, np.ndarray]:
+    p2 = _phase2(statics, fixtures, spec)
     return {k: np.asarray(v, np.float64) for k, v in p2["slack_parts"](x).items()}
 
 
@@ -183,7 +219,7 @@ def test_phase1_charges_nothing_where_phase2_is_feasible(problem, spec) -> None:
     assert all(np.all(r >= 0) for r in rows.values()), {
         k: float(r.min()) for k, r in rows.items() if r.size
     }
-    assert _phase1_penalty(statics, fixtures, spec, CLEAR) == 0.0
+    assert _phase1_objective(statics, fixtures, spec, CLEAR) == 0.0
 
 
 @pytest.mark.parametrize("spec", SPECS)
@@ -192,9 +228,39 @@ def test_phase1_penalises_exactly_phase2s_violations(problem, spec) -> None:
     rows = _phase2_rows(statics, fixtures, spec, VIOLATING)
     violated = {k for k, r in rows.items() if np.any(r < 0)}
     assert violated == {"thread", "probe_pair", "probe_fixture", "arc_sep", "ml_sep"}
-    assert _phase1_penalty(statics, fixtures, spec, VIOLATING) == pytest.approx(
+    assert _phase1_objective(statics, fixtures, spec, VIOLATING) == pytest.approx(
         _penalty_from_rows(rows), rel=1e-4
     )
+
+
+# Every term live: the comfort caps sit inside the CLEAR pose's angles.
+LIVE = ObjectiveSpec(
+    coverage_gain=2.0, lambda_margin_clear=1.0, tau_clear_mm=0.5,
+    comfortable_ap_deg=5.0, comfortable_ml_deg=5.0,
+)  # fmt: skip
+OBJECTIVES = [
+    pytest.param(LIVE, id="hard"),
+    pytest.param(
+        replace(LIVE, smooth_clearance_reward=True, smooth_thread_reward=True),
+        id="smooth",
+    ),
+]
+
+
+@pytest.mark.parametrize("objective", OBJECTIVES)
+@pytest.mark.parametrize("spec", SPECS)
+def test_phase1_minimizes_phase2s_objective_plus_its_violations(
+    problem, spec, objective
+) -> None:
+    statics, fixtures = problem
+    p2 = _phase2(statics, fixtures, spec, objective)
+    for x in (CLEAR, VIOLATING):
+        rows = {k: np.asarray(v, np.float64) for k, v in p2["slack_parts"](x).items()}
+        assert _phase1_objective(
+            statics, fixtures, spec, x, objective
+        ) == pytest.approx(p2["fun"](x) + _penalty_from_rows(rows), rel=1e-5)
+    # Each term moves the value, so equality is not two zeros agreeing.
+    assert abs(p2["fun"](CLEAR) - _phase2(statics, fixtures, spec)["fun"](CLEAR)) > 0.1
 
 
 def test_the_correction_refuses_a_soft_minimum_it_was_not_measured_at() -> None:

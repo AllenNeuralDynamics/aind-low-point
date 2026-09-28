@@ -406,6 +406,64 @@ Where a stage departs from the spec it holds, the site says why:
 * Phase 1's straight-through SAT changes the gradient, not the value.
 
 
+Objective
+---------
+
+What every stage minimizes is an ``ObjectiveSpec``
+(``optimization.objectives.objective_spec``), evaluated by one function,
+``objectives.terms.objective_terms``:
+
+.. code-block:: text
+
+   objective = - coverage_gain * coverage
+               + lambda_bounds * soft_bounds_penalty
+               + lambda_unit_circle * spin_unit_circle_penalty
+               - lambda_margin_clear * clearance_margin_reward
+               - lambda_margin_thread * threading_margin_reward
+
+Phase 2 minimizes it subject to the constraints of `Feasibility`_; Phase 1
+minimizes it plus the penalties on those constraints' shortfall. Under one spec,
+at a pose Phase 2 finds feasible the two values are equal, so Phase 1 ranks
+candidates by what Phase 2 will optimize; ``tests/test_feasibility_spec.py`` checks that, and that
+away from feasibility they differ by exactly the penalty on Phase 2's rows.
+Phase 1's clearance reward, like its penalty, reads the well alone.
+
+Both stages build the spec from the settings they share,
+``PipelineSettings.objective_spec``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Setting
+     - Spec field
+     - Default
+   * - ``RUTTER_COV_WEIGHT``
+     - ``coverage_gain``
+     - 1.0
+   * - ``RUTTER_COV_ALPHA``, read with ``RUTTER_COV_NORM``
+     - ``cov_alpha``
+     - 0.2
+   * - ``RUTTER_LAM_CLEAR``
+     - ``lambda_margin_clear``
+     - 0.0
+   * - ``RUTTER_TAU_CLEAR``
+     - ``tau_clear_mm``
+     - 0.8
+   * - ``RUTTER_SMOOTH_REWARD``
+     - ``smooth_clearance_reward``
+     - off
+   * - ``RUTTER_LAM_THREAD``
+     - ``lambda_margin_thread``
+     - 1.0
+   * - ``RUTTER_SMOOTH_THREAD_REWARD``
+     - ``smooth_thread_reward``
+     - off
+
+The clearance reward is off by default. It duplicates the clearance constraint,
+and its gradient comes from the one closest surface sample, which flips between
+near-tied samples and makes solves irreproducible.
+
+
 Phase 1 Pool
 ------------
 
@@ -439,33 +497,29 @@ Phase 1 has two continuous passes, of which only ``full`` runs by default
 
 The reduced pass is also the "limited" objective: it uses the same x-vector and
 same compiled objective machinery as the full pass, but the bounds pin
-``off_R``, ``off_A``, and ``depth`` to zero and the runtime ``cov_weight`` is
+``off_R``, ``off_A``, and ``depth`` to zero and the runtime coverage scale is
 zero. In code this lets one JAX kernel serve both passes:
 
-* Reduced/limited: ``lo == hi == 0`` for offsets/depth and
-  ``cov_weight = 0``.
-* Full: offsets/depth use their real bounds and ``cov_weight = COV_WEIGHT``.
+* Reduced/limited: ``lo == hi == 0`` for offsets/depth and coverage scale 0.
+* Full: offsets/depth use their real bounds and coverage scale 1, so coverage
+  enters at the spec's ``coverage_gain``.
 
-The Phase-1 scalar objective is a soft-penalty objective:
+The Phase-1 scalar objective is Phase 2's plus soft penalties:
 
 .. code-block:: text
 
    minimize
-       - coverage
+       objective                      (see Objective)
        + threading_penalty
        + probe_probe_clearance_penalty
        + probe_fixture_clearance_penalty
        + arc_ap_and_intra_arc_ml_penalty
-       + soft_bounds_penalty
-       + spin_unit_circle_penalty
        + optional_brain_containment_penalty
-       - clearance_margin_reward
-       - threading_margin_reward
 
 The penalties are one-sided squared penalties: they are zero when a condition is
-satisfied and grow smoothly when it is violated. Margin rewards are saturating
-bonuses inside the feasible region; they encourage slack without letting slack
-dominate coverage. The clearance model is dual-representation: probe bodies use
+satisfied and grow smoothly when it is violated. The margin rewards in the
+objective are saturating bonuses inside the feasible region; they encourage
+slack without letting slack dominate coverage. The clearance model is dual-representation: probe bodies use
 alpha-wrap SDFs and shank/headstage representations use analytic OBB/section
 terms, with soft-min/top-k aggregation so the gradients are not controlled by a
 single brittle closest point.
@@ -553,7 +607,8 @@ Useful Phase-1 environment knobs:
      - Batched JAX chunk sizes.
    * - ``RUTTER_COV_NORM``, ``RUTTER_COV_ALPHA``, ``RUTTER_COV_WEIGHT``
      - ``0``, ``0.2``, ``1.0``
-     - Optional normalized/weighted coverage objective.
+     - Optional normalized/weighted coverage objective; with the rest of the
+       objective's settings (see `Objective`_), Phase 2 reads the same values.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
@@ -602,16 +657,8 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
 * Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.
 * Same-arc ML separation: ``abs_smooth(ml_i - ml_j)`` minus the spec's 16 deg.
 
-The Phase-2 objective is therefore smaller:
-
-.. code-block:: text
-
-   minimize
-       - coverage
-       + soft_bounds_penalty
-       + spin_unit_circle_penalty
-       - clearance_margin_reward
-       - threading_margin_reward
+Phase 2 minimizes the `Objective`_ alone; the penalties Phase 1 adds to it are
+these constraints.
 
 This is the core Phase-1/Phase-2 distinction. Phase 1 asks, "which thousands of
 discrete decisions can be moved into promising low-penalty basins quickly?"

@@ -1,10 +1,9 @@
 """Terms both phases compute the same way.
 
-Phase 1 minimizes these as soft penalties and Phase 2 carries most of them as
-hard constraints, but a handful are identical in both: reading the variable
-vector, the comfort-range pull-back, the intra-arc ML separation and the
-normalized coverage. Each was written out twice, so a change to one reached
-only one phase.
+:func:`objective_terms` is the objective itself: Phase 2 minimizes it under
+constraints and Phase 1 minimizes it plus penalties on their shortfall. The
+rest are the pieces both phases read identically: the variable vector, the
+intra-arc ML separation and the normalized coverage.
 
 Every function here is traced. Each has a parity test asserting it emits the
 same jaxpr as the arithmetic it replaced, because "same answer" is not enough
@@ -16,6 +15,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from jax import Array
 
+from aind_rutter.optimization.clearance.poses import unit_circle_penalty
 from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.objectives.coverage import (
     coverage_per_probe_over_probes,
@@ -25,6 +25,11 @@ from aind_rutter.optimization.objectives.layout import (
     PHASE1_PER_PROBE_VARS,
     SPIN_COS,
     SPIN_SIN,
+)
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
+from aind_rutter.optimization.objectives.rewards import (
+    saturating_reward_mean,
+    saturating_reward_worst,
 )
 from aind_rutter.optimization.objectives.threading import softplus_squared
 
@@ -110,4 +115,64 @@ def normalized_coverage(
         alpha=alpha,
         softmin_beta=softmin_beta,
         weights=weights,
+    )
+
+
+def objective_terms(
+    objective: ObjectiveSpec,
+    coverage_total: Array,
+    arc_aps: Array,
+    ml_vals: Array,
+    sx: Array,
+    sy: Array,
+    clearances: tuple[tuple[Array, Array], ...],
+    thread_slacks: Array,
+    thread_masks: Array,
+    coverage_scale=1.0,
+) -> Array:
+    """The objective every stage minimizes, feasibility aside.
+
+    ``clearances`` holds each clearance query's ``(hard, soft)`` distances with
+    categories on the last axis; the reward reads each pair's worst category.
+    ``thread_slacks`` and ``thread_masks`` are ``(P, K)``. ``coverage_scale``
+    multiplies the coverage gain at run time, so one compiled kernel also
+    serves a stage that ignores coverage.
+    """
+    j_bounds = comfort_bound_penalty(
+        arc_aps,
+        ml_vals,
+        float(objective.comfortable_ap_deg),
+        float(objective.comfortable_ml_deg),
+    )
+    worst_pairs = [
+        jnp.min(soft if objective.smooth_clearance_reward else hard, axis=-1).reshape(
+            -1
+        )
+        for hard, soft in clearances
+    ]
+    reward_clear = (
+        saturating_reward_mean(
+            jnp.concatenate(worst_pairs), float(objective.tau_clear_mm)
+        )
+        if worst_pairs
+        else jnp.float32(0.0)
+    )
+    reward_thread = saturating_reward_worst(
+        thread_slacks,
+        float(objective.tau_thread_gunits),
+        thread_masks,
+        beta=(
+            float(objective.softmin_beta_thread)
+            if objective.smooth_thread_reward
+            else None
+        ),
+    )
+    j_unit_circle = unit_circle_penalty(sx, sy)
+    gain = coverage_scale * float(objective.coverage_gain)
+    return (
+        -gain * coverage_total
+        + float(objective.lambda_bounds) * j_bounds
+        + float(objective.lambda_unit_circle) * j_unit_circle
+        - float(objective.lambda_margin_clear) * reward_clear
+        - float(objective.lambda_margin_thread) * reward_thread
     )

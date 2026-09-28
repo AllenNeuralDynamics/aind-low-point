@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aind_rutter.optimization.pipeline.settings import Phase2Settings
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
+from aind_rutter.optimization.pipeline.settings import (
+    Phase1Settings,
+    Phase2Settings,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +22,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     would otherwise make the default assertions fail for reasons unrelated to
     the code under test.
     """
-    for name in Phase2Settings.model_fields:
+    for name in {**Phase1Settings.model_fields, **Phase2Settings.model_fields}:
         monkeypatch.delenv(f"RUTTER_{name.upper()}", raising=False)
 
 
@@ -99,3 +103,21 @@ def test_settings_are_frozen_so_a_worker_cannot_mutate_them() -> None:
     s = Phase2Settings()
     with pytest.raises(ValidationError):
         s.ip_hist = 6
+
+
+def test_the_default_objective_is_the_specs() -> None:
+    assert Phase2Settings().objective_spec() == ObjectiveSpec()
+
+
+def test_both_phases_build_one_objective_from_their_shared_settings() -> None:
+    changed = dict(
+        cov_norm=True, cov_alpha=0.4, cov_weight=3.0, lam_clear=2.0, tau_clear=0.3,
+        smooth_reward=True, lam_thread=0.5, smooth_thread_reward=True,
+    )  # fmt: skip
+    objective = Phase1Settings(**changed).objective_spec()
+    assert objective == Phase2Settings(**changed).objective_spec()
+    assert objective == ObjectiveSpec(
+        coverage_gain=3.0, cov_alpha=0.4, lambda_margin_clear=2.0, tau_clear_mm=0.3,
+        smooth_clearance_reward=True, lambda_margin_thread=0.5,
+        smooth_thread_reward=True,
+    )  # fmt: skip

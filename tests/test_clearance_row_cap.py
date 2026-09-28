@@ -24,6 +24,7 @@ from aind_rutter.optimization.objectives.constrained import (
     make_phase2,
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.slack_layout import PADDED_SLACK
 from aind_rutter.optimization.objectives.statics import _build_probe_static
 
@@ -80,8 +81,8 @@ def problem():
         sdf_by_name={n: body for n in names},
     )
     return make_phase2(
-        statics, 1, weights=Phase2Weights(SPEC), drop_padded_rows=False,
-        grid_dtype=np.float32,
+        statics, 1, weights=Phase2Weights(SPEC, ObjectiveSpec()),
+        drop_padded_rows=False, grid_dtype=np.float32,
     )  # fmt: skip
 
 

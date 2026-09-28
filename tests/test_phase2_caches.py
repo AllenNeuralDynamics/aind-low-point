@@ -23,6 +23,7 @@ from aind_rutter.optimization.objectives.constrained import (
     clear_jit_cache,
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 
 SPEC = FeasibilitySpec(min_clearance_mm=0.2, softmin_correction=True)
 
@@ -46,6 +47,11 @@ def _bump(weights: Phase2Weights, name: str):
             weights,
             **{name: replace(current, min_clearance_mm=current.min_clearance_mm + 1)},
         )
+    if isinstance(current, ObjectiveSpec):
+        return replace(
+            weights,
+            **{name: replace(current, coverage_gain=current.coverage_gain + 1)},
+        )
     if isinstance(current, bool):
         return replace(weights, **{name: not current})
     if isinstance(current, int):
@@ -56,25 +62,29 @@ def _bump(weights: Phase2Weights, name: str):
 @pytest.mark.parametrize("field", [f.name for f in fields(Phase2Weights)])
 def test_every_weight_reaches_the_cache_key(field: str) -> None:
     """A weight missing from the key is baked in and then reused at a new value."""
-    base = Phase2Weights(SPEC)
+    base = Phase2Weights(SPEC, ObjectiveSpec())
     assert _weights_key(base) != _weights_key(_bump(base, field))
 
 
 def test_the_key_names_its_weights() -> None:
     """Named pairs, so reordering the dataclass cannot silently shift the key."""
-    key = dict(_weights_key(Phase2Weights(SPEC)))
+    key = dict(_weights_key(Phase2Weights(SPEC, ObjectiveSpec())))
     assert set(key) == {f.name for f in fields(Phase2Weights)}
-    assert key["lambda_unit_circle"] == pytest.approx(10.0)
+    assert dict(key["objective"])["lambda_unit_circle"] == pytest.approx(10.0)
 
 
 def test_float_noise_below_six_decimals_does_not_change_the_key() -> None:
-    base = Phase2Weights(SPEC)
-    nudged = replace(base, lambda_cov=base.lambda_cov + 1e-9)
+    base = Phase2Weights(SPEC, ObjectiveSpec())
+    objective = base.objective
+    nudged = replace(
+        base,
+        objective=replace(objective, coverage_gain=objective.coverage_gain + 1e-9),
+    )
     assert _weights_key(base) == _weights_key(nudged)
 
 
 def test_the_signature_separates_shapes_that_change_the_trace() -> None:
-    weights = Phase2Weights(SPEC)
+    weights = Phase2Weights(SPEC, ObjectiveSpec())
     base = _signature(_statics(), 1, weights, (_fixture(),))
     assert base != _signature(_statics(n=3), 1, weights, (_fixture(),))
     assert base != _signature(_statics(), 2, weights, (_fixture(),))
@@ -91,7 +101,7 @@ def test_the_signature_cannot_tell_two_subjects_of_one_shape_apart() -> None:
     Hashing every grid on each of hundreds of candidate solves would cost more
     than it saves, so the key stays shape-based and `_init` drops the cache.
     """
-    weights = Phase2Weights(SPEC)
+    weights = Phase2Weights(SPEC, ObjectiveSpec())
     one = _signature(
         _statics(), 1, weights, (SimpleNamespace(grid=np.zeros((5, 5, 5))),)
     )

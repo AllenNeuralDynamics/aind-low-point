@@ -40,6 +40,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
 
 
@@ -75,16 +76,22 @@ class PipelineSettings(BaseSettings):
             "(RUTTER_THREADING_MARGIN_MM) must also cover the shank's width."
         ),
     )
+    # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
-    # the coverage-vs-clearance gain. Both phases must agree for the objective to
-    # mean the same thing across stages.
+    # the coverage-vs-margin gain.
     cov_norm: bool = Field(False)
     cov_alpha: float = Field(0.2)
     cov_weight: float = Field(1.0)
-    # Smooth the threading reward's minimum over shanks and its zero gate. Both
-    # phases score the same reward, so one switch covers them.
-    smooth_thread_reward: bool = Field(False)
+    # Clearance-margin reward weight and saturation scale (mm), and whether it
+    # reads the soft minimum.
+    lam_clear: float = Field(ObjectiveSpec.lambda_margin_clear)
+    tau_clear: float = Field(ObjectiveSpec.tau_clear_mm)
+    smooth_reward: bool = Field(ObjectiveSpec.smooth_clearance_reward)
+    # Threading-margin reward weight, and whether its minimum over shanks and its
+    # zero gate are smoothed.
+    lam_thread: float = Field(ObjectiveSpec.lambda_margin_thread)
+    smooth_thread_reward: bool = Field(ObjectiveSpec.smooth_thread_reward)
     # Solve over each probe's spin angle rather than its (cos, sin) pair, whose
     # radius no geometric term constrains and whose origin, inside the variable
     # bounds, is a singularity of arctan2. Each stage converts at its own
@@ -103,6 +110,20 @@ class PipelineSettings(BaseSettings):
         None,
         description="Visibility atlas cache; defaults to one named for the config.",
     )
+
+    def objective_spec(self) -> ObjectiveSpec:
+        """The objective every stage minimizes."""
+        return ObjectiveSpec(
+            coverage_gain=self.cov_weight,
+            # Read only with coverage ceilings; zero otherwise so the compile
+            # cache does not split on a value the trace ignores.
+            cov_alpha=self.cov_alpha if self.cov_norm else 0.0,
+            lambda_margin_clear=self.lam_clear,
+            tau_clear_mm=self.tau_clear,
+            smooth_clearance_reward=self.smooth_reward,
+            lambda_margin_thread=self.lam_thread,
+            smooth_thread_reward=self.smooth_thread_reward,
+        )
 
     @model_validator(mode="after")
     def _caches_follow_the_config(self) -> "PipelineSettings":
@@ -256,24 +277,12 @@ class Phase2Settings(PipelineSettings):
     workers: int = Field(4)
     warmup: bool = Field(True)
 
-    # Objective weights.
     # Exact probe-probe and probe-fixture clearance (mm); the constraint rows add
     # back each category's soft-minimum bias.
     minclear: float = Field(0.2)
-    # The clearance reward duplicates the min_clearance constraint and takes its
-    # gradient from the single closest surface sample, which flips between
-    # near-tied samples and makes solves irreproducible. Off, poses repeat
-    # bitwise across runs.
-    lam_clear: float = Field(0.0)
-    tau_clear: float = Field(0.8)
-    # Weight of the reward for keeping each probe's tightest shank off the bore
-    # wall; the threading constraint alone lets a shank touch it.
-    lam_thread: float = Field(1.0)
     # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
     # ones.
     obb_gain: float = Field(100.0)
-    # Soft minima instead of hard ones in the clearance reward.
-    smooth_reward: bool = Field(False)
     # Hand the solver only rows with a gradient; padding keeps compiled shapes
     # uniform but leaves most rows constant, and constant rows at the fill value
     # drive IPOPT's adaptive barrier parameter up by orders of magnitude.
