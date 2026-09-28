@@ -135,6 +135,9 @@ class PoolFile(_Model):
     reduced_fine: int
     full_fine: int
     records: list[PoolRecord]
+    # The feasibility spec and objective the pool was built under.
+    feasibility: dict[str, Any] | None = None
+    objective: dict[str, Any] | None = None
 
 
 class Perturbation(_Model):
@@ -260,6 +263,25 @@ def write_pool(path: str | Path, payload: Phase1PoolPayload) -> None:
         {"kind": "phase1_pool", "schema_version": SCHEMA_VERSION, **payload}
     )
     _write_bytes(path, model.model_dump_json(exclude_unset=True).encode())
+
+
+def pinned_spec_differences(
+    pool: Mapping[str, Any], pinned: Mapping[str, Mapping[str, Any]]
+) -> list[str] | None:
+    """Each field where the specs a pool records differ from ``pinned``, as
+    ``"section.field: pool vs pinned"``; None when the pool records no spec."""
+    if not any(section in pool for section in pinned):
+        return None
+    missing = object()
+    differences = []
+    for section, expected in pinned.items():
+        stated = pool.get(section) or {}
+        for name in sorted(set(stated) | set(expected)):
+            if stated.get(name, missing) != expected.get(name, missing):
+                differences.append(
+                    f"{section}.{name}: {stated.get(name)!r} vs {expected.get(name)!r}"
+                )
+    return differences
 
 
 def read_pool(path: str | Path) -> Phase1PoolPayload:

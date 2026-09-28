@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.settings import (
+    RETIRED_VARIABLES,
     Phase1Settings,
     Phase2Settings,
 )
@@ -24,6 +26,8 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     for name in {**Phase1Settings.model_fields, **Phase2Settings.model_fields}:
         monkeypatch.delenv(f"RUTTER_{name.upper()}", raising=False)
+    for name in RETIRED_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_defaults_match_the_shipped_solver_configuration() -> None:
@@ -121,3 +125,24 @@ def test_both_phases_build_one_objective_from_their_shared_settings() -> None:
         smooth_clearance_reward=True, lambda_margin_thread=0.5,
         smooth_thread_reward=True,
     )  # fmt: skip
+
+
+def test_every_stage_reads_one_feasibility_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Phase1Settings().feasibility_spec() == FeasibilitySpec(
+        min_clearance_mm=0.1, softmin_correction=True
+    )
+    monkeypatch.setenv("RUTTER_MIN_CLEARANCE", "0.3")
+    spec = Phase1Settings().feasibility_spec()
+    assert spec.min_clearance_mm == 0.3
+    assert spec == Phase2Settings().feasibility_spec()
+
+
+@pytest.mark.parametrize("settings_cls", [Phase1Settings, Phase2Settings])
+def test_a_retired_variable_is_refused_by_name(
+    settings_cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RUTTER_MINCLEAR", "0.2")
+    with pytest.raises(ValidationError, match="RUTTER_MIN_CLEARANCE"):
+        settings_cls()

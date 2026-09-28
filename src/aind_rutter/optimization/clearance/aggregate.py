@@ -14,11 +14,8 @@ from typing import NamedTuple
 from jax import Array
 
 from aind_rutter.optimization.clearance.pairs import (
-    body_body_pair_clearance,
-    body_shank_corners_pair_clearance,
     pairwise_signed_clearance_probe_fixture_body_world,
     pairwise_signed_clearance_probe_obb_fixture_world,
-    shank_only_pair_clearance,
 )
 
 # Per-category gains on the clearance slacks, applied to the signed slack (a
@@ -52,7 +49,8 @@ def fixture_slack_gains(obb_gain: float = OBB_SLACK_GAIN) -> tuple[float, float]
 
 
 class PairClearance(NamedTuple):
-    """Dual-rep clearance between two probes, all four categories.
+    """The probe-pair clearance categories in slack order, as
+    :func:`.sweep.pair_clearance` fills them.
 
     Each field is ``(hard_min, soft_min_topk)`` of that category's
     signed-distance pool. Positive ⇒ clear by that distance; negative
@@ -62,8 +60,8 @@ class PairClearance(NamedTuple):
     """
 
     body_body: tuple[Array, Array]  # voxel-SDF, mm-native
-    body_shank_corners: tuple[Array, Array]  # shank OBB corners → voxel SDF
-    body_shank_obb: tuple[Array, Array]  # body samples → shank OBB SDF
+    body_shank_corners: tuple[Array, Array]  # dense shank-box samples → voxel SDF
+    body_shank_obb: tuple[Array, Array]  # unmeasured; the empty sentinel
     shank_shank: tuple[Array, Array]  # OBB-OBB exact SAT
 
 
@@ -75,93 +73,6 @@ class FixtureClearance(NamedTuple):
 
     body: tuple[Array, Array]  # body voxel-SDF vs fixture surface samples
     obb: tuple[Array, Array]  # probe OBBs SDF vs fixture surface samples
-
-
-def dual_rep_pair_clearance(
-    R_a: Array,
-    t_a: Array,
-    R_b: Array,
-    t_b: Array,
-    sdf_a_grid: Array,
-    sdf_a_origin: Array,
-    sdf_a_spacing: Array,
-    sdf_b_grid: Array,
-    sdf_b_origin: Array,
-    sdf_b_spacing: Array,
-    world_surface_a: Array,
-    world_surface_b: Array,
-    shank_centers_a: Array,
-    shank_halves_a: Array,
-    shank_centers_b: Array,
-    shank_halves_b: Array,
-    *,
-    beta: float,
-    top_k_body_body: int,
-    top_k_body_shank: int,
-    top_k_shank_shank: int,
-) -> PairClearance:
-    """All four probe-pair categories from full body samples, shank-box corners
-    and body-sample-vs-OBB distances.
-
-    Phase 1 and Phase 2 measure pairs with :func:`.sweep.pair_clearance`, which
-    reads the body against dense shank-box samples instead; the pool's
-    ``min_clear`` score reads this one.
-    """
-    body_body = body_body_pair_clearance(
-        R_a,
-        t_a,
-        R_b,
-        t_b,
-        sdf_a_grid,
-        sdf_a_origin,
-        sdf_a_spacing,
-        sdf_b_grid,
-        sdf_b_origin,
-        sdf_b_spacing,
-        world_surface_a,
-        world_surface_b,
-        beta=beta,
-        top_k=top_k_body_body,
-    )
-    body_shank_corners = body_shank_corners_pair_clearance(
-        R_a,
-        t_a,
-        R_b,
-        t_b,
-        sdf_a_grid,
-        sdf_a_origin,
-        sdf_a_spacing,
-        sdf_b_grid,
-        sdf_b_origin,
-        sdf_b_spacing,
-        shank_centers_a,
-        shank_halves_a,
-        shank_centers_b,
-        shank_halves_b,
-        beta=beta,
-        top_k=top_k_body_shank,
-    )
-    body_shank_obb, shank_shank = shank_only_pair_clearance(
-        R_a,
-        t_a,
-        R_b,
-        t_b,
-        world_surface_a,
-        world_surface_b,
-        shank_centers_a,
-        shank_halves_a,
-        shank_centers_b,
-        shank_halves_b,
-        beta=beta,
-        top_k_body_shank=top_k_body_shank,
-        top_k_shank_shank=top_k_shank_shank,
-    )
-    return PairClearance(
-        body_body=body_body,
-        body_shank_corners=body_shank_corners,
-        body_shank_obb=body_shank_obb,
-        shank_shank=shank_shank,
-    )
 
 
 def dual_rep_fixture_clearance(

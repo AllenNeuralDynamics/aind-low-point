@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from aind_rutter.optimization.pipeline.payloads import pinned_spec_differences
 from aind_rutter.optimization.pipeline.records import (
+    Phase1PoolPayload,
     Phase1PoolRecord,
     Phase2InputRecord,
 )
@@ -21,12 +23,31 @@ _WORST_ASCENDING = 1e18
 _WORST_DESCENDING = -1e9
 
 
+def check_pool_specs(pool: Phase1PoolPayload, settings: Phase2Settings) -> str | None:
+    """Refuse a pool built under a feasibility spec or objective other than
+    ``settings``'s; return a warning for one that records neither.
+
+    Raises
+    ------
+    ValueError
+        If the pool records a spec that differs.
+    """
+    differences = pinned_spec_differences(pool, settings.pinned_specs())
+    if differences is None:
+        return f"{settings.poses} records no specs; its Phase 1 is taken on trust"
+    if differences:
+        raise ValueError(
+            f"{settings.poses} was built under other specs: " + "; ".join(differences)
+        )
+    return None
+
+
 def rank_order(all_recs: list[Phase1PoolRecord], select_by: str) -> list[int]:
     """Indices of ``all_recs``, best first, by the named Phase-1 field.
 
-    ``objective`` blends clearance, normalized coverage and the threading penalty
-    and is lower-is-better, so it sorts ascending; the clearance-style metrics
-    such as ``min_clear`` are higher-is-better and sort descending.
+    ``objective`` is Phase 1's, lower-is-better, so it sorts ascending; the
+    clearance-style metrics such as ``min_clear`` are higher-is-better and sort
+    descending.
     """
     ascending = select_by == "objective"
     worst = _WORST_ASCENDING if ascending else _WORST_DESCENDING

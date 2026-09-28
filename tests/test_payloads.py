@@ -17,6 +17,7 @@ from aind_rutter.optimization.pipeline.payloads import (
     HandoffRecord,
     PoolFile,
     PoolRecord,
+    pinned_spec_differences,
     read_atlas_cache,
     read_handoff,
     read_pool,
@@ -27,6 +28,7 @@ from aind_rutter.optimization.pipeline.payloads import (
     write_seed_cache,
 )
 from aind_rutter.optimization.pipeline.records import AtlasCachePayload
+from aind_rutter.optimization.pipeline.settings import Phase1Settings
 
 _FILE_ONLY = {"kind", "schema_version"}
 # Written onto a record by the diagnostics path and popped into the payload's
@@ -165,6 +167,21 @@ def test_a_pool_reads_back_exactly(tmp_path: Path, suffix: str) -> None:
     back = read_pool(path)
     assert _same(dict(payload), dict(back))
     assert "idx" not in back["records"][0], "an absent optional key stays absent"
+    assert "feasibility" not in back, "a pool recording no specs reads back without"
+
+
+def test_the_specs_a_pool_records_read_back_as_pinned(tmp_path: Path) -> None:
+    pinned = Phase1Settings(min_clearance=0.3).pinned_specs()
+    path = tmp_path / "pool.json.gz"
+    write_pool(path, {**_pool([_pool_record()]), **pinned})
+    back = read_pool(path)
+    assert pinned_spec_differences(back, pinned) == []
+    other = Phase1Settings(min_clearance=0.2, lam_thread=2.0).pinned_specs()
+    assert pinned_spec_differences(back, other) == [
+        "feasibility.min_clearance_mm: 0.3 vs 0.2",
+        "objective.lambda_margin_thread: 1.0 vs 2.0",
+    ]
+    assert pinned_spec_differences(_pool([]), pinned) is None
 
 
 @pytest.mark.parametrize("suffix", [".json", ".json.gz"])

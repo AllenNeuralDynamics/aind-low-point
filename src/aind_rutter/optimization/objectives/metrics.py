@@ -1,32 +1,45 @@
-"""Vmappable per-candidate minimum-clearance metric (dual-rep, JAX).
+"""Vmappable per-candidate clearance score.
 
 ``make_min_clear_one`` builds a closure over the same per-candidate arglist as
-the batched Phase-1 objective, so it vmaps across candidates to report the hard
-(non-softened) minimum dual-representation clearance in millimetres (<0 = overlap).
+the batched Phase-1 objective, so it vmaps across candidates.
 """
 
 from __future__ import annotations
 
 import jax.numpy as jnp
 
-from aind_rutter.optimization.clearance.aggregate import (
-    dual_rep_fixture_clearance,
-    dual_rep_pair_clearance,
-)
 from aind_rutter.optimization.clearance.poses import (
     pose_from_optimizer_vars,
     spin_deg_from_sxy,
 )
+from aind_rutter.optimization.clearance.sweep import (
+    build_padded_fixture_table,
+    swept_fixture_clearances,
+    swept_pair_clearances,
+)
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.slacks import (
+    fixture_clearance_slack,
+    pair_clearance_slack,
+)
 from aind_rutter.optimization.objectives.soft import PHASE1_PER_PROBE_VARS
 
 PPV = PHASE1_PER_PROBE_VARS
 
 
 def make_min_clear_one(n_arcs, n_probes, fixtures, spec: FeasibilitySpec):
-    """Per-candidate min hard dual-rep clearance (mm; <0 = overlap). Same args
-    as the batched objective so it vmaps over the shared arglist."""
+    """Per-candidate worst clearance slack under ``spec`` (mm; < 0 infeasible),
+    over every probe pair and every probe against ``fixtures``.
+
+    Reads the rows Phase 2 constrains, before their gains, so a candidate
+    scoring ≥ 0 meets Phase 2's clearance rows on these fixtures. Every probe
+    must have an SDF. Same args as the batched objective so it vmaps over the
+    shared arglist.
+    """
     pairs = [(i, j) for i in range(n_probes) for j in range(i + 1, n_probes)]
+    pair_a = jnp.asarray([a for a, _ in pairs], jnp.int32)
+    pair_b = jnp.asarray([b for _, b in pairs], jnp.int32)
+    fix_table = build_padded_fixture_table(fixtures)
 
     def min_clear_one(
         x,
@@ -51,7 +64,7 @@ def make_min_clear_one(n_arcs, n_probes, fixtures, spec: FeasibilitySpec):
         sdf_surfaces,
         shank_obb_centers,
         shank_obb_halves,
-        sdf_table=None,  # shared ARG_ORDER arg (swept-pair table); unused here
+        sdf_table,
         w_normals=None,  # shared ARG_ORDER args; these only affect threading
         w_offsets=None,
         shank_half_xy=None,
@@ -72,58 +85,25 @@ def make_min_clear_one(n_arcs, n_probes, fixtures, spec: FeasibilitySpec):
             )
             Rs.append(R)
             ts.append(t)
-        ws = [sdf_surfaces[i] @ Rs[i].T + ts[i] for i in range(n_probes)]
-        clears = []
-        for ia, ib in pairs:
-            pc = dual_rep_pair_clearance(
-                Rs[ia],
-                ts[ia],
-                Rs[ib],
-                ts[ib],
-                sdf_grids[ia],
-                sdf_origins[ia],
-                sdf_spacings[ia],
-                sdf_grids[ib],
-                sdf_origins[ib],
-                sdf_spacings[ib],
-                ws[ia],
-                ws[ib],
-                shank_obb_centers[ia],
-                shank_obb_halves[ia],
-                shank_obb_centers[ib],
-                shank_obb_halves[ib],
-                **spec.pair_softmin_kwargs(),
+        Rs, ts = jnp.stack(Rs), jnp.stack(ts)
+        slacks = []
+        if pairs:
+            _, soft = swept_pair_clearances(
+                Rs, ts, sdf_table, pair_a, pair_b, **spec.pair_softmin_kwargs()
             )
-            clears.append(
-                jnp.min(
-                    jnp.stack(
-                        [
-                            pc.body_body[0],
-                            pc.body_shank_corners[0],
-                            pc.body_shank_obb[0],
-                            pc.shank_shank[0],
-                        ]
-                    )
-                )
+            slacks.append(pair_clearance_slack(soft, spec).reshape(-1))
+        if fix_table:
+            _, soft = swept_fixture_clearances(
+                Rs,
+                ts,
+                sdf_table,
+                fix_table,
+                list(range(n_probes)),
+                **spec.fixture_softmin_kwargs(),
             )
-        for fx in fixtures:
-            for i in range(n_probes):
-                fc = dual_rep_fixture_clearance(
-                    Rs[i],
-                    ts[i],
-                    sdf_grids[i],
-                    sdf_origins[i],
-                    sdf_spacings[i],
-                    fx.grid,
-                    fx.origin,
-                    fx.spacing,
-                    ws[i],
-                    fx.surface,
-                    shank_obb_centers[i],
-                    shank_obb_halves[i],
-                    **spec.fixture_softmin_kwargs(),
-                )
-                clears.append(jnp.minimum(fc.body[0], fc.obb[0]))
-        return jnp.min(jnp.stack(clears))
+            slacks.append(fixture_clearance_slack(soft, spec).reshape(-1))
+        if not slacks:
+            return jnp.float32(jnp.inf)
+        return jnp.min(jnp.concatenate(slacks))
 
     return min_clear_one

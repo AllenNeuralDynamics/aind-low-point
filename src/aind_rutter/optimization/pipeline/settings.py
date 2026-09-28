@@ -34,14 +34,19 @@ them visible in the meantime.
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
+
+# Retired variables, refused by name, and what replaces each.
+RETIRED_VARIABLES = {"RUTTER_MINCLEAR": "RUTTER_MIN_CLEARANCE"}
 
 
 class PipelineSettings(BaseSettings):
@@ -76,6 +81,9 @@ class PipelineSettings(BaseSettings):
             "(RUTTER_THREADING_MARGIN_MM) must also cover the shank's width."
         ),
     )
+    # Clearance every stage requires between probe and fixture surfaces (mm),
+    # read as the soft minimum plus its measured shortfall; see feasibility_spec().
+    min_clearance: float = Field(0.1)
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
@@ -111,6 +119,19 @@ class PipelineSettings(BaseSettings):
         description="Visibility atlas cache; defaults to one named for the config.",
     )
 
+    def feasibility_spec(self) -> FeasibilitySpec:
+        """What every stage counts as feasible."""
+        return FeasibilitySpec(
+            min_clearance_mm=self.min_clearance, softmin_correction=True
+        )
+
+    def pinned_specs(self) -> dict[str, dict[str, Any]]:
+        """The specs a pool is built under, which Phase 2 must share."""
+        return {
+            "feasibility": asdict(self.feasibility_spec()),
+            "objective": asdict(self.objective_spec()),
+        }
+
     def objective_spec(self) -> ObjectiveSpec:
         """The objective every stage minimizes."""
         return ObjectiveSpec(
@@ -124,6 +145,16 @@ class PipelineSettings(BaseSettings):
             lambda_margin_thread=self.lam_thread,
             smooth_thread_reward=self.smooth_thread_reward,
         )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_retired_variables(cls, data: Any) -> Any:
+        # An unknown RUTTER_ variable is ignored, so a run still setting a retired
+        # one would silently get the default instead.
+        for old, new in RETIRED_VARIABLES.items():
+            if old in os.environ:
+                raise ValueError(f"{old} is retired; set {new}, read by every stage")
+        return data
 
     @model_validator(mode="after")
     def _caches_follow_the_config(self) -> "PipelineSettings":
@@ -277,9 +308,6 @@ class Phase2Settings(PipelineSettings):
     workers: int = Field(4)
     warmup: bool = Field(True)
 
-    # Exact probe-probe and probe-fixture clearance (mm); the constraint rows add
-    # back each category's soft-minimum bias.
-    minclear: float = Field(0.2)
     # Scale of the OBB-based slack categories relative to the mm-native voxel-SDF
     # ones.
     obb_gain: float = Field(100.0)

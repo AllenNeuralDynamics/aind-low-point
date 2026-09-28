@@ -346,9 +346,10 @@ batched round-robin spin restore:
   sweeps a full circle of spin proposals for each probe.
 * The default production knobs are ``RUTTER_N_SPINS=16`` and
   ``RUTTER_RESTORE_ROUNDS=4`` in ``rutter-phase1``.
-* Each proposal is scored by its threading and clearance shortfall under the
-  restore's spec (see `Feasibility`_), with the well as the only fixture. The
-  restore returns one spin vector per candidate.
+* Each proposal is charged Phase 1's penalty on its threading and clearance
+  shortfall: the spec of `Feasibility`_, read through the same swept clearance
+  query and gains, with the well as the only fixture. The restore returns one
+  spin vector per candidate.
 
 This restore is the production spin-basin finder. Heuristic beam-search spin
 proposal scripts are exploratory tools and are not part of the production
@@ -375,32 +376,24 @@ The soft minimum reads below the exact one by up to ``ln(k)/beta``. With
 margin reads as a distance between surfaces. The offsets were measured at
 ``beta`` 20 and top-k 16/8/8, and a spec with the correction refuses any other.
 
-Each stage states its spec, and the three still differ:
+Every stage reads one spec, ``PipelineSettings.feasibility_spec``: a clearance
+margin of ``RUTTER_MIN_CLEARANCE`` (default 0.1 mm), corrected. The retired
+``RUTTER_MINCLEAR`` is refused by name, since an unknown variable would
+otherwise be ignored and the run would get the default.
 
-.. list-table::
-   :header-rows: 1
+A pool records the spec and the objective it was built under, as its header's
+``feasibility`` and ``objective``. Phase 1 resumes only a pool whose record
+matches its settings, and Phase 2 refuses one whose record differs from its
+own; a pool that records neither is taken on trust, with a warning.
 
-   * - Stage
-     - Clearance margin
-     - Fixtures checked
-   * - Spin restore
-     - ``phase1.RESTORE_SPEC``: 0.0 mm, uncorrected
-     - well
-   * - Phase 1
-     - ``phase1.PHASE1_SPEC``: 0.1 mm, uncorrected
-     - well
-   * - Phase 2
-     - ``RUTTER_MINCLEAR`` (default 0.2 mm), corrected
-     - every fixture
+Where a stage departs from the spec, the site says why:
 
-Where a stage departs from the spec it holds, the site says why:
-
-* Phase 1 and the restore check the well alone. The headframe and cone cost
-  VRAM and seldom decide whether a candidate clears.
-* The restore and the pool's ``min_clear`` score read the per-representation
-  pair queries in ``clearance.pairs`` and ``clearance.aggregate``, not the
-  swept ``clearance.sweep.pair_clearance`` that both phases optimise. The
-  restore also weighs every category at unit gain.
+* The spin restore, Phase 1 and the pool's ``min_clear`` check the well alone.
+  The headframe and cone cost VRAM and seldom decide whether a candidate
+  clears.
+* ``min_clear`` is the worst clearance slack, before gains and without Phase
+  2's 1.5 mm cap (`Phase 2 Handoff`_), so a candidate scoring ``>= 0`` meets
+  Phase 2's clearance rows on the well.
 * Phase 1's coarse passes read fewer surface samples; its final score is at
   full fidelity.
 * Phase 1's straight-through SAT changes the gradient, not the value.
@@ -422,9 +415,9 @@ What every stage minimizes is an ``ObjectiveSpec``
                - lambda_margin_thread * threading_margin_reward
 
 Phase 2 minimizes it subject to the constraints of `Feasibility`_; Phase 1
-minimizes it plus the penalties on those constraints' shortfall. Under one spec,
-at a pose Phase 2 finds feasible the two values are equal, so Phase 1 ranks
-candidates by what Phase 2 will optimize; ``tests/test_feasibility_spec.py`` checks that, and that
+minimizes it plus the penalties on those constraints' shortfall. At a pose Phase
+2 finds feasible the two values are equal, so Phase 1 ranks candidates by what
+Phase 2 will optimize; ``tests/test_feasibility_spec.py`` checks that, and that
 away from feasibility they differ by exactly the penalty on Phase 2's rows.
 Phase 1's clearance reward, like its penalty, reads the well alone.
 
@@ -609,11 +602,14 @@ Useful Phase-1 environment knobs:
      - ``0``, ``0.2``, ``1.0``
      - Optional normalized/weighted coverage objective; with the rest of the
        objective's settings (see `Objective`_), Phase 2 reads the same values.
+   * - ``RUTTER_MIN_CLEARANCE``
+     - ``0.1``
+     - Clearance in mm every stage requires (see `Feasibility`_).
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
-reduced stage is off), objective, soft clearance
-metrics, and optional top-K FCL slack. Phase 2 rebuilds statics from the saved
+reduced stage is off), objective, ``min_clear`` (see `Feasibility`_), and
+optional top-K FCL slack. Phase 2 rebuilds statics from the saved
 assignment; it does not re-run enumeration or infer arc ordering from a
 ``frozenset``.
 
@@ -649,7 +645,7 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   (default 0.07 mm) must also cover the shank's half-width. Every stage — spin restore, the reduced stage, Phase 1 and Phase 2 —
   threads the same way; the hole-assignment gate stays centreline.
 * Probe-probe clearance: soft dual-rep clearance, corrected for the soft
-  minimum's shortfall, minus ``RUTTER_MINCLEAR`` for each pair/category (see
+  minimum's shortfall, minus ``RUTTER_MIN_CLEARANCE`` for each pair/category (see
   `Feasibility`_).
 * Probe-fixture clearance: likewise, per fixture, probe and category.
 * Brain containment, when present: negative signed distance margin at shank

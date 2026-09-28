@@ -47,16 +47,18 @@ def classify_results(
 def handoff_config(settings: Phase2Settings) -> dict[str, object]:
     """Provenance recorded beside the results.
 
-    ``settings`` holds every field under its own name. The flat keys beside it
-    repeat a subset under the spelling earlier handoffs used, so one reader can
-    load runs written either side of the settings refactor.
+    ``settings`` holds every field under its own name, and ``feasibility`` and
+    ``objective`` the specs they resolve to. The flat keys beside them repeat a
+    subset under the spelling earlier handoffs used, so one reader can load runs
+    written either side of the settings refactor.
     """
     return {
         "settings": settings.model_dump(mode="json"),
+        **settings.pinned_specs(),
         "subject_config": str(settings.config),
         "topk": settings.topk,
         "select_by": settings.select_by,
-        "minclear": settings.minclear,
+        "minclear": settings.min_clearance,
         "lam_clear": settings.lam_clear,
         "tau_clear": settings.tau_clear,
         "p2_iter": settings.p2_iter,

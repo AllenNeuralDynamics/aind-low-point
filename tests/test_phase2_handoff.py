@@ -74,13 +74,21 @@ def test_provenance_carries_every_field_under_its_own_name() -> None:
 
 
 def test_the_flat_keys_repeat_the_settings_they_name() -> None:
-    s = Phase2Settings(topk=7, ip_acc_tol=3.0, fcl_tol=0.25, minclear=0.15)
+    s = Phase2Settings(topk=7, ip_acc_tol=3.0, fcl_tol=0.25, min_clearance=0.15)
     cfg = handoff_config(s)
     assert cfg["topk"] == 7
     assert cfg["acc_tol"] == 3.0, "IP_ACC_TOL keeps its earlier handoff spelling"
     assert cfg["fcl_tol"] == 0.25
     assert cfg["minclear"] == 0.15
     assert cfg["subject_config"] == str(s.config)
+
+
+def test_provenance_records_the_specs_the_settings_resolve_to() -> None:
+    s = Phase2Settings(min_clearance=0.15, lam_thread=2.0)
+    cfg = handoff_config(s)
+    assert cast(Any, cfg["feasibility"])["min_clearance_mm"] == 0.15
+    assert cast(Any, cfg["feasibility"])["softmin_correction"] is True
+    assert cast(Any, cfg["objective"])["lambda_margin_thread"] == 2.0
 
 
 def test_an_unset_ranks_file_records_an_empty_string() -> None:

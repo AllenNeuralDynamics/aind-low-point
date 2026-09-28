@@ -98,6 +98,7 @@ from aind_rutter.optimization.pipeline.records import (  # noqa: E402
     ProbeToHole,
 )
 from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
+    check_pool_specs,
     select_records,
 )
 from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
@@ -499,7 +500,6 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         Phase2Weights,
         make_phase2,
     )
-    from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 
     s = _G["settings"]
     if _G["cov_data"] is None:
@@ -510,7 +510,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         coverage_data=_G["cov_data"],
         fixtures=tuple(_G["fx"]),
         weights=Phase2Weights(
-            FeasibilitySpec(min_clearance_mm=s.minclear, softmin_correction=True),
+            s.feasibility_spec(),
             s.objective_spec(),
             obb_slack_gain=s.obb_gain,
         ),
@@ -736,6 +736,7 @@ def run(
     note(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
         f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
+        f" min_clearance={settings.min_clearance},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
         f" smooth_thread={settings.smooth_thread_reward}, spin={settings.spin_param},"
@@ -814,7 +815,11 @@ def _flush_print(msg: str) -> None:
 
 def main() -> int:
     settings = Phase2Settings()
-    recs = select_records(read_pool(settings.poses)["records"], settings)
+    pool = read_pool(settings.poses)
+    warning = check_pool_specs(pool, settings)
+    if warning:
+        print(f"WARNING: {warning}", flush=True)
+    recs = select_records(pool["records"], settings)
     payload = run(recs, settings, on_result=_log_cand, log=_flush_print)
     _print_report(payload, settings)
     write_handoff(settings.out, payload)

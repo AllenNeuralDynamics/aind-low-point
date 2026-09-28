@@ -47,8 +47,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.domain.rig import reachable_ap_window_deg
+from aind_rutter.optimization.clearance.sweep import (
+    cast_fixture_grids,
+    cast_packed_grids,
+)
 from aind_rutter.optimization.jax_env import configure_compile_cache
-from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import (
     ML,
     SPIN_COS,
@@ -61,7 +64,7 @@ from aind_rutter.optimization.objectives.packing import (
     build_batched_probe_static,
     restore_arrays,
 )
-from aind_rutter.optimization.objectives.soft import Phase1Weights
+from aind_rutter.optimization.objectives.soft import Phase1Weights, pack_statics
 from aind_rutter.optimization.objectives.spin_angle import (
     from_angle_layout,
     spin_slots,
@@ -78,6 +81,7 @@ from aind_rutter.optimization.pipeline.fixtures import (
     phase1_bounds,
 )
 from aind_rutter.optimization.pipeline.payloads import (
+    pinned_spec_differences,
     read_pool,
     read_seed_cache,
     write_pool,
@@ -113,12 +117,6 @@ from aind_rutter.optimization.search.spin_restore import (
     RestoreWeights,
     make_batched_spin_restore_partial,
 )
-
-# What the spin restore and Phase 1 accept; Phase 2's spec comes from its
-# settings. The three differ until one spec serves every stage
-# (dev/proposals/feasibility_spec.md).
-RESTORE_SPEC = FeasibilitySpec(min_clearance_mm=0.0, softmin_correction=False)
-PHASE1_SPEC = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
 
 # Print the normalization summary once (not once per arc-group).
 _group_log_once = [True]
@@ -223,6 +221,11 @@ def reduced_lohi(
     return lo_r, hi_r
 
 
+def _grid_dtype(settings: Phase1Settings):
+    """Storage dtype of every collision grid Phase 1 and the restore read."""
+    return jnp.bfloat16 if settings.bf16_store else jnp.float32
+
+
 def restore_group(
     n_arcs,
     cands: list[MRVCand],
@@ -237,10 +240,17 @@ def restore_group(
     """Batched spin restore seeded from each cand's MRV ml/spin. Returns per-cand
     restored spin-degrees (parallel to cands)."""
     K = len(probes)
-    names = [p.name for p in probes]
-    weights = RestoreWeights(RESTORE_SPEC)
+    weights = RestoreWeights(settings.feasibility_spec())
+    grid_dtype = _grid_dtype(settings)
+    # Phase 1's pair table, well and grid dtype, so the restore charges what
+    # Phase 1 will. Per-probe-fixed, so any candidate's statics build it.
+    first = cands[0]
+    statics = _build_probe_static(
+        probes, holes, cast(Any, first.ha), cast(Any, first.aa), sdf_by_name=sdf_by_name
+    )
+    tables = cast_packed_grids(pack_statics(statics, n_arcs), grid_dtype)["sdf_table"]
     # The well alone, as in Phase 1 (see ``_kernel``).
-    fixtures = (well,)
+    fixtures = cast_fixture_grids((well,), grid_dtype)
     seed_rows: list[np.ndarray] = []
     for c in cands:
         y0 = np.zeros(reduced_n_vars(n_arcs, K), np.float32)
@@ -271,6 +281,7 @@ def restore_group(
         weights,
         n_spins=settings.n_spins,
         n_rounds=settings.restore_rounds,
+        tables=tables,
         fixtures=fixtures,
     )
     out: list[np.ndarray] = []
@@ -294,7 +305,6 @@ def restore_group(
             spins_deg_from_reduced(np.asarray(y_r[b], np.float64), n_arcs, K)
             for b in range(hi - lo)
         )
-    _ = names
     return out
 
 
@@ -349,7 +359,7 @@ def _kernel(
     ``vobj`` scores the full layout; ``run`` steps the angle layout when
     ``settings.spin_param`` asks for it.
     """
-    weights = Phase1Weights(PHASE1_SPEC, settings.objective_spec())
+    weights = Phase1Weights(settings.feasibility_spec(), settings.objective_spec())
     vobj, _vg, barg = make_batched_phase1_chunked(
         st0,
         n_arcs,
@@ -476,7 +486,7 @@ def run_group(  # noqa: C901
                 flush=True,
             )
             _group_log_once[0] = False
-    grid_dtype = jnp.bfloat16 if settings.bf16_store else jnp.float32
+    grid_dtype = _grid_dtype(settings)
     vobj, barg_f, run_f = _kernel(
         st_f[0],
         n_arcs,
@@ -582,10 +592,14 @@ def run_group(  # noqa: C901
         x_out = np.asarray(from_angle_layout(x_out, n_arcs))
         x_red = np.asarray(from_angle_layout(x_red, n_arcs))
 
-    # Final scores at fine fidelity (soft clearance uses the thick well too).
+    # Final scores at fine fidelity, on the well Phase 1 checks.
     in_axes = (0,) + tuple(0 if k in PER_CAND else None for k in ARG_ORDER)
+    well_scored = cast_fixture_grids((well_soft,), grid_dtype)
     clear_b = jax.jit(
-        jax.vmap(make_min_clear_one(n_arcs, K, (well_soft,), PHASE1_SPEC), in_axes)
+        jax.vmap(
+            make_min_clear_one(n_arcs, K, well_scored, settings.feasibility_spec()),
+            in_axes,
+        )
     )
     obj = np.empty(n_tot, np.float32)
     clr = np.empty(n_tot, np.float32)  # full@end clearance (cull metric)
@@ -642,6 +656,7 @@ def make_phase1_pool_record(
 
 
 def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> None:
+    pinned = settings.pinned_specs()
     payload: Phase1PoolPayload = dict(
         records=records,
         stage1=settings.stage1,
@@ -654,6 +669,8 @@ def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> N
         coarse_n=settings.coarse_n,
         reduced_fine=settings.reduced_fine,
         full_fine=settings.full_fine,
+        feasibility=pinned["feasibility"],
+        objective=pinned["objective"],
     )
     write_pool(settings.out, payload)
 
@@ -766,6 +783,7 @@ def run(settings: Phase1Settings) -> int:
     full_coarse = settings.stage2 - settings.full_fine
     print(
         f"config: well={settings.well} {fidelity} spin={settings.spin_param} "
+        f"feasibility={settings.feasibility_spec()} "
         f"objective={settings.objective_spec()} "
         f"reduced {reduced_coarse}c+{settings.reduced_fine}f → "
         f"full {full_coarse}c+{settings.full_fine}f → {settings.out}",
@@ -800,7 +818,16 @@ def run(settings: Phase1Settings) -> int:
     if _os.path.exists(settings.out):
         # An unreadable pool aborts the run: save_results rewrites the file with
         # every group, so carrying on would discard the groups it already holds.
-        records = list(read_pool(settings.out)["records"])
+        pool = read_pool(settings.out)
+        # The header will claim this run's specs for every group, so groups built
+        # under any other cannot join it.
+        differences = pinned_spec_differences(pool, settings.pinned_specs())
+        if differences is None or differences:
+            raise ValueError(
+                f"{settings.out} was built under other specs "
+                f"({differences or 'none recorded'}); move it aside to rebuild"
+            )
+        records = list(pool["records"])
         done_narcs = {r["n_arcs"] for r in records}
         if done_narcs:
             print(

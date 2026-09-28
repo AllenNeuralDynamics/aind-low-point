@@ -76,8 +76,8 @@ class Phase1PoolRecord(Phase1PoolRecordRequired, total=False):
     fcl: float
 
 
-class Phase1PoolPayload(TypedDict):
-    """Pickled phase-1 pool output."""
+class Phase1PoolPayloadRequired(TypedDict):
+    """Phase-1 pool output."""
 
     records: list[Phase1PoolRecord]
     stage1: int
@@ -90,6 +90,14 @@ class Phase1PoolPayload(TypedDict):
     coarse_n: int
     reduced_fine: int
     full_fine: int
+
+
+class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
+    """A pool also records the feasibility spec and objective it was built
+    under, as :meth:`PipelineSettings.pinned_specs` states them."""
+
+    feasibility: dict[str, Any]
+    objective: dict[str, Any]
 
 
 class Phase2InputRecordRequired(TypedDict):

@@ -495,6 +495,52 @@ def build_padded_fixture_table(fixtures) -> dict:
     )
 
 
+def probe_fixture_clearance(
+    R,
+    t,
+    world_surface,
+    kind,
+    tables: dict,
+    fix_grid,
+    fix_origin,
+    fix_spacing,
+    fix_surface,
+    fix_real_shape,
+    *,
+    beta: float,
+    top_k_body: int,
+    top_k_obb: int,
+):
+    """One probe's clearance to one fixture, ``(hard, soft)`` of shape ``(2,)``
+    each in category order (body, obb).
+
+    ``kind`` indexes ``tables`` (:func:`build_padded_probe_tables`), the fixture
+    arguments one row of :func:`build_padded_fixture_table`; ``world_surface`` is
+    the probe's body samples in world.
+    """
+    fc = dual_rep_fixture_clearance(
+        R,
+        t,
+        tables["grids"][kind],
+        tables["origins"][kind],
+        tables["spacings"][kind],
+        fix_grid,
+        fix_origin,
+        fix_spacing,
+        world_surface,
+        fix_surface,
+        tables["obb_centers"][kind],
+        tables["obb_halves"][kind],
+        beta=beta,
+        top_k_body=top_k_body,
+        top_k_obb=top_k_obb,
+        n_real_p=tables["real_shapes"][kind],
+        n_real_f=fix_real_shape,
+        shank_mask=tables["obb_mask"][kind],
+    )
+    return jnp.stack([fc.body[0], fc.obb[0]]), jnp.stack([fc.body[1], fc.obb[1]])
+
+
 def swept_fixture_clearances(
     Rs,
     ts,
@@ -528,45 +574,29 @@ def swept_fixture_clearances(
     hard, soft : (n_fixtures, n_sdf_probes, 2) — per (fixture, probe) clearance in
         category order (body, obb), matching ``aggregate.FixtureClearance``.
     """
-    grids = tables["grids"]
-    origins = tables["origins"]
-    spacings = tables["spacings"]
-    surfaces = tables["surfaces"]
-    obb_c = tables["obb_centers"]
-    obb_h = tables["obb_halves"]
-    obb_m = tables["obb_mask"]
-    real_shapes = tables["real_shapes"]
     kind_id = tables["kind_id"]
     world_surf = (
-        jnp.matmul(surfaces[kind_id], jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+        jnp.matmul(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
+        + ts[:, None, :]
     )
     idx = jnp.asarray(probe_idx, jnp.int32)
 
     def _per_fixture(fg, fo, fs, fsurf, fnr):
         def _probe(i):
-            k = kind_id[i]
-            fc = dual_rep_fixture_clearance(
+            return probe_fixture_clearance(
                 Rs[i],
                 ts[i],
-                grids[k],
-                origins[k],
-                spacings[k],
+                world_surf[i],
+                kind_id[i],
+                tables,
                 fg,
                 fo,
                 fs,
-                world_surf[i],
                 fsurf,
-                obb_c[k],
-                obb_h[k],
+                fnr,
                 beta=beta,
                 top_k_body=top_k_body,
                 top_k_obb=top_k_obb,
-                n_real_p=real_shapes[k],
-                n_real_f=fnr,
-                shank_mask=obb_m[k],
-            )
-            return jnp.stack([fc.body[0], fc.obb[0]]), jnp.stack(
-                [fc.body[1], fc.obb[1]]
             )
 
         return jax.vmap(_probe)(idx)  # (n_sdf_probes, 2) each

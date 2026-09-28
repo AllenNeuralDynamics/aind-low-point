@@ -4,7 +4,6 @@ from aind_rutter.optimization.clearance.aggregate import (
     FixtureClearance,
     PairClearance,
     dual_rep_fixture_clearance,
-    dual_rep_pair_clearance,
 )
 from aind_rutter.optimization.clearance.envelope import (
     build_alpha_wrap_envelope,
@@ -39,7 +38,6 @@ __all__ = [
     "build_probe_sdf_from_alpha_wrap",
     "build_sdf_by_name",
     "dual_rep_fixture_clearance",
-    "dual_rep_pair_clearance",
     "extract_shank_obbs",
     "floor_shank_half_extents",
     "pose_from_optimizer_vars",
