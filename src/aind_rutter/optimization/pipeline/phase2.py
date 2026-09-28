@@ -314,6 +314,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
             limited_memory_max_history=s.ip_hist,
             mu_strategy=s.ip_mu,
             mu_max=s.ip_mu_max,
+            bound_mult_init_method=s.ip_bound_mult_init,
             max_iter=s.p2_iter,
             tol=s.ip_tol,
             constr_viol_tol=s.ip_cvtol,

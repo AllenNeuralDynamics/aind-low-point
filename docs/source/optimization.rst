@@ -636,12 +636,20 @@ Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
 ``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
 ``all`` list for inspection.
 
-``RUTTER_IP_MU_MAX`` (default ``1e-2``) caps IPOPT's adaptive barrier parameter.
-Uncapped, the update raises it by orders of magnitude from an infeasible start —
-and every Phase-1 pose is slightly infeasible to Phase 2 — so the solve first
-leaves the start and then spends most of its iterations returning. With the cap,
-the default ``RUTTER_P2_ITER=300`` reaches the kept count and coverage of 1000
-uncapped iterations.
+IPOPT sees only the rows that can change. Padding and the pair category the
+kernel never measures sit at the fill value of 1e3; left in, their
+complementarity dwarfs every live row's, and the adaptive barrier update raises
+μ by orders of magnitude from any start its first step cannot fully accept,
+throwing the iterate far from the start. ``RUTTER_DROP_DEAD_ROWS`` (default on)
+removes them. Clearance rows read distances no larger than 1.5 mm
+(``CLEARANCE_CAP_MM``): a lookup outside a body's SDF grid returns the sentinel,
+so an uncapped row jumps by 1e3 when its last sample leaves the grid, which
+IPOPT reads as a violation. Rows that remain can still sit far from their bound,
+a gain-100 clearance row at its cap at 130 against a threading row's ~0.5, and
+IPOPT's default of starting every bound multiplier at 1 makes those rows the
+starting complementarity; ``RUTTER_IP_BOUND_MULT_INIT`` defaults to
+``mu-based``, which starts each at μ over its slack. ``RUTTER_IP_MU_MAX`` bounds
+μ and defaults to IPOPT's own 1e5.
 
 Trading Objective For Feasibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

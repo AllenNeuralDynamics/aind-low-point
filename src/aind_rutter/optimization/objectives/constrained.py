@@ -48,6 +48,7 @@ from aind_rutter.optimization.clearance.poses import (
 )
 from aind_rutter.optimization.clearance.smooth import smooth_abs
 from aind_rutter.optimization.clearance.sweep import (
+    UNMEASURED_PAIR_CATEGORIES,
     build_padded_fixture_table,
     cast_fixture_grids,
     cast_packed_grids,
@@ -98,6 +99,14 @@ from aind_rutter.optimization.objectives.threading import (
     MAX_SHANKS_PAD,
 )
 from aind_rutter.optimization.pipeline.records import Phase2Problem
+
+# Clearance rows read distances no larger than this. A lookup returns the true
+# distance inside a body's SDF grid and the sentinel outside it, so a row whose
+# last sample leaves the grid jumps by ~1e3, which IPOPT takes for a constraint
+# violation. Every out-of-grid point is at least the grid's padding from the body,
+# so a cap below the padding, less a voxel and the soft-min's bias, keeps each row
+# continuous; a row past the cap is slack either way.
+CLEARANCE_CAP_MM = 1.5
 
 # ---------------------------------------------------------------------------
 # Weights
@@ -517,7 +526,10 @@ def _build_jit(  # noqa: C901
                 **spec.pair_softmin_kwargs(),
             )
             _gains = jnp.asarray(pair_gains, jnp.float32)
-            clear_pp_vec = pair_clearance_slack(_soft, spec) * _gains
+            clear_pp_vec = (
+                pair_clearance_slack(jnp.minimum(_soft, CLEARANCE_CAP_MM), spec)
+                * _gains
+            )
         else:
             clear_pp_vec = jnp.zeros(0)
 
@@ -538,7 +550,10 @@ def _build_jit(  # noqa: C901
                 **spec.fixture_softmin_kwargs(),
             )
             _fgains = jnp.asarray(fixture_gains, jnp.float32)
-            clear_pf_vec = fixture_clearance_slack(_fsoft, spec) * _fgains
+            clear_pf_vec = (
+                fixture_clearance_slack(jnp.minimum(_fsoft, CLEARANCE_CAP_MM), spec)
+                * _fgains
+            )
         else:
             clear_pf_vec = jnp.zeros(0)
 
@@ -621,6 +636,7 @@ def _build_jit(  # noqa: C901
         slack_labels={
             "probe_pairs": [tuple(pair) for pair in sdf_pair_list],
             "pair_categories": list(PairClearance._fields),
+            "unmeasured_pair_categories": list(UNMEASURED_PAIR_CATEGORIES),
             "pair_gains": list(pair_gains),
             "fixtures": [fx.name for fx in fixtures],
             "fixture_probes": [
@@ -670,7 +686,7 @@ def make_phase2(
     coverage_weights: "tuple[float, ...] | None" = None,
     grid_dtype=jnp.bfloat16,
     hessian: str = "none",
-    drop_padded_rows: bool = False,
+    drop_padded_rows: bool = True,
 ) -> Phase2Problem:
     """Build Phase 2 scipy callables.
 

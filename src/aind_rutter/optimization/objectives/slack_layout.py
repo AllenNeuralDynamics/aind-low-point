@@ -26,15 +26,17 @@ def padding_mask(
     """Which rows of the slack vector constrain something, in ``SLACK_GROUPS``
     order.
 
-    Uniform compiled shapes across candidates need per-probe padding, and those
+    Uniform compiled shapes across candidates need per-probe padding, and the pair
+    kernel leaves ``labels["unmeasured_pair_categories"]`` at the sentinel; those
     rows reach the solver as constants with no gradient. They do not make the KKT
     matrix singular — each inequality carries its own slack, so such a row reads
-    ``[0 … 0 | −1]`` — but each still costs a Jacobian row, a slack and a barrier
-    term in every factorization. The same masks that create the padding say which
-    rows they are, so the mask is a property of the probe geometry alone. Reading
-    it off slack *values* instead also drops live rows that merely sit at the
-    out-of-grid sentinel, which share the padding value but do carry gradient
-    once a pose brings them near a fixture.
+    ``[0 … 0 | −1]`` — but at the fill value their complementarity dwarfs every
+    live row's, and IPOPT's adaptive barrier update reads that as a solve far from
+    converged. The same masks that create the padding say which rows they are, so
+    the mask is a property of the probe geometry alone. Reading it off slack
+    *values* instead also drops live rows that merely sit at the out-of-grid
+    sentinel, which share the padding value but do carry gradient once a pose
+    brings them near a fixture.
     """
     section = np.asarray(packed["section_mask"]) > 0  # (probes, sections)
     shank = np.asarray(packed["shank_mask"]) > 0  # (probes, shanks)
@@ -42,9 +44,13 @@ def padding_mask(
     iu, ju = np.triu_indices(shank.shape[0], k=1)
     by_group = {
         "thread": (section[:, :, None] & shank[:, None, :]).reshape(-1),
-        "probe_pair": np.ones(
-            len(labels["probe_pairs"]) * len(labels["pair_categories"]), bool
-        ),
+        "probe_pair": np.tile(
+            [
+                category not in labels["unmeasured_pair_categories"]
+                for category in labels["pair_categories"]
+            ],
+            len(labels["probe_pairs"]),
+        ).astype(bool),
         "probe_fixture": np.ones(
             len(labels["fixtures"])
             * len(labels["fixture_probes"])

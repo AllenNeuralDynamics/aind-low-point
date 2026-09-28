@@ -55,6 +55,8 @@ from aind_rutter.optimization.clearance.pairs import (
 
 # Category order MUST match aggregate.PairClearance and probe_pair_slack_gains.
 N_PAIR_CATEGORIES = 4
+# The categories :func:`pair_clearance` fills with the sentinel whatever the pose.
+UNMEASURED_PAIR_CATEGORIES = ("body_shank_obb",)
 # Cells refined per probe pair by the coarse-to-fine body-body query. A cell whose
 # Lipschitz bound falls below the best coarse value can still hold the pair's true
 # minimum, and at real poses a few dozen do; refining fewer than that makes the

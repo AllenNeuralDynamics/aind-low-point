@@ -272,8 +272,9 @@ class Phase2Settings(PipelineSettings):
     # Soft minima instead of hard ones in the clearance reward.
     smooth_reward: bool = Field(False)
     # Hand the solver only rows with a gradient; padding keeps compiled shapes
-    # uniform but leaves most rows constant.
-    drop_dead_rows: bool = Field(False)
+    # uniform but leaves most rows constant, and constant rows at the fill value
+    # drive IPOPT's adaptive barrier parameter up by orders of magnitude.
+    drop_dead_rows: bool = Field(True)
     # Collision-grid storage. bfloat16 halves grid memory and rounds each stored
     # distance to about 0.4% of its value; interpolation is float32 either way.
     grid_dtype: Literal["bfloat16", "float32"] = Field("bfloat16")
@@ -292,10 +293,16 @@ class Phase2Settings(PipelineSettings):
     # and a longer history buys nothing.
     ip_hist: int = Field(60)
     ip_mu: Literal["adaptive", "monotone"] = Field("adaptive")
-    # Upper bound on the adaptive barrier parameter. From an infeasible start the
-    # adaptive update otherwise raises it by orders of magnitude, throwing the
-    # iterate far from the start, and walking back costs most of a solve.
-    ip_mu_max: float = Field(1e-2)
+    # Upper bound on the adaptive barrier parameter; IPOPT's own default. With
+    # constant rows dropped, clearance rows continuous and multipliers started from
+    # μ, the update needs no cap.
+    ip_mu_max: float = Field(1e5)
+    # IPOPT's bound_mult_init_method. "constant" starts every multiplier at 1, so an
+    # inactive row starts with complementarity equal to its value, and a gain-100
+    # clearance row at its cap reads 130 against a threading row's ~0.5; the
+    # adaptive update then raises μ from the first iterations. "mu-based" starts
+    # each at μ over its slack, so every row starts at μ.
+    ip_bound_mult_init: Literal["constant", "mu-based"] = Field("mu-based")
     # tol thresholds the overall NLP error, which is built from float32
     # derivatives over bfloat16 collision grids; IPOPT's 1e-6 default asks for
     # more precision than those gradients carry.

@@ -47,8 +47,8 @@ POSE = np.array(
 
 
 def test_padded_rows_are_dropped_without_changing_live_values() -> None:
-    full = _problem()
-    live = _problem(drop_padded_rows=True)
+    full = _problem(drop_padded_rows=False)
+    live = _problem()
 
     all_values = full["constraints"][0]["fun"](POSE)
     mask = np.asarray(live["live_rows"])
@@ -67,10 +67,11 @@ def test_padded_rows_are_dropped_without_changing_live_values() -> None:
     assert not np.abs(full["constraints"][0]["jac"](POSE)[~mask]).any()
 
 
-def test_masking_is_off_by_default_and_for_exact_hessians() -> None:
-    default = _problem()["constraints"][0]["fun"](POSE)
-    exact_hessian = _problem(drop_padded_rows=True, hessian="dense")
-    assert exact_hessian["constraints"][0]["fun"](POSE).size == default.size
+def test_masking_is_on_by_default_and_off_for_exact_hessians() -> None:
+    every_row = _problem(drop_padded_rows=False)["constraints"][0]["fun"](POSE)
+    assert _problem()["constraints"][0]["fun"](POSE).size < every_row.size
+    exact_hessian = _problem(hessian="dense")
+    assert exact_hessian["constraints"][0]["fun"](POSE).size == every_row.size
 
 
 def _packed(section, shank, same_arc) -> dict:
@@ -84,6 +85,7 @@ def _packed(section, shank, same_arc) -> dict:
 LABELS = {
     "probe_pairs": [(0, 1)],
     "pair_categories": ["body_body", "corners", "obb", "shank_shank"],
+    "unmeasured_pair_categories": ["obb"],
     "fixtures": ["well", "cone"],
     "fixture_probes": [0, 1],
     "fixture_categories": ["body", "obb"],
@@ -93,14 +95,15 @@ LABELS = {
 def test_clearance_rows_stay_live_whatever_they_evaluate_to() -> None:
     """A lookup that falls off a fixture's grid returns the padding sentinel, so
     reading the mask off slack values drops rows that carry gradient once a pose
-    brings the probe close."""
+    brings the probe close. Only the category the kernel never measures is dead."""
     mask = padding_mask(
         _packed([[1, 0]], [[1, 1, 0]], [[0]]), LABELS, n_arcs=1, has_brain=False
     )
-    thread, clearance = mask[:6], mask[6:]
+    thread, pair, fixture = mask[:6], mask[6:10], mask[10:]
     np.testing.assert_array_equal(thread, [True, True, False, False, False, False])
-    assert clearance.size == 1 * 4 + 2 * 2 * 2
-    assert clearance.all(), "clearance rows are never inferred from their values"
+    np.testing.assert_array_equal(pair, [True, True, False, True])
+    assert fixture.size == 2 * 2 * 2
+    assert fixture.all(), "clearance rows are never inferred from their values"
 
 
 def test_brain_and_separation_rows_follow_their_masks() -> None:

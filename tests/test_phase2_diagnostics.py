@@ -176,7 +176,7 @@ def test_slack_parts_concatenate_to_the_constraint_vector() -> None:
     ha = SimpleNamespace(probe_to_hole={"p": 1, "q": 1})
     aa = SimpleNamespace(probe_to_arc_idx={"p": 0, "q": 0}, arc_centroids_deg=(0.0,))
     statics = _build_probe_static(probes, [hole], ha, aa)
-    p2 = make_phase2(statics, 1, weights=WEIGHTS)
+    p2 = make_phase2(statics, 1, weights=WEIGHTS, drop_padded_rows=False)
 
     x = np.array(
         [0.0] + [0.0, 1.0, 0.0, 0.0, 0.0, 0.0] + [20.0, 1.0, 0.0, 0.0, 0.0, 0.0]
