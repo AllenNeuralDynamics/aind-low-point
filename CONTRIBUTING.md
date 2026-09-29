@@ -54,10 +54,11 @@ zero, so a broken page does not fail any other check.
 Four checks fail in ways worth recognising:
 
 - **`tests/architecture/`** holds the structural rules — import cycles,
-  dependency direction, private-name imports, environment reads, and which
-  modules import without JAX. Each carries a baseline of today's exceptions that
-  may only shrink. Fixing a violation means deleting its line; a rule also fails
-  when a listed exception stops violating it, so the lists cannot rot.
+  dependency direction, private-name imports, environment reads, which
+  modules import without JAX, and matmuls in JAX code. Each but the last
+  carries a baseline of today's exceptions that may only shrink. Fixing a
+  violation means deleting its line; a rule also fails when a listed exception
+  stops violating it, so the lists cannot rot.
 - **`tests/config_semantics.json`** pins what every tracked config resolves to:
   per-asset chemical-shift decision and ppm, collidability, scene nodes, fixture
   set and collision pairs. Regenerate it with

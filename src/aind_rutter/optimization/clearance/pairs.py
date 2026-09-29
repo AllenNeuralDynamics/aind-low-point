@@ -23,6 +23,7 @@ from aind_rutter.optimization.clearance.grids import (
     trilinear_sdf_stacked,
 )
 from aind_rutter.optimization.clearance.smooth import soft_min_topk
+from aind_rutter.optimization.clearance.vec3 import matmul3
 
 
 def pairwise_signed_clearance_probe_obb_fixture_world(
@@ -116,7 +117,7 @@ def pairwise_signed_clearance_probe_fixture_body_world(
         **kw_f,
     )
 
-    local_f_in_p = (surface_f - t_p) @ R_p
+    local_f_in_p = matmul3(surface_f - t_p, R_p)
     d_f_in_p = trilinear_sdf(
         sdf_p_grid, sdf_p_origin, sdf_p_spacing, local_f_in_p, **kw_p
     )
@@ -316,7 +317,7 @@ def body_shank_corners_pair_clearance(
     chunks = []
     if Sa > 0:
         corners_a_world = shank_world_samples(R_a, t_a, shank_centers_a, shank_halves_a)
-        ca_in_b = (corners_a_world - t_b) @ R_b
+        ca_in_b = matmul3(corners_a_world - t_b, R_b)
         d_corners_a_in_b = trilinear_sdf(
             sdf_b_grid, sdf_b_origin, sdf_b_spacing, ca_in_b, **kw_b
         ).reshape(-1)
@@ -326,7 +327,7 @@ def body_shank_corners_pair_clearance(
         chunks.append(d_corners_a_in_b)
     if Sb > 0:
         corners_b_world = shank_world_samples(R_b, t_b, shank_centers_b, shank_halves_b)
-        cb_in_a = (corners_b_world - t_a) @ R_a
+        cb_in_a = matmul3(corners_b_world - t_a, R_a)
         d_corners_b_in_a = trilinear_sdf(
             sdf_a_grid, sdf_a_origin, sdf_a_spacing, cb_in_a, **kw_a
         ).reshape(-1)
@@ -382,8 +383,8 @@ def body_shank_box_sdf_clearance(
         if cs.shape[0] == 0:
             continue
         local = cs[:, None, :] + face_fractions[None] * hs[:, None, :]  # (S, M, 3)
-        world = local @ R_s.T + t_s
-        in_other = (world - t_o) @ R_o
+        world = matmul3(local, R_s.T) + t_s
+        in_other = matmul3(world - t_o, R_o)
         kw = {} if nr is None else {"n_real": nr}
         d = (
             trilinear_sdf(g, o, sp, in_other.reshape(-1, 3), **kw).reshape(
@@ -432,11 +433,11 @@ def body_body_pair_clearance(
     """
     kw_a = {} if n_real_a is None else {"n_real": n_real_a}
     kw_b = {} if n_real_b is None else {"n_real": n_real_b}
-    local_b_in_a = (world_surface_b - t_a) @ R_a
+    local_b_in_a = matmul3(world_surface_b - t_a, R_a)
     d_b_in_a = trilinear_sdf(
         sdf_a_grid, sdf_a_origin, sdf_a_spacing, local_b_in_a, **kw_a
     )
-    local_a_in_b = (world_surface_a - t_b) @ R_b
+    local_a_in_b = matmul3(world_surface_a - t_b, R_b)
     d_a_in_b = trilinear_sdf(
         sdf_b_grid, sdf_b_origin, sdf_b_spacing, local_a_in_b, **kw_b
     )
@@ -523,7 +524,7 @@ def body_body_pair_clearance_c2f(
     n_coarse, n_fine = coarse.shape[1], fine.shape[1]
 
     def into(points: Array, R_src: Array, t_src: Array, R_dst: Array, t_dst: Array):
-        return (points @ R_src.T + t_src - t_dst) @ R_dst
+        return matmul3(matmul3(points, R_src.T) + t_src - t_dst, R_dst)
 
     def lookup(kind: Array, points: Array) -> Array:
         return trilinear_sdf_stacked(grids, origins, spacings, n_reals, kind, points)
@@ -566,8 +567,8 @@ def body_body_pair_clearance_c2f(
     t_src = jnp.where(of_a[:, None], t_a, t_b)
     R_dst = jnp.where(of_a[:, None, None], R_b, R_a)
     t_dst = jnp.where(of_a[:, None], t_b, t_a)
-    world = jnp.einsum("cwj,ckj->cwk", points, R_src) + t_src[:, None, :]
-    local = jnp.einsum("cwk,ckj->cwj", world - t_dst[:, None, :], R_dst)
+    world = matmul3(points, jnp.swapaxes(R_src, 1, 2)) + t_src[:, None, :]
+    local = matmul3(world - t_dst[:, None, :], R_dst)
     fine_values = lookup(jnp.where(of_a, kind_b, kind_a)[:, None], local)
     fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
     hard = jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values))

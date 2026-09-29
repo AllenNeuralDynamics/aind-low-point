@@ -35,6 +35,7 @@ from numpy.typing import NDArray
 from aind_rutter.domain.probe_kinds import get_recording_geometry, pivot_from_shank_tips
 from aind_rutter.optimization.assignment.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.clearance.poses import arc_angles_to_rotation
+from aind_rutter.optimization.clearance.vec3 import dot3, matmul3
 from aind_rutter.optimization.geometry import cap_basis
 from aind_rutter.optimization.geometry.holes import Hole, pack_walls
 
@@ -142,14 +143,14 @@ def _shank_in_section_jax(
     Top+bottom oval sampling (vs current top+target chord) is the
     proper fix; slack is a partial proxy."""
     rel = sec_center - shank_pos
-    denom = jnp.dot(shaft_dir, sec_axis)
+    denom = dot3(shaft_dir, sec_axis)
     safe = jnp.abs(denom) > 1e-9
     denom_safe = jnp.where(safe, denom, 1.0)
-    t = jnp.dot(rel, sec_axis) / denom_safe
+    t = dot3(rel, sec_axis) / denom_safe
     P = shank_pos + t * shaft_dir
     diff = P - sec_center
-    u = jnp.dot(diff, sec_e1)
-    v = jnp.dot(diff, sec_e2)
+    u = dot3(diff, sec_e1)
+    v = dot3(diff, sec_e2)
     c, s = jnp.cos(sec_theta), jnp.sin(sec_theta)
     u_l = c * u + s * v
     v_l = -s * u + c * v
@@ -163,7 +164,7 @@ def _shank_in_section_jax(
     if wall_normals is None:
         return inside
     # Walls get the same relative slack: oval_slack of the minor half-axis.
-    return inside & jnp.all(wall_normals @ P - wall_offsets <= oval_slack * sb)
+    return inside & jnp.all(dot3(wall_normals, P) - wall_offsets <= oval_slack * sb)
 
 
 def _build_check_for_hole(
@@ -182,11 +183,11 @@ def _build_check_for_hole(
         D_ras = jnp.array([-D_lps_n[0], -D_lps_n[1], D_lps_n[2]])
         ap_deg, ml_deg = _vec_to_ap_ml_jax(D_ras)
         R = arc_angles_to_rotation(ap_deg, ml_deg, spin_deg)
-        pose_tip = target - R @ centroid_local
-        shaft_dir = R @ jnp.array([0.0, 0.0, 1.0])
+        pose_tip = target - dot3(R, centroid_local)
+        shaft_dir = R[..., 2]
 
         # Per-shank world positions
-        shanks_world = tips_local @ R.T + pose_tip  # (n_shanks, 3)
+        shanks_world = matmul3(tips_local, R.T) + pose_tip  # (n_shanks, 3)
 
         # For each section, all shanks must pass through.
         valid = jnp.bool_(True)

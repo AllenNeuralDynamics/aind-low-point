@@ -52,6 +52,7 @@ from aind_rutter.optimization.clearance.pairs import (
     body_shank_box_sdf_clearance,
     shank_shank_pair_clearance,
 )
+from aind_rutter.optimization.clearance.vec3 import matmul3
 
 # Category order MUST match aggregate.PairClearance and probe_pair_slack_gains.
 N_PAIR_CATEGORIES = 4
@@ -426,7 +427,7 @@ def swept_pair_clearances(
     # World-frame body surfaces, once per PROBE: gather the per-kind local
     # surface by kind, then transform by the probe's pose.
     world_surf = (
-        jnp.matmul(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
+        matmul3(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
         + ts[:, None, :]
     )
 
@@ -576,7 +577,7 @@ def swept_fixture_clearances(
     """
     kind_id = tables["kind_id"]
     world_surf = (
-        jnp.matmul(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
+        matmul3(tables["surfaces"][kind_id], jnp.transpose(Rs, (0, 2, 1)))
         + ts[:, None, :]
     )
     idx = jnp.asarray(probe_idx, jnp.int32)

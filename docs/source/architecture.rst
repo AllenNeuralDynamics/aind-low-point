@@ -158,6 +158,13 @@ lists cannot rot quietly.
 UI, which is what lets the same probe geometry serve the app and the solver
 without the app pulling in JAX.
 
+``test_traced_products.py`` holds one rule over code rather than imports: no
+matmul in a module that imports JAX. On an Ampere or newer GPU a float32 matmul
+runs at TF32 by default, which the solver's derivatives do not survive, and
+every product in traced code is over xyz, where the tensor cores buy nothing;
+``clearance/vec3.py`` writes them as multiply-adds. CI has no GPU, so nothing
+else would catch one coming back.
+
 
 Core Abstractions
 -----------------

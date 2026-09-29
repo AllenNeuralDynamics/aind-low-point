@@ -30,6 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from aind_rutter.domain.rig import ML_LIMIT_DEG
+from aind_rutter.optimization.clearance.vec3 import matmul3
 
 _DEFAULT_KDE_SPACING_MM = 0.1
 _DEFAULT_KDE_PAD_SIGMAS = 4.0
@@ -270,8 +271,8 @@ def probe_coverage(
 def _coverage_points(R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples):
     """Sample points along the active range per shank — ``(max_shanks,
     n_samples, 3)``. Shared by the Gaussian and KDE cores."""
-    shank_dir = R @ jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32)
-    tips_world = shank_tips_local @ R.T + t  # (max_shanks, 3)
+    shank_dir = R[..., 2]
+    tips_world = matmul3(shank_tips_local, R.T) + t  # (max_shanks, 3)
     s_vals = jnp.linspace(active_start_mm, active_end_mm, n_samples).astype(jnp.float32)
     return tips_world[:, None, :] + s_vals[None, :, None] * shank_dir[None, None, :]
 

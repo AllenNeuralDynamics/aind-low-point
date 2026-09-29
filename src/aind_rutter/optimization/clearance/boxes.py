@@ -11,6 +11,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from aind_rutter.optimization.clearance.vec3 import dot3, matmul3
+
 
 def obb_sdf(
     query_local: Array,  # (..., 3) in box-local frame
@@ -104,7 +106,9 @@ def shank_world_samples(
     """
     local = _obb_sample_points_local(centers_local, halves_local)
     S = local.shape[0]
-    return (local.reshape(-1, 3) @ R.T + t).reshape(S * SHANK_SAMPLES_PER_BOX, 3)
+    return (matmul3(local.reshape(-1, 3), R.T) + t).reshape(
+        S * SHANK_SAMPLES_PER_BOX, 3
+    )
 
 
 def obb_sdf_world_to_local(
@@ -119,7 +123,7 @@ def obb_sdf_world_to_local(
     """
     # World->probe-local: q_local = R^T (q_world - t).
     # Then shift to box-local: q_box = q_local - center_local.
-    q_local = (query_world - t) @ R - center_local
+    q_local = matmul3(query_world - t, R) - center_local
     return obb_sdf(q_local, half_extents)
 
 
@@ -172,8 +176,8 @@ def obb_obb_signed_distance(
       *not* min-selected — masking via large ``+1e3`` works).
     """
     # World-frame box centres (centres are stored in probe-local).
-    ca_w = R_a @ center_a + t_a
-    cb_w = R_b @ center_b + t_b
+    ca_w = dot3(R_a, center_a) + t_a
+    cb_w = dot3(R_b, center_b) + t_b
     diff = cb_w - ca_w  # (3,) world-frame vector between centres
 
     # Axis bases in world: columns of R_a and R_b.
@@ -190,9 +194,9 @@ def obb_obb_signed_distance(
         # r_a = sum_i |halves_a[i] * (axis_a[i] . axis_w)|
         proj_a = jnp.sum(jnp.abs(axes_a * axis_w[None, :]).T * halves_a[:, None].T)
         # Simpler form: r_a = halves_a . |axes_a.T @ axis_w|
-        proj_a = jnp.dot(halves_a, jnp.abs(axes_a.T @ axis_w))
-        proj_b = jnp.dot(halves_b, jnp.abs(axes_b.T @ axis_w))
-        centre_sep = jnp.abs(jnp.dot(diff, axis_w))
+        proj_a = dot3(halves_a, jnp.abs(dot3(axes_a.T, axis_w)))
+        proj_b = dot3(halves_b, jnp.abs(dot3(axes_b.T, axis_w)))
+        centre_sep = jnp.abs(dot3(diff, axis_w))
         return centre_sep - (proj_a + proj_b)
 
     sep_face_a = jax.vmap(_separation_along)(axes_a.T)  # (3,)

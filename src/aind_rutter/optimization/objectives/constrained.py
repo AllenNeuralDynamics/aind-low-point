@@ -50,6 +50,7 @@ from aind_rutter.optimization.clearance.sweep import (
     swept_fixture_clearances,
     swept_pair_clearances,
 )
+from aind_rutter.optimization.clearance.vec3 import matmul3
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
@@ -485,7 +486,7 @@ def _build_jit(  # noqa: C901
             # Batched over probes: (P, max_shanks, 3) world tips → one gather.
             # reshape(-1) is probe-major (== the old per-probe concatenate).
             world_tips = (
-                jnp.matmul(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+                matmul3(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
             )
             d = trilinear_sdf(brain_grid, brain_origin, brain_spacing, world_tips)
             brain_vec = jnp.where(shank_mask > 0, brain_slack(d, spec), LARGE_SLACK)
@@ -540,11 +541,11 @@ def _build_jit(  # noqa: C901
 
     def _slacks_hess(x, v, **packed):
         # dense Σ_i v_i ∇²g_i = ∇²(v·slacks)  (the constraint Lagrangian term)
-        return jax.hessian(lambda xx: jnp.vdot(_all_slacks(xx, **packed), v))(x)
+        return jax.hessian(lambda xx: jnp.sum(_all_slacks(xx, **packed) * v))(x)
 
     def _slacks_hessp(x, v, p, **packed):
         # (Σ_i v_i ∇²g_i) · p  via HVP of the scalar (v·slacks)
-        gv = jax.grad(lambda xx: jnp.vdot(_all_slacks(xx, **packed), v))
+        gv = jax.grad(lambda xx: jnp.sum(_all_slacks(xx, **packed) * v))
         return jax.jvp(gv, (x,), (p,))[1]
 
     return dict(

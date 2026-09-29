@@ -38,6 +38,7 @@ from aind_rutter.optimization.clearance.sweep import (
     swept_fixture_clearances,
     swept_pair_clearances,
 )
+from aind_rutter.optimization.clearance.vec3 import matmul3
 from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSET_MM
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
@@ -472,10 +473,10 @@ def _build_jit(  # noqa: C901
         # the depth-greedy coverage cheat (the term is a function of depth).
         j_brain = jnp.float32(0.0)
         if brain_sdf is not None:
-            # Batched over probes: (P, max_shanks, 3) world tips in one matmul →
+            # Batched over probes: (P, max_shanks, 3) world tips at once →
             # one trilinear gather (P × max_shanks points) instead of P calls.
             world_tips = (
-                jnp.matmul(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
+                matmul3(tips_local, jnp.transpose(Rs, (0, 2, 1))) + ts[:, None, :]
             )
             d = trilinear_sdf(
                 brain_grid, brain_origin, brain_spacing, world_tips

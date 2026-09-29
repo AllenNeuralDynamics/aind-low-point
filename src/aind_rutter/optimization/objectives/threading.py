@@ -6,6 +6,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from aind_rutter.optimization.clearance.vec3 import dot3, matmul3
+
 MAX_SHANKS_PAD = 4
 # A shank's cross-section corners, as signs on its (x, y) half-widths.
 _CORNER_SIGNS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
@@ -61,12 +63,12 @@ def threading_g_matrix(
             axis=1,
         )
         tips_local = (tips_local[:, None, :] + offsets[None]).reshape(-1, 3)
-    tip_world = tips_local @ R.T + pose_tip
-    shaft_dir = R @ jnp.array([0.0, 0.0, 1.0])
+    tip_world = matmul3(tips_local, R.T) + pose_tip
+    shaft_dir = R[..., 2]
     line_d = shaft_length_mm * shaft_dir
-    denom = s_axes @ line_d
+    denom = dot3(s_axes, line_d)
     rel_centers = tip_world[None, :, :] - s_centers[:, None, :]
-    num = jnp.einsum("skd,sd->sk", rel_centers, s_axes)
+    num = dot3(rel_centers, s_axes[:, None, :])
     # ``denom`` is the dot product of shaft direction with section axis.
     # For typical bounds (ap, ml ≤ 60°) it's in [0.25, 1.0]; the
     # ``shaft ⊥ section`` case (denom → 0) is geometrically unreachable
@@ -77,8 +79,8 @@ def threading_g_matrix(
     t = -num / safe_denom[:, None]
     pts = tip_world[None, :, :] + t[..., None] * line_d
     rel_to_center = pts - s_centers[:, None, :]
-    u_w = jnp.einsum("skd,sd->sk", rel_to_center, s_e1)
-    v_w = jnp.einsum("skd,sd->sk", rel_to_center, s_e2)
+    u_w = dot3(rel_to_center, s_e1[:, None, :])
+    v_w = dot3(rel_to_center, s_e2[:, None, :])
     u = s_cos[:, None] * u_w + s_sin[:, None] * v_w
     v = -s_sin[:, None] * u_w + s_cos[:, None] * v_w
     # No more ``where(parallel, inf, g)`` override (removed Patch B):
@@ -94,7 +96,7 @@ def threading_g_matrix(
     safe_b = jnp.where(jnp.abs(s_b) < 1e-12, 1.0, s_b)
     g = (u / safe_a[:, None]) ** 2 + (v / safe_b[:, None]) ** 2 - 1.0
     if w_normals is not None:
-        wall_dist = jnp.einsum("skd,wd->skw", pts, w_normals) - w_offsets
+        wall_dist = dot3(pts[..., None, :], w_normals) - w_offsets
         g = jnp.maximum(g, jnp.max(wall_dist, axis=-1) * (2.0 / safe_b[:, None]))
     if shank_half_xy is None:
         return g

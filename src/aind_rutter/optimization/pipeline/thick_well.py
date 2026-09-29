@@ -65,15 +65,17 @@ def fit_well_cone(mesh, *, n_slices: int = 10) -> dict:
     Vc = V - ctr
     # PCA: the bore axis is the least-spread principal axis (the well is short
     # along the bore, wide across it). Orient +z-ish for readability.
-    _, Q = np.linalg.eigh(Vc.T @ Vc)
+    _, Q = np.linalg.eigh(np.matmul(Vc.T, Vc))
     axis = Q[:, 0]
     if axis[2] < 0:
         axis = -axis
     e1 = np.cross(axis, [0.0, 0.0, 1.0])
     e1 /= np.linalg.norm(e1)
     e2 = np.cross(axis, e1)
-    z = Vc @ axis
-    P = np.stack([Vc @ e1, Vc @ e2], axis=1)  # in-plane coords (centroid origin)
+    z = np.dot(Vc, axis)
+    P = np.stack(
+        [np.dot(Vc, e1), np.dot(Vc, e2)], axis=1
+    )  # in-plane coords (centroid origin)
 
     # Bore center: largest empty disk in the central axial band, where the lumen
     # is actually surrounded by material (the flared ends mislead a global search).
@@ -131,7 +133,7 @@ def _voxel_zr(grid_shape, origin, spacing, cone):
     ii, jj, kk = np.meshgrid(np.arange(Nx), np.arange(Ny), np.arange(Nz), indexing="ij")
     world = origin[None, None, None, :] + np.stack([ii, jj, kk], -1) * spacing
     d = world - cone["bore_point"]
-    zc = d @ cone["axis"]
+    zc = np.dot(d, cone["axis"])
     perp = d - zc[..., None] * cone["axis"]
     r = np.linalg.norm(perp, axis=-1)
     return zc.astype(np.float32), r.astype(np.float32)

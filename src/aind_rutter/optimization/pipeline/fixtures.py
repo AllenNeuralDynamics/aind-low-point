@@ -221,7 +221,8 @@ def build_brain_sdf(
     mesh = geom.raw
     R, t = compiled_transforms[transform_key].rotate_translate
     world = trimesh.Trimesh(
-        np.asarray(mesh.vertices, np.float64) @ np.asarray(R).T + np.asarray(t),
+        np.matmul(np.asarray(mesh.vertices, np.float64), np.asarray(R).T)
+        + np.asarray(t),
         np.asarray(mesh.faces),
         process=False,
     )

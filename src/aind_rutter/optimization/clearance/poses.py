@@ -9,6 +9,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 from jax import Array
 
+from aind_rutter.optimization.clearance.vec3 import dot3, matmul3
+
 _D_RAS_TO_LPS = jnp.diag(jnp.array([-1.0, -1.0, 1.0]))
 
 
@@ -78,9 +80,9 @@ def arc_angles_to_rotation(ap_deg: Array, ml_deg: Array, spin_deg: Array) -> Arr
     ml = jnp.deg2rad(ml_deg)
     spin = -jnp.deg2rad(spin_deg)
     # RAS-frame Euler XYZ: RX(ap) RY(ml) RZ(spin)
-    R_ras = _rot_x(ap) @ _rot_y(ml) @ _rot_z(spin)
+    R_ras = matmul3(matmul3(_rot_x(ap), _rot_y(ml)), _rot_z(spin))
     # RAS → LPS conjugation
-    return _D_RAS_TO_LPS @ R_ras @ _D_RAS_TO_LPS
+    return matmul3(matmul3(_D_RAS_TO_LPS, R_ras), _D_RAS_TO_LPS)
 
 
 def pose_from_optimizer_vars(
@@ -106,8 +108,8 @@ def pose_from_optimizer_vars(
     off_LPS = jnp.stack([-offset_R_mm, -offset_A_mm, jnp.zeros_like(offset_R_mm)])
     adjusted_target = target_LPS + off_LPS
     zero = jnp.zeros_like(past_target_mm)
-    insertion_vec = R @ jnp.stack([zero, zero, -past_target_mm])
-    pose_tip = adjusted_target + insertion_vec - R @ recording_center_local
+    insertion_vec = dot3(R, jnp.stack([zero, zero, -past_target_mm]))
+    pose_tip = adjusted_target + insertion_vec - dot3(R, recording_center_local)
     return R, pose_tip
 
 

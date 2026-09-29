@@ -42,6 +42,7 @@ from aind_rutter.optimization.clearance.sweep import (
     pair_clearance,
     probe_fixture_clearance,
 )
+from aind_rutter.optimization.clearance.vec3 import matmul3
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.layout import (
     ML,
@@ -247,7 +248,7 @@ def make_batched_spin_restore_partial(
         )
 
     def _world_surface(kind, R, t):
-        return tables["surfaces"][kind] @ R.T + t
+        return matmul3(tables["surfaces"][kind], R.T) + t
 
     def _spin_losses(y, i, arc_idx, sections):
         arc_aps = y[:n_arcs]
