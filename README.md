@@ -92,6 +92,7 @@ otherwise do without.
 | Command | Does |
 |---|---|
 | `rutter-plan config.yml` | Open the interactive planner. `--plan` loads a plan at startup. |
+| `rutter-bores implant.step out.yml --implant 0283-300-04` | Fit the threading bores (`RUTTER_HOLES`) to an implant STEP; needs the `step` extra. |
 | `rutter-phase1` | Enumerate and score candidate configurations. |
 | `rutter-phase2` | Solve the top candidates exactly, then gate on collision and threading. |
 | `rutter-emit` | Write the ranked survivors as plan-only YAML. |

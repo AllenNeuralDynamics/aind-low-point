@@ -18,7 +18,8 @@ DEFAULT_LINEAR_DEFLECTION_MM = 0.01
 DEFAULT_ANGULAR_DEFLECTION_RAD = 0.1
 
 
-def _read_shape(path: str):
+def read_step_shape(path: str):
+    """The STEP file's OpenCascade shape, in its part frame and mm."""
     try:
         from OCP.IFSelect import IFSelect_RetDone
         from OCP.STEPControl import STEPControl_Reader
@@ -180,7 +181,9 @@ def load_step(
     A closed solid yields a watertight mesh with outward normals; where the
     tessellation cannot be closed the mesh is returned open, with a warning.
     """
-    mesh = _tessellate(_read_shape(path), linear_deflection_mm, angular_deflection_rad)
+    mesh = _tessellate(
+        read_step_shape(path), linear_deflection_mm, angular_deflection_rad
+    )
     _drop_degenerate_and_doubled(mesh)
     if not mesh.is_watertight:
         mesh = _close_holes(mesh)

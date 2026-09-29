@@ -61,7 +61,14 @@ The two subject inputs are:
    the bore, such as an implant edge running through the channel. A shank must
    cross every section inside its oval and on the open side of every wall. If the
    config defines ``implant_to_lps``, the holes are transformed into world LPS
-   before optimization.
+   before optimization. Fit it from the implant's STEP, which needs the ``step``
+   extra; ``--implant`` numbers the bores by the manufacturer's diagram packaged in
+   ``data/implants/`` and drops bores no probe passes through:
+
+   .. code-block:: bash
+
+      uv run --python 3.13 rutter-bores 0283-300-04.step 0283-300-04.holes.yml \
+          --implant 0283-300-04
 
 Example one-subject run:
 
@@ -540,7 +547,7 @@ Run directly:
 .. code-block:: bash
 
    RUTTER_CONFIG=examples/837229-config.yml \
-   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_HOLES=0283-300-04.holes.yml \
    RUTTER_OUT=scratch/837229_pool.json.gz \
    JAX_PLATFORMS=cuda uv run --python 3.13 rutter-phase1
 
@@ -645,7 +652,7 @@ Run directly:
 
    RUTTER_SOLVER=ipopt \
    RUTTER_CONFIG=examples/837229-config.yml \
-   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_HOLES=0283-300-04.holes.yml \
    RUTTER_POSES=scratch/837229_pool.json.gz \
    RUTTER_OUT=scratch/837229_phase2_handoff.json \
    RUTTER_TOPK=200 \
@@ -718,7 +725,7 @@ Run directly:
 .. code-block:: bash
 
    RUTTER_CONFIG=examples/837229-config.yml \
-   RUTTER_HOLES=scratch/0283-300-04.holes.yml \
+   RUTTER_HOLES=0283-300-04.holes.yml \
    RUTTER_HANDOFF=scratch/837229_phase2_handoff.json \
    RUTTER_OUTDIR=scratch/837229_plans \
    JAX_PLATFORMS=cpu uv run --python 3.13 rutter-emit

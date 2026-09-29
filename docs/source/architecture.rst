@@ -151,7 +151,7 @@ lists cannot rot quietly.
    * - The planner imports without JAX installed, so the viewer runs without
        the optimizer stack.
      - ``test_jax_free.py``
-   * - All five console scripts import and resolve.
+   * - All six console scripts import and resolve.
      - ``test_console_scripts.py``
 
 ``domain/`` is the load-bearing one. It imports no config, no optimizer and no

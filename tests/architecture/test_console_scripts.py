@@ -1,4 +1,4 @@
-"""The five installed commands import and, where they parse arguments, take --help.
+"""The six installed commands import and, where they parse arguments, take --help.
 
 Nothing else covers the stage drivers, so a rename that breaks one is otherwise
 invisible until a run fails hours later. Each check runs in a clean interpreter:
@@ -17,7 +17,7 @@ from tests.architecture.graph import ROOT, console_scripts, module_graph
 
 # Scripts with an argument parser, so `--help` is meaningful. The stage drivers
 # take their configuration from the environment and parse nothing.
-PARSED_ARGUMENTS = {"rutter-plan", "rutter-plan-csv"}
+PARSED_ARGUMENTS = {"rutter-plan", "rutter-plan-csv", "rutter-bores"}
 
 # Importing these must not choose a GPU: the default platform is cuda.
 CPU_ENV = {"JAX_PLATFORMS": "cpu", "PLATFORM": "cpu"}
@@ -52,6 +52,7 @@ def test_pyproject_declares_the_expected_commands() -> None:
         "rutter-phase1",
         "rutter-phase2",
         "rutter-emit",
+        "rutter-bores",
     }
 
 

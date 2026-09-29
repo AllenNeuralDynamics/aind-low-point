@@ -85,6 +85,7 @@ rutter-phase1 = "aind_rutter.optimization.pipeline.phase1:main"
 rutter-phase2 = "aind_rutter.optimization.pipeline.phase2:main"
 rutter-emit = "aind_rutter.optimization.pipeline.emit:main"
 rutter-plan-csv = "aind_rutter.plan_io.cli_csv:main"
+rutter-bores = "aind_rutter.optimization.geometry.bore_fit:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-rutter/"
@@ -123,7 +124,7 @@ docs = [
 ]
 
 [tool.setuptools.package-data]
-"aind_rutter" = ["data/*.json"]
+"aind_rutter" = ["data/*.json", "data/implants/*.yml"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
