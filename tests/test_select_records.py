@@ -44,12 +44,12 @@ def test_objective_ranks_lowest_first() -> None:
     assert rank_order(recs, "objective") == [1, 2, 0]
 
 
-def test_default_selection_takes_the_lowest_objective() -> None:
+def test_objective_selection_takes_the_lowest_objective() -> None:
     recs = [
         _rec(0, objective=9.0, min_clear=0.5),
         _rec(1, objective=-3.0, min_clear=-0.01),
     ]
-    out = select_records(recs, Phase2Settings(topk=1))
+    out = select_records(recs, Phase2Settings(select_by="objective", topk=1))
     assert [r["idx"] for r in out] == [1]
 
 

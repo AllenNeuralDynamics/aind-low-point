@@ -88,9 +88,11 @@ from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
     read_pool,
     write_handoff,
 )
+from aind_rutter.optimization.pipeline.phase2_setup import (  # noqa: E402
+    build_state,
+    static_for,
+)
 from aind_rutter.optimization.pipeline.records import (  # noqa: E402
-    MRVArcAssignment,
-    MRVHoleAssignment,
     Phase2HandoffPayload,
     Phase2InputRecord,
     Phase2Problem,
@@ -162,58 +164,13 @@ def _init(
     _G["settings"] = settings
     _setup_compile_cache()
     from aind_rutter.optimization.objectives.constrained import clear_jit_cache
-    from aind_rutter.optimization.objectives.statics import _build_probe_static
-    from aind_rutter.optimization.pipeline.fixtures import (
-        build_coverage_data,
-    )
-    from aind_rutter.optimization.pipeline.subject import (
-        OptimizationRuntime,
-    )
 
     clear_jit_cache()
-    opt = OptimizationRuntime.from_config_path(
-        settings.config,
-        settings.holes,
-        thread_corners=settings.thread_shank == "corners",
-    )
-    assets = opt.build_problem_assets(well_mode=settings.well, include_brain=True)
-    # The FCL gate uses the same fixture names plus the world-frame implant BVH.
-    # The implant remains excluded from soft SDF constraints because probes pass
-    # through its bored holes; FCL is the ground-truth threading/body gate.
-    fcl = opt.fcl_fixture_set(
-        assets.fixtures, fixture_bvhs=assets.fixture_bvhs, include_implant=True
-    )
-    _G.update(
-        probes=list(opt.probes),
-        holes=list(opt.holes),
-        sdf=assets.probe_sdfs,
-        bvh=assets.probe_bvhs,
-        fx=assets.fixtures,
-        fbvh=assets.fixture_bvhs,
-        fcl_fixtures=fcl.fixtures,
-        fcl_fbvh=fcl.bvhs,
-        brain_sdf=assets.brain_sdf,
-        cov_data=None,
-        n_probes=len(opt.probes),
-        head_pitch_deg=opt.head_pitch_deg,
-        build_static=_build_probe_static,
-        build_cov=build_coverage_data,
-    )
+    _G.update(build_state(settings))
 
 
 def _st_for_rec(rec: Phase2InputRecord):
-    """Rebuild the per-probe static `st` for a Phase-1 pool record. Uses the
-    arc assignment SAVED by Phase 1 (probe_to_hole / probe_to_arc_idx /
-    arc_centroids_deg) so the geometry matches exactly what the pose `x` was
-    optimized against — no re-seed, no frozenset-order ambiguity."""
-    ha = MRVHoleAssignment(probe_to_hole=rec["probe_to_hole"])
-    aa = MRVArcAssignment(
-        probe_to_arc_idx=rec["probe_to_arc_idx"],
-        arc_centroids_deg=list(rec["arc_centroids_deg"]),
-    )
-    return _G["build_static"](
-        _G["probes"], _G["holes"], ha, aa, bvh_cache=_G["bvh"], sdf_by_name=_G["sdf"]
-    )
+    return static_for(_G, rec)
 
 
 def _cov_norm_kwargs(st) -> dict[str, object]:
@@ -819,7 +776,7 @@ def main() -> int:
     warning = check_pool_specs(pool, settings)
     if warning:
         print(f"WARNING: {warning}", flush=True)
-    recs = select_records(pool["records"], settings)
+    recs = select_records(pool["records"], settings, log=_flush_print)
     payload = run(recs, settings, on_result=_log_cand, log=_flush_print)
     _print_report(payload, settings)
     write_handoff(settings.out, payload)

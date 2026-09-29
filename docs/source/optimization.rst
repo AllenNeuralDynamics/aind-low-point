@@ -604,8 +604,23 @@ Phase 2 Handoff
 runs a constrained continuous polish, gates the results, and writes
 ``Phase2HandoffPayload``.
 
-Default selection is ``RUTTER_SELECT_BY=objective``, ascending because lower is
-better; any other record field, such as ``min_clear``, sorts descending. ``min_clear``
+Default selection is ``RUTTER_SELECT_BY=learned`` (``pipeline/learned_rank.py``):
+the objective's first ``RUTTER_RANK_HEAD`` (100) candidates, then the rest by a
+gradient-boosted model's P(kept) × E[coverage percentile | kept]. Its features
+mean the same thing on any subject: Phase-1 coverage and objective as
+percentiles within the pool, the FCL, threading and clearance values at the
+Phase-1 pose, slider geometry and per-probe offset and depth. They are measured
+on every pool record before selection, on ``RUTTER_RANK_WORKERS`` (8) CPU
+processes; 17,000 records take about four minutes on 16. The model is fitted at run
+time on ``data/ranker/837772.npz``, a pool whose every record Phase 2 solved;
+``learned_rank.write_training_table`` writes another. The objective finds a
+pool's easy best layouts first, and the model reaches the ones it buries, so
+each prefix of the hybrid order holds about as many of a pool's best layouts as
+the better of the two at that ``RUTTER_TOPK``. Past a few hundred, the hybrid
+holds more.
+
+``RUTTER_SELECT_BY=objective`` ranks by the objective, ascending because lower
+is better; any other record field, such as ``min_clear``, sorts descending. ``min_clear``
 is a poor ranker: Phase 1's penalty leaves converged candidates a few micrometres short
 of the spec, so it orders them by that residue, and it ignores threading.
 

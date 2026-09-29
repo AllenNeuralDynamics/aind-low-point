@@ -273,9 +273,15 @@ class Phase2Settings(PipelineSettings):
     # Selection and I/O.
     topk: int = Field(80)
     select_by: str = Field(
-        "objective",
-        description="Phase-1 record field to rank by; 'objective' sorts ascending, "
-        "any other field descending.",
+        "learned",
+        description="'learned' (see pipeline.learned_rank), or a Phase-1 record "
+        "field to rank by; 'objective' sorts ascending, any other field descending.",
+    )
+    rank_head: int = Field(
+        100, description="'learned' only: how many the objective orders first."
+    )
+    rank_workers: int = Field(
+        8, description="'learned' only: CPU processes measuring the pool."
     )
     poses: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),

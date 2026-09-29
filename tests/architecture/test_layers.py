@@ -61,8 +61,12 @@ PRIVATE_IMPORT_BASELINE = {
         "aind_rutter.optimization.objectives.statics",
     ),
     (
-        "aind_rutter.optimization.pipeline.phase2",
+        "aind_rutter.optimization.pipeline.phase2_setup",
         "aind_rutter.optimization.objectives.statics",
+    ),
+    (
+        "aind_rutter.optimization.pipeline.phase2_setup",
+        "aind_rutter.optimization.objectives.variables",
     ),
     (
         "aind_rutter.optimization.pipeline.phase2",

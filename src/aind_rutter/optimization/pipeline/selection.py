@@ -7,6 +7,7 @@ unit test has no business triggering.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 
 from aind_rutter.optimization.pipeline.payloads import pinned_spec_differences
@@ -82,7 +83,9 @@ def normalize_record(
 
 
 def select_records(
-    all_recs: list[Phase1PoolRecord], settings: Phase2Settings
+    all_recs: list[Phase1PoolRecord],
+    settings: Phase2Settings,
+    log: Callable[[str], None] | None = None,
 ) -> list[Phase2InputRecord]:
     """The candidates Phase 2 will solve, in rank order.
 
@@ -90,9 +93,17 @@ def select_records(
     ``topk`` handed on, with FCL applied once at the end as the ground-truth gate.
     ``ranks`` or ``ranks_file`` replace that cut with explicit offsets into the
     ranked order, which is how a run probes where good candidates stop appearing
-    instead of guessing a cutoff; offsets past the end are dropped.
+    instead of guessing a cutoff; offsets past the end are dropped. ``select_by``
+    'learned' measures the whole pool first, which loads jax.
     """
-    order = rank_order(all_recs, settings.select_by)
+    if settings.select_by == "learned":
+        from aind_rutter.optimization.pipeline.learned_rank import learned_order
+
+        order = learned_order(
+            all_recs, settings, rank_order(all_recs, "objective"), log=log
+        )
+    else:
+        order = rank_order(all_recs, settings.select_by)
     if settings.ranks or settings.ranks_file:
         from aind_rutter.optimization.pipeline.phase2_diagnostics import read_ranks
 
