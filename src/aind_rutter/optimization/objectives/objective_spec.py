@@ -20,8 +20,8 @@ class ObjectiveSpec:
     per-probe coverage ceilings are supplied.
     """
 
-    coverage_gain: float = 1.0
-    cov_alpha: float = 0.0
+    coverage_gain: float = 7.0
+    cov_alpha: float = 0.2
     softmin_beta_cov: float = 20.0
     # Squared-softplus pull-back outside the comfortable angular range.
     lambda_bounds: float = 1.0

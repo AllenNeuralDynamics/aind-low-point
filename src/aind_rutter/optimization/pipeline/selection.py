@@ -94,17 +94,22 @@ def select_records(
     ``ranks`` or ``ranks_file`` replace that cut with explicit offsets into the
     ranked order, which is how a run probes where good candidates stop appearing
     instead of guessing a cutoff; offsets past the end are dropped. ``select_by``
-    'learned' measures the whole pool first, which loads jax.
+    'learned' measures the whole pool first, which loads jax, unless the cut
+    falls inside the objective's head.
     """
-    if settings.select_by == "learned":
+    explicit = bool(settings.ranks or settings.ranks_file)
+    head_only = not explicit and settings.topk <= settings.rank_head
+    if settings.select_by == "learned" and not head_only:
         from aind_rutter.optimization.pipeline.learned_rank import learned_order
 
         order = learned_order(
             all_recs, settings, rank_order(all_recs, "objective"), log=log
         )
+    elif settings.select_by == "learned":
+        order = rank_order(all_recs, "objective")
     else:
         order = rank_order(all_recs, settings.select_by)
-    if settings.ranks or settings.ranks_file:
+    if explicit:
         from aind_rutter.optimization.pipeline.phase2_diagnostics import read_ranks
 
         chosen = (

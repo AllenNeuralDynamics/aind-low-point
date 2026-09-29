@@ -440,7 +440,7 @@ Both stages build the spec from the settings they share,
      - Default
    * - ``RUTTER_COV_WEIGHT``
      - ``coverage_gain``
-     - 1.0
+     - 7.0
    * - ``RUTTER_COV_ALPHA``, read with ``RUTTER_COV_NORM``
      - ``cov_alpha``
      - 0.2
@@ -589,8 +589,8 @@ Useful Phase-1 environment knobs:
      - ``128``, ``128``
      - Batched JAX chunk sizes.
    * - ``RUTTER_COV_NORM``, ``RUTTER_COV_ALPHA``, ``RUTTER_COV_WEIGHT``
-     - ``0``, ``0.2``, ``1.0``
-     - Optional normalized/weighted coverage objective; with the rest of the
+     - ``1``, ``0.2``, ``7.0``
+     - Normalized, weighted coverage objective; with the rest of the
        objective's settings (see `Objective`_), Phase 2 reads the same values.
    * - ``RUTTER_MIN_CLEARANCE``
      - ``0.1``

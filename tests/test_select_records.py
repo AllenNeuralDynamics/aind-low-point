@@ -107,7 +107,7 @@ def test_phase2_takes_a_pool_built_under_its_own_specs() -> None:
     ("changed", "field"),
     [
         ({"min_clearance": 0.2}, "feasibility.min_clearance_mm"),
-        ({"cov_weight": 7.0}, "objective.coverage_gain"),
+        ({"cov_weight": 3.0}, "objective.coverage_gain"),
     ],
 )
 def test_phase2_refuses_a_pool_built_under_other_specs(changed, field) -> None:

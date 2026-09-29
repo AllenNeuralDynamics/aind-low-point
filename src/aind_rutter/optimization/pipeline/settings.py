@@ -93,9 +93,9 @@ class PipelineSettings(BaseSettings):
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
     # the coverage-vs-margin gain.
-    cov_norm: bool = Field(False)
+    cov_norm: bool = Field(True)
     cov_alpha: float = Field(0.2)
-    cov_weight: float = Field(1.0)
+    cov_weight: float = Field(7.0)
     # Clearance-margin reward weight and saturation scale (mm), and whether it
     # reads the soft minimum.
     lam_clear: float = Field(ObjectiveSpec.lambda_margin_clear)

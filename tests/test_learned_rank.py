@@ -73,6 +73,18 @@ def test_learned_is_the_default_selection(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(lr, "learned_order", fake)
     recs = [_rec(0, 2, 5.0), _rec(1, 2, 1.0), _rec(2, 2, 3.0)]
-    out = select_records(recs, Phase2Settings(topk=2))
+    out = select_records(recs, Phase2Settings(topk=2, rank_head=1))
     assert seen["objective_order"] == [1, 2, 0]
     assert [r["idx"] for r in out] == [0, 2] and [r["rank"] for r in out] == [0, 1]
+
+
+def test_a_cut_inside_the_head_measures_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_args, **_kwargs):
+        raise AssertionError("measured a pool whose cut is the objective's")
+
+    monkeypatch.setattr(lr, "learned_order", fail)
+    recs = [_rec(0, 2, 5.0), _rec(1, 2, 1.0), _rec(2, 2, 3.0)]
+    out = select_records(recs, Phase2Settings(topk=2, rank_head=2))
+    assert [r["idx"] for r in out] == [1, 2]
