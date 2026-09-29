@@ -62,8 +62,10 @@ The two subject inputs are:
    cross every section inside its oval and on the open side of every wall. If the
    config defines ``implant_to_lps``, the holes are transformed into world LPS
    before optimization. Fit it from the implant's STEP, which needs the ``step``
-   extra; ``--implant`` numbers the bores by the manufacturer's diagram packaged in
-   ``data/implants/`` and drops bores no probe passes through:
+   extra. A flat face cutting into a bore's oval (a D-shaped bore) is written as a
+   wall through the face's point nearest the axis. ``--implant`` numbers the bores
+   by the manufacturer's diagram packaged in ``data/implants/`` and drops bores no
+   probe passes through:
 
    .. code-block:: bash
 

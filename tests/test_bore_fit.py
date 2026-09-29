@@ -1,6 +1,7 @@
 """``optimization/geometry/bore_fit.py`` on a synthetic STEP.
 
-A plate with a 15°-tilted elliptical bore and a small straight one beside it.
+A plate with a 15°-tilted elliptical bore and a small straight one beside it, and a
+second plate whose oval bore a flat wall cuts into (a D).
 Needs OpenCascade, which the dev group installs through the ``step`` extra.
 """
 
@@ -22,6 +23,7 @@ TILT_DEG = 15.0
 SEMI_MAJOR, SEMI_MINOR = 0.5, 0.3
 SMALL_R = 0.2
 SMALL_AT = (1.5, 0.0)  # part (x, y): 1.5 mm anterior of the tilted bore
+WALL_X = 0.25  # the D's flat, part x: anterior of the axis, inside the semi-major
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +40,6 @@ def step_path(tmp_path_factory) -> Path:
         BRepPrimAPI_MakePrism,
     )
     from OCP.gp import gp_Ax2, gp_Dir, gp_Elips, gp_Pnt, gp_Vec
-    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
 
     body = BRepPrimAPI_MakeBox(gp_Pnt(-3, -2, -1), gp_Pnt(3, 3, 0)).Shape()
     t = math.radians(TILT_DEG)
@@ -57,11 +58,7 @@ def step_path(tmp_path_factory) -> Path:
         gp_Ax2(gp_Pnt(*SMALL_AT, -2.0), gp_Dir(0, 0, 1)), SMALL_R, 3.0
     ).Shape()
     body = BRepAlgoAPI_Cut(BRepAlgoAPI_Cut(body, tilted).Shape(), small).Shape()
-    path = tmp_path_factory.mktemp("step") / "plate.step"
-    writer = STEPControl_Writer()
-    writer.Transfer(body, STEPControl_AsIs)
-    writer.Write(str(path))
-    return path
+    return _write_step(body, tmp_path_factory.mktemp("step") / "plate.step")
 
 
 @pytest.fixture(scope="module")
@@ -128,6 +125,62 @@ def test_written_file_loads(step_path, tmp_path) -> None:
         tilted.sections[0].center @ tilted.axis
         > tilted.sections[1].center @ tilted.axis
     )
+
+
+def _write_step(shape, path: Path) -> Path:
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    writer = STEPControl_Writer()
+    writer.Transfer(shape, STEPControl_AsIs)
+    writer.Write(str(path))
+    return path
+
+
+@pytest.fixture(scope="module")
+def d_step_path(tmp_path_factory) -> Path:
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakePrism
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Elips, gp_Pnt, gp_Vec
+
+    body = BRepPrimAPI_MakeBox(gp_Pnt(-2, -2, -1), gp_Pnt(2, 2, 0)).Shape()
+    ellipse = gp_Elips(
+        gp_Ax2(gp_Pnt(0, 0, -2), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
+        SEMI_MAJOR,
+        SEMI_MINOR,
+    )
+    wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(ellipse).Edge()).Wire()
+    bore = BRepPrimAPI_MakePrism(
+        BRepBuilderAPI_MakeFace(wire).Face(), gp_Vec(0, 0, 3)
+    ).Shape()
+    body = BRepAlgoAPI_Cut(body, bore).Shape()
+    flat = BRepPrimAPI_MakeBox(gp_Pnt(WALL_X, -1, -1), gp_Pnt(1, 1, 0)).Shape()
+    body = BRepAlgoAPI_Fuse(body, flat).Shape()
+    return _write_step(body, tmp_path_factory.mktemp("step") / "d.step")
+
+
+def test_round_bores_have_no_walls(bores) -> None:
+    assert all(not b.walls for b in bores)
+
+
+def test_d_bore_writes_its_flat_as_a_wall(d_step_path, tmp_path) -> None:
+    out = tmp_path / "d.holes.yml"
+    bore_fit.main([str(d_step_path), str(out)])
+    (hole,) = load_holes(out)
+    # The oval is fitted without the flat's points.
+    assert hole.sections[0].a == pytest.approx(SEMI_MAJOR, abs=2e-3)
+    assert hole.sections[0].b == pytest.approx(SEMI_MINOR, abs=2e-3)
+    (wall,) = hole.walls
+    anterior = bore_fit.part_to_lps("ALS") @ [1.0, 0.0, 0.0]
+    assert wall.normal @ anterior == pytest.approx(1.0, abs=1e-3)  # into the solid
+    for sec in hole.sections:
+        assert wall.normal @ (wall.point - sec.center) == pytest.approx(
+            WALL_X, abs=2e-3
+        )
 
 
 def test_packaged_diagram_exists() -> None:

@@ -13,9 +13,11 @@ oval centres, and fits the oval's centre and semi-axes linear in depth.
 
 Each bore is written twice: sections at the channel's top and exit (``exit``),
 and at its top and the end of the partial wall below the exit, the oval
-extrapolated there (``skirt``, the one runs use). Ids number the bores in a
-dorsal view, anterior up and the mouse's left on the viewer's left: rows top to
-bottom, then left to right, by the channel top. Coordinates are the implant's
+extrapolated there (``skirt``, the one runs use). A flat face cutting into the
+oval (a D-shaped bore) is fitted as a plane over the run's cuts and written as a
+wall; the oval is fitted without it. Ids number the bores in a dorsal view,
+anterior up and the mouse's left on the viewer's left: rows top to bottom, then
+left to right, by the channel top. Coordinates are the implant's
 canonical LPS (``--part-frame`` names the STEP's axes, as the config's
 ``cad-part`` canonicalization does), placed per subject by ``implant_to_lps``.
 
@@ -28,7 +30,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -61,6 +63,16 @@ class FitSettings:
     axis_tol_deg: float = 0.05  # the channel run gains or loses a cut: ~0.03° cycles
     max_refits: int = 20
     row_gap_mm: float = 0.35
+    # Walls: points this far inside the oval fitted without them are a flat face's.
+    # Refitting converges in a few rounds; a cut whose flat covers more than
+    # max_flat_cover of the angle about the centre is a lip or rim, not a channel.
+    wall_inside_mm: float = 0.01
+    max_wall_splits: int = 20
+    max_flat_cover: float = 0.6
+    min_wall_cuts: int = 3
+    wall_gap_deg: float = 30.0  # flat points split into walls at angular gaps this wide
+    # A CAD flat can bow by ~0.01 mm; more than this is two faces, not one.
+    max_wall_rms_mm: float = 0.02
 
 
 @dataclass
@@ -81,6 +93,8 @@ class BoreFit:
     s_exit: float
     s_skirt: float
     oval_rms_mm: float
+    # (point, normal into the solid) per flat face cutting into the oval
+    walls: list[tuple[NDArray, NDArray]] = field(default_factory=list)
     id: int = 0
 
     def section(self, s: float) -> tuple[NDArray, float, float]:
@@ -116,6 +130,14 @@ def ellipse_fit(xy: NDArray) -> tuple[NDArray, float, float, float]:
 
 def _ellipse_radius(phi: NDArray, a: float, b: float, theta: float) -> NDArray:
     return a * b / np.hypot(b * np.cos(phi - theta), a * np.sin(phi - theta))
+
+
+def _oval_resid(xy: NDArray, c: NDArray, a: float, b: float, theta: float) -> NDArray:
+    """Signed distance of each point outside the oval, along its ray from the centre."""
+    phi = np.arctan2(xy[:, 1] - c[1], xy[:, 0] - c[0])
+    return np.hypot(xy[:, 0] - c[0], xy[:, 1] - c[1]) - _ellipse_radius(
+        phi, a, b, theta
+    )
 
 
 def _wrap_half_pi(theta: float) -> float:
@@ -234,8 +256,15 @@ def _cut(
     near = np.zeros((0, 2))
     segs = trimesh.intersections.mesh_plane(mesh, axis, origin)
     if len(segs):
-        f = np.linspace(0, 1, 6)[None, :, None]
-        pts = (segs[:, :1] * (1 - f) + segs[:, 1:] * f).reshape(-1, 3) - origin
+        # A flat face tessellates into long segments: sample them by length, or their
+        # angle bins read open.
+        n = np.maximum(
+            6, np.ceil(np.linalg.norm(segs[:, 1] - segs[:, 0], axis=1) / 0.005) + 1
+        ).astype(int)
+        seg = np.repeat(np.arange(len(segs)), n)
+        f = (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)) / (n[seg] - 1)
+        f = f[:, None]
+        pts = segs[seg, 0] * (1 - f) + segs[seg, 1] * f - origin
         x, y = pts @ e1, pts @ e2
         r = np.hypot(x, y)
         k = ((np.arctan2(y, x) + np.pi) / (2 * np.pi) * n_bins).astype(int) % n_bins
@@ -248,6 +277,29 @@ def _cut(
     return wall, near
 
 
+def _split_flat(xy: NDArray, cfg: FitSettings):
+    """The oval fitted without a flat face biting into it, and which points are the
+    flat's: those ``wall_inside_mm`` inside the oval, refitted until they settle."""
+    fit = ellipse_fit(xy)
+    on_flat = _oval_resid(xy, *fit) <= -cfg.wall_inside_mm
+    for _ in range(cfg.max_wall_splits):
+        if not on_flat.any():
+            break
+        fit = ellipse_fit(xy[~on_flat])
+        again = _oval_resid(xy, *fit) <= -cfg.wall_inside_mm
+        if (again == on_flat).all():
+            break
+        on_flat = again
+    return fit, on_flat
+
+
+def _cover(rel: NDArray, n_bins: int = 72) -> float:
+    """Fraction of angle bins about the origin that hold a point."""
+    ang = np.arctan2(rel[:, 1], rel[:, 0])
+    bins = ((ang + np.pi) / (2 * np.pi) * n_bins).astype(int) % n_bins
+    return len(np.unique(bins)) / n_bins
+
+
 def _scan(mesh, axis, origin, cfg: FitSettings, s_grid: NDArray, n_bins: int):
     """Per cut, the wall and its oval where closed; and the channel run through 0."""
     e1, e2 = cap_basis(axis)
@@ -256,28 +308,20 @@ def _scan(mesh, axis, origin, cfg: FitSettings, s_grid: NDArray, n_bins: int):
         wall, xy = _cut(mesh, axis, origin + s * axis, cfg, n_bins)
         row = {"s": s, "wall": wall, "closed": bool(np.isfinite(wall).all())}
         if row["closed"]:
-            c, a, b, th = ellipse_fit(xy)
-            # A flat wall biting into the oval is not the oval: drop what it pulls
-            # inside the first fit, then refit.
-            phi = np.arctan2(xy[:, 1] - c[1], xy[:, 0] - c[0])
-            inside = (
-                np.hypot(xy[:, 0] - c[0], xy[:, 1] - c[1])
-                - _ellipse_radius(phi, a, b, th)
-                <= -0.01
-            )
-            if 0 < inside.sum() < len(xy) // 3:
-                xy = xy[~inside]
-                c, a, b, th = ellipse_fit(xy)
-            phi = np.arctan2(xy[:, 1] - c[1], xy[:, 0] - c[0])
-            resid = np.hypot(xy[:, 0] - c[0], xy[:, 1] - c[1]) - _ellipse_radius(
-                phi, a, b, th
-            )
+            (c, a, b, th), on_flat = _split_flat(xy, cfg)
+            if _cover(xy[on_flat] - c) > cfg.max_flat_cover:
+                row["closed"] = False
+                rows.append(row)
+                continue
+            flat, xy = xy[on_flat], xy[~on_flat]
+            resid = _oval_resid(xy, c, a, b, th)
             row.update(
                 a=a,
                 b=b,
                 rms=float(np.sqrt(np.mean(resid**2))),
                 centre=origin + s * axis + c[0] * e1 + c[1] * e2,
                 major=math.cos(th) * e1 + math.sin(th) * e2,
+                flat=origin + s * axis + flat[:, :1] * e1 + flat[:, 1:] * e2,
             )
         rows.append(row)
     ok = [r["closed"] for r in rows]
@@ -321,6 +365,44 @@ def _trim_ends(rows: list[dict], run: list[int], cfg: FitSettings) -> list[int]:
             break
         run = run[1:] if off[0] >= off[1] else run[:-1]
     return run
+
+
+def _fit_walls(
+    rows: list[dict], run: list[int], axis: NDArray, origin: NDArray, cfg: FitSettings
+) -> list[tuple[NDArray, NDArray]]:
+    """A plane per flat face the run's cuts found inside the oval, normal into the
+    solid, through the face's point nearest the bore so none of it crosses the plane;
+    flat points split into faces at angular gaps about the axis."""
+    chunks = [(k, rows[i]["flat"]) for k, i in enumerate(run) if len(rows[i]["flat"])]
+    if not chunks:
+        return []
+    pts = np.vstack([p for _, p in chunks])
+    cut = np.concatenate([np.full(len(p), k) for k, p in chunks])
+    e1, e2 = cap_basis(axis)
+    rel = pts - origin
+    ang = np.degrees(np.arctan2(rel @ e2, rel @ e1))
+    # Sweep from just past the widest angular gap so no face straddles the wrap.
+    order = np.argsort(ang)
+    gaps = np.diff(np.r_[ang[order], ang[order[0]] + 360.0])
+    order = np.roll(order, -(int(np.argmax(gaps)) + 1))
+    gaps = np.mod(np.diff(ang[order]), 360.0)
+    walls = []
+    for g in np.split(order, np.flatnonzero(gaps > cfg.wall_gap_deg) + 1):
+        if len(np.unique(cut[g])) < cfg.min_wall_cuts:
+            continue
+        centroid = pts[g].mean(0)
+        _, sv, vt = np.linalg.svd(pts[g] - centroid, full_matrices=False)
+        rms = float(sv[2] / math.sqrt(len(g)))
+        if rms > cfg.max_wall_rms_mm:
+            raise RuntimeError(
+                f"bore at {np.round(origin, 3)}: flat points fit a plane to "
+                f"{1e3 * rms:.1f} um"
+            )
+        normal = vt[2]
+        radial = centroid - origin - ((centroid - origin) @ axis) * axis
+        normal = normal if normal @ radial > 0 else -normal
+        walls.append((centroid + ((pts[g] - centroid) @ normal).min() * normal, normal))
+    return walls
 
 
 def fit_bore(mesh: trimesh.Trimesh, seed: Seed, cfg: FitSettings) -> BoreFit:
@@ -386,6 +468,7 @@ def fit_bore(mesh: trimesh.Trimesh, seed: Seed, cfg: FitSettings) -> BoreFit:
         s_exit=s_exit,
         s_skirt=s_skirt,
         oval_rms_mm=max(rows[i]["rms"] for i in run),
+        walls=_fit_walls(rows, run, axis, origin, cfg),
     )
 
 
@@ -436,16 +519,23 @@ def holes_yaml(bores: list[BoreFit], to_lps: NDArray, bottom: str) -> dict:
                     "theta_rad": theta,
                 }
             )
-        out.append(
-            {
-                "id": b.id,
-                "axis_LPS": [round(float(x), 6) for x in axis],
-                "ref_point_LPS": [
-                    round(float(x), 4) for x in to_lps @ (b.origin + b.s_top * b.axis)
-                ],
-                "sections": sections,
-            }
-        )
+        entry = {
+            "id": b.id,
+            "axis_LPS": [round(float(x), 6) for x in axis],
+            "ref_point_LPS": [
+                round(float(x), 4) for x in to_lps @ (b.origin + b.s_top * b.axis)
+            ],
+            "sections": sections,
+        }
+        if b.walls:
+            entry["walls"] = [
+                {
+                    "point_LPS": [round(float(x), 4) for x in to_lps @ p],
+                    "normal_LPS": [round(float(x), 6) for x in to_lps @ n],
+                }
+                for p, n in b.walls
+            ]
+        out.append(entry)
     return {"holes": out}
 
 
@@ -526,14 +616,16 @@ def main(argv: list[str] | None = None) -> None:
     to_lps = part_to_lps(cfg.part_frame)
     print(
         " id  exit    skirt   a top->exit    b top->exit    oval rms"
-        "   (s from channel top, mm)"
+        "  walls, mm from axis top->exit   (s from channel top, mm)"
     )
     for b in bores:
-        _, a0, b0 = b.section(b.s_top)
-        _, a1, b1 = b.section(b.s_exit)
+        c0, a0, b0 = b.section(b.s_top)
+        c1, a1, b1 = b.section(b.s_exit)
+        walls = ", ".join(f"{n @ (p - c0):.3f}->{n @ (p - c1):.3f}" for p, n in b.walls)
         print(
             f"{b.id:3d}  {b.s_exit - b.s_top:+.3f}  {b.s_skirt - b.s_top:+.3f}  "
             f"{a0:.3f}->{a1:.3f}  {b0:.3f}->{b1:.3f}  {1e3 * b.oval_rms_mm:.1f} um"
+            f"   {walls or '-'}"
         )
     args.out.write_text(
         yaml.safe_dump(holes_yaml(bores, to_lps, "skirt"), sort_keys=False)
