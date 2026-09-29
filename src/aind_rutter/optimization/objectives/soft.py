@@ -99,6 +99,13 @@ class Phase1Weights:
     # Near-barrier on every shank tip staying inside the brain, against the
     # coverage gain from inserting deeper. Read only with a brain SDF.
     lambda_brain: float = 500.0
+    # Phase 2's OBB gain lifts OBB contact to the body categories' scale for the
+    # solver; in Phase 1 it makes grazing shank contact outweigh coverage and
+    # clears no more layouts.
+    obb_slack_gain: float = 1.0
+    # Read the probe side of probe-fixture body clearance coarse-to-fine, which
+    # finds a thin fixture's contacts the uniform surface samples step over.
+    fixture_c2f: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +440,9 @@ def _build_jit(  # noqa: C901
                 **spec.pair_softmin_kwargs(),
                 sat_beta=SAT_SMOOTH_BETA,
             )
-            _gains = jnp.asarray(probe_pair_slack_gains(), jnp.float32)
+            _gains = jnp.asarray(
+                probe_pair_slack_gains(weights.obb_slack_gain), jnp.float32
+            )
             _short = shortfall(pair_clearance_slack(_soft, spec)) * _gains
             j_clear = jnp.sum(_short * _short)
             clearances.append((_hard, _soft))
@@ -457,8 +466,11 @@ def _build_jit(  # noqa: C901
                 fix_table,
                 _fidx,
                 **spec.fixture_softmin_kwargs(),
+                coarse_to_fine=weights.fixture_c2f,
             )  # (n_fix, n_sdf, 2) in (body, obb)
-            _fgains = jnp.asarray(fixture_slack_gains(), jnp.float32)
+            _fgains = jnp.asarray(
+                fixture_slack_gains(weights.obb_slack_gain), jnp.float32
+            )
             _fshort = shortfall(fixture_clearance_slack(_fs, spec)) * _fgains
             j_clear_fixture = jnp.sum(_fshort * _fshort)
             clearances.append((_fh, _fs))

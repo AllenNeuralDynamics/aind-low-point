@@ -100,6 +100,8 @@ class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
     coarse_n: int
     reduced_fine: int
     full_fine: int
+    # Absent from pools built before the option existed.
+    fixture_c2f: bool
 
 
 class Phase2InputRecordRequired(TypedDict):

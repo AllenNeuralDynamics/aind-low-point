@@ -351,7 +351,11 @@ def _kernel(
     ``vobj`` scores the full layout; ``run`` steps the angle layout when
     ``settings.spin_param`` asks for it.
     """
-    weights = Phase1Weights(settings.feasibility_spec(), settings.objective_spec())
+    weights = Phase1Weights(
+        settings.feasibility_spec(),
+        settings.objective_spec(),
+        fixture_c2f=settings.fixture_c2f,
+    )
     vobj, _vg, barg = make_batched_phase1_chunked(
         st0,
         n_arcs,
@@ -619,6 +623,7 @@ def save_results(records: list[Phase1PoolRecord], settings: Phase1Settings) -> N
         max_ppa=settings.max_probes_per_arc,
         minimizer="rprop",
         well=settings.well,
+        fixture_c2f=settings.fixture_c2f,
         feasibility=pinned["feasibility"],
         objective=pinned["objective"],
     )

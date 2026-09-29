@@ -455,6 +455,22 @@ _CUT_FADE_MM = 0.25
 _CUT_PARK_MM = 0.5
 
 
+def _off_grid_bound(
+    points: Array, origin: Array, spacing: Array, n_real: Array, outside_min: Array
+) -> Array:
+    """Lower bound on the body distance of points outside a grid.
+
+    The body lies inside the grid box, so an outside point is at least its box
+    distance away, plus the boundary's own margin. ``outside_min`` alone is the
+    same number for every outside point however far out it is, which leaves
+    ``-radius`` deciding the ranking and hands the refinement slots to the largest
+    cells rather than the nearest.
+    """
+    span = (n_real - 1.0) * spacing
+    gap = jnp.maximum(jnp.maximum(origin - points, points - (origin + span)), 0.0)
+    return outside_min + jnp.sqrt(jnp.sum(gap * gap, axis=-1) + 1e-12)
+
+
 def _select_cells(bound: Array, n_cells: int) -> tuple[Array, Array, Array]:
     """The ``n_cells`` lowest-bound cells, their bounds, and the cut bound.
 
@@ -537,20 +553,13 @@ def body_body_pair_clearance_c2f(
     off_grid = coarse_values >= _PAD_CLEARANCE_MM
 
     def off_grid_bound(kind: Array, points: Array) -> Array:
-        """Lower bound on the body distance of points outside grid ``kind``.
-
-        The body lies inside the grid box, so an outside point is at least its
-        box distance away, plus the boundary's own margin. ``outside_min`` alone
-        is the same number for every outside point however far out it is, which
-        leaves ``-radius`` deciding the ranking and hands the refinement slots to
-        the largest cells rather than the nearest.
-        """
-        lo = jnp.asarray(origins, jnp.float32)[kind]
-        span = (jnp.asarray(n_reals, jnp.float32)[kind] - 1.0) * jnp.asarray(
-            spacings, jnp.float32
-        )[kind]
-        gap = jnp.maximum(jnp.maximum(lo - points, points - (lo + span)), 0.0)
-        return outside_min[kind] + jnp.sqrt(jnp.sum(gap * gap, axis=-1) + 1e-12)
+        return _off_grid_bound(
+            points,
+            jnp.asarray(origins, jnp.float32)[kind],
+            jnp.asarray(spacings, jnp.float32)[kind],
+            jnp.asarray(n_reals, jnp.float32)[kind],
+            outside_min[kind],
+        )
 
     floor = jnp.concatenate(
         [off_grid_bound(kind_a, pts_in_a), off_grid_bound(kind_b, pts_in_b)]
@@ -576,3 +585,82 @@ def body_body_pair_clearance_c2f(
     return hard, soft_min_topk(
         jnp.concatenate([coarse_values, faded.reshape(-1)]), beta=beta, top_k=top_k
     )
+
+
+def probe_fixture_body_clearance_c2f(
+    R_p: Array,
+    t_p: Array,
+    kind_p: Array,
+    probe_grid: Array,
+    probe_origin: Array,
+    probe_spacing: Array,
+    probe_n_real: Array,
+    fx_grid: Array,
+    fx_origin: Array,
+    fx_spacing: Array,
+    fx_n_real: Array,
+    fx_outside_min: Array,
+    fx_surface: Array,
+    coarse: Array,
+    fine: Array,
+    cells: Array,
+    radius: Array,
+    *,
+    beta: float,
+    top_k: int,
+    n_cells: int = 16,
+) -> tuple[Array, Array]:
+    """Probe-body vs fixture clearance with the probe side read coarse-to-fine,
+    returning ``(hard_min, soft_min_topk)`` like
+    :func:`pairwise_signed_clearance_probe_fixture_body_world`.
+
+    The probe's cells are ranked and refined in the fixture's world-frame SDF as
+    :func:`body_body_pair_clearance_c2f` does for a probe pair. The fixture's own
+    surface samples are still read in the probe's SDF: a fixture thinner than the
+    probe's fine spacing reads positive at every probe sample that misses it, and
+    only its own samples, inside the probe, read the overlap.
+    """
+    n_fine = fine.shape[1]
+    fx_origin = jnp.asarray(fx_origin, jnp.float32)
+    fx_spacing = jnp.asarray(fx_spacing, jnp.float32)
+
+    def to_world(local: Array) -> Array:
+        return matmul3(local, R_p.T) + t_p
+
+    def in_fixture(local: Array) -> Array:
+        return trilinear_sdf(
+            fx_grid, fx_origin, fx_spacing, to_world(local), n_real=fx_n_real
+        )
+
+    coarse_p = coarse[kind_p]
+    coarse_values = in_fixture(coarse_p)
+    floor = _off_grid_bound(
+        to_world(coarse_p),
+        fx_origin,
+        fx_spacing,
+        jnp.asarray(fx_n_real, jnp.float32),
+        fx_outside_min,
+    )
+    bound = (
+        jnp.where(coarse_values >= _PAD_CLEARANCE_MM, floor, coarse_values)
+        - radius[kind_p]
+    )
+    chosen, sel_bounds, cut = _select_cells(bound, n_cells)
+    members = cells[kind_p, chosen]  # (n_cells, W)
+    fine_values = in_fixture(fine[kind_p][jnp.minimum(members, n_fine - 1)])
+    fine_values = jnp.where(members < n_fine, fine_values, _PAD_CLEARANCE_MM)
+    faded = _fade_at_cut(fine_values, coarse_values[chosen], sel_bounds, cut)
+
+    fixture_in_probe = trilinear_sdf(
+        probe_grid,
+        probe_origin,
+        probe_spacing,
+        matmul3(fx_surface - t_p, R_p),
+        n_real=probe_n_real,
+    )
+    hard = jnp.minimum(
+        jnp.minimum(jnp.min(coarse_values), jnp.min(fine_values)),
+        jnp.min(fixture_in_probe),
+    )
+    pool = jnp.concatenate([coarse_values, faded.reshape(-1), fixture_in_probe])
+    return hard, soft_min_topk(pool, beta=beta, top_k=top_k)

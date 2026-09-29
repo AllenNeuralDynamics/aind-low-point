@@ -50,6 +50,8 @@ from aind_rutter.optimization.clearance.pairs import (
     body_body_pair_clearance,
     body_body_pair_clearance_c2f,
     body_shank_box_sdf_clearance,
+    pairwise_signed_clearance_probe_obb_fixture_world,
+    probe_fixture_body_clearance_c2f,
     shank_shank_pair_clearance,
 )
 from aind_rutter.optimization.clearance.vec3 import matmul3
@@ -63,6 +65,8 @@ UNMEASURED_PAIR_CATEGORIES = ("body_shank_obb",)
 # minimum, and at real poses a few dozen do; refining fewer than that makes the
 # query an approximation. The population cap is what makes this many affordable.
 C2F_REFINED_CELLS = 64
+# Cells refined per (fixture, probe) by the coarse-to-fine fixture query.
+FIXTURE_C2F_REFINED_CELLS = 16
 
 # Mid-plane samples per shank box for the dense body-vs-box query: 0.1 mm along
 # a 10 mm shank, 0.2 mm across the widest (four-shank) box.
@@ -217,6 +221,13 @@ def build_padded_probe_tables(
     return table
 
 
+def _boundary_min(grid) -> jnp.ndarray:
+    """Lowest value on a grid's six faces: the off-grid floor of a c2f query."""
+    g = jnp.asarray(grid, jnp.float32)
+    faces = (g[0], g[-1], g[:, 0], g[:, -1], g[:, :, 0], g[:, :, -1])
+    return jnp.min(jnp.stack([f.min() for f in faces]))
+
+
 def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) -> dict:
     """Per-kind coarse-to-fine sample tables, padded to the widest kind.
 
@@ -257,9 +268,7 @@ def _stack_clearance(kind_grids: list, kind_surfaces: list, kind_samples: list) 
         if c is None:
             outside_min.append(jnp.float32(0.0))
             continue
-        g = jnp.asarray(grid, jnp.float32)
-        faces = (g[0], g[-1], g[:, 0], g[:, -1], g[:, :, 0], g[:, :, -1])
-        outside_min.append(jnp.min(jnp.stack([f.min() for f in faces])))
+        outside_min.append(_boundary_min(grid))
     return {
         "c2f_coarse": jnp.stack(coarse),
         "c2f_fine": jnp.stack(fine),
@@ -465,8 +474,9 @@ def build_padded_fixture_table(fixtures) -> dict:
     probe surface points vs the fixture grid), bit-exact with the unpadded grid
     for in- and out-of-extent queries. Surface counts are uniform across fixtures
     (the cone crop keeps the surface in full), so surfaces stack directly with no
-    mask. Origins / spacings stack per fixture. Built ONCE at objective-build
-    time and closure-captured. Empty ⇒ ``{}`` (no fixtures).
+    mask. Origins / spacings stack per fixture; ``outside_min`` is each grid's
+    :func:`_boundary_min`. Built ONCE at objective-build time and
+    closure-captured. Empty ⇒ ``{}`` (no fixtures).
     """
     if not fixtures:
         return {}
@@ -489,6 +499,7 @@ def build_padded_fixture_table(fixtures) -> dict:
         origins=jnp.stack([jnp.asarray(f.origin, jnp.float32) for f in fixtures]),
         spacings=jnp.stack([jnp.asarray(f.spacing, jnp.float32) for f in fixtures]),
         surfaces=jnp.stack([jnp.asarray(f.surface, jnp.float32) for f in fixtures]),
+        outside_min=jnp.stack([_boundary_min(g) for g in grids]),
         real_shapes=jnp.asarray(
             [[int(g.shape[0]), int(g.shape[1]), int(g.shape[2])] for g in grids],
             dtype=jnp.int32,
@@ -552,6 +563,7 @@ def swept_fixture_clearances(
     beta: float,
     top_k_body: int,
     top_k_obb: int,
+    coarse_to_fine: bool = False,
 ):
     """Probe-fixture clearance, double-``vmap``'d over (fixture × probe).
 
@@ -562,6 +574,10 @@ def swept_fixture_clearances(
     kernel over n_fixtures × n_probes — better GPU occupancy than n_fixtures
     sequential probe-vmaps, and one dual-rep subgraph traced instead of
     n_fixtures copies.
+
+    ``coarse_to_fine`` reads the probe side of the body category from the probe
+    kinds' coarse-to-fine samples (:func:`probe_fixture_body_clearance_c2f`)
+    instead of their uniform surface samples.
 
     Parameters
     ----------
@@ -581,8 +597,10 @@ def swept_fixture_clearances(
         + ts[:, None, :]
     )
     idx = jnp.asarray(probe_idx, jnp.int32)
+    if coarse_to_fine and "c2f_fine" not in tables:
+        raise ValueError("coarse_to_fine needs probe tables with c2f samples")
 
-    def _per_fixture(fg, fo, fs, fsurf, fnr):
+    def _per_fixture(fg, fo, fs, fsurf, fnr, fomin=None):
         def _probe(i):
             return probe_fixture_clearance(
                 Rs[i],
@@ -600,12 +618,52 @@ def swept_fixture_clearances(
                 top_k_obb=top_k_obb,
             )
 
-        return jax.vmap(_probe)(idx)  # (n_sdf_probes, 2) each
+        def _probe_c2f(i):
+            k = kind_id[i]
+            body = probe_fixture_body_clearance_c2f(
+                Rs[i],
+                ts[i],
+                k,
+                tables["grids"][k],
+                tables["origins"][k],
+                tables["spacings"][k],
+                tables["real_shapes"][k],
+                fg,
+                fo,
+                fs,
+                fnr,
+                fomin,
+                fsurf,
+                tables["c2f_coarse"],
+                tables["c2f_fine"],
+                tables["c2f_cells"],
+                tables["c2f_radius"],
+                beta=beta,
+                top_k=top_k_body,
+                n_cells=FIXTURE_C2F_REFINED_CELLS,
+            )
+            obb = pairwise_signed_clearance_probe_obb_fixture_world(
+                Rs[i],
+                ts[i],
+                fsurf,
+                tables["obb_centers"][k],
+                tables["obb_halves"][k],
+                beta=beta,
+                shank_mask=tables["obb_mask"][k],
+                top_k=top_k_obb,
+            )
+            return jnp.stack([body[0], obb[0]]), jnp.stack([body[1], obb[1]])
 
-    return jax.vmap(_per_fixture)(
-        fix_table["grids"],
-        fix_table["origins"],
-        fix_table["spacings"],
-        fix_table["surfaces"],
-        fix_table["real_shapes"],
+        per_probe = _probe_c2f if coarse_to_fine else _probe
+        return jax.vmap(per_probe)(idx)  # (n_sdf_probes, 2) each
+
+    fields: tuple[str, ...] = (
+        "grids",
+        "origins",
+        "spacings",
+        "surfaces",
+        "real_shapes",
     )
+    if coarse_to_fine:
+        fields += ("outside_min",)
+    return jax.vmap(_per_fixture)(*(fix_table[f] for f in fields))

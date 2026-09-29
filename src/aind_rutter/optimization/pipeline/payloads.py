@@ -140,6 +140,7 @@ class PoolFile(_Model):
     # The feasibility spec and objective the pool was built under.
     feasibility: dict[str, Any] | None = None
     objective: dict[str, Any] | None = None
+    fixture_c2f: bool | None = None
 
 
 class Perturbation(_Model):

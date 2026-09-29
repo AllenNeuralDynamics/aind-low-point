@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 import trimesh
 
+from aind_rutter.optimization.clearance.aggregate import dual_rep_fixture_clearance
 from aind_rutter.optimization.clearance.grids import (
     trilinear_sdf,
     trilinear_sdf_stacked,
 )
 from aind_rutter.optimization.clearance.pairs import (
     body_body_pair_clearance_c2f,
+    probe_fixture_body_clearance_c2f,
 )
 from aind_rutter.optimization.clearance.samples import (
     SampleParams,
@@ -21,7 +25,10 @@ from aind_rutter.optimization.clearance.samples import (
 )
 from aind_rutter.optimization.clearance.sweep import (
     C2F_REFINED_CELLS,
+    FIXTURE_C2F_REFINED_CELLS,
+    build_padded_fixture_table,
     build_padded_probe_tables,
+    swept_fixture_clearances,
     swept_pair_clearances,
 )
 from aind_rutter.optimization.clearance.voxel_sdf import build_probe_sdf
@@ -289,3 +296,79 @@ def test_pair_sweep_shank_categories_do_not_depend_on_body_samples(tables) -> No
     assert float(c2f_hard[0, 2]) == pytest.approx(float(uniform_hard[0, 2]))
     assert float(c2f_hard[0, 3]) == pytest.approx(float(uniform_hard[0, 3]))
     assert np.isfinite([float(c2f_hard[0, 0]), float(c2f_hard[0, 1])]).all()
+
+
+# Probe kind 0 at the pair pose's second pose, against kind 1's body standing in
+# for a fixture at the world origin.
+def _fixture(tables):
+    sdf = tables["sdfs"][1]
+    return SimpleNamespace(
+        grid=jnp.asarray(sdf.grid),
+        origin=jnp.asarray(sdf.origin, jnp.float32),
+        spacing=jnp.float32(sdf.spacing),
+        surface=jnp.asarray(sdf.surface_points, jnp.float32),
+    )
+
+
+def _fixture_c2f(tables, n_cells):
+    _, _, R, t = (jnp.asarray(v, jnp.float32) for v in _pose_pair())
+    fx, probe = _fixture(tables), tables["sdfs"][0]
+    return probe_fixture_body_clearance_c2f(
+        R, t, jnp.asarray(0),
+        jnp.asarray(probe.grid), jnp.asarray(probe.origin, jnp.float32),
+        jnp.float32(probe.spacing), jnp.asarray(probe.grid.shape, jnp.int32),
+        fx.grid, fx.origin, fx.spacing, jnp.asarray(fx.grid.shape, jnp.int32),
+        jnp.float32(_boundary_min(np.asarray(fx.grid))), fx.surface,
+        tables["coarse"], tables["fine"], tables["cells"], tables["radius"],
+        beta=20.0, top_k=16, n_cells=n_cells,
+    )  # fmt: skip
+
+
+def test_fixture_query_refining_every_cell_reads_every_sample(tables) -> None:
+    _, _, R, t = _pose_pair()
+    probe, fx = tables["samples"][0], tables["sdfs"][1]
+    probe_sdf = tables["sdfs"][0]
+    expected = min(
+        _lookup(fx, probe.coarse @ R.T + t).min(),
+        _lookup(fx, probe.fine @ R.T + t).min(),
+        _lookup(probe_sdf, (fx.surface_points - t) @ R).min(),
+    )
+    hard, soft = _fixture_c2f(tables, int(tables["coarse"].shape[1]))
+    assert float(hard) == pytest.approx(expected, abs=1e-5)
+    assert float(soft) <= float(hard) + 1e-6
+
+
+def test_fixture_query_never_reads_below_the_full_sample_minimum(tables) -> None:
+    full, _ = _fixture_c2f(tables, int(tables["coarse"].shape[1]))
+    hard, _ = _fixture_c2f(tables, 4)
+    assert float(hard) >= float(full) - 1e-5
+
+
+def _sweep_fixture(tables, coarse_to_fine):
+    _, _, R, t = (np.asarray(v, np.float32) for v in _pose_pair())
+    table = _probe_table(tables, clearance=tuple(tables["samples"]))
+    return swept_fixture_clearances(
+        jnp.asarray(R[None]), jnp.asarray(t[None]), table,
+        build_padded_fixture_table((_fixture(tables),)), [0],
+        beta=20.0, top_k_body=16, top_k_obb=8, coarse_to_fine=coarse_to_fine,
+    )  # fmt: skip
+
+
+def test_fixture_sweep_reads_coarse_to_fine_only_when_asked(tables) -> None:
+    _, _, R, t = (jnp.asarray(v, jnp.float32) for v in _pose_pair())
+    hard, soft = _sweep_fixture(tables, coarse_to_fine=True)
+    ref_hard, ref_soft = _fixture_c2f(tables, FIXTURE_C2F_REFINED_CELLS)
+    assert float(hard[0, 0, 0]) == pytest.approx(float(ref_hard), abs=1e-5)
+    assert float(soft[0, 0, 0]) == pytest.approx(float(ref_soft), abs=1e-5)
+
+    probe, fx = tables["sdfs"][0], _fixture(tables)
+    uniform = dual_rep_fixture_clearance(
+        R, t, jnp.asarray(probe.grid), jnp.asarray(probe.origin, jnp.float32),
+        jnp.float32(probe.spacing), fx.grid, fx.origin, fx.spacing,
+        jnp.asarray(probe.surface_points, jnp.float32) @ R.T + t, fx.surface,
+        jnp.zeros((0, 3), jnp.float32), jnp.zeros((0, 3), jnp.float32),
+        beta=20.0, top_k_body=16, top_k_obb=8,
+    )  # fmt: skip
+    hard, soft = _sweep_fixture(tables, coarse_to_fine=False)
+    assert float(hard[0, 0, 0]) == pytest.approx(float(uniform.body[0]), abs=1e-5)
+    assert float(soft[0, 0, 0]) == pytest.approx(float(uniform.body[1]), abs=1e-5)

@@ -375,7 +375,10 @@ that is ``>= 0`` where it is met. Phase 2 constrains ``gain * slack >= 0``;
 Phase 1 and the spin restore penalise ``(gain * shortfall)^2``. A pose that
 Phase 1 charges nothing for is therefore one that Phase 2 accepts under the same
 spec. The gains (``clearance.aggregate``) scale the solver's view of a row and
-never change its sign.
+never change its sign. Phase 2 and the spin restore lift the OBB categories by
+``OBB_SLACK_GAIN`` (100); Phase 1 reads every category at gain 1
+(``Phase1Weights.obb_slack_gain``), since at 100 grazing shank contact outweighs
+coverage and clears no more layouts.
 
 The soft minimum reads below the exact one by up to ``ln(k)/beta``. With
 ``softmin_correction`` the spec adds each category's typical shortfall
@@ -541,6 +544,10 @@ The current tuned defaults are:
 * ``RUTTER_STAGE1=0``, ``RUTTER_STAGE2=500``: the full stage alone. Adding the
   reduced stage (500 steps) doubles Phase 1's time and delivers the same layouts
   after Phase 2; so does spending those steps in the full stage.
+* ``RUTTER_FIXTURE_C2F=1``: the probe side of probe-well body clearance is read
+  from the probe's coarse-to-fine samples, as probe pairs are, rather than its
+  uniform surface samples. It delivers the same layouts with fewer fixture
+  collisions; Phase 2 keeps the uniform samples.
 
 Run directly:
 

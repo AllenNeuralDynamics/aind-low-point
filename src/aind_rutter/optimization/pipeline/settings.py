@@ -204,6 +204,11 @@ class Phase1Settings(PipelineSettings):
     stage2: int = Field(500)
     n_spins: int = Field(16)
     restore_rounds: int = Field(4)
+    fixture_c2f: bool = Field(
+        True,
+        description="Read the probe side of probe-fixture body clearance from the "
+        "probes' coarse-to-fine samples rather than their uniform surface samples.",
+    )
 
     # Batch shapes. A full-sample RProp step's largest buffer is ~17 MB per
     # candidate, which at 256 does not fit a 10 GB card beside a whole group's

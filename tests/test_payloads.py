@@ -175,6 +175,14 @@ def test_a_pool_recording_a_retired_schedule_still_reads(tmp_path: Path) -> None
     assert {k: back[k] for k in retired} == retired
 
 
+def test_a_pool_records_its_fixture_query_when_given_one(tmp_path: Path) -> None:
+    path = tmp_path / "pool.json.gz"
+    write_pool(path, _pool([_pool_record()]))
+    assert "fixture_c2f" not in read_pool(path)
+    write_pool(path, {**_pool([_pool_record()]), "fixture_c2f": True})
+    assert read_pool(path)["fixture_c2f"] is True
+
+
 def test_the_specs_a_pool_records_read_back_as_pinned(tmp_path: Path) -> None:
     pinned = Phase1Settings(min_clearance=0.3).pinned_specs()
     path = tmp_path / "pool.json.gz"
