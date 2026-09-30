@@ -36,6 +36,8 @@ KB_ACTIONS: list[tuple[str, str, str]] = [
     ("3", "speed_fast", "Fast speed"),
     ("c", "recenter", "Recenter on brain"),
     ("t", "focus_target", "Focus on target"),
+    ("n", "next_plan", "Next plan in the Plans tab"),
+    ("p", "prev_plan", "Previous plan in the Plans tab"),
     ("?", "help", "Toggle help"),
 ]
 

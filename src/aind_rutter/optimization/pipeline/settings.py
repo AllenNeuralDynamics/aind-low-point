@@ -188,7 +188,7 @@ class EmitSettings(PipelineSettings):
     )
     outdir: Path = Field(
         Path("scratch/plans"),
-        description="Directory receiving plans/, the tree and the manifest.",
+        description="Directory receiving plans/, the tree and the manifests.",
     )
 
 

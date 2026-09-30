@@ -14,6 +14,10 @@ Open a config with a handoff plan applied at startup::
 
     rutter-plan examples/836656-config-T12.yml \\
         --plan scratch/handoff/plans/plan-01-cov17.44-....yml
+
+Step through every plan emit wrote for it::
+
+    rutter-plan examples/836656-config-T12.yml --plans scratch/handoff
 """
 
 from __future__ import annotations
@@ -54,6 +58,10 @@ class Args:
     round-trip into the same file. When this file exists, it is also
     applied to the planning state at startup."""
 
+    plans: Path | None = None
+    """An emit output directory (or its ``plans/`` folder) to step through
+    in the Plans tab. Its plans must share this config's probes."""
+
 
 def main() -> None:
     """Parse arguments, build the trame app, and start the server."""
@@ -91,6 +99,7 @@ def main() -> None:
         plan_path=plan_path,
         source_config_path=config_path,
         apply_plan_on_start=apply_plan_on_start,
+        plans=args.plans,
     )
 
     print(f"Loaded config: {config_path}")

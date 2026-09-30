@@ -37,6 +37,7 @@ from aind_rutter.domain.pose import (
     ProbePose,
     resolved_angles,
 )
+from aind_rutter.plan_io.plan_set import PlanSet
 from aind_rutter.render.adapter import RendererAdapter
 from aind_rutter.render.overlays import OverlayResolver
 from aind_rutter.session.store import PlanStore
@@ -52,6 +53,7 @@ from aind_rutter.web.materials import (
     MaterialsMixin,
     ccf_color_for_target,
 )
+from aind_rutter.web.plan_sets import PlanSetMixin
 from aind_rutter.web.readouts import ReadoutsMixin
 
 
@@ -71,7 +73,9 @@ def _as_float(value) -> float | None:
 
 
 @dataclass
-class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
+class TrameController(
+    LayoutMixin, PlanSetMixin, ReadoutsMixin, MaterialsMixin, CameraMixin
+):
     store: PlanStore
 
     assets: AssetCatalog
@@ -95,6 +99,9 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
     on_save_plan: Callable[[], None] | None = None
 
     on_load_plan: Callable[[], None] | None = None
+
+    # Solved plans the Plans tab steps through; None hides the tab.
+    plan_set: PlanSet | None = None
 
     # Per-key step sizes for keyboard shortcuts (multiplied by Shift=10×
     # for coarse, Ctrl=0.2× for fine — matches the K3D controller).
@@ -220,6 +227,7 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
             # the bytes, validates, applies, then resets to None.
             state.plan_file = None
             state.plan_load_status = ""
+            self._init_plan_set_state(state)
 
             # Visibility / opacity per asset group. Initial values are taken
             # from each group's first node so the UI matches what's drawn.
@@ -459,6 +467,7 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
             # toggling between two files first.
             state.plan_file = None
 
+        self._wire_plan_set_handlers(state)
         if self.ccf_overlay is not None:
             self._wire_ccf_handlers(state, self.ccf_overlay)
 
@@ -673,6 +682,9 @@ class TrameController(LayoutMixin, ReadoutsMixin, MaterialsMixin, CameraMixin):
             return
         if match == "focus_target":
             self.focus_on_current_target()
+            return
+        if match in ("next_plan", "prev_plan"):
+            self._step_plan_set(state, 1 if match == "next_plan" else -1)
             return
         if match == "next_probe":
             probes = sorted(self.store.state.probes.keys())

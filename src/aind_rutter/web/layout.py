@@ -143,7 +143,11 @@ class LayoutMixin:
                 with vuetify3.VContainer(fluid=True, classes="fill-height"):
                     with vuetify3.VRow(classes="fill-height"):
                         self._build_controls(on_set_target)
-                        with vuetify3.VCol(cols=9, classes="fill-height"):
+                        # The Plans tab's table wants the room the view gives up.
+                        with vuetify3.VCol(
+                            cols=("ctrl_tab === 'plans' ? 7 : 9",),
+                            classes="fill-height",
+                        ):
                             view = plotter_ui(
                                 self.plotter,
                                 mode="client",
@@ -167,8 +171,12 @@ class LayoutMixin:
           keyboard-speed mode that you read off while editing.
         - **Display** — scene visibility toggles + CCF overlay.
         - **Files** — save / export / plan-IO buttons.
+        - **Plans** — a solved plan set to step through, when one is open.
         """
-        with vuetify3.VCol(cols=3, classes="fill-height overflow-y-auto"):
+        with vuetify3.VCol(
+            cols=("ctrl_tab === 'plans' ? 5 : 3",),
+            classes="fill-height overflow-y-auto",
+        ):
             with vuetify3.VTabs(
                 v_model=("ctrl_tab",),
                 density="compact",
@@ -177,6 +185,8 @@ class LayoutMixin:
                 vuetify3.VTab(text="Pose", value="pose")
                 vuetify3.VTab(text="Display", value="display")
                 vuetify3.VTab(text="Files", value="files")
+                if self.plan_set is not None:
+                    vuetify3.VTab(text="Plans", value="plans")
             with vuetify3.VTabsWindow(v_model=("ctrl_tab",), classes="mt-2"):
                 with vuetify3.VTabsWindowItem(value="pose"):
                     self._build_pose_tab(on_set_target)
@@ -191,6 +201,9 @@ class LayoutMixin:
                         self._build_ccf_controls()
                 with vuetify3.VTabsWindowItem(value="files"):
                     self._build_files_tab()
+                if self.plan_set is not None:
+                    with vuetify3.VTabsWindowItem(value="plans"):
+                        self._build_plan_set_tab()
 
     def _build_pose_tab(self, on_set_target) -> None:
         """Probe/arc/type + sliders + target — the pose-editing flow."""

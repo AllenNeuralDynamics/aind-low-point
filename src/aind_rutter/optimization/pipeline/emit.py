@@ -32,6 +32,7 @@ from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
 from aind_rutter.optimization.pipeline.payloads import read_handoff
 from aind_rutter.optimization.pipeline.settings import EmitSettings
+from aind_rutter.plan_io.plan_set import PlanEntry, write_manifest
 from aind_rutter.plan_io.rig_export import reorder_plan_for_rig
 from aind_rutter.plan_io.roundtrip import planning_state_to_plan_model
 
@@ -151,6 +152,7 @@ def run(settings: EmitSettings) -> int:
     print(f"{len(ranked)} feasible plans in handoff; emitting {n_emit} + tree/manifest")
 
     meta = []
+    entries: list[PlanEntry] = []
     for i, r in enumerate(ranked[:n_emit]):
         n_arcs = r["n_arcs"]
         # Lightweight statics: _apply_x_to_plan_state reads only .name and
@@ -192,6 +194,18 @@ def run(settings: EmitSettings) -> int:
                 file=fname,
             )
         )
+        entries.append(
+            PlanEntry(
+                file=fname,
+                rank=i + 1,
+                coverage=float(r["coverage"]),
+                fcl_mm=float(r["fcl"]),
+                n_arcs=n_arcs,
+                candidate=int(r.get("idx", i)),
+                holes={k: int(v) for k, v in r["hole"].items()},
+                arcs={nm: p.arc_id for nm, p in plan_state.probes.items()},
+            )
+        )
         print(
             f"  [{i + 1:>3}] {n_arcs}arc cov={r['coverage']:.2f} "
             f"fcl={r['fcl']:+.3f} → {fname}"
@@ -199,8 +213,14 @@ def run(settings: EmitSettings) -> int:
 
     _emit_tree(meta, probe_order, out / "tree.txt", fcl_desc)
     _emit_manifest(meta, probe_order, out / "manifest.md", fcl_desc)
+    write_manifest(
+        out,
+        entries,
+        probes=probe_order,
+        config=str(settings.config),
+    )
     print(f"\nwrote {n_emit} plans → {plans_dir}/")
-    print(f"wrote {out}/tree.txt + {out}/manifest.md")
+    print(f"wrote {out}/tree.txt + {out}/manifest.md + {out}/manifest.json")
     return 0
 
 

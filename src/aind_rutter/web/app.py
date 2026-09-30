@@ -12,6 +12,7 @@ from aind_rutter.collision.adapter import CollisionAdapter, CollisionState
 from aind_rutter.collision.fcl import FCLBackend
 from aind_rutter.collision.worker import CollisionHandler
 from aind_rutter.config import ConfigModel
+from aind_rutter.plan_io.plan_set import load_plan_set
 from aind_rutter.render.adapter import (
     RendererAdapter,
     RenderHandler,
@@ -36,6 +37,7 @@ def build_trame_app(
     plan_path: Path | None = None,
     source_config_path: Path | None = None,
     apply_plan_on_start: bool = False,
+    plans: Path | None = None,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
 
@@ -58,6 +60,9 @@ def build_trame_app(
         When ``True`` and ``plan_path`` exists, apply the plan to the
         planning state once at startup so the app opens with the plan
         already loaded (the "Load plan" button remains wired regardless).
+    plans
+        Optional emit output directory whose plans the Plans tab steps
+        through; they must share ``cfg``'s probe roster.
 
     Returns
     -------
@@ -217,6 +222,7 @@ def build_trame_app(
         on_export_plan=on_export_plan,
         on_save_plan=on_save_plan,
         on_load_plan=on_load_plan,
+        plan_set=None if plans is None else load_plan_set(plans),
     )
 
     controller.apply_default_view()
