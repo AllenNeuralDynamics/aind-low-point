@@ -365,7 +365,8 @@ class LayoutMixin:
         reopen it). ``Export`` = derived hand-off (rig technician,
         downstream pipeline; not re-importable). ``Save plan`` and
         ``Load plan`` are deliberately adjacent — they're the
-        plan-slice round-trip pair.
+        plan-slice round-trip pair. Each writing button names its file,
+        since a plan and a rig export differ only by suffix.
         """
         # Save config: server-side write of the full ConfigModel YAML
         # (paths, transforms, asset catalog, scene, options, plan).
@@ -378,6 +379,7 @@ class LayoutMixin:
                 classes="mt-2",
                 block=True,
             )
+            self._output_caption("config")
         # Save plan + Load plan: the plan-only YAML round-trip pair.
         # Save: server-side write to the configured plan path. Load: a
         # browser file picker (VFileInput) — uploads the picked YAML to
@@ -392,6 +394,7 @@ class LayoutMixin:
                 classes="mt-2",
                 block=True,
             )
+            self._output_caption("plan")
         vuetify3.VFileInput(
             v_model=("plan_file",),
             label="Load plan",
@@ -409,16 +412,25 @@ class LayoutMixin:
             v_show=("plan_load_status",),
             classes="mt-1 text-caption",
         )
-        # Export poses: derived per-probe geometry hand-off (resolved
+        # Export rig poses: derived per-probe geometry hand-off (resolved
         # tip positions, depths, AP/ML/spin numbers). Not re-importable.
-        if self.on_export_plan is not None:
+        if self.on_export_poses is not None:
             vuetify3.VBtn(
-                "Export poses",
+                "Export rig poses",
                 color="primary",
-                click=self.on_export_plan,
+                click=self.on_export_poses,
                 classes="mt-2",
                 block=True,
             )
+            self._output_caption("poses")
+
+    def _output_caption(self, key: str) -> None:
+        """The file name the button above writes to."""
+        vuetify3.VLabel(
+            f"→ {{{{ output_names['{key}'] }}}}",
+            v_show=(f"output_names['{key}']",),
+            classes="mt-1 text-caption",
+        )
 
     def _slider_row(
         self,

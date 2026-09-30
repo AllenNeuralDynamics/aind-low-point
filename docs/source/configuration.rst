@@ -949,10 +949,10 @@ Probes named in the loaded plan that aren't in the running session's
 state are skipped (with a stdout warning) — adding/removing probes is a
 full-config concern, not a plan concern.
 
-The geometric **Export plan** button is a *different* format
-(``plan_export_version: 1``, fields like ``tip_RAS_mm`` and
-``depth_from_brain_surface_mm``) intended for hand-off to physical
-execution. It's read-only — there's no loader for that variant.
+The **Export rig poses** button writes a *different* format to
+``<config>.poses.yml`` (``plan_export_version: 1``, fields like
+``tip_RAS_mm`` and ``depth_from_brain_surface_mm``) intended for hand-off
+to physical execution. It's read-only — there's no loader for that variant.
 
 
 Collision

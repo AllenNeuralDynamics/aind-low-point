@@ -268,10 +268,11 @@ commands (`SetProbeKind`, `AssignProbeArc`, `SetProbeLocalAngles`,
 `apply_plan_model_to_state(plan, store)` (`plan_io/replay.py`). Probes
 not in the current state are skipped with a stdout warning.
 
-The geometric **Export plan** button (`export_plan_geometry`) is a
-different format: it emits a flat per-probe summary (`kind`, `target`,
-`arc`, `angles_deg`, `tip_RAS_mm`, `depth_from_brain_surface_mm`) for
-hand-off to physical execution. It's read-only; there's no loader for it.
+The **Export rig poses** button (`export_plan_geometry`, written to
+`<config>.poses.yml`) is a different format: it emits a flat per-probe
+summary (`kind`, `target`, `arc`, `angles_deg`, `tip_RAS_mm`,
+`depth_from_brain_surface_mm`) for hand-off to physical execution. It's
+read-only; there's no loader for it. A loadable plan is `<config>.plan.yml`.
 
 ## Known gotchas
 

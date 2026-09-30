@@ -47,9 +47,9 @@ class Args:
     """Path for the 'Save' button — full updated config YAML
     (default: ``<config>_out.yml``)."""
 
-    export_plan: Path | None = None
-    """Path for the 'Export plan' button — slim per-probe geometric
-    summary, NOT a full config (default: ``<config>_plan.yml``)."""
+    export_poses: Path | None = None
+    """Path for the 'Export rig poses' button — per-probe geometry for the
+    rig, which the app cannot load back (default: ``<config>.poses.yml``)."""
 
     plan: Path | None = None
     """Path for the 'Save plan' / 'Load plan' buttons — plan-only YAML
@@ -76,9 +76,9 @@ def main() -> None:
     if save_path is None:
         save_path = config_path.with_stem(config_path.stem + "_out")
 
-    export_plan_path = args.export_plan
-    if export_plan_path is None:
-        export_plan_path = config_path.with_stem(config_path.stem + "_plan")
+    export_poses_path = args.export_poses
+    if export_poses_path is None:
+        export_poses_path = config_path.with_suffix(".poses.yml")
 
     # When the user passes --plan explicitly, honour it; otherwise default
     # to <config>.plan.yml. Either way only auto-apply at startup if the
@@ -95,7 +95,7 @@ def main() -> None:
         cfg,
         ccf_volume=args.ccf_volume,
         save_path=save_path,
-        export_plan_path=export_plan_path,
+        export_poses_path=export_poses_path,
         plan_path=plan_path,
         source_config_path=config_path,
         apply_plan_on_start=apply_plan_on_start,

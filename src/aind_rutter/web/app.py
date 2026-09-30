@@ -33,7 +33,7 @@ def build_trame_app(
     *,
     ccf_volume: Path | None = None,
     save_path: Path | None = None,
-    export_plan_path: Path | None = None,
+    export_poses_path: Path | None = None,
     plan_path: Path | None = None,
     source_config_path: Path | None = None,
     apply_plan_on_start: bool = False,
@@ -49,8 +49,9 @@ def build_trame_app(
         Optional path to a warped CCF segmentation volume (.nrrd).
     save_path
         Optional path for the "Save" button (full updated config YAML).
-    export_plan_path
-        Optional path for the "Export plan" button (slim geometry summary).
+    export_poses_path
+        Optional path for the "Export rig poses" button (per-probe geometry
+        report; not loadable).
     plan_path
         Optional path for the "Save plan" / "Load plan" buttons (plan-only
         ``PlanningModel`` YAML).
@@ -145,23 +146,23 @@ def build_trame_app(
             data = updated.model_dump(mode="json")
             with open(save_path, "w") as f:
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-            print(f"Saved plan to {save_path}")
+            print(f"Saved config to {save_path}")
 
-    on_export_plan = None
-    if export_plan_path is not None:
+    on_export_poses = None
+    if export_poses_path is not None:
         from aind_rutter.plan_io.rig_export import export_plan_geometry
 
         src_str = str(source_config_path) if source_config_path is not None else None
 
-        def on_export_plan():
+        def on_export_poses():
             import yaml
 
             payload = export_plan_geometry(
                 store.state, catalog, source_config=src_str, scene=scene
             )
-            with open(export_plan_path, "w") as f:
+            with open(export_poses_path, "w") as f:
                 yaml.safe_dump(payload, f, default_flow_style=False, sort_keys=False)
-            print(f"Exported plan geometry to {export_plan_path}")
+            print(f"Exported rig poses to {export_poses_path}")
 
     on_save_plan = None
     on_load_plan = None
@@ -187,8 +188,8 @@ def build_trame_app(
                 return
             with open(plan_path) as f:
                 raw = yaml.safe_load(f)
-            # An "export plan" (written by export_plan_geometry / the
-            # Export-plan button) is a human-readable geometry *report*, not a
+            # A rig-poses export (written by export_plan_geometry / the
+            # Export-rig-poses button) is a human-readable geometry *report*, not a
             # loadable PlanningModel — it carries derived fields like
             # ``tip_RAS_mm`` and is keyed by ``plan_export_version``. Skip it
             # with a clear message rather than dumping a wall of schema errors.
@@ -219,9 +220,14 @@ def build_trame_app(
         overlays_resolver=overlay_resolver,
         ccf_overlay=ccf_overlay,
         on_save=on_save,
-        on_export_plan=on_export_plan,
+        on_export_poses=on_export_poses,
         on_save_plan=on_save_plan,
         on_load_plan=on_load_plan,
+        output_paths={
+            "config": save_path,
+            "plan": plan_path,
+            "poses": export_poses_path,
+        },
         plan_set=None if plans is None else load_plan_set(plans),
     )
 

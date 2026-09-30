@@ -9,6 +9,7 @@ beside this module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -94,7 +95,10 @@ class TrameController(
 
     on_save: Callable[[], None] | None = None
 
-    on_export_plan: Callable[[], None] | None = None
+    on_export_poses: Callable[[], None] | None = None
+
+    # Button key ("config", "plan", "poses") -> the file it writes.
+    output_paths: dict[str, Path | None] = field(default_factory=dict)
 
     on_save_plan: Callable[[], None] | None = None
 
@@ -170,6 +174,11 @@ class TrameController(
 
     def _init_state(self, state) -> None:
         """Populate trame reactive state from domain."""
+        state.output_names = {
+            key: path.name
+            for key, path in self.output_paths.items()
+            if path is not None
+        }
         probe_names = sorted(self.store.state.probes.keys())
         arc_ids = sorted(self.store.state.kinematics.arc_angles.keys())
         target_names = sorted(self.assets.targets.keys())
