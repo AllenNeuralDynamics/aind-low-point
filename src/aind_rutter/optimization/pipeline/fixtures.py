@@ -207,27 +207,17 @@ def build_fixture_sdf_data(runtime) -> tuple[FixtureSDFData, ...]:
 
 def build_brain_sdf(
     runtime,
-    compiled_transforms,
     *,
-    asset_key: str = "brain",
-    transform_key: str = "headframe_to_lps",
+    node_key: str = "brain",
     spacing_mm: float = 0.3,
     pad_mm: float = 3.0,
 ) -> BrainSDFData:
     """Signed-distance grid (negative inside) for the world-frame brain mesh."""
-    import trimesh
-
-    geom = runtime.asset_catalog.get_geometry(asset_key)
-    mesh = geom.raw
-    R, t = compiled_transforms[transform_key].rotate_translate
-    world = trimesh.Trimesh(
-        np.matmul(np.asarray(mesh.vertices, np.float64), np.asarray(R).T)
-        + np.asarray(t),
-        np.asarray(mesh.faces),
-        process=False,
-    )
+    geometry = world_geometry_for_node(runtime, node_key)
+    if geometry is None:
+        raise KeyError(f"no scene node {node_key!r} with geometry")
     sdf = build_probe_sdf(
-        world,
+        geometry.raw,
         spacing_mm=spacing_mm,
         pad_mm=pad_mm,
         n_surface_points=1,
@@ -241,14 +231,12 @@ def build_brain_sdf(
 
 
 def maybe_build_brain_sdf(
-    runtime, compiled_transforms, *, asset_key: str = "brain", **kw
+    runtime, *, node_key: str = "brain", **kw
 ) -> BrainSDFData | None:
-    """:func:`build_brain_sdf` if the config has a brain asset, else ``None``."""
-    try:
-        runtime.asset_catalog.get_geometry(asset_key)
-    except Exception:
+    """:func:`build_brain_sdf` if the scene has a brain node, else ``None``."""
+    if world_geometry_for_node(runtime, node_key) is None:
         return None
-    return build_brain_sdf(runtime, compiled_transforms, asset_key=asset_key, **kw)
+    return build_brain_sdf(runtime, node_key=node_key, **kw)
 
 
 # ---------------------------------------------------------------------------

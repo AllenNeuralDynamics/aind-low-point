@@ -220,7 +220,7 @@ class OptimizationRuntime:
             maybe_build_brain_sdf,
         )
 
-        return maybe_build_brain_sdf(self.runtime, self.compiled_transforms)
+        return maybe_build_brain_sdf(self.runtime)
 
     def fcl_fixture_set(
         self,
