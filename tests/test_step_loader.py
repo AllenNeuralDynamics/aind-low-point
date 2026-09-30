@@ -112,3 +112,23 @@ def test_repair_closes_an_irregular_gap_and_drops_a_fin():
     assert repaired.is_watertight
     assert repaired.is_winding_consistent
     assert repaired.volume == pytest.approx(volume, rel=0.02)
+
+
+def test_repair_rebuilds_a_missing_bore_wall_without_sealing_the_bore():
+    ring = trimesh.creation.annulus(r_min=0.5, r_max=1.5, height=0.4, sections=48)
+    # Tilted, so the rims sit off every coordinate plane.
+    tilt = trimesh.transformations.rotation_matrix(0.4, [1, 0.3, 0])
+    ring.apply_transform(tilt)
+    along = tilt[:3, 2]
+    centres = ring.triangles_center - ring.center_mass
+    radial = np.linalg.norm(np.cross(centres, along), axis=1)
+    inner_wall = radial < 0.6
+    broken = trimesh.Trimesh(ring.vertices, ring.faces[~inner_wall], process=False)
+    assert not broken.is_watertight
+
+    repaired = _close_holes(broken)
+    assert repaired.is_watertight
+    assert repaired.is_winding_consistent
+    assert repaired.volume == pytest.approx(ring.volume, rel=1e-6)
+    hits = repaired.ray.intersects_location([ring.center_mass + 2 * along], [-along])[0]
+    assert len(hits) == 0, "the repair sealed the bore"

@@ -150,12 +150,102 @@ def _patch_loop(mesh: trimesh.Trimesh, loop: list[int]) -> NDArray[np.int64] | N
     return patch
 
 
+def _axis_frame(
+    a: NDArray[np.float64], b: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Unit axis from rim ``a`` to rim ``b`` and a (3, 2) basis across it.
+
+    Concentric coplanar rims have no offset, so their plane's normal serves.
+    """
+    offset = b.mean(axis=0) - a.mean(axis=0)
+    both = np.vstack([a, b])
+    size = np.ptp(both, axis=0).max()
+    if np.linalg.norm(offset) > 1e-3 * size:
+        axis = offset / np.linalg.norm(offset)
+    else:
+        axis = np.linalg.svd(both - both.mean(axis=0))[2][2]
+    across = np.linalg.svd(np.eye(3) - np.outer(axis, axis))[0][:, :2]
+    return axis, across
+
+
+def _are_rims(mesh: trimesh.Trimesh, la: list[int], lb: list[int]) -> bool:
+    """Whether two loops are the ends of one missing wall, seen down its axis.
+
+    Down the axis, a tube's or cone's rims nest: the smaller lies inside the
+    larger. Loops that merely sit apart, or a speck against a rim, do not.
+    """
+    from shapely.geometry import Polygon
+
+    a, b = mesh.vertices[la], mesh.vertices[lb]
+    _, across = _axis_frame(a, b)
+    pa, pb = Polygon(a @ across), Polygon(b @ across)
+    if not (pa.is_valid and pb.is_valid):
+        return False
+    small, large = sorted((pa.area, pb.area))
+    if small < 0.1 * large:
+        return False
+    return pa.intersection(pb).area >= 0.9 * small
+
+
+def _stitch_rims(mesh: trimesh.Trimesh, la: list[int], lb: list[int]) -> NDArray:
+    """Triangles spanning rims ``la`` and ``lb``, merged by angle about their axis.
+
+    Walls whose surfaces the mesher cannot fill (a bore's channel, its
+    countersink) are ruled, so a strip between the rims follows them.
+    """
+    v = mesh.vertices
+    _, across = _axis_frame(v[la], v[lb])
+
+    def by_angle(loop: list[int]) -> tuple[list[int], NDArray]:
+        centred = v[loop] - v[loop].mean(axis=0)
+        turn = np.unwrap(np.arctan2(*(centred @ across).T[::-1]))
+        if turn[-1] < turn[0]:
+            loop, turn = loop[::-1], turn[::-1]
+        start = int(np.argmin(np.mod(turn, 2 * np.pi)))
+        loop = loop[start:] + loop[:start] + [loop[start]]
+        turn = np.concatenate([turn[start:], turn[:start]])
+        turn = turn - 2 * np.pi * np.floor(turn[0] / (2 * np.pi))
+        turn = np.unwrap(turn)
+        return loop, np.append(turn, turn[0] + 2 * np.pi)
+
+    a, ta = by_angle(list(la))
+    b, tb = by_angle(list(lb))
+    i = j = 0
+    strip = []
+    while i < len(a) - 1 or j < len(b) - 1:
+        if j == len(b) - 1 or (i < len(a) - 1 and ta[i + 1] <= tb[j + 1]):
+            strip.append((a[i], a[i + 1], b[j]))
+            i += 1
+        else:
+            strip.append((a[i], b[j + 1], b[j]))
+            j += 1
+    patch = np.asarray(strip, dtype=np.int64)
+    # The mesh runs each boundary edge x->y; the strip must run it y->x.
+    x, y = la[0], la[1]
+    if any((t[k], t[(k + 1) % 3]) == (x, y) for t in patch for k in range(3)):
+        patch = patch[:, ::-1]
+    return patch
+
+
 def _close_holes(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    """Patch the gaps a face's malformed triangulation leaves in a closed B-rep."""
-    patches = [
+    """Patch the gaps a face's malformed triangulation leaves in a closed B-rep.
+
+    Two loops that are a missing wall's rims get a strip between them; capping
+    each flat would seal the bore the wall lined. Any other loop is capped.
+    """
+    loops = _boundary_loops(mesh)
+    patches = []
+    paired: set[int] = set()
+    for i, la in enumerate(loops):
+        for j in range(i + 1, len(loops)):
+            if i in paired or j in paired or not _are_rims(mesh, la, loops[j]):
+                continue
+            patches.append(_stitch_rims(mesh, la, loops[j]))
+            paired |= {i, j}
+    patches += [
         p
-        for loop in _boundary_loops(mesh)
-        if (p := _patch_loop(mesh, loop)) is not None
+        for i, loop in enumerate(loops)
+        if i not in paired and (p := _patch_loop(mesh, loop)) is not None
     ]
     if not patches:
         return mesh
