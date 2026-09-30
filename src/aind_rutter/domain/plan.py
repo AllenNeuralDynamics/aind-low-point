@@ -115,8 +115,8 @@ def kinematic_violations(
 
     Returns a dict with two keys:
     ``"arc_ap"`` — set of (arc_a, arc_b) pairs whose AP angles are <
-    ``min_arc_ap_separation_deg`` apart (every probe on either arc is
-    affected).
+    ``min_arc_ap_separation_deg`` apart, among arcs that carry a probe
+    (every probe on either arc is affected).
     ``"within_arc_ml"`` — set of (probe_a, probe_b) pairs on the same arc
     whose effective ML angles are < ``min_within_arc_ml_separation_deg``
     apart.
@@ -127,8 +127,15 @@ def kinematic_violations(
     ap_thr = float(limits.min_arc_ap_separation_deg)
     ml_thr = float(limits.min_within_arc_ml_separation_deg)
 
+    by_arc: dict[str, list[str]] = {}
+    for name, plan in state.probes.items():
+        if plan.arc_id is None:
+            continue
+        by_arc.setdefault(plan.arc_id, []).append(name)
+
+    # An arc no probe rides has nothing to keep apart, wherever it sits.
     arc_violations: set[tuple[str, ...]] = set()
-    arcs = sorted(state.kinematics.arc_angles.keys())
+    arcs = sorted(a for a in state.kinematics.arc_angles if a in by_arc)
     for i, a in enumerate(arcs):
         for b in arcs[i + 1 :]:
             if (
@@ -136,12 +143,6 @@ def kinematic_violations(
                 < ap_thr
             ):
                 arc_violations.add(tuple(sorted((a, b))))
-
-    by_arc: dict[str, list[str]] = {}
-    for name, plan in state.probes.items():
-        if plan.arc_id is None:
-            continue
-        by_arc.setdefault(plan.arc_id, []).append(name)
 
     ml_violations: set[tuple[str, ...]] = set()
     for arc_id, members in by_arc.items():

@@ -17,27 +17,35 @@ def _probe(arc: str | None, ml: float = 0.0) -> ProbePlan:
     return ProbePlan(kind="2.4", arc_id=arc, ml_local=ml)
 
 
+def _riders(*arcs: str) -> dict[str, ProbePlan]:
+    return {f"P_{a}": _probe(a) for a in arcs}
+
+
 class TestArcAPSeparation:
     def test_arcs_far_apart_are_fine(self):
-        s = _state({"a": 0.0, "b": 30.0}, {})
+        s = _state({"a": 0.0, "b": 30.0}, _riders("a", "b"))
         v = kinematic_violations(s)
         assert v["arc_ap"] == set()
 
     def test_arcs_too_close_flags_pair(self):
         # 16° threshold; 0 vs 10 is < 16°
-        s = _state({"a": 0.0, "b": 10.0}, {})
+        s = _state({"a": 0.0, "b": 10.0}, _riders("a", "b"))
         v = kinematic_violations(s)
         assert v["arc_ap"] == {("a", "b")}
 
     def test_three_arcs_all_close(self):
-        s = _state({"a": 0.0, "b": 5.0, "c": 10.0}, {})
+        s = _state({"a": 0.0, "b": 5.0, "c": 10.0}, _riders("a", "b", "c"))
         v = kinematic_violations(s)
         # All three pairs are <16° apart
         assert v["arc_ap"] == {("a", "b"), ("a", "c"), ("b", "c")}
 
     def test_threshold_boundary_excluded(self):
         # Exactly 16° apart is NOT a violation (we use strict <).
-        s = _state({"a": 0.0, "b": 16.0}, {})
+        s = _state({"a": 0.0, "b": 16.0}, _riders("a", "b"))
+        assert kinematic_violations(s)["arc_ap"] == set()
+
+    def test_an_arc_without_probes_is_ignored(self):
+        s = _state({"a": 0.0, "b": 5.0, "c": 40.0}, _riders("a", "c"))
         assert kinematic_violations(s)["arc_ap"] == set()
 
 
@@ -78,7 +86,7 @@ class TestPairOrderingStable:
     def test_pairs_are_sorted_for_dedup(self):
         s = _state(
             {"a": 0.0, "b": 5.0},
-            {"P2": _probe("a", ml=0.0), "P1": _probe("a", ml=2.0)},
+            {"P2": _probe("a", ml=0.0), "P1": _probe("a", ml=2.0), "P3": _probe("b")},
         )
         v = kinematic_violations(s)
         assert v["arc_ap"] == {("a", "b")}
@@ -99,6 +107,7 @@ class TestCustomThreshold:
             probes={
                 "P1": _probe("a", ml=0.0),
                 "P2": _probe("a", ml=4.0),
+                "P3": _probe("b"),
             },
         )
         v = kinematic_violations(s)
