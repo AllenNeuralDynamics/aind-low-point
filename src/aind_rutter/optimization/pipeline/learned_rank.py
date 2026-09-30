@@ -4,7 +4,7 @@ The model scores P(kept) × E[coverage percentile among kept plans] from feature
 that mean the same thing on any subject: Phase-1 coverage and objective as
 percentiles within the pool, FCL, threading and clearance in mm, slider geometry,
 and per-probe aggregates, never raw pose or hole identity. It is fitted at run
-time on a packaged table of one whole pool solved to the end. The objective
+time on ``ranker_table``, one whole pool solved to the end. The objective
 reaches the easy best layouts first and the model reaches the ones the objective
 buries, so the objective's first ``rank_head`` go first and the model orders the
 rest; every prefix of that order is as good as the better of the two at that K.
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Sequence
-from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,7 +33,6 @@ FEATURES = (
     "min_ml_gap", "min_ap_gap", "ap_span", "ap_max", "ml_span", "ml_max",
     "n_probes", "max_per_arc", "offset_max", "offset_mean", "depth_max", "depth_mean",
 )  # fmt: skip
-TRAINING_TABLE = "837772.npz"
 MODEL: dict[str, Any] = dict(
     max_iter=300,
     learning_rate=0.05,
@@ -139,13 +137,12 @@ def measure_pool(
     return {"p1cov": cov, "fcl": fcl, "pp": pp, "pf": pf, "g": g}
 
 
-def training_table() -> dict[str, np.ndarray]:
-    """The packaged solved pool: X (FEATURES), kept, and the coverage target."""
-    path = files("aind_rutter") / "data" / "ranker" / TRAINING_TABLE
-    with path.open("rb") as fh, np.load(fh) as z:
+def training_table(path: Path) -> dict[str, np.ndarray]:
+    """A solved pool's table: X (FEATURES), kept, and the coverage target."""
+    with np.load(path) as z:
         table = {k: z[k] for k in z.files}
     if tuple(table["features"]) != FEATURES:
-        raise ValueError(f"{TRAINING_TABLE} was written for other features")
+        raise ValueError(f"{path} was written for other features")
     return table
 
 
@@ -189,8 +186,10 @@ def learned_order(
 
     note = log or (lambda _msg: None)
     t0 = time.time()
+    if settings.ranker_table is None:
+        raise ValueError("learned ranking needs settings.ranker_table")
     measured = measure_pool(recs, settings)
-    table = training_table()
+    table = training_table(settings.ranker_table)
     score = fit(table["X"], table["kept"], table["target"])(
         feature_matrix(recs, measured)
     )

@@ -288,6 +288,12 @@ class Phase2Settings(PipelineSettings):
     rank_workers: int = Field(
         8, description="'learned' only: CPU processes measuring the pool."
     )
+    ranker_table: Path | None = Field(
+        None,
+        description="'learned' only: the model's training table, a pool Phase 2 "
+        "solved whole (pipeline.learned_rank.write_training_table). Needed when the "
+        "cut reaches past rank_head.",
+    )
     poses: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),
         description="Phase-1 pool to select from.",

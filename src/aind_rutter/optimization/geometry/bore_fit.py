@@ -23,7 +23,7 @@ canonical LPS (``--part-frame`` names the STEP's axes, as the config's
 
 Needs the ``step`` extra.
 
-    rutter-bores implant.step implant.holes.yml --implant 0283-300-04
+    rutter-bores implant.step implant.holes.yml --diagram implant.diagram.yml
 """
 
 from __future__ import annotations
@@ -542,8 +542,9 @@ def holes_yaml(bores: list[BoreFit], to_lps: NDArray, bottom: str) -> dict:
 def number_by_diagram(
     bores: list[BoreFit], to_lps: NDArray, diagram: Path, max_offset_mm: float = 0.4
 ) -> list[BoreFit]:
-    """Ids from the implant's diagram file, matched one to one by channel-top (x, y);
-    bores the diagram marks ``probe: false`` are dropped."""
+    """Ids from the implant's diagram file (``bores``: ``id``, ``xy_LPS``, optional
+    ``probe``), matched one to one by channel-top (x, y); bores the diagram marks
+    ``probe: false`` are dropped."""
     from scipy.optimize import linear_sum_assignment
 
     ref = yaml.safe_load(Path(diagram).read_text())["bores"]
@@ -566,13 +567,6 @@ def number_by_diagram(
             bores[i].id = int(ref[j]["id"])
             kept.append(bores[i])
     return sorted(kept, key=lambda b: b.id)
-
-
-def diagram_path(implant: str) -> Path:
-    """The packaged diagram file for a named implant, e.g. ``0283-300-04``."""
-    from importlib.resources import files
-
-    return Path(str(files("aind_rutter") / "data" / "implants" / f"{implant}.yml"))
 
 
 def fit_step(
@@ -600,9 +594,10 @@ def main(argv: list[str] | None = None) -> None:
         "--exit-out", type=Path, help="also write the exit-section file here"
     )
     p.add_argument(
-        "--implant", help="number by this implant's packaged diagram, e.g. 0283-300-04"
+        "--diagram",
+        type=Path,
+        help="number by the manufacturer's diagram in this file, not reading order",
     )
-    p.add_argument("--diagram", type=Path, help="number by this diagram file instead")
     p.add_argument(
         "--part-frame",
         default=FitSettings.part_frame,
@@ -611,8 +606,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--row-gap-mm", type=float, default=FitSettings.row_gap_mm)
     args = p.parse_args(argv)
     cfg = FitSettings(part_frame=args.part_frame, row_gap_mm=args.row_gap_mm)
-    diagram = args.diagram or (diagram_path(args.implant) if args.implant else None)
-    bores = fit_step(args.step, cfg, diagram)
+    bores = fit_step(args.step, cfg, args.diagram)
     to_lps = part_to_lps(cfg.part_frame)
     print(
         " id  exit    skirt   a top->exit    b top->exit    oval rms"

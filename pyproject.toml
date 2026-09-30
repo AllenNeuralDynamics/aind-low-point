@@ -124,7 +124,7 @@ docs = [
 ]
 
 [tool.setuptools.package-data]
-"aind_rutter" = ["data/*.json", "data/implants/*.yml", "data/ranker/*.npz"]
+"aind_rutter" = ["data/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

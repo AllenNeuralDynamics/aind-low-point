@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -57,11 +59,23 @@ def test_feature_matrix_columns() -> None:
     assert list(col["max_per_arc"]) == [3.0, 2.0, 2.0]
 
 
-def test_packaged_table_fits_to_probabilities_of_percentiles() -> None:
-    t = lr.training_table()
-    assert t["X"].shape == (len(t["kept"]), len(lr.FEATURES))
-    score = lr.fit(t["X"], t["kept"], t["target"])(t["X"][:200])
+def test_a_written_table_fits_to_probabilities_of_percentiles(tmp_path: Path) -> None:
+    rng = np.random.default_rng(0)
+    n = 200
+    recs = [_rec(i, 2 + i % 2, float(rng.normal())) for i in range(n)]
+    kept = rng.random(n) < 0.5
+    path = tmp_path / "table.npz"
+    lr.write_training_table(path, recs, _measured(n), kept, rng.random(n), "test")
+    t = lr.training_table(path)
+    assert t["X"].shape == (n, len(lr.FEATURES)) and t["kept"].sum() == kept.sum()
+    score = lr.fit(t["X"], t["kept"], t["target"])(t["X"])
     assert np.all((score > -0.1) & (score < 1.1))
+
+
+def test_a_cut_past_the_head_needs_a_table() -> None:
+    recs = [_rec(0, 2, 5.0), _rec(1, 2, 1.0), _rec(2, 2, 3.0)]
+    with pytest.raises(ValueError, match="RUTTER_RANKER_TABLE"):
+        select_records(recs, Phase2Settings(topk=2, rank_head=1))
 
 
 def test_learned_is_the_default_selection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,7 +87,8 @@ def test_learned_is_the_default_selection(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(lr, "learned_order", fake)
     recs = [_rec(0, 2, 5.0), _rec(1, 2, 1.0), _rec(2, 2, 3.0)]
-    out = select_records(recs, Phase2Settings(topk=2, rank_head=1))
+    settings = Phase2Settings(topk=2, rank_head=1, ranker_table=Path("table.npz"))
+    out = select_records(recs, settings)
     assert seen["objective_order"] == [1, 2, 0]
     assert [r["idx"] for r in out] == [0, 2] and [r["rank"] for r in out] == [0, 1]
 

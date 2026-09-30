@@ -100,6 +100,12 @@ def select_records(
     explicit = bool(settings.ranks or settings.ranks_file)
     head_only = not explicit and settings.topk <= settings.rank_head
     if settings.select_by == "learned" and not head_only:
+        if settings.ranker_table is None:
+            raise ValueError(
+                f"select_by 'learned' past the objective's first {settings.rank_head} "
+                "needs RUTTER_RANKER_TABLE, a solved pool's training table; or set "
+                "RUTTER_SELECT_BY=objective"
+            )
         from aind_rutter.optimization.pipeline.learned_rank import learned_order
 
         order = learned_order(

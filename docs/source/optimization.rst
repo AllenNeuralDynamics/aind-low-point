@@ -63,14 +63,14 @@ The two subject inputs are:
    config defines ``implant_to_lps``, the holes are transformed into world LPS
    before optimization. Fit it from the implant's STEP, which needs the ``step``
    extra. A flat face cutting into a bore's oval (a D-shaped bore) is written as a
-   wall through the face's point nearest the axis. ``--implant`` numbers the bores
-   by the manufacturer's diagram packaged in ``data/implants/`` and drops bores no
-   probe passes through:
+   wall through the face's point nearest the axis. Bores are numbered in reading
+   order unless ``--diagram`` names a file of the manufacturer's numbering, which
+   also drops bores no probe passes through:
 
    .. code-block:: bash
 
       uv run --python 3.13 rutter-bores 0283-300-04.step 0283-300-04.holes.yml \
-          --implant 0283-300-04
+          --diagram 0283-300-04.diagram.yml
 
 Example one-subject run:
 
@@ -621,8 +621,10 @@ percentiles within the pool, the FCL, threading and clearance values at the
 Phase-1 pose, slider geometry and per-probe offset and depth. They are measured
 on every pool record before selection, on ``RUTTER_RANK_WORKERS`` (8) CPU
 processes; 17,000 records take about four minutes on 16. The model is fitted at run
-time on ``data/ranker/837772.npz``, a pool whose every record Phase 2 solved;
-``learned_rank.write_training_table`` writes another. The objective finds a
+time on ``RUTTER_RANKER_TABLE``, a pool whose every record Phase 2 solved, written
+by ``learned_rank.write_training_table``; the package ships none, and a cut past
+the head without one is refused. A cut within the head needs no table and
+measures nothing. The objective finds a
 pool's easy best layouts first, and the model reaches the ones it buries, so
 each prefix of the hybrid order holds about as many of a pool's best layouts as
 the better of the two at that ``RUTTER_TOPK``. Past a few hundred, the hybrid

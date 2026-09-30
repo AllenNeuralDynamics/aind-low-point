@@ -181,9 +181,3 @@ def test_d_bore_writes_its_flat_as_a_wall(d_step_path, tmp_path) -> None:
         assert wall.normal @ (wall.point - sec.center) == pytest.approx(
             WALL_X, abs=2e-3
         )
-
-
-def test_packaged_diagram_exists() -> None:
-    ref = yaml.safe_load(bore_fit.diagram_path("0283-300-04").read_text())["bores"]
-    assert [r["id"] for r in ref] == list(range(14))
-    assert [r["id"] for r in ref if not r.get("probe", True)] == [0]

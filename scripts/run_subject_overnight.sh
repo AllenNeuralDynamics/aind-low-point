@@ -20,9 +20,12 @@
 # in ordinary shells and are no longer read.
 #
 # Usage:
-#   RUTTER_CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
+#   RUTTER_CONFIG=examples/837229-config.yml \
+#   RUTTER_HOLES=<data>/implants/0283-300-04/0283-300-04.holes.yml \
+#   RUTTER_RANKER_TABLE=<data>/ranker/837772.npz scripts/run_subject_overnight.sh
+# RUTTER_RANKER_TABLE is needed while the cut passes the objective's head.
 # Optional env (with defaults):
-#   RUTTER_HOLES=scratch/0283-300-04.holes.yml  RUTTER_TOPK=2000 (about an hour)
+#   RUTTER_TOPK=2000 (about an hour)
 #   RUTTER_WORKERS=3  RUTTER_GPU_MEM_FRACTION=0.28  RUTTER_PLANS=<all feasible>
 #   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
@@ -36,7 +39,7 @@ cd "$(dirname "$0")/.."
 export XLA_PYTHON_CLIENT_PREALLOCATE="${XLA_PYTHON_CLIENT_PREALLOCATE:-false}"
 
 CONFIG="${RUTTER_CONFIG:?set RUTTER_CONFIG=examples/<subject>-config.yml}"
-HOLES="${RUTTER_HOLES:-scratch/0283-300-04.holes.yml}"
+HOLES="${RUTTER_HOLES:?set RUTTER_HOLES=<data>/implants/<part>/<part>.holes.yml}"
 STEM="$(basename "${CONFIG%.yml}")"
 # TAG: optional output suffix so variant runs don't clobber each other
 # (e.g. TAG=density → scratch/<stem>_density_pool.json.gz). Seed cache is untagged
@@ -53,6 +56,13 @@ MAX_ARCS="${RUTTER_MAX_ARCS:-3}"  # Phase 1 loops n_arcs down to 1, one process 
 MAX_PROBES_PER_ARC="${RUTTER_MAX_PROBES_PER_ARC:-4}"
 N_SPINS="${RUTTER_N_SPINS:-16}"
 PLANS="${RUTTER_PLANS:-}"
+# Refuse before Phase 1 what Phase 2 would refuse hours later.
+if [ "${RUTTER_SELECT_BY:-learned}" = learned ] && [ -z "${RUTTER_RANKS:-}${RUTTER_RANKS_FILE:-}" ] \
+  && [ "$TOPK" -gt "${RUTTER_RANK_HEAD:-100}" ] && [ ! -f "${RUTTER_RANKER_TABLE:-}" ]; then
+  echo "RUTTER_TOPK=$TOPK passes the objective's head: set RUTTER_RANKER_TABLE" \
+    "to a solved pool's training table, or RUTTER_SELECT_BY=objective" >&2
+  exit 1
+fi
 
 # Gotcha 1: the atlas + seed caches are keyed only by the config stem, but their
 # CONTENTS depend on probe geometry (meshes, kinds), the implant holes, and the
