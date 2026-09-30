@@ -806,6 +806,13 @@ Probe Fields
        ``{kind: catalog, key: ...}``, ``{kind: node, key: ...}``,
        ``{kind: inline, point_RAS: [x, y, z]}``, or a bare ``[x, y, z]``
        list coerced to ``inline``.
+   * - ``also_record``
+     - No
+     - Further regions this probe records, each in any form ``target``
+       takes. The optimizer scores a Gaussian on each beside the target's, so
+       every region counts as a probe aimed at it alone would. ``target`` alone
+       anchors the pose, so name the region nearest the middle of the run
+       there. Not supported with retro density.
    * - ``ap_local``
      - No
      - Per-probe AP angle override in degrees. When ``bind_ap_to_arc`` is true

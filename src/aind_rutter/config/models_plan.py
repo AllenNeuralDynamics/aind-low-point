@@ -58,6 +58,9 @@ class ProbeDeclModel(BaseModel):
     bind_ap_to_arc: bool = True
 
     target: TargetRef
+    # Further regions this probe records, scored in its coverage beside
+    # ``target``, which alone anchors the pose.
+    also_record: list[TargetRef] = Field(default_factory=list)
     past_target_mm: float = 0.0
     offsets_RA: list[float] = Field(
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
@@ -84,12 +87,18 @@ class ProbeDeclModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _coerce_target(cls, v):
-        if isinstance(v, dict) and "target" in v:
-            t = v["target"]
+        def coerce(t):
             if isinstance(t, str):
-                v["target"] = {"kind": "catalog", "key": t}
-            elif isinstance(t, (list, tuple)) and len(t) == 3:
-                v["target"] = {"kind": "inline", "point_RAS": list(t)}
+                return {"kind": "catalog", "key": t}
+            if isinstance(t, (list, tuple)) and len(t) == 3:
+                return {"kind": "inline", "point_RAS": list(t)}
+            return t
+
+        if isinstance(v, dict):
+            if "target" in v:
+                v["target"] = coerce(v["target"])
+            if isinstance(v.get("also_record"), list):
+                v["also_record"] = [coerce(t) for t in v["also_record"]]
         return v
 
 

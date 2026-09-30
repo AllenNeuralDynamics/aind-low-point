@@ -45,6 +45,9 @@ class ProbeStaticInfo:
     density_sigma_mm: float = 0.5
     collision_mesh: trimesh.Trimesh | None = field(default=None, compare=False)
     target_points: NDArray[np.floating] | None = field(default=None, compare=False)
+    # (K, 3) world LPS, one point per region this probe records, the target's
+    # first: coverage sums a Gaussian on each. None scores ``target_LPS`` alone.
+    region_points: NDArray[np.floating] | None = field(default=None, compare=False)
     # Per-target priority weight applied (after normalization) to this probe's
     # coverage in the normalized objective's weighted SUM (the fairness floor
     # stays unweighted). 1.0 ⇒ no preference.

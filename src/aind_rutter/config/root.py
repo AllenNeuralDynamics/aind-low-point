@@ -513,23 +513,24 @@ class ConfigModel(BaseModel):
                 err(f"plan.probes['{pname}']: arc '{p.arc}' not found in plan.arcs")
             if p.bind_ap_to_arc and p.arc is None:
                 err(f"plan.probes['{pname}']: bind_ap_to_arc=True but arc is not set")
-            if p.target.kind == "inline":
-                pass  # self-contained RAS point, no xref needed
-            elif p.target.kind == "catalog":
-                target_key = p.target.key
-                if target_key not in target_keys:
-                    err(
-                        f"plan.probes['{pname}']: catalog target "
-                        f"'{target_key}' not found"
-                    )
-                seen_catalog_target_names.add(target_key)
-            else:  # node
-                target_key = p.target.key
+            for ref in [p.target, *p.also_record]:
+                if ref.kind == "inline":
+                    continue  # self-contained RAS point, no xref needed
+                target_key = ref.key
+                if ref.kind == "catalog":
+                    if target_key not in target_keys:
+                        err(
+                            f"plan.probes['{pname}']: catalog target "
+                            f"'{target_key}' not found"
+                        )
+                    seen_catalog_target_names.add(target_key)
+                    continue
                 if target_key not in node_keys:
                     err(
                         f"plan.probes['{pname}']: node target "
                         f"'{target_key}' not in scene.nodes"
                     )
+                    continue
                 node_idx = node_idx_by_key.get(target_key)
                 target_ref = self.scene.nodes[node_idx].asset
                 if target_ref in asset_keys:

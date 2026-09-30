@@ -37,7 +37,7 @@ from aind_rutter.config import (
 from aind_rutter.config.templates import merge_dict_shallow
 from aind_rutter.domain.catalog import AssetCatalog, AssetSpec, Material, TargetSpec
 from aind_rutter.domain.enums import Kind, Role
-from aind_rutter.domain.plan import PlanningState, ProbePlan
+from aind_rutter.domain.plan import PlanningState, ProbePlan, RegionRef
 from aind_rutter.domain.probe_kinds import RecordingGeometry, pivot_from_shank_tips
 from aind_rutter.domain.rig import Kinematics
 from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
@@ -416,6 +416,34 @@ def build_plan_state_from_config(
     )
     calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
     probes: dict[str, ProbePlan] = {}
+
+    def resolve_ref(probe_name, ref):
+        """``(target_key, target_point_LPS)`` for an inline, node or catalog ref.
+
+        The config says RAS; the plan holds LPS.
+        """
+        if ref.kind == "inline":
+            return None, tuple(
+                convert_coordinate_system(
+                    np.asarray(ref.point_RAS, float).reshape(1, 3), "RAS", "LPS"
+                ).reshape(3)
+            )
+        if ref.kind == "node":
+            if catalog is None or scene is None:
+                raise ValueError(
+                    f"Probe '{probe_name}' has a 'node' target "
+                    f"('{ref.key}'), which needs geometry "
+                    "resolution — build_plan_state_from_config requires a full "
+                    "runtime (catalog + scene) for node targets."
+                )
+            transformed_points = resolve_base_geometry(catalog, scene, ref.key)
+            if not transformed_points:
+                raise RuntimeError(
+                    f"Probe '{probe_name}' references unknown target '{ref.key}'"
+                )
+            target_index[ref.key] = transformed_points.raw
+        return ref.key, None
+
     for probe_name, probe_decl in cfg.plan.probes.items():
         probe_calibrated = probe_name in calibrations
         if probe_calibrated:
@@ -429,39 +457,10 @@ def build_plan_state_from_config(
         else:
             ap = 0.0
             ml = probe_decl.slider_ml
-        # Resolve target: inline RAS point, node, or catalog key. The config
-        # says RAS; the plan holds LPS.
-        if probe_decl.target.kind == "inline":
-            target_key = None
-            target_point_LPS = tuple(
-                convert_coordinate_system(
-                    np.asarray(probe_decl.target.point_RAS, float).reshape(1, 3),
-                    "RAS",
-                    "LPS",
-                ).reshape(3)
-            )
-        elif probe_decl.target.kind == "node":
-            if catalog is None or scene is None:
-                raise ValueError(
-                    f"Probe '{probe_name}' has a 'node' target "
-                    f"('{probe_decl.target.key}'), which needs geometry "
-                    "resolution — build_plan_state_from_config requires a full "
-                    "runtime (catalog + scene) for node targets."
-                )
-            key = probe_decl.target.key
-            transformed_points = resolve_base_geometry(catalog, scene, key)
-            if not transformed_points:
-                raise RuntimeError(
-                    f"Probe '{probe_name}' references unknown target "
-                    f"'{probe_decl.target.key}'"
-                )
-            transformed_points = transformed_points.raw
-            target_index[key] = transformed_points
-            target_key = key
-            target_point_LPS = None
-        else:  # catalog
-            target_key = probe_decl.target.key
-            target_point_LPS = None
+        target_key, target_point_LPS = resolve_ref(probe_name, probe_decl.target)
+        also_record = tuple(
+            RegionRef(*resolve_ref(probe_name, ref)) for ref in probe_decl.also_record
+        )
         probes[probe_name] = ProbePlan(
             kind=probe_decl.kind,
             arc_id=probe_decl.arc,
@@ -473,6 +472,7 @@ def build_plan_state_from_config(
             offsets_LP=(-probe_decl.offsets_RA[0], -probe_decl.offsets_RA[1]),
             target_key=target_key,
             target_point_LPS=target_point_LPS,
+            also_record=also_record,
             position_bearing_shank=probe_decl.position_bearing_shank,
             calibrated=probe_decl.calibrated,
         )

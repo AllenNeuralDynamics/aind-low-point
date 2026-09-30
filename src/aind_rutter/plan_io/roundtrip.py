@@ -76,6 +76,8 @@ def planning_state_to_plan_model(
             ap_local=plan.ap_local,
             bind_ap_to_arc=plan.bind_ap_to_arc,
             target=target_ref,
+            # No command edits these, so the declaration is still what holds.
+            also_record=orig_decl.also_record if orig_decl else [],
             past_target_mm=plan.past_target_mm,
             offsets_RA=[-plan.offsets_LP[0], -plan.offsets_LP[1]],
             position_bearing_shank=plan.position_bearing_shank,

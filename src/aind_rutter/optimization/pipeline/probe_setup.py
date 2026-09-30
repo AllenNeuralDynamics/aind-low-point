@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from aind_rutter.build.probe_context import probe_context_from_runtime
+from aind_rutter.domain.plan import resolve_region_points_LPS
 from aind_rutter.domain.scene import resolve_base_geometry
 from aind_rutter.optimization.clearance.envelope import shank_half_extents_xy
 from aind_rutter.optimization.geometry import HoleSection
@@ -191,8 +192,17 @@ def _probe_static_info(
     ``thread_corners`` threads the shank's cross-section corners, measured from
     the collision mesh, rather than its centreline.
     """
+    plan = runtime.plan_state.probes[name]
+    region_points = resolve_region_points_LPS(plan, runtime.plan_state.target_index)
     target_points = None
     if retro_opts is not None:
+        if region_points is not None:
+            # The retro mask is one structure per probe; weighting several
+            # regions' clouds equally is not built.
+            raise ValueError(
+                f"probe {name!r} lists also_record, which retro density "
+                "does not support"
+            )
         target_points = _resolve_masked_retro_points(runtime, name, retro_opts)
     context = probe_context_from_runtime(runtime, name, target_points_LPS=target_points)
     sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
@@ -210,6 +220,7 @@ def _probe_static_info(
         density_sigma_mm=sigma,
         collision_mesh=context.collision_mesh,
         target_points=target_points,
+        region_points=region_points,
         coverage_weight=context.coverage_weight,
         pivot_local=context.pivot_local,
         shank_half_xy=shank_half_xy,

@@ -65,6 +65,14 @@ def reconcile_probe_assets(
     return changed
 
 
+@dataclass(frozen=True, slots=True)
+class RegionRef:
+    """A further region a probe records, named like its target: one of the two."""
+
+    key: Optional[str] = None
+    point_LPS: Optional[Tuple[float, float, float]] = None
+
+
 # Plan for probe location
 @dataclass(slots=True)
 class ProbePlan:
@@ -86,6 +94,8 @@ class ProbePlan:
     offsets_LP: Tuple[float, float] = (0.0, 0.0)
     target_key: Optional[str] = None
     target_point_LPS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
+    # Regions scored beside the target. The target still anchors the pose.
+    also_record: Tuple[RegionRef, ...] = ()
     # The shank whose tip is the kinematic pivot (1-indexed). Drives
     # which shank's tip lands at the inline target, which shank's RAS
     # is shown in the readout, and along which shank brain-surface
@@ -211,6 +221,30 @@ def resolve_target_LPS(
         )
     warn("ProbePlan has neither target_key nor target_point_LPS; using origin.")
     return np.zeros(3, dtype=np.float64)
+
+
+def resolve_region_points_LPS(
+    plan: ProbePlan,
+    target_index: Mapping[str, np.ndarray],
+    *,
+    strict: bool = True,
+) -> np.ndarray | None:
+    """``(K, 3)`` LPS: the target's point, then each of ``also_record``'s.
+
+    ``None`` when the probe records only its target.
+    """
+    if not plan.also_record:
+        return None
+    points = [resolve_target_LPS(plan, target_index, strict=strict)]
+    for ref in plan.also_record:
+        one = ProbePlan(
+            kind=plan.kind,
+            arc_id=None,
+            target_key=ref.key,
+            target_point_LPS=ref.point_LPS,
+        )
+        points.append(resolve_target_LPS(one, target_index, strict=strict))
+    return np.stack(points)
 
 
 CALIBRATION_LOCKED_AXES = frozenset({"ap_tilt", "ml_tilt"})

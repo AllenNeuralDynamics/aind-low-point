@@ -2,8 +2,8 @@
 
 Two density backends, both differentiable:
 
-- **Gaussian** (single target centroid): exact closed-form, no pre-bake.
-  ``density(p) = exp(−||p − target||² / (2σ²))``.
+- **Gaussian** (one point per region the probe records): exact closed-form,
+  no pre-bake. ``density(p) = Σ_k exp(−||p − c_k||² / (2σ²))``.
 - **Voxel KDE** (cloud of retro points pre-baked to a grid): trilinear
   lookup, same accuracy as the numpy ``voxel_kde_density`` modulo
   float32. Pre-bake done on the host via the existing numpy builder;
@@ -88,6 +88,22 @@ class GaussianCoverageData:
     sigma_mm: float
     active_start_mm: float
     active_end_mm: float
+    # (K, 3) centres summed in place of ``target_LPS`` alone, so each region a
+    # probe records scores what a probe aimed at it alone would.
+    region_points_LPS: jnp.ndarray | None = None
+
+    def centres(self, k: int | None = None) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """``(centres (k, 3), weights (k,))``, padded to ``k`` with zero weight."""
+        pts = (
+            jnp.asarray(self.target_LPS, jnp.float32)[None]
+            if self.region_points_LPS is None
+            else jnp.asarray(self.region_points_LPS, jnp.float32)
+        )
+        n = pts.shape[0]
+        k = n if k is None else k
+        pad = jnp.broadcast_to(pts[:1], (k - n, 3))
+        weights = jnp.concatenate([jnp.ones(n), jnp.zeros(k - n)]).astype(jnp.float32)
+        return jnp.concatenate([pts, pad]), weights
 
 
 @dataclass(frozen=True)
@@ -135,9 +151,9 @@ def build_coverage_data_from_probe_context(
     """Inspect a probe context and return the matching JAX
     coverage data.
 
-    Uses the same selection logic as the legacy ``_build_inner_context``
-    in the runtime adapter: if the probe has a ``target_points`` cloud, use
-    voxel KDE; else Gaussian on ``target_LPS``.
+    A ``target_points`` cloud selects voxel KDE; otherwise Gaussian on the
+    probe's ``region_points`` if it records several regions, else on
+    ``target_LPS``.
 
     Parameters
     ----------
@@ -162,11 +178,15 @@ def build_coverage_data_from_probe_context(
             active_start_mm=float(recording_active_range_mm[0]),
             active_end_mm=float(recording_active_range_mm[1]),
         )
+    region_points = getattr(probe_ctx, "region_points", None)
     return GaussianCoverageData(
         target_LPS=jnp.asarray(probe_ctx.target_LPS, dtype=jnp.float32),
         sigma_mm=sigma_mm,
         active_start_mm=float(recording_active_range_mm[0]),
         active_end_mm=float(recording_active_range_mm[1]),
+        region_points_LPS=None
+        if region_points is None
+        else jnp.asarray(region_points, dtype=jnp.float32),
     )
 
 
@@ -216,14 +236,15 @@ def _trilinear_density(
 
 
 def _gaussian_density(
-    target_LPS: jnp.ndarray,
+    centres: jnp.ndarray,  # (K, 3)
+    weights: jnp.ndarray,  # (K,)
     sigma_mm: float,
     query_pts: jnp.ndarray,  # (..., 3)
 ) -> jnp.ndarray:
-    """``exp(−||q − target||² / (2σ²))`` evaluated at query points."""
+    """``Σ_k w_k exp(−||q − c_k||² / (2σ²))`` evaluated at query points."""
     inv_two_sigma_sq = 1.0 / (2.0 * sigma_mm * sigma_mm)
-    d2 = jnp.sum((query_pts - target_LPS) ** 2, axis=-1)
-    return jnp.exp(-d2 * inv_two_sigma_sq)
+    d2 = jnp.sum((query_pts[..., None, :] - centres) ** 2, axis=-1)
+    return jnp.sum(weights * jnp.exp(-d2 * inv_two_sigma_sq), axis=-1)
 
 
 def probe_coverage(
@@ -241,12 +262,14 @@ def probe_coverage(
     """
     # Dispatch on the (Python-static) dataclass type to the array-param core.
     if isinstance(cov_data, GaussianCoverageData):
+        centres, weights = cov_data.centres()
         return _probe_coverage_gaussian(
             R,
             t,
             shank_tips_local,
             shank_mask,
-            cov_data.target_LPS,
+            centres,
+            weights,
             cov_data.sigma_mm,
             cov_data.active_start_mm,
             cov_data.active_end_mm,
@@ -290,7 +313,8 @@ def _probe_coverage_gaussian(
     t,
     shank_tips_local,
     shank_mask,
-    target_LPS,
+    centres,
+    weights,
     sigma_mm,
     active_start_mm,
     active_end_mm,
@@ -301,7 +325,7 @@ def _probe_coverage_gaussian(
     points = _coverage_points(
         R, t, shank_tips_local, active_start_mm, active_end_mm, n_samples
     )
-    values = _gaussian_density(target_LPS, sigma_mm, points)
+    values = _gaussian_density(centres, weights, sigma_mm, points)
     return _coverage_reduce(
         values, shank_mask, active_start_mm, active_end_mm, n_samples
     )
@@ -358,16 +382,17 @@ def coverage_per_probe_over_probes(
     types = {type(cd) for cd in coverage_data}
 
     if types == {GaussianCoverageData}:
-        tgt = jnp.stack(
-            [jnp.asarray(cd.target_LPS, jnp.float32) for cd in coverage_data]
-        )  # (P, 3)
+        k = max(cd.centres()[0].shape[0] for cd in coverage_data)
+        centres, weights = zip(*(cd.centres(k) for cd in coverage_data))
+        tgt = jnp.stack(centres)  # (P, K, 3)
+        wts = jnp.stack(weights)  # (P, K)
         sig = jnp.asarray([cd.sigma_mm for cd in coverage_data], jnp.float32)
         a0 = jnp.asarray([cd.active_start_mm for cd in coverage_data], jnp.float32)
         a1 = jnp.asarray([cd.active_end_mm for cd in coverage_data], jnp.float32)
         return jax.vmap(
             _probe_coverage_gaussian,
-            in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
-        )(Rs, ts, tips_local, shank_mask, tgt, sig, a0, a1, n_samples)
+            in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None),
+        )(Rs, ts, tips_local, shank_mask, tgt, wts, sig, a0, a1, n_samples)
 
     if (
         types == {KdeCoverageData}

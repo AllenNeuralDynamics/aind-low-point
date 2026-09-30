@@ -212,6 +212,8 @@ plan:
       # bind_ap_to_arc: true
       # slider_ml: 0.0
       # spin: 0.0
+      # also_record: []             # further regions scored in coverage;
+      #                              # ``target`` still anchors the pose
       # past_target_mm: 0.0
       # offsets_RA: [0.0, 0.0]
       # position_bearing_shank: 1   # 1-indexed; multi-shank only — chooses
