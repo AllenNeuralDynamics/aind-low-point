@@ -36,7 +36,7 @@ class RetroDensityOpts:
 
     retro_asset_key: str = "retro-targets"
     common_mask_keys: tuple[str, ...] = ("brain",)
-    per_probe_mask_fmt: str = "structure:{probe}"
+    region_mask_fmt: str = "structure:{region}"
     sigma_mm: float = 0.3
 
 
@@ -145,18 +145,17 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
 
 
 def _resolve_masked_retro_points(
-    runtime, probe_name: str, opts: RetroDensityOpts
+    runtime, region: str, opts: RetroDensityOpts
 ) -> np.ndarray:
-    """Retro points (corrected scene-LPS) inside the per-probe CCF region AND
+    """Retro points (corrected scene-LPS) inside ``region``'s CCF structure AND
     the brain, by direct voxel lookup against the SOURCE volumes."""
     from aind_rutter.build.loaders import ccf_region_label_ids, ccf_region_membership
 
     catalog = runtime.asset_catalog
-    sspec = catalog.get_spec(opts.per_probe_mask_fmt.format(probe=probe_name))
+    mask_key = opts.region_mask_fmt.format(region=region)
+    sspec = catalog.get_spec(mask_key)
     if sspec is None or sspec.source_path is None:
-        raise RuntimeError(
-            f"--retro-density: structure asset for probe {probe_name!r} missing"
-        )
+        raise RuntimeError(f"--retro-density: structure asset {mask_key!r} missing")
     annot_path = str(sspec.source_path)
     world, brain_keep, annot_vals, annot_inb = _retro_voxel_base(
         runtime, opts, annot_path
@@ -173,10 +172,25 @@ def _resolve_masked_retro_points(
     masked = world[keep]
     if masked.shape[0] == 0:
         raise RuntimeError(
-            f"--retro-density: probe {probe_name!r} has zero retro points in "
+            f"--retro-density: region {region!r} has zero retro points in "
             f"brain ∩ {acronym!r} — check mask/annotation alignment"
         )
     return masked
+
+
+def region_weighted_cloud(
+    clouds: list[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """One cloud from each region's, and its point weights.
+
+    Each region's points share a weight of one, so every region scores what a
+    probe aimed at it alone would however densely it is labelled. A single
+    region keeps the builder's own equal weighting (``None``).
+    """
+    if len(clouds) == 1:
+        return clouds[0], None
+    weights = np.concatenate([np.full(len(c), 1.0 / len(c)) for c in clouds])
+    return np.concatenate(clouds), weights
 
 
 def _probe_static_info(
@@ -194,17 +208,21 @@ def _probe_static_info(
     """
     plan = runtime.plan_state.probes[name]
     region_points = resolve_region_points_LPS(plan, runtime.plan_state.target_index)
-    target_points = None
+    target_points = target_point_weights = anchor_points = None
     if retro_opts is not None:
-        if region_points is not None:
-            # The retro mask is one structure per probe; weighting several
-            # regions' clouds equally is not built.
+        if region_points is not None and not plan.regions:
             raise ValueError(
-                f"probe {name!r} lists also_record, which retro density "
-                "does not support"
+                f"probe {name!r} lists also_record without regions, so retro "
+                "density cannot tell which structure masks each cloud"
             )
-        target_points = _resolve_masked_retro_points(runtime, name, retro_opts)
-    context = probe_context_from_runtime(runtime, name, target_points_LPS=target_points)
+        clouds = [
+            _resolve_masked_retro_points(runtime, region, retro_opts)
+            for region in plan.regions or (name,)
+        ]
+        target_points, target_point_weights = region_weighted_cloud(clouds)
+        # The target region alone anchors the pose, as without retro density.
+        anchor_points = clouds[0]
+    context = probe_context_from_runtime(runtime, name, target_points_LPS=anchor_points)
     sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
     shank_half_xy = None
     if thread_corners and context.collision_mesh is not None:
@@ -220,6 +238,7 @@ def _probe_static_info(
         density_sigma_mm=sigma,
         collision_mesh=context.collision_mesh,
         target_points=target_points,
+        target_point_weights=target_point_weights,
         region_points=region_points,
         coverage_weight=context.coverage_weight,
         pivot_local=context.pivot_local,

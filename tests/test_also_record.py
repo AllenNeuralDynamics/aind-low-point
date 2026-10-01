@@ -13,9 +13,12 @@ from aind_rutter.domain.plan import RegionRef, resolve_region_points_LPS
 from aind_rutter.optimization.clearance.poses import pose_from_optimizer_vars
 from aind_rutter.optimization.objectives.coverage import (
     GaussianCoverageData,
+    KdeCoverageData,
+    _build_kde_grid,
     coverage_per_probe_over_probes,
     probe_coverage,
 )
+from aind_rutter.optimization.pipeline.probe_setup import region_weighted_cloud
 from aind_rutter.plan_io.roundtrip import planning_state_to_plan_model
 from tests.config_factories import ConfigFactory, TargetFactory
 
@@ -58,6 +61,18 @@ def test_region_points_put_the_target_first_and_convert_inline_to_LPS() -> None:
 def test_a_probe_without_also_record_has_no_region_points() -> None:
     state = build_plan_state_from_config(ConfigModel.model_validate(_config([])))
     assert resolve_region_points_LPS(state.probes["probe1"], {}) is None
+
+
+def test_regions_name_one_structure_per_target() -> None:
+    data = _config(["target2"])
+    data["plan"]["probes"]["probe1"]["regions"] = ["MD"]
+    with pytest.raises(ValidationError, match="regions names 1 structures for 2"):
+        ConfigModel.model_validate(data)
+    data["plan"]["probes"]["probe1"]["regions"] = ["MD", "RSP"]
+    cfg = ConfigModel.model_validate(data)
+    assert build_plan_state_from_config(cfg).probes["probe1"].regions == ("MD", "RSP")
+    model = planning_state_to_plan_model(build_plan_state_from_config(cfg), cfg.plan)
+    assert model.probes["probe1"].regions == ["MD", "RSP"]
 
 
 def test_also_record_survives_writing_the_plan_back() -> None:
@@ -115,3 +130,45 @@ def test_probes_with_different_region_counts_batch_like_one_at_a_time() -> None:
     )
     single = [probe_coverage(Rs[i], ts[i], TIPS, MASK, data[i]) for i in range(2)]
     np.testing.assert_allclose(np.asarray(batched), np.asarray(single), rtol=1e-6)
+
+
+def _kde(points, weights=None) -> KdeCoverageData:
+    grid, origin, spacing = _build_kde_grid(points, weights=weights, sigma_mm=0.3)
+    return KdeCoverageData(
+        grid=jnp.asarray(grid, jnp.float32),
+        origin=jnp.asarray(origin, jnp.float32),
+        spacing_mm=spacing,
+        active_start_mm=0.2,
+        active_end_mm=3.065,
+    )
+
+
+def _cloud(rng, centre, n) -> np.ndarray:
+    return centre + rng.normal(0.0, 0.2, (n, 3))
+
+
+def test_a_single_region_keeps_the_equal_weighting() -> None:
+    cloud = _cloud(np.random.default_rng(0), ANCHOR, 40)
+    points, weights = region_weighted_cloud([cloud])
+    assert weights is None and points is cloud
+    np.testing.assert_allclose(
+        _build_kde_grid(cloud, weights=np.full(40, 1 / 40), sigma_mm=0.3)[0],
+        _build_kde_grid(cloud, sigma_mm=0.3)[0],
+    )
+
+
+def test_each_retro_region_scores_what_its_own_cloud_would() -> None:
+    rng = np.random.default_rng(1)
+    dense = _cloud(rng, ANCHOR + [0.0, 0.0, 0.8], 400)
+    sparse = _cloud(rng, ANCHOR + [0.0, 0.0, 2.2], 12)
+    R, t = _pose()
+    alone = [float(probe_coverage(R, t, TIPS, MASK, _kde(c))) for c in (dense, sparse)]
+    points, weights = region_weighted_cloud([dense, sparse])
+    # Each region deposits one kernel's mass, however many points it has.
+    mass = _build_kde_grid(points, weights=weights, sigma_mm=0.3)[0].sum()
+    one = _build_kde_grid(sparse, sigma_mm=0.3)[0].sum()
+    assert mass == pytest.approx(2 * one, rel=1e-4)  # edge kernels lose a sliver
+    # The builder snaps each point to a voxel, which can land one voxel apart
+    # in grids with different bounds.
+    both = float(probe_coverage(R, t, TIPS, MASK, _kde(points, weights)))
+    assert both == pytest.approx(sum(alone), rel=5e-3)

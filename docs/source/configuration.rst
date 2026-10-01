@@ -812,7 +812,14 @@ Probe Fields
        takes. The optimizer scores a Gaussian on each beside the target's, so
        every region counts as a probe aimed at it alone would. ``target`` alone
        anchors the pose, so name the region nearest the middle of the run
-       there. Not supported with retro density.
+       there. Under retro density it needs ``regions``.
+   * - ``regions``
+     - No
+     - The structure ``target`` and each ``also_record`` entry stand for, in
+       that order. Retro density masks the cloud by ``structure:<region>`` for
+       each, and weights each region's points to one in total, so a sparsely
+       labelled region counts as much as a dense one. Empty means the probe is
+       named after its one structure.
    * - ``ap_local``
      - No
      - Per-probe AP angle override in degrees. When ``bind_ap_to_arc`` is true

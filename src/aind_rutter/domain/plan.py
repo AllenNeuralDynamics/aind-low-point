@@ -96,6 +96,9 @@ class ProbePlan:
     target_point_LPS: Optional[Tuple[float, float, float]] = None  # ad-hoc fallback
     # Regions scored beside the target. The target still anchors the pose.
     also_record: Tuple[RegionRef, ...] = ()
+    # Structure names for the target, then each ``also_record`` entry; empty
+    # when the probe is named after its one structure.
+    regions: Tuple[str, ...] = ()
     # The shank whose tip is the kinematic pivot (1-indexed). Drives
     # which shank's tip lands at the inline target, which shank's RAS
     # is shown in the readout, and along which shank brain-surface

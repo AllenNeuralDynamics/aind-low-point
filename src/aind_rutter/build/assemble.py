@@ -473,6 +473,7 @@ def build_plan_state_from_config(
             target_key=target_key,
             target_point_LPS=target_point_LPS,
             also_record=also_record,
+            regions=tuple(probe_decl.regions),
             position_bearing_shank=probe_decl.position_bearing_shank,
             calibrated=probe_decl.calibrated,
         )

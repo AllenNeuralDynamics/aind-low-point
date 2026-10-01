@@ -214,6 +214,8 @@ plan:
       # spin: 0.0
       # also_record: []             # further regions scored in coverage;
       #                              # ``target`` still anchors the pose
+      # regions: []                 # structure per target, then per
+      #                              # also_record entry (retro density masks)
       # past_target_mm: 0.0
       # offsets_RA: [0.0, 0.0]
       # position_bearing_shank: 1   # 1-indexed; multi-shank only — chooses

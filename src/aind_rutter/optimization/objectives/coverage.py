@@ -39,15 +39,17 @@ _DEFAULT_KDE_PAD_SIGMAS = 4.0
 def _build_kde_grid(
     target_points: np.ndarray,
     *,
+    weights: np.ndarray | None = None,
     sigma_mm: float,
     spacing_mm: float = _DEFAULT_KDE_SPACING_MM,
     pad_sigmas: float = _DEFAULT_KDE_PAD_SIGMAS,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Deposit each target point's Gaussian kernel onto a voxel grid.
 
-    Returns ``(grid, origin, spacing_mm)``. The grid is the equally-weighted
-    Gaussian mixture over ``target_points``, sampled at ``spacing_mm`` and
-    padded by ``pad_sigmas`` so the kernel tails fall inside it.
+    Returns ``(grid, origin, spacing_mm)``. The grid is the Gaussian mixture
+    over ``target_points``, weighted by ``weights`` or else equally (``1/n``
+    each), sampled at ``spacing_mm`` and padded by ``pad_sigmas`` so the kernel
+    tails fall inside it.
     """
     targets = np.asarray(target_points, dtype=np.float64)
     n = targets.shape[0]
@@ -63,7 +65,7 @@ def _build_kde_grid(
     r2 = ax[:, None, None] ** 2 + ax[None, :, None] ** 2 + ax[None, None, :] ** 2
     kernel = np.exp(-r2 / (2.0 * sigma_mm * sigma_mm))
     inv_n = 1.0 / n
-    for p in targets:
+    for i, p in enumerate(targets):
         idx = np.floor((p - bbox_min) / spacing_mm).astype(int)
         i_min = idx - k_radius
         i_max = idx + k_radius + 1
@@ -73,10 +75,12 @@ def _build_kde_grid(
             continue
         i0_k = i0_g - i_min
         i1_k = i0_k + (i1_g - i0_g)
-        grid[i0_g[0] : i1_g[0], i0_g[1] : i1_g[1], i0_g[2] : i1_g[2]] += kernel[
-            i0_k[0] : i1_k[0], i0_k[1] : i1_k[1], i0_k[2] : i1_k[2]
-        ]
-    grid *= inv_n
+        patch = kernel[i0_k[0] : i1_k[0], i0_k[1] : i1_k[1], i0_k[2] : i1_k[2]]
+        grid[i0_g[0] : i1_g[0], i0_g[1] : i1_g[1], i0_g[2] : i1_g[2]] += (
+            patch if weights is None else weights[i] * patch
+        )
+    if weights is None:
+        grid *= inv_n
     return grid, bbox_min, float(spacing_mm)
 
 
@@ -169,7 +173,9 @@ def build_coverage_data_from_probe_context(
     target_points = getattr(probe_ctx, "target_points", None)
     if target_points is not None and len(target_points) > 0:
         grid_np, origin_np, spacing = _build_kde_grid(
-            np.asarray(target_points, dtype=np.float64), sigma_mm=sigma_mm
+            np.asarray(target_points, dtype=np.float64),
+            weights=getattr(probe_ctx, "target_point_weights", None),
+            sigma_mm=sigma_mm,
         )
         return KdeCoverageData(
             grid=jnp.asarray(grid_np, dtype=jnp.float32),

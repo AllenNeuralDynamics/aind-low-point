@@ -61,6 +61,10 @@ class ProbeDeclModel(BaseModel):
     # Further regions this probe records, scored in its coverage beside
     # ``target``, which alone anchors the pose.
     also_record: list[TargetRef] = Field(default_factory=list)
+    # The structure ``target`` and each ``also_record`` entry stand for, in that
+    # order; retro density masks its cloud by ``structure:<region>``. Empty
+    # means the probe is named after its one structure.
+    regions: list[str] = Field(default_factory=list)
     past_target_mm: float = 0.0
     offsets_RA: list[float] = Field(
         default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2
@@ -100,6 +104,15 @@ class ProbeDeclModel(BaseModel):
             if isinstance(v.get("also_record"), list):
                 v["also_record"] = [coerce(t) for t in v["also_record"]]
         return v
+
+    @model_validator(mode="after")
+    def _one_region_per_target(self):
+        if self.regions and len(self.regions) != 1 + len(self.also_record):
+            raise ValueError(
+                f"regions names {len(self.regions)} structures for "
+                f"{1 + len(self.also_record)} targets (target, then also_record)"
+            )
+        return self
 
 
 class CalibrationRefModel(BaseModel):

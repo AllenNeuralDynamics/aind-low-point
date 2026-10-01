@@ -29,10 +29,10 @@ class ProbeStaticInfo:
 
     ``target_points`` (optional) holds an ``(N, 3)`` point cloud (in
     world LPS mm) that, when set, switches the coverage density from a
-    single-point Gaussian on ``target_LPS`` to an equally-weighted
-    Gaussian mixture over the cloud. ``target_LPS`` is still used for
-    target-anchored pose-bank construction and should be the
-    cloud's centroid in that case.
+    single-point Gaussian on ``target_LPS`` to a Gaussian mixture over the
+    cloud, weighted by ``target_point_weights``. ``target_LPS`` is still used
+    for target-anchored pose-bank construction and should be the centroid of
+    the target region's part of the cloud in that case.
     """
 
     name: str
@@ -45,6 +45,10 @@ class ProbeStaticInfo:
     density_sigma_mm: float = 0.5
     collision_mesh: trimesh.Trimesh | None = field(default=None, compare=False)
     target_points: NDArray[np.floating] | None = field(default=None, compare=False)
+    # (N,) mixture weight per ``target_points`` row; None weights them equally.
+    target_point_weights: NDArray[np.floating] | None = field(
+        default=None, compare=False
+    )
     # (K, 3) world LPS, one point per region this probe records, the target's
     # first: coverage sums a Gaussian on each. None scores ``target_LPS`` alone.
     region_points: NDArray[np.floating] | None = field(default=None, compare=False)
