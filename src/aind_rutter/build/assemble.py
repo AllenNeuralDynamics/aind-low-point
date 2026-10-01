@@ -187,6 +187,24 @@ def _load_geo(
     raise TypeError(f"Unexpected geometry type from loader: {type(geo)}")
 
 
+def load_asset_geometry(
+    cfg: ConfigModel, key: str, *, loader: str | None = None
+) -> Optional[GeometryOut]:
+    """An asset's canonical geometry, read with ``loader`` in place of its own.
+
+    The asset's source, loader arguments, canonicalization and chemical shift
+    apply either way, so one source can be read as a mesh and as points that
+    share its frame.
+    """
+    model = next(a for a in cfg.assets if a.key == key)
+    if loader is not None:
+        model = model.model_copy(update={"loader": loader})
+    canon = _resolve_canon_model_to_runtime(
+        model, cfg, compile_all_transforms(cfg.transforms)
+    )
+    return _load_geo(model, ChemShiftContext.from_config(cfg), canon)
+
+
 # --- asset builder ------------------------------------------------------------
 
 

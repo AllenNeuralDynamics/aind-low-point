@@ -8,7 +8,9 @@ Config-driven (works on any subject): ``RUTTER_CONFIG``/``RUTTER_HOLES`` select
 the subject and ``RUTTER_HANDOFF`` is that subject's Phase-2 output. Each handoff
 record already carries everything
 needed (pose, probe_to_hole, probe_to_arc_idx, arc_centroids_deg, n_arcs), so no
-re-optimization happens here — pure reconstruction.
+re-optimization happens here — pure reconstruction. Each plan's manifest entry
+also carries the share of every region its active sites reach; see
+:mod:`measure`.
 
 Run:
   RUTTER_CONFIG=examples/837229-config.yml \\
@@ -27,12 +29,23 @@ from types import SimpleNamespace
 import numpy as np
 import yaml
 
-from aind_rutter.build.assemble import build_plan_state_from_config
+from aind_rutter.build.assemble import (
+    build_plan_state_from_config,
+    build_runtime_from_config,
+)
 from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
+from aind_rutter.optimization.pipeline.measure import (
+    active_segments,
+    recorded_share,
+    region_clouds,
+    region_names,
+    shank_geometry,
+)
 from aind_rutter.optimization.pipeline.payloads import read_handoff
+from aind_rutter.optimization.pipeline.probe_setup import retro_opts_from_env
 from aind_rutter.optimization.pipeline.settings import EmitSettings
-from aind_rutter.plan_io.plan_set import PlanEntry, write_manifest
+from aind_rutter.plan_io.plan_set import PlanEntry, RecordedMeasure, write_manifest
 from aind_rutter.plan_io.rig_export import reorder_plan_for_rig
 from aind_rutter.plan_io.roundtrip import planning_state_to_plan_model
 
@@ -131,14 +144,34 @@ def _emit_manifest(meta, probe_order, path, fcl_desc):
 def run(settings: EmitSettings) -> int:
     """Write the top ranked plans of a handoff as plan-only YAML."""
     cfg = ConfigModel.from_yaml(settings.config)
-    # Emission is pure-symbolic: it only writes plan parameters (arc/ml/spin/
-    # offsets/depth) from the handoff x-vector into a PlanningModel. It needs NO
-    # meshes/SDFs/BVHs — only the base PlanningState (built mesh-free from the
-    # config's plan section) plus, per probe, its name + arc_idx (both already in
-    # the handoff record). The actual 3D placement happens when the plan is
-    # loaded later.
+    # Writing a plan is pure-symbolic: plan parameters (arc/ml/spin/offsets/
+    # depth) go from the handoff x-vector into a PlanningModel, from the base
+    # PlanningState (built mesh-free from the config's plan section) plus, per
+    # probe, its name + arc_idx (both already in the handoff record). Only the
+    # recorded measure places the probes, and so loads the meshes.
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
+    measure, runtime, clouds, shanks = None, None, {}, {}
+    if settings.recorded_radius_mm is not None:
+        runtime = build_runtime_from_config(cfg)
+        retro_opts = retro_opts_from_env(runtime)
+        clouds = region_clouds(cfg, runtime, retro_opts)
+        shanks = shank_geometry(runtime)
+        if clouds:
+            measure = RecordedMeasure(
+                "voxels" if retro_opts is None else "retro",
+                settings.recorded_radius_mm,
+            )
+            print(
+                f"recorded share within {measure.radius_mm:g} mm of {measure.cloud}: "
+                + ", ".join(f"{r} {len(c)}" for r, c in clouds.items())
+            )
+        else:
+            print("no region has a structure asset; plans carry no recorded share")
+        unscored = [r for r in region_names(runtime.plan_state) if r not in clouds]
+        if clouds and unscored:
+            # Their absence lowers nothing but hides them from the mean.
+            print(f"  not scored, no structure asset: {', '.join(unscored)}")
 
     H = read_handoff(settings.handoff)
     ranked = H.get("ranked", [])  # MMR-ranked feasible plans
@@ -171,6 +204,15 @@ def run(settings: EmitSettings) -> int:
         # Rig-readability ordering: arcs relabelled a=most-+AP, probes sorted by
         # arc then ML-descending. Cosmetic; pose semantics unchanged.
         plan_state = reorder_plan_for_rig(plan_state)
+        recorded: dict[str, float] = {}
+        if measure is not None and runtime is not None:
+            placed = copy.copy(plan_state)
+            placed.target_index = runtime.plan_state.target_index
+            segments = active_segments(placed, runtime, shanks)
+            recorded = {
+                region: recorded_share(cloud, segments, measure.radius_mm)
+                for region, cloud in clouds.items()
+            }
         # PLAN-ONLY file (just the plan section) so it pairs with the base config
         # via ``--plan``. Filename encodes the hole assignment (matches the tree).
         plan_model = planning_state_to_plan_model(plan_state, cfg.plan)
@@ -204,6 +246,7 @@ def run(settings: EmitSettings) -> int:
                 candidate=int(r.get("idx", i)),
                 holes={k: int(v) for k, v in r["hole"].items()},
                 arcs={nm: p.arc_id for nm, p in plan_state.probes.items()},
+                recorded=recorded,
             )
         )
         print(
@@ -218,6 +261,7 @@ def run(settings: EmitSettings) -> int:
         entries,
         probes=probe_order,
         config=str(settings.config),
+        measure=measure,
     )
     print(f"\nwrote {n_emit} plans → {plans_dir}/")
     print(f"wrote {out}/tree.txt + {out}/manifest.md + {out}/manifest.json")

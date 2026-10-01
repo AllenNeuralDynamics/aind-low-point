@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 MANIFEST_NAME = "manifest.json"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 _FILENAME = re.compile(r"plan-(\d+)-cov([\d.]+)-")
 
 
@@ -29,9 +29,25 @@ class PlanEntry:
     candidate: int | None = None
     holes: dict[str, int] = field(default_factory=dict)
     arcs: dict[str, str | None] = field(default_factory=dict)
+    # Region -> share of its cloud the active sites reach; see RecordedMeasure.
+    recorded: dict[str, float] = field(default_factory=dict)
+
+    def mean_recorded(self) -> float | None:
+        """Regions weighted equally, so the figure compares across probe kinds."""
+        if not self.recorded:
+            return None
+        return sum(self.recorded.values()) / len(self.recorded)
 
     def holes_str(self, probes: tuple[str, ...]) -> str:
         return " ".join(f"{p} {self.holes[p]}" for p in probes if p in self.holes)
+
+
+@dataclass(frozen=True)
+class RecordedMeasure:
+    """What ``PlanEntry.recorded`` is a share of, and how near counts."""
+
+    cloud: str  # "retro" cells or region "voxels"
+    radius_mm: float
 
 
 @dataclass(frozen=True)
@@ -41,6 +57,7 @@ class PlanSet:
     probes: tuple[str, ...] = ()
     config: str | None = None
     indexed: bool = True  # False: read from filenames, no manifest
+    measure: RecordedMeasure | None = None
 
     def path(self, entry: PlanEntry) -> Path:
         return self.plans_dir / entry.file
@@ -52,12 +69,14 @@ def write_manifest(
     *,
     probes: list[str],
     config: str | None,
+    measure: RecordedMeasure | None = None,
 ) -> Path:
     path = Path(out_dir) / MANIFEST_NAME
     payload = {
         "version": MANIFEST_VERSION,
         "config": config,
         "probes": list(probes),
+        "measure": None if measure is None else asdict(measure),
         "plans": [asdict(e) for e in entries],
     }
     path.write_text(json.dumps(payload, indent=1) + "\n")
@@ -76,8 +95,13 @@ def load_plan_set(path: Path) -> PlanSet:
     if manifest.exists():
         raw = json.loads(manifest.read_text())
         entries = tuple(PlanEntry(**e) for e in raw["plans"])
+        measure = raw.get("measure")
         return PlanSet(
-            plans_dir, entries, tuple(raw.get("probes", ())), raw.get("config")
+            plans_dir,
+            entries,
+            tuple(raw.get("probes", ())),
+            raw.get("config"),
+            measure=None if measure is None else RecordedMeasure(**measure),
         )
     found: list[PlanEntry] = []
     for f in sorted(plans_dir.glob("*.plan.yml")):

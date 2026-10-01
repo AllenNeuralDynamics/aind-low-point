@@ -190,6 +190,14 @@ class EmitSettings(PipelineSettings):
         Path("scratch/plans"),
         description="Directory receiving plans/, the tree and the manifests.",
     )
+    recorded_radius_mm: float | None = Field(
+        0.2,
+        description=(
+            "How near an active site a region's point must lie to count as "
+            "recorded, for the per-region share each plan's manifest entry "
+            "carries; unset skips the measure and the mesh load it needs."
+        ),
+    )
 
 
 class Phase1Settings(PipelineSettings):

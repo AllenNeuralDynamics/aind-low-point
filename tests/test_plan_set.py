@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from aind_rutter.plan_io.plan_set import PlanEntry, load_plan_set, write_manifest
+from aind_rutter.plan_io.plan_set import (
+    PlanEntry,
+    RecordedMeasure,
+    load_plan_set,
+    write_manifest,
+)
 from aind_rutter.web.plan_sets import ordered_files, plan_rows
 
 ENTRIES = [
@@ -87,3 +93,29 @@ def test_blank_values_sort_last_both_ways(tmp_path: Path) -> None:
         assert ordered_files(rows, [{"key": "fcl_mm", "order": order}], "") == [
             e.file for e in ENTRIES
         ]
+
+
+def test_the_recorded_share_round_trips_and_averages_over_regions(
+    tmp_path: Path,
+) -> None:
+    entry = PlanEntry(
+        "plan-01-cov08.00-md1.plan.yml", 1, recorded={"MD": 0.4, "PL": 0.1}
+    )
+    measure = RecordedMeasure("retro", 0.2)
+    write_manifest(tmp_path, [entry], probes=["MD"], config=None, measure=measure)
+    ps = load_plan_set(tmp_path)
+    assert ps.measure == measure and ps.entries == (entry,)
+    assert ps.entries[0].mean_recorded() == pytest.approx(0.25)
+
+
+def test_a_manifest_written_before_the_measure_still_loads(tmp_path: Path) -> None:
+    out = _emit_dir(tmp_path, manifest=True)
+    raw = json.loads((out / "manifest.json").read_text())
+    raw["version"] = 1
+    del raw["measure"]
+    for plan in raw["plans"]:
+        del plan["recorded"]
+    (out / "manifest.json").write_text(json.dumps(raw))
+    ps = load_plan_set(out)
+    assert ps.measure is None and ps.entries == tuple(ENTRIES)
+    assert ps.entries[0].mean_recorded() is None

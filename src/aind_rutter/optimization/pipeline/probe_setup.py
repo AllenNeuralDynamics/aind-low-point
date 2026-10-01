@@ -144,9 +144,7 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
     return out
 
 
-def _resolve_masked_retro_points(
-    runtime, region: str, opts: RetroDensityOpts
-) -> np.ndarray:
+def masked_retro_points(runtime, region: str, opts: RetroDensityOpts) -> np.ndarray:
     """Retro points (corrected scene-LPS) inside ``region``'s CCF structure AND
     the brain, by direct voxel lookup against the SOURCE volumes."""
     from aind_rutter.build.loaders import ccf_region_label_ids, ccf_region_membership
@@ -216,7 +214,7 @@ def _probe_static_info(
                 "density cannot tell which structure masks each cloud"
             )
         clouds = [
-            _resolve_masked_retro_points(runtime, region, retro_opts)
+            masked_retro_points(runtime, region, retro_opts)
             for region in plan.regions or (name,)
         ]
         target_points, target_point_weights = region_weighted_cloud(clouds)

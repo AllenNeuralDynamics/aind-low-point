@@ -746,6 +746,18 @@ Emit Plans
 pose to a mesh-free planning state, reorders arcs/probes for rig readability,
 and writes plan-only YAML files plus a decision tree and manifest.
 
+It also measures each plan, which is the one step that loads the meshes. The
+objective's coverage is divided by a ceiling that depends on the probe kind, so
+it cannot compare a quad base with a single shank on one region, nor two
+configs that split the regions over different probes. ``manifest.json``
+therefore carries, per plan, ``recorded``: for each region, the share of its
+points within ``RUTTER_RECORDED_RADIUS_MM`` (0.2) of any probe's active sites.
+The points are the region's retro cells when ``RUTTER_RETRO_DENSITY`` is on and
+its voxels otherwise, and the manifest's ``measure`` says which. A region is one
+of a probe's ``regions``, or the probe's name without them, and is scored only
+if the config has its ``structure:<region>`` asset; emit names the ones it
+could not score. ``EmitSettings(recorded_radius_mm=None)`` skips the measure.
+
 Run directly:
 
 .. code-block:: bash
@@ -761,6 +773,7 @@ Outputs:
 .. code-block:: text
 
    scratch/837229_plans/
+     manifest.json
      manifest.md
      tree.txt
      plans/
