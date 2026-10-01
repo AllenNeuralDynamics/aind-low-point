@@ -96,6 +96,7 @@ otherwise do without.
 | `rutter-phase1` | Enumerate and score candidate configurations. |
 | `rutter-phase2` | Solve the top candidates exactly, then gate on collision and threading. |
 | `rutter-emit` | Write the ranked survivors as plan-only YAML. |
+| `rutter-series configs\|solve\|schedule\|status spec.yml run/` | Plan a series of sessions from one spec: its configs, their solves, and the plan per session and session order with the least rig rework. |
 | `rutter-plan-csv` | Convert a plan into a target CSV for the rig. |
 
 ## Documentation

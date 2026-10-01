@@ -110,7 +110,9 @@ class TestReading:
 
 
 REFUSED = [
-    ("schedule", {"floors": [1.0]}, "Extra inputs"),
+    ("propose", {"probes": [5]}, "Extra inputs"),
+    ("schedule", {"first": ["three"]}, "schedule first: unknown sets"),
+    ("schedule", {"within": {"three": 2}}, "schedule within: unknown sets"),
     ("sets.one.score", "cells", "centroid"),
     ("hemisphere", "both", "left"),
     ("name", "a/b", "series name"),

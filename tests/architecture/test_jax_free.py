@@ -27,8 +27,10 @@ JAX_FREE_MODULES = [
     "aind_rutter.optimization.pipeline.phase2_diagnostics",
     "aind_rutter.optimization.pipeline.selection",
     "aind_rutter.optimization.pipeline.settings",
+    "aind_rutter.series.cli",
     "aind_rutter.series.configs",
     "aind_rutter.series.lock",
+    "aind_rutter.series.schedule",
     "aind_rutter.series.solve",
     "aind_rutter.series.spec",
 ]

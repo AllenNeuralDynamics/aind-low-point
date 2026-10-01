@@ -15,6 +15,7 @@ import subprocess
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,30 @@ def _finished(record: dict[str, Any], caps: tuple[int, ...]) -> bool:
     if not attempts or attempts[-1]["returncode"] != 0:
         return False
     return attempts[-1]["n_plans"] > 0 or attempts[-1]["max_arcs"] == caps[-1]
+
+
+class RunState(StrEnum):
+    NO_CONFIG = "no config"
+    PENDING = "pending"  # not run, or arc caps left to try
+    STALE = "stale"  # solved under inputs the spec no longer states
+    FAILED = "failed"
+    DONE = "done"
+
+
+def run_state(spec: SeriesSpec, run: SolveRun) -> RunState:
+    """Where a run stands against what the spec now asks of it."""
+    if not run.config.is_file():
+        return RunState.NO_CONFIG
+    record = read_record(run.out_dir)
+    if record is None:
+        return RunState.PENDING
+    if record.get("request") != request(spec, run):
+        return RunState.STALE
+    if _finished(record, spec.solve_for(run.set_name).max_arcs):
+        return RunState.DONE
+    attempts = record.get("attempts", [])
+    failed = bool(attempts) and attempts[-1]["returncode"] != 0
+    return RunState.FAILED if failed else RunState.PENDING
 
 
 def _attempt(

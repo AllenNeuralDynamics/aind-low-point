@@ -19,12 +19,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from aind_rutter.ccf.ontology import CCFOntology
 from aind_rutter.ccf.regions import Half, parse_halves
+from aind_rutter.domain.rig_setup import SetupCosts
 
 # Names become file names and catalog keys, which split on ":".
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]*")
 # What a subject may not restate: the series fills these in per region.
 REGION_ASSET_FILLED = frozenset({"key", "loader", "loader_kwargs"})
 REGION_TARGET_FILLED = frozenset({"derive_from", "key_prefix", "hemisphere"})
+_COSTS = SetupCosts()
 
 
 def _name_errors(what: str, names: Any) -> list[str]:
@@ -71,6 +73,47 @@ class SolveSpec(_Closed):
             raise ValueError(f"max_arcs must be positive and rising: {self.max_arcs}")
         if self.select_by == "learned" and self.ranker_table is None:
             raise ValueError("select_by learned needs a ranker_table")
+        return self
+
+
+class CostSpec(_Closed):
+    """The price of each rig change; see ``domain.rig_setup.SetupCosts``."""
+
+    arc_move: float = Field(_COSTS.arc_move, ge=0)
+    slider_move: float = Field(_COSTS.slider_move, ge=0)
+    spin: float = Field(_COSTS.spin, ge=0)
+    mount: float = Field(_COSTS.mount, ge=0)
+    arc_mount: float = Field(_COSTS.arc_mount, ge=0)
+
+    def costs(self) -> SetupCosts:
+        return SetupCosts(**self.model_dump())
+
+
+class ScheduleSpec(_Closed):
+    """How one plan per set and the order of the sets are chosen."""
+
+    costs: CostSpec = CostSpec()
+    # Sets that take the first sessions, in either order among themselves.
+    first: tuple[str, ...] = ()
+    # set -> the latest session it may be, counted from 1.
+    within: dict[str, int] = Field(default_factory=dict)
+    # A plan qualifies when it records this share of its set's best plan.
+    floors: tuple[float, ...] = Field((1.0, 0.95, 0.9), min_length=1)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ScheduleSpec:
+        errors = []
+        if any(not 0 < f <= 1 for f in self.floors):
+            errors.append(f"floors must be above 0 and at most 1: {self.floors}")
+        if len(set(self.floors)) < len(self.floors):
+            errors.append(f"floors repeat: {self.floors}")
+        if len(set(self.first)) < len(self.first):
+            errors.append(f"first repeats a set: {self.first}")
+        early = sorted(s for s, n in self.within.items() if n < 1)
+        if early:
+            errors.append(f"within counts sessions from 1: {early}")
+        if errors:
+            raise ValueError("; ".join(errors))
         return self
 
 
@@ -160,6 +203,7 @@ class SeriesSpec(_Closed):
     regions: dict[str, RegionDef] = Field(default_factory=dict)
     sets: dict[str, SetSpec] = Field(min_length=1)
     solve: SolveSpec = SolveSpec()
+    schedule: ScheduleSpec = ScheduleSpec()
 
     def solve_for(self, set_name: str) -> SolveSpec:
         stated = self.solve.model_dump(exclude_unset=True)
@@ -187,6 +231,13 @@ class SeriesSpec(_Closed):
                 unknown = sorted(set(s.sets) - set(self.sets))
                 if unknown:
                     errors.append(f"subject {subject}: unknown sets {unknown}")
+        for field, named in (
+            ("first", self.schedule.first),
+            ("within", self.schedule.within),
+        ):
+            unknown = sorted(set(named) - set(self.sets))
+            if unknown:
+                errors.append(f"schedule {field}: unknown sets {unknown}")
         for set_name, s in self.sets.items():
             errors += [f"set {set_name}: {e}" for e in self._set_errors(s)]
             try:

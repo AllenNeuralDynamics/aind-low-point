@@ -116,7 +116,9 @@ Module Organization
     │   ├── spec.py            # SeriesSpec: subjects, regions, sets, allocations
     │   ├── configs.py         # one config per subject, set and allocation
     │   ├── lock.py            # what a run was generated from, by hash
-    │   └── solve.py           # one pipeline run per config, resumable
+    │   ├── solve.py           # one pipeline run per config, resumable
+    │   ├── schedule.py        # a plan per set and the order, for least rework
+    │   └── cli.py             # rutter-series
     └── optimization/          # the placement optimizer; see the optimizer guide
         ├── assignment/        # which probe goes where
         ├── geometry/          # holes, headstages, probes, kinematics
@@ -161,7 +163,7 @@ lists cannot rot quietly.
    * - Nothing imports ``series``, which sits above the config, the build and
        the pipeline.
      - ``test_layers.py``
-   * - All six console scripts import and resolve.
+   * - All seven console scripts import and resolve.
      - ``test_console_scripts.py``
 
 ``domain/`` is the load-bearing one. It imports no config, no optimizer and no

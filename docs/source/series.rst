@@ -3,17 +3,21 @@ Planning a Series
 
 A series is several insertion sessions on the same mice: each session records
 one set of regions, and the sets share probes, a rig and an order. One file, the
-series spec, states what differs between series. ``aind_rutter.series`` turns it
-into one planner config per subject, set and allocation.
+series spec, states what differs between series. ``rutter-series`` turns it into
+one planner config per subject, set and allocation, solves each, and picks the
+plan for each session and the order of the sessions.
 
-.. code-block:: python
+.. code-block:: bash
 
-    from aind_rutter.series.configs import write_configs
-    from aind_rutter.series.spec import load_spec
+    rutter-series configs  dhc-bwcd.series.yml runs/dhc-bwcd
+    rutter-series solve    dhc-bwcd.series.yml runs/dhc-bwcd   # hours, on the card
+    rutter-series schedule dhc-bwcd.series.yml runs/dhc-bwcd
+    rutter-series status   dhc-bwcd.series.yml runs/dhc-bwcd   # where each run stands
 
-    spec = load_spec("dhc-bwcd.series.yml")
-    write_configs(spec, "runs/dhc-bwcd", spec_path="dhc-bwcd.series.yml")
-    solve(spec, "runs/dhc-bwcd")        # from aind_rutter.series.solve
+Each command is a function of ``aind_rutter.series``: ``configs.write_configs``,
+``solve.solve``, and ``schedule.schedule_subject`` with ``write_schedule``.
+``solve`` and ``schedule`` take ``--subject``, and ``solve`` ``--set``, to do
+part of a series.
 
 The spec
 --------
@@ -34,6 +38,12 @@ The spec
     inventory: {quadbase-dovetail: 4, "2.1": 8}
 
     solve: {max_arcs: [3, 4], topk: 2000, select_by: objective}
+
+    schedule:
+      costs: {arc_move: 1, slider_move: 1, spin: 1, mount: 10, arc_mount: 15}
+      first: [0-standard, A-broad]    # the first sessions, in either order
+      within: {D-thalamic: 3}         # among the first three sessions
+      floors: [1.0, 0.95, 0.9]
 
     regions:
       ACC:    {ccf: ACA}
@@ -103,6 +113,11 @@ The spec
     ``recorded_radius_mm`` the radius of the recorded share. A set's own
     ``solve`` restates only the fields it names.
 
+``schedule``
+    How the plan for each session and the order of the sessions are chosen; see
+    `Scheduling`_. Every field has the default shown above, except that
+    ``first`` and ``within`` are empty.
+
 What is refused
 ---------------
 
@@ -110,7 +125,9 @@ At load: an unknown field; a set region that is neither defined nor a CCF
 acronym; a ``keep`` naming both of two opposite halves; an allocation that
 leaves out a region of its set, records one twice or records one the set does
 not list; more probes of a kind than the inventory holds; two probes with one
-name; a subject listing a set that does not exist; arc caps that do not rise.
+name; a subject listing a set that does not exist; arc caps that do not rise;
+a ``first`` or ``within`` naming a set that does not exist; a floor outside
+(0, 1]; a negative price.
 
 When the configs are written: a base config with no arcs, or one that already
 defines a region's structure asset; a set scored on ``retro`` whose base has no
@@ -163,3 +180,54 @@ the config and bore file by hash, the score and the ``solve`` fields. A run
 made under different inputs is redone from nothing, caches and pool included.
 A failed attempt ends that run and the series moves on; the next call repeats
 it, and Phase 1 resumes from its pool.
+
+Scheduling
+----------
+
+Between two sessions the rig is reworked: arcs slide or are swapped, probes
+slide, turn, come off and go on. ``schedule`` picks one solved plan for each set
+and the order of the sets so that the rework over the series is least.
+
+A set's plans are pooled over every allocation solved for it, so whether a set
+runs on six probes or seven is decided here. A plan is scored by its recorded
+share averaged over the set's regions, which, unlike the solver's coverage,
+compares across probe kinds and counts. For each of ``floors``, a plan
+qualifies when it scores at least that share of its set's best plan, and one
+schedule is made from the qualifying plans. A lower floor gives up recorded
+share for less rework; the report shows each so the trade can be read off.
+
+``costs`` prices each change, in units of sliding one arc: ``arc_move`` and
+``slider_move`` for an arc or a probe kept and slid, ``spin`` for a kept probe
+turned, ``mount`` for each probe put on or taken off, and ``arc_mount`` for an
+arc put on or taken off, whose probes are charged as mounts as well. Probes of
+one kind are interchangeable, and neither arcs nor the probes on an arc pass
+each other. Depth and the in-plane offsets are manipulator travel and are not
+charged, nor is building the first session's rig.
+
+``first`` names the sets that take the first sessions, in either order among
+themselves. ``within`` gives a set the latest session it may be, counted from
+1. Both apply to the sets a subject runs.
+
+The search is exact: every order the constraints allow and every qualifying
+plan of each set. Of equally cheap schedules, the one recording most is taken.
+Each subject is scheduled on its own.
+
+.. code-block:: text
+
+    <run>/<subject>/schedule.json     every floor's schedule: per session the set,
+                                      allocation, plan, rig setup, changes and cost
+    <run>/<subject>/schedule.md       the same as tables, with the command that
+                                      opens each session in the planner
+    <run>/<subject>/schedule/floor-<f>/<session>-<set>-<allocation>-plan-<n>.plan.yml
+
+The files under ``schedule/`` are copies of the chosen plans, numbered by
+session. They are what the report's ``rutter-plan`` commands load and save, so
+a plan adjusted by hand is kept apart from the solved one; a copy that differs
+from its solved plan is left as it is by a later ``schedule`` and named in the
+report. The sessions are not one plan set for the planner's Plans tab, since
+each has its own config and probes.
+
+Only runs solved under what the spec now states are pooled. The others are
+listed with their state, the same one ``status`` prints: ``no config``,
+``pending``, ``stale``, ``failed`` or ``done``. A set with no solved plans, or
+plans emitted before the recorded share existed, is refused.
