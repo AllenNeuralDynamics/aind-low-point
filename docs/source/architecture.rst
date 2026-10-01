@@ -58,6 +58,7 @@ Module Organization
     │   ├── catalog.py         # AssetSpec, TargetSpec, AssetCatalog, Material
     │   ├── scene.py           # NodeInstance, Scene
     │   ├── rig.py             # JointRange, PoseLimits, Kinematics, AP/ML_LIMIT_DEG
+    │   ├── rig_setup.py       # RigSetup, setup_changes: the rework between two plans
     │   ├── plan.py            # ProbePlan, PlanningState, resolve_target_LPS
     │   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection
     │   ├── probe_kinds.py     # RecordingGeometry per probe kind
