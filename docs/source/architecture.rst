@@ -115,7 +115,8 @@ Module Organization
     ├── series/                # a series of sessions from one spec; nothing imports it
     │   ├── spec.py            # SeriesSpec: subjects, regions, sets, allocations
     │   ├── configs.py         # one config per subject, set and allocation
-    │   └── lock.py            # what a run was generated from, by hash
+    │   ├── lock.py            # what a run was generated from, by hash
+    │   └── solve.py           # one pipeline run per config, resumable
     └── optimization/          # the placement optimizer; see the optimizer guide
         ├── assignment/        # which probe goes where
         ├── geometry/          # holes, headstages, probes, kinematics

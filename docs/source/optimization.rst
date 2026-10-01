@@ -78,13 +78,24 @@ Example one-subject run:
 
    RUTTER_CONFIG=examples/837229-config.yml scripts/run_subject_overnight.sh
 
-The wrapper writes subject-keyed outputs:
+The wrapper writes outputs keyed by the config's stem:
 
 .. code-block:: text
 
    scratch/<config-stem>_pool.json.gz
    scratch/<config-stem>_phase2_handoff.json
    scratch/<config-stem>_plans/
+
+With ``RUTTER_RUN_DIR`` set, everything the run writes goes under that
+directory instead, the geometry caches included, so two configs with one stem
+do not share any of it:
+
+.. code-block:: text
+
+   <run dir>/pool.json.gz
+   <run dir>/phase2_handoff.json
+   <run dir>/plans/
+   <run dir>/manifest.json
 
 
 Pipeline Strategy

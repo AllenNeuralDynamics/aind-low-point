@@ -17,11 +17,13 @@ import yaml
 
 from aind_rutter.config import ConfigModel
 from aind_rutter.series.lock import write_lock
-from aind_rutter.series.spec import ProbeSpec, SeriesSpec
+from aind_rutter.series.spec import ProbeSpec, Score, SeriesSpec
 
 # Retro scoring and the recorded share both look a probe's regions up here.
 STRUCTURE_KEY = "structure:{label}"
 TARGET_PREFIX = "target:"
+# The cell cloud retro scoring reads; without it a solve quietly scores centroids.
+RETRO_KEY = "retro-targets"
 REGION_LOADER = "ccf_annotation_region"
 REGION_ASSET_DEFAULTS: dict[str, Any] = {
     "src": "${paths.ccf_annotation_path}",
@@ -107,6 +109,8 @@ def allocation_config(
     clash = sorted(existing & {a["key"] for a in assets})
     if clash:
         raise ValueError(f"the base config already defines {clash}")
+    if spec.sets[set_name].score is Score.RETRO and RETRO_KEY not in existing:
+        raise ValueError(f"the set scores retro and the base config has no {RETRO_KEY}")
     cfg["assets"] = [*(cfg.get("assets") or []), *assets]
     cfg["targets"] = [
         *(cfg.get("targets") or []),

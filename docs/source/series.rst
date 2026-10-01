@@ -13,6 +13,7 @@ into one planner config per subject, set and allocation.
 
     spec = load_spec("dhc-bwcd.series.yml")
     write_configs(spec, "runs/dhc-bwcd", spec_path="dhc-bwcd.series.yml")
+    solve(spec, "runs/dhc-bwcd")        # from aind_rutter.series.solve
 
 The spec
 --------
@@ -32,6 +33,8 @@ The spec
 
     inventory: {quadbase-dovetail: 4, "2.1": 8}
 
+    solve: {max_arcs: [3, 4], topk: 2000, select_by: objective}
+
     regions:
       ACC:    {ccf: ACA}
       vCA1:   {ccf: CA1, keep: [ventral]}
@@ -41,6 +44,8 @@ The spec
     sets:
       D-thalamic:
         regions: [ORBl, MD, SMT, PF, PVT, VM, MOs, pDMS]
+        score: centroid               # or retro
+        solve: {max_arcs: [4]}        # only what this set states differently
         allocations:
           7p4q:
             - kind: quadbase-dovetail
@@ -84,6 +89,20 @@ The spec
 ``inventory``
     How many probes of each kind can be mounted at once.
 
+``score``
+    What a set's coverage is taken over: ``centroid``, each region's target
+    point, or ``retro``, the labelled cells inside each region. ``retro`` needs
+    a ``retro-targets`` point asset in the subject's base config, in that
+    subject's frame and uncut; the regions' ``keep`` does the trimming.
+
+``solve``
+    What decides a solve's result. ``max_arcs`` lists the arc caps to try in
+    turn, a later one running only when the one before it gave no plans.
+    ``topk`` is how many Phase-1 candidates Phase 2 refines, ``select_by`` how
+    they are ranked (``learned`` needs a ``ranker_table``), and
+    ``recorded_radius_mm`` the radius of the recorded share. A set's own
+    ``solve`` restates only the fields it names.
+
 What is refused
 ---------------
 
@@ -91,10 +110,11 @@ At load: an unknown field; a set region that is neither defined nor a CCF
 acronym; a ``keep`` naming both of two opposite halves; an allocation that
 leaves out a region of its set, records one twice or records one the set does
 not list; more probes of a kind than the inventory holds; two probes with one
-name; a subject listing a set that does not exist.
+name; a subject listing a set that does not exist; arc caps that do not rise.
 
 When the configs are written: a base config with no arcs, or one that already
-defines a region's structure asset; and anything the planner's own config model
+defines a region's structure asset; a set scored on ``retro`` whose base has no
+cell cloud; and anything the planner's own config model
 refuses, since every config is loaded back as it is written. A kind with no
 ``probe:<kind>`` asset is caught there.
 
@@ -115,3 +135,31 @@ are taken over ``pDMS`` and not over all of ``CP``.
 The lock file records the resolved spec, the package version and commit, the
 hash of every config written, and the hash of every file the spec and the
 configs name: base configs, bore files, meshes, volumes and transforms.
+
+Solving
+-------
+
+``solve`` runs ``scripts/run_subject_overnight.sh`` once per config, in the
+order the spec states them, each into its own directory:
+
+.. code-block:: text
+
+    <run>/<subject>/solve/<set>/<allocation>/
+        pool.json.gz  phase2_handoff.json  plans/  manifest.json
+        atlas.json.gz  mrv_seeds.json.gz   the geometry caches
+        solve.arcs<N>.log                  the wrapper's output at each arc cap
+        solve.json                         what was asked, and each attempt
+
+The spec decides the variables that change a result: the config, the bore file,
+the arc cap, ``RUTTER_TOPK``, ``RUTTER_SELECT_BY``, ``RUTTER_RETRO_DENSITY`` and
+``RUTTER_RECORDED_RADIUS_MM``. Everything else comes from the environment
+``solve`` is called in, which is where the machine's side belongs:
+``RUTTER_WORKERS``, the chunk sizes, the GPU memory fraction. Any other
+``RUTTER_`` variable set there passes through as well and is written to
+``solve.json`` with the rest, so a result can be traced to it.
+
+A rerun skips every run whose ``solve.json`` matches what the spec now asks:
+the config and bore file by hash, the score and the ``solve`` fields. A run
+made under different inputs is redone from nothing, caches and pool included.
+A failed attempt ends that run and the series moves on; the next call repeats
+it, and Phase 1 resumes from its pool.

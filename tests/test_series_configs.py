@@ -14,7 +14,12 @@ from aind_rutter.build.assemble import build_runtime_from_config
 from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.pipeline.measure import region_clouds
 from aind_rutter.optimization.pipeline.probe_setup import RetroDensityOpts
-from aind_rutter.series.configs import STRUCTURE_KEY, config_path, write_configs
+from aind_rutter.series.configs import (
+    RETRO_KEY,
+    STRUCTURE_KEY,
+    config_path,
+    write_configs,
+)
 from aind_rutter.series.lock import LOCK_NAME, file_sha256
 from aind_rutter.series.spec import SeriesSpec
 from tests.synthetic_subject import BRAIN_CENTER_LPS, write_subject
@@ -270,6 +275,23 @@ class TestRefusals:
         base = self._base(subject, tmp_path, lambda b: b["plan"].pop("arcs"))
         with pytest.raises(ValueError, match="no plan.arcs"):
             write_configs(self._with_base(subject, annotation, base), tmp_path / "run")
+
+    def test_retro_scoring_without_a_cell_cloud(self, subject, annotation, tmp_path):
+        def drop_retro(base):
+            base["assets"] = [a for a in base["assets"] if a["key"] != RETRO_KEY]
+
+        base = self._base(subject, tmp_path, drop_retro)
+        data = self._with_base(subject, annotation, base).model_dump(mode="json")
+        data["sets"]["cut"]["score"] = "retro"
+        with pytest.raises(ValueError, match="m1 / cut / 3p.*no retro-targets"):
+            write_configs(SeriesSpec.model_validate(data), tmp_path / "run")
+        # With the cloud in the base, the same set is written.
+        data = _spec(subject, annotation).model_dump(mode="json")
+        data["sets"]["cut"]["score"] = "retro"
+        write_configs(SeriesSpec.model_validate(data), tmp_path / "run")
+
+    def test_the_retro_key_is_the_one_scoring_reads(self):
+        assert RETRO_KEY == RetroDensityOpts().retro_asset_key
 
     def test_a_kind_the_base_has_no_probe_for(self, subject, annotation, tmp_path):
         data = _spec(subject, annotation).model_dump(mode="json")

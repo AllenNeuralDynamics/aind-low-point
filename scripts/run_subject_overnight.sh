@@ -9,7 +9,9 @@
 #
 # Phase-1 is chunked and runs one process per arc-count group. Phase 2's three
 # worker processes share the card through an MPS daemon this script starts and
-# stops. All outputs are subject-keyed so multiple subjects never collide.
+# stops. Outputs go under RUTTER_RUN_DIR when it is set, and are otherwise keyed
+# by the config's stem under scratch/, so two runs collide only if they share
+# both.
 #
 # Coverage is the package default (normalized, alpha 0.2, gain 7). A subject with
 # a retro cloud can add RUTTER_RETRO_DENSITY=1; every RUTTER_ variable set here
@@ -27,6 +29,9 @@
 # Optional env (with defaults):
 #   RUTTER_TOPK=2000 (about an hour)
 #   RUTTER_WORKERS=3  RUTTER_GPU_MEM_FRACTION=0.28  RUTTER_PLANS=<all feasible>
+#   RUTTER_RUN_DIR=<dir>  everything this run writes: pool.json.gz,
+#       phase2_handoff.json, plans/, manifest.json and the geometry caches. An
+#       absolute path, or one relative to the repository.
 #   FRESH=1   force-clear the geometry caches + pool before running
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,9 +50,22 @@ STEM="$(basename "${CONFIG%.yml}")"
 # (e.g. TAG=density → scratch/<stem>_density_pool.json.gz). Seed cache is untagged
 # (geometry-only) so it's reused across coverage variants.
 TAG="${TAG:+_${TAG}}"
-POOL="scratch/${STEM}${TAG}_pool.json.gz"
-HANDOFF="scratch/${STEM}${TAG}_phase2_handoff.json"
-PLANDIR="scratch/${STEM}${TAG}_plans"
+if [ -n "${RUTTER_RUN_DIR:-}" ]; then
+  mkdir -p "$RUTTER_RUN_DIR"
+  POOL="$RUTTER_RUN_DIR/pool.json.gz"
+  HANDOFF="$RUTTER_RUN_DIR/phase2_handoff.json"
+  PLANDIR="$RUTTER_RUN_DIR"
+  ATLAS_CACHE="$RUTTER_RUN_DIR/atlas.json.gz"
+  SEED_CACHE="$RUTTER_RUN_DIR/mrv_seeds.json.gz"
+  STAMP="$RUTTER_RUN_DIR/geom.stamp"
+else
+  POOL="scratch/${STEM}${TAG}_pool.json.gz"
+  HANDOFF="scratch/${STEM}${TAG}_phase2_handoff.json"
+  PLANDIR="scratch/${STEM}${TAG}_plans"
+  ATLAS_CACHE="scratch/atlas_${STEM}.json.gz"
+  SEED_CACHE="scratch/mrv_seeds_${STEM}.json.gz"
+  STAMP="scratch/geom_${STEM}.stamp"
+fi
 # Three processes under MPS run about 2000 candidates an hour on a 10 GB card;
 # threads in one process are GIL-bound.
 TOPK="${RUTTER_TOPK:-2000}"
@@ -64,7 +82,7 @@ if [ "${RUTTER_SELECT_BY:-learned}" = learned ] && [ -z "${RUTTER_RANKS:-}${RUTT
   exit 1
 fi
 
-# Gotcha 1: the atlas + seed caches are keyed only by the config stem, but their
+# Gotcha 1: the atlas + seed caches are keyed only by where they are, but their
 # CONTENTS depend on probe geometry (meshes, kinds), the implant holes, and the
 # enumeration caps. Editing any of those without clearing the caches silently
 # reuses stale geometry. Stamp a fingerprint and nuke atlas + seeds + pool (the
@@ -72,9 +90,8 @@ fi
 # Coverage settings (RUTTER_RETRO_DENSITY / RUTTER_COV_*) are NOT in the
 # fingerprint, so coverage variants still share the geometry caches.
 # NOT detected: editing a probe .obj in place (config text unchanged) → FRESH=1.
-export RUTTER_ATLAS_CACHE="${RUTTER_ATLAS_CACHE:-scratch/atlas_${STEM}.json.gz}"
-export RUTTER_SEED_CACHE="${RUTTER_SEED_CACHE:-scratch/mrv_seeds_${STEM}.json.gz}"
-STAMP="scratch/geom_${STEM}.stamp"
+export RUTTER_ATLAS_CACHE="${RUTTER_ATLAS_CACHE:-$ATLAS_CACHE}"
+export RUTTER_SEED_CACHE="${RUTTER_SEED_CACHE:-$SEED_CACHE}"
 FRESH="${FRESH:-0}"
 geom_fingerprint() {
   {

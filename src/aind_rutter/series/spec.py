@@ -42,8 +42,36 @@ class Hemisphere(StrEnum):
     RIGHT = "right"
 
 
+class Score(StrEnum):
+    """What a set's coverage is taken over."""
+
+    CENTROID = "centroid"  # each region's target point
+    RETRO = "retro"  # the labelled cells inside each region
+
+
 class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class SolveSpec(_Closed):
+    """What decides a solve's result. Workers and memory are the machine's."""
+
+    # Arc caps tried in turn; a later one runs only when the last gave no plans.
+    max_arcs: tuple[int, ...] = Field((3,), min_length=1)
+    topk: int = Field(2000, ge=1)
+    select_by: Literal["objective", "learned"] = "objective"
+    ranker_table: Path | None = None
+    recorded_radius_mm: float = Field(0.2, gt=0)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> SolveSpec:
+        if any(n < 1 for n in self.max_arcs) or any(
+            b <= a for a, b in zip(self.max_arcs, self.max_arcs[1:])
+        ):
+            raise ValueError(f"max_arcs must be positive and rising: {self.max_arcs}")
+        if self.select_by == "learned" and self.ranker_table is None:
+            raise ValueError("select_by learned needs a ranker_table")
+        return self
 
 
 class RegionDef(_Closed):
@@ -93,7 +121,10 @@ class SetSpec(_Closed):
     """The regions of one session and the ways to put probes on them."""
 
     regions: tuple[str, ...] = Field(min_length=1)
+    score: Score = Score.CENTROID
     allocations: dict[str, tuple[ProbeSpec, ...]] = Field(min_length=1)
+    # Fields of the series' ``solve`` this set states differently.
+    solve: dict[str, Any] = Field(default_factory=dict)
 
 
 class SubjectSpec(_Closed):
@@ -128,6 +159,11 @@ class SeriesSpec(_Closed):
     # label -> definition; a label that is a CCF acronym needs no entry.
     regions: dict[str, RegionDef] = Field(default_factory=dict)
     sets: dict[str, SetSpec] = Field(min_length=1)
+    solve: SolveSpec = SolveSpec()
+
+    def solve_for(self, set_name: str) -> SolveSpec:
+        stated = self.solve.model_dump(exclude_unset=True)
+        return SolveSpec.model_validate(stated | self.sets[set_name].solve)
 
     def region(self, label: str) -> RegionDef:
         return self.regions.get(label) or RegionDef(ccf=(label,))
@@ -153,6 +189,10 @@ class SeriesSpec(_Closed):
                     errors.append(f"subject {subject}: unknown sets {unknown}")
         for set_name, s in self.sets.items():
             errors += [f"set {set_name}: {e}" for e in self._set_errors(s)]
+            try:
+                self.solve_for(set_name)
+            except ValueError as e:
+                errors.append(f"set {set_name}: solve: {e}")
         if errors:
             raise ValueError("; ".join(errors))
         return self
@@ -204,16 +244,27 @@ class SeriesSpec(_Closed):
         return errors
 
 
+def _sections(node: Any) -> list[Any]:
+    return list(node.values()) if isinstance(node, dict) else []
+
+
 def load_spec(path: str | Path) -> SeriesSpec:
-    """Read a series spec; a subject's relative paths are relative to the file."""
+    """Read a series spec; its relative paths are relative to the file."""
     path = Path(path)
     raw = yaml.safe_load(path.read_text())
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: a series spec is a mapping")
-    for subject in (raw.get("subjects") or {}).values():
-        if not isinstance(subject, dict):
-            continue
-        for field in ("base_config", "holes"):
-            if isinstance(subject.get(field), str):
-                subject[field] = str(path.parent / Path(subject[field]).expanduser())
+
+    def anchor(section: Any, fields: tuple[str, ...]) -> None:
+        if not isinstance(section, dict):
+            return
+        for field in fields:
+            if isinstance(section.get(field), str):
+                section[field] = str(path.parent / Path(section[field]).expanduser())
+
+    for subject in _sections(raw.get("subjects")):
+        anchor(subject, ("base_config", "holes"))
+    anchor(raw.get("solve"), ("ranker_table",))
+    for one in _sections(raw.get("sets")):
+        anchor(one.get("solve") if isinstance(one, dict) else None, ("ranker_table",))
     return SeriesSpec.model_validate(raw)

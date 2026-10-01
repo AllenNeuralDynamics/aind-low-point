@@ -97,9 +97,21 @@ class TestReading:
         assert spec.subjects["m1"].holes == tmp_path / "specs" / "holes.yml"
         assert spec.subjects["m2"].base_config == Path("/abs/base.yml")
 
+    def test_a_ranker_table_is_relative_to_the_file_too(self, tmp_path: Path):
+        data = spec_dict()
+        data["solve"] = {"select_by": "learned", "ranker_table": "ranker/a.npz"}
+        data["sets"]["two"]["solve"] = {"ranker_table": "ranker/b.npz"}
+        path = tmp_path / "pair.series.yml"
+        path.write_text(yaml.safe_dump(data))
+        spec = load_spec(path)
+        assert spec.solve_for("one").ranker_table == tmp_path / "ranker" / "a.npz"
+        assert spec.solve_for("two").ranker_table == tmp_path / "ranker" / "b.npz"
+        assert spec.solve_for("two").select_by == "learned"
+
 
 REFUSED = [
-    ("solve", {"topk": 10}, "Extra inputs"),
+    ("schedule", {"floors": [1.0]}, "Extra inputs"),
+    ("sets.one.score", "cells", "centroid"),
     ("hemisphere", "both", "left"),
     ("name", "a/b", "series name"),
     ("inventory", {Q: 0, S: 2}, "inventory"),
