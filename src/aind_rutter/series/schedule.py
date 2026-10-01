@@ -283,9 +283,18 @@ def subject_pools(
         if state is not RunState.DONE:
             left_out[run.label] = state
         elif (run.out_dir / "manifest.json").is_file():
-            pools[run.set_name] += plan_candidates(
+            found = plan_candidates(
                 run.set_name, run.allocation, run.out_dir, run.config
             )
+            regions = set(spec.sets[run.set_name].regions)
+            partial = [c for c in found if set(c.entry.recorded) != regions]
+            if partial:
+                raise ValueError(
+                    f"{run.label}: {partial[0].path} records "
+                    f"{sorted(partial[0].entry.recorded)}, not the set's "
+                    f"{sorted(regions)}, so its mean is not the set's"
+                )
+            pools[run.set_name] += found
     return pools, left_out
 
 

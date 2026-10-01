@@ -229,5 +229,6 @@ each has its own config and probes.
 
 Only runs solved under what the spec now states are pooled. The others are
 listed with their state, the same one ``status`` prints: ``no config``,
-``pending``, ``stale``, ``failed`` or ``done``. A set with no solved plans, or
-plans emitted before the recorded share existed, is refused.
+``pending``, ``stale``, ``failed`` or ``done``. A set with no solved plans is
+refused, and so are plans with no recorded share or one that leaves out a
+region of the set, whose mean would not be the set's.

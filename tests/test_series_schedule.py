@@ -274,6 +274,15 @@ class TestSchedule:
         with pytest.raises(ValueError, match="no recorded share"):
             schedule_subject(spec, run_dir, "m1")
 
+    def test_a_plan_recording_part_of_the_set_is_refused(self, series):
+        spec, run_dir, _ = series
+        _solve_all(spec, run_dir)
+        out = run_dir / "m1" / "solve" / "two" / "s"
+        entry = PlanEntry("p.plan.yml", 1, recorded={"MD": 0.5})
+        write_manifest(out, [entry], probes=[], config=None)
+        with pytest.raises(ValueError, match=r"records \['MD'\], not the set's"):
+            schedule_subject(spec, run_dir, "m1")
+
 
 class TestWritten:
     def test_the_json_the_report_and_a_copy_of_each_plan(self, series):
