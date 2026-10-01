@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable, Optional, Union
 
@@ -14,6 +15,7 @@ from aind_mri_utils.meshes import mask_to_trimesh
 from numpy.typing import NDArray
 
 from aind_rutter.build.step import load_step
+from aind_rutter.ccf.regions import half_mask
 from aind_rutter.domain.transforms import Float3, FloatNx3
 
 GeometryOut = Union[
@@ -146,7 +148,7 @@ def csv_points(path: str, max_points: int | None = None) -> NDArray[np.float64]:
 
 def ccf_region_label_ids(
     *,
-    acronym: str | None = None,
+    acronym: str | Sequence[str] | None = None,
     label_id: int | None = None,
     include_descendants: bool = True,
     hemisphere: str = "both",
@@ -161,19 +163,20 @@ def ccf_region_label_ids(
     if acronym is None and label_id is None:
         raise ValueError("ccf_region_label_ids: must specify acronym or label_id")
     ids: set[int] = set()
-    if acronym is not None:
+    # Several acronyms are one region: their union.
+    for name in [] if acronym is None else np.atleast_1d(acronym).tolist():
         from aind_rutter.ccf.ontology import CCFOntology
 
         ontology = CCFOntology.from_bundled()
         if include_descendants:
-            descendants = ontology.descendants_of(acronym, include_self=True)
+            descendants = ontology.descendants_of(name, include_self=True)
             if not descendants:
-                raise KeyError(f"CCF acronym {acronym!r} not in bundled ontology")
+                raise KeyError(f"CCF acronym {name!r} not in bundled ontology")
             ids.update(s.id for s in descendants)
         else:
-            structure = ontology.find_by_acronym(acronym)
+            structure = ontology.find_by_acronym(name)
             if structure is None:
-                raise KeyError(f"CCF acronym {acronym!r} not in bundled ontology")
+                raise KeyError(f"CCF acronym {name!r} not in bundled ontology")
             ids.add(structure.id)
     if label_id is not None:
         ids.add(int(label_id))
@@ -259,14 +262,55 @@ def ccf_region_membership(
     return mask
 
 
+def _voxel_centres(
+    annotation: sitk.Image, zyx: NDArray[np.intp]
+) -> NDArray[np.float64]:
+    """Physical centres of voxels given as array indices ``(z, y, x)``."""
+    idx_xyz = zyx[:, ::-1].astype(np.float64)
+    origin = np.asarray(annotation.GetOrigin(), dtype=np.float64)
+    spacing = np.asarray(annotation.GetSpacing(), dtype=np.float64)
+    direction = np.asarray(annotation.GetDirection(), dtype=np.float64).reshape(3, 3)
+    return origin + (idx_xyz * spacing) @ direction.T
+
+
+def ccf_region_bounds(
+    annotation: sitk.Image, match_ids: list[int]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """The physical box around a whole region's voxel centres, which ``keep`` halves."""
+    zyx = np.argwhere(np.isin(sitk.GetArrayViewFromImage(annotation), match_ids))
+    if zyx.shape[0] == 0:
+        raise ValueError(f"no voxels matched ids={sorted(match_ids)}")
+    centres = _voxel_centres(annotation, zyx)
+    return centres.min(axis=0), centres.max(axis=0)
+
+
+def _region_voxel_indices(
+    annotation: sitk.Image, match_ids: list[int], keep: Sequence[str], hemisphere: str
+) -> NDArray[np.intp]:
+    """Array indices ``(z, y, x)`` of a region's voxels, cut to its kept halves."""
+    zyx = np.argwhere(np.isin(sitk.GetArrayViewFromImage(annotation), match_ids))
+    if not keep or zyx.shape[0] == 0:
+        return zyx
+    centres = _voxel_centres(annotation, zyx)
+    kept = half_mask(
+        centres,
+        keep,
+        hemisphere=hemisphere,
+        lo=centres.min(axis=0),
+        hi=centres.max(axis=0),
+    )
+    return zyx[kept]
+
+
 def ccf_region_point_mask(
     annotation_path: str,
     points: NDArray[np.float64],
     *,
-    acronym: str | None = None,
+    acronym: str | Sequence[str] | None = None,
     label_id: int | None = None,
     include_descendants: bool = True,
     hemisphere: str = "both",
+    keep: Sequence[str] = (),
     extra_mask_paths: tuple[str, ...] = (),
 ) -> NDArray[np.bool_]:
     """Which ``points`` lie inside a CCF region by nearest-voxel label lookup.
@@ -275,6 +319,9 @@ def ccf_region_point_mask(
     ``annotation_path`` (e.g. raw subject LPS mm for a CCF-warped-into-subject
     annotation). Membership is exact and robust to the nonlinear CCF→subject
     warp, unlike geometric containment of a meshed region.
+
+    ``keep`` cuts the region to halves of its own extent; see
+    :mod:`aind_rutter.ccf.regions`.
 
     Each path in ``extra_mask_paths`` (e.g. a brain mask) is sampled the same way
     and AND-ed in as ``> 0`` — a point survives only if it is inside every mask.
@@ -292,21 +339,26 @@ def ccf_region_point_mask(
     brain_keep: NDArray[np.bool_] | None = None
     for mask_path in extra_mask_paths:
         vals, inb = voxel_values_at(sitk.ReadImage(str(mask_path)), pts)
-        keep = inb & (vals > 0)
-        brain_keep = keep if brain_keep is None else (brain_keep & keep)
-    return ccf_region_membership(
+        inside = inb & (vals > 0)
+        brain_keep = inside if brain_keep is None else (brain_keep & inside)
+    mask = ccf_region_membership(
         annot_vals, annot_inb, match_ids, brain_keep=brain_keep
     )
+    if keep:
+        lo, hi = ccf_region_bounds(annot, match_ids)
+        mask &= half_mask(pts, keep, hemisphere=hemisphere, lo=lo, hi=hi)
+    return mask
 
 
 @register_loader
 def ccf_region_voxel_points(
     path: str,
     *,
-    acronym: str | None = None,
+    acronym: str | Sequence[str] | None = None,
     label_id: int | None = None,
     include_descendants: bool = True,
     hemisphere: str = "both",
+    keep: Sequence[str] = (),
 ) -> NDArray[np.float64]:
     """Physical coordinates of every voxel labelled with a CCF region.
 
@@ -320,6 +372,7 @@ def ccf_region_voxel_points(
 
     The voxel→physical mapping uses the same forward affine as
     :func:`voxel_values_at` (``origin + direction @ (spacing * index)``).
+    ``keep`` cuts the region as in :func:`ccf_annotation_region`.
     """
     match_ids = ccf_region_label_ids(
         acronym=acronym,
@@ -328,28 +381,24 @@ def ccf_region_voxel_points(
         hemisphere=hemisphere,
     )
     annotation = sitk.ReadImage(path)
-    arr = sitk.GetArrayFromImage(annotation)  # (Z, Y, X)
-    zyx = np.argwhere(np.isin(arr, match_ids))  # (N, 3) in (z, y, x)
+    zyx = _region_voxel_indices(annotation, match_ids, keep, hemisphere)
     if zyx.shape[0] == 0:
         raise ValueError(
             f"ccf_region_voxel_points: no voxels matched ids={sorted(match_ids)} "
-            f"(hemisphere={hemisphere!r}) in {path}"
+            f"(hemisphere={hemisphere!r}, keep={list(keep)}) in {path}"
         )
-    idx_xyz = zyx[:, ::-1].astype(np.float64)  # (N, 3) in (x, y, z)
-    origin = np.asarray(annotation.GetOrigin(), dtype=np.float64)
-    spacing = np.asarray(annotation.GetSpacing(), dtype=np.float64)
-    direction = np.asarray(annotation.GetDirection(), dtype=np.float64).reshape(3, 3)
-    return origin + (idx_xyz * spacing) @ direction.T
+    return _voxel_centres(annotation, zyx)
 
 
 @register_loader
 def ccf_annotation_region(
     path: str,
     *,
-    acronym: str | None = None,
+    acronym: str | Sequence[str] | None = None,
     label_id: int | None = None,
     include_descendants: bool = True,
     hemisphere: str = "both",
+    keep: Sequence[str] = (),
 ) -> trimesh.Trimesh:
     """Mesh a single CCF region out of a label-mapped annotation volume.
 
@@ -380,6 +429,12 @@ def ccf_annotation_region(
     nonlinear CCF→subject warp, unlike a geometric midsagittal cut on the
     meshed region (which collapses for near-midline nuclei).
 
+    ``acronym`` may list several structures, meshed as one region. ``keep``
+    names halves of the region's own extent (``dorsal``, ``medial``,
+    ``posterior`` and their opposites; see :mod:`aind_rutter.ccf.regions`) for a
+    target the atlas has no label for, such as ``CP`` kept ``dorsal`` and
+    ``medial``. Medial and lateral need one hemisphere.
+
     Returns the surface mesh of the (binary) thresholded mask, in the
     annotation volume's native frame.
     """
@@ -391,13 +446,14 @@ def ccf_annotation_region(
     )
 
     annotation = sitk.ReadImage(path)
-    arr = sitk.GetArrayFromImage(annotation)
-    mask = np.isin(arr, match_ids).astype(np.uint8)
-    if not mask.any():
+    zyx = _region_voxel_indices(annotation, match_ids, keep, hemisphere)
+    if zyx.shape[0] == 0:
         raise ValueError(
             f"ccf_annotation_region: no voxels matched ids={sorted(match_ids)} "
-            f"(hemisphere={hemisphere!r}) in {path}"
+            f"(hemisphere={hemisphere!r}, keep={list(keep)}) in {path}"
         )
+    mask = np.zeros(sitk.GetArrayViewFromImage(annotation).shape, np.uint8)
+    mask[tuple(zyx.T)] = 1
     mask_img = sitk.GetImageFromArray(mask)
     mask_img.CopyInformation(annotation)
     return trimesh_from_sitk_mask(mask_img)

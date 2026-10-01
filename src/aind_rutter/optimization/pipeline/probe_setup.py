@@ -139,15 +139,43 @@ def _retro_voxel_base(runtime, opts: RetroDensityOpts, annot_path: str):
         vals, inb = voxel_values_at(sitk.ReadImage(str(spec.source_path)), subject)
         brain_keep &= inb & (vals > 0)
     annot_vals, annot_inb = voxel_values_at(sitk.ReadImage(annot_path), subject)
-    out = (world, brain_keep, annot_vals, annot_inb)
+    out = (world, subject, brain_keep, annot_vals, annot_inb)
     _RETRO_VOXEL_CACHE[key] = out
     return out
+
+
+CCF_REGION_LOADERS = frozenset({"ccf_annotation_region", "ccf_region_voxel_points"})
+
+
+def region_definition(spec) -> dict:
+    """The CCF region a structure asset stands for.
+
+    Its loader's own arguments, unless the metadata restates one: a config may
+    draw a structure in both hemispheres and score it in one.
+    """
+    told = spec.loader_kwargs if spec.loader in CCF_REGION_LOADERS else {}
+    meta = spec.metadata
+    return {
+        "acronym": meta.get("ccf_acronym")
+        or meta.get("acronym")
+        or told.get("acronym"),
+        "label_id": meta.get("label_id", told.get("label_id")),
+        "hemisphere": meta.get("hemisphere", told.get("hemisphere", "both")),
+        "keep": tuple(meta.get("keep", told.get("keep", ()))),
+    }
 
 
 def masked_retro_points(runtime, region: str, opts: RetroDensityOpts) -> np.ndarray:
     """Retro points (corrected scene-LPS) inside ``region``'s CCF structure AND
     the brain, by direct voxel lookup against the SOURCE volumes."""
-    from aind_rutter.build.loaders import ccf_region_label_ids, ccf_region_membership
+    import SimpleITK as sitk
+
+    from aind_rutter.build.loaders import (
+        ccf_region_bounds,
+        ccf_region_label_ids,
+        ccf_region_membership,
+    )
+    from aind_rutter.ccf.regions import half_mask
 
     catalog = runtime.asset_catalog
     mask_key = opts.region_mask_fmt.format(region=region)
@@ -155,18 +183,22 @@ def masked_retro_points(runtime, region: str, opts: RetroDensityOpts) -> np.ndar
     if sspec is None or sspec.source_path is None:
         raise RuntimeError(f"--retro-density: structure asset {mask_key!r} missing")
     annot_path = str(sspec.source_path)
-    world, brain_keep, annot_vals, annot_inb = _retro_voxel_base(
+    world, subject, brain_keep, annot_vals, annot_inb = _retro_voxel_base(
         runtime, opts, annot_path
     )
-    acronym = sspec.metadata.get("ccf_acronym") or sspec.metadata.get("acronym")
+    region_def = region_definition(sspec)
+    acronym, hemisphere = region_def["acronym"], region_def["hemisphere"]
     match_ids = ccf_region_label_ids(
-        acronym=acronym,
-        label_id=sspec.metadata.get("label_id"),
-        hemisphere=sspec.metadata.get("hemisphere", "both"),
+        acronym=acronym, label_id=region_def["label_id"], hemisphere=hemisphere
     )
     keep = ccf_region_membership(
         annot_vals, annot_inb, match_ids, brain_keep=brain_keep
     )
+    if region_def["keep"]:
+        lo, hi = ccf_region_bounds(sitk.ReadImage(annot_path), match_ids)
+        keep &= half_mask(
+            subject, region_def["keep"], hemisphere=hemisphere, lo=lo, hi=hi
+        )
     masked = world[keep]
     if masked.shape[0] == 0:
         raise RuntimeError(

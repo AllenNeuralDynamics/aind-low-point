@@ -74,6 +74,8 @@ class AssetSpec(BaseSpec):
     loader: Optional[str] = (
         None  # name of a registered loader (e.g. "trimesh", "sitk_volume")
     )
+    # What the loader was told beyond the path; for a CCF region, its definition.
+    loader_kwargs: dict[str, Any] = field(default_factory=dict)
 
     # CANONICAL GEOMETRY (post-load, guaranteed in canonical LPS mm)
     mesh: Optional[MeshTransformable] = None

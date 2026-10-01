@@ -137,6 +137,28 @@ class TestOnTheSubject:
         assert 0 < len(cells) < len(every)
         assert len(cells) == pytest.approx(inside.sum(), abs=3)  # box vs voxel edges
 
+    @pytest.mark.parametrize("opts", [None, RetroDensityOpts(common_mask_keys=())])
+    def test_a_cut_structure_is_scored_on_its_kept_part(
+        self, config_path: Path, built, opts, tmp_path: Path
+    ):
+        whole = len(region_clouds(*built, opts)["VM"])
+        parts = []
+        for half in ("dorsal", "ventral"):
+            data = yaml.safe_load(config_path.read_text())
+            data["assets"][-1]["loader_kwargs"]["keep"] = [half]
+            path = tmp_path / f"{half}.yml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False))
+            cfg = ConfigModel.from_yaml(path)
+            try:
+                clouds = region_clouds(cfg, build_runtime_from_config(cfg), opts)
+            except RuntimeError as exc:  # the retro mask refuses an empty half
+                assert "zero retro points" in str(exc)
+                parts.append(0)
+            else:
+                parts.append(len(clouds["VM"]))
+        assert max(parts) < whole or opts is not None
+        assert sum(parts) == whole
+
     def test_every_shank_gives_one_segment_centred_on_the_target(self, built):
         _, runtime = built
         shanks = shank_geometry(runtime)

@@ -304,6 +304,7 @@ def build_asset_spec(
         recording=resolve_recording(a),
         source_path=Path(a.src) if a.src else None,
         loader=a.loader,
+        loader_kwargs=dict(a.loader_kwargs or {}),
         mesh=mesh_tf,
         points=pts_tf,
     )

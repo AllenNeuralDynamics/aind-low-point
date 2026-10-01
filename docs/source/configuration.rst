@@ -372,6 +372,46 @@ that frame, as for any mesh:
         canonicalization_ref: cad-part
         loader_kwargs: {linear_deflection_mm: 0.005}
 
+CCF Regions
+~~~~~~~~~~~
+
+The ``ccf_annotation_region`` loader meshes one region out of an annotation
+volume whose voxels hold CCF structure ids, and ``ccf_region_voxel_points``
+returns the same region's voxel centres. Their ``loader_kwargs`` define the
+region:
+
+======================== =========== ==============================================
+Argument                 Default     Meaning
+======================== =========== ==============================================
+``acronym``                          A CCF acronym, or a list meshed as one region
+``label_id``                         A structure id, instead of or beside ``acronym``
+``include_descendants``  ``true``    Count voxels labelled with a child structure
+``hemisphere``           ``both``    ``left`` or ``right`` of a lateralized volume
+``keep``                 ``[]``      Halves of the region's own extent to keep
+======================== =========== ==============================================
+
+``keep`` makes a target the atlas has no label for. Each entry is one of
+``dorsal``, ``ventral``, ``anterior``, ``posterior``, ``medial`` and
+``lateral``, and cuts the region at the middle of its bounding box along that
+axis, in the volume's own LPS frame; ``medial`` and ``lateral`` need one
+hemisphere:
+
+.. code-block:: yaml
+
+    assets:
+      - key: structure:pDMS
+        src: ${paths.ccf_annotation_path}
+        loader: ccf_annotation_region
+        loader_kwargs:
+          acronym: CP
+          hemisphere: left
+          keep: [dorsal, medial, posterior]
+
+Retro density and the recorded share read the same definition, so a probe whose
+``regions`` names ``pDMS`` is scored on the cells and voxels of that part alone.
+A ``hemisphere`` or ``keep`` in the asset's ``metadata`` takes precedence for
+scoring, which lets a structure be drawn in both hemispheres and scored in one.
+
 Role from Key Prefix
 ~~~~~~~~~~~~~~~~~~~~
 

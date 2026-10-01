@@ -110,7 +110,8 @@ Module Organization
     │   ├── keybindings.py     # which key means which action, and how fast
     │   └── ccf_regions.py     # CCFOverlayManager (lazy region meshes)
     ├── ccf/
-    │   └── ontology.py        # Allen CCF structures + search
+    │   ├── ontology.py        # Allen CCF structures + search
+    │   └── regions.py         # the halves of a region a definition keeps
     └── optimization/          # the placement optimizer; see the optimizer guide
         ├── assignment/        # which probe goes where
         ├── geometry/          # holes, headstages, probes, kinematics

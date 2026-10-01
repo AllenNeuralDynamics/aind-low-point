@@ -95,6 +95,7 @@ def points_in_region_center_mass(
     label_id: int | None = None,
     hemisphere: str = "both",
     include_descendants: bool = True,
+    keep: tuple[str, ...] = (),
     brain_mask_paths: tuple[str, ...] = (),
     lookup_points: NDArray[np.float64] | None = None,
     **_,
@@ -137,6 +138,7 @@ def points_in_region_center_mass(
         label_id=label_id,
         include_descendants=include_descendants,
         hemisphere=hemisphere,
+        keep=tuple(keep),
         extra_mask_paths=tuple(brain_mask_paths),
     )
     if not sel.any():

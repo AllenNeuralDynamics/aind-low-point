@@ -779,7 +779,7 @@ class DerivedTargetSpecModel(BaseModel):
         src_lk = dict(src_asset.loader_kwargs or {})
         region = {
             k: src_lk[k]
-            for k in ("acronym", "label_id", "include_descendants")
+            for k in ("acronym", "label_id", "include_descendants", "keep")
             if k in src_lk
         }
         src_str = str(src_asset.src) if src_asset.src is not None else None
