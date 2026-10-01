@@ -217,20 +217,21 @@ class TestDerivedHemisphereExpand:
         assert t.reducer == "mesh_center_mass"
         assert str(t.src) == "/some/lateralized.nii.gz"
 
-    def test_points_mean_uses_voxel_points_loader(self):
-        """Anatomical path: region voxel centroid via ccf_region_voxel_points."""
+    @pytest.mark.parametrize("reducer", ["points_mean", "points_interior"])
+    def test_point_reducers_use_the_voxel_points_loader(self, reducer):
+        """Anatomical path: the region's voxels via ccf_region_voxel_points."""
         derived = DerivedTargetSpecModel(
             derive_from=["structure:VM"],
             key_prefix="target:L:",
             hemisphere="left",
-            reducer="points_mean",
+            reducer=reducer,
         )
         out = derived.expand({"structure:VM": self._vm_asset()})
         t = out[0]
         assert t.source_key is None
         assert t.loader == "ccf_region_voxel_points"
         assert t.loader_kwargs == {"acronym": "VM", "hemisphere": "left"}
-        assert t.reducer == "points_mean"
+        assert t.reducer == reducer
         assert str(t.src) == "/some/lateralized.nii.gz"
 
     def test_retro_injects_reducer_kwargs_and_keeps_source_key(self):

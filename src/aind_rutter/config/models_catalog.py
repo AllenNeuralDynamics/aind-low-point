@@ -770,8 +770,8 @@ class DerivedTargetSpecModel(BaseModel):
           (and hemisphere) into ``reducer_kwargs``. The ``points_key`` retro cloud
           must share the annotation's frame, so guard it for identity
           canonicalization.
-        - ``points_mean`` (anatomical): load the region's voxel cloud directly via
-          ``ccf_region_voxel_points`` and take its mean.
+        - ``points_mean``, ``points_interior`` (anatomical): load the region's
+          voxel cloud directly via ``ccf_region_voxel_points`` and reduce that.
         - otherwise (e.g. ``mesh_center_mass``): legacy behaviour — re-load the
           source asset's region restricted to the hemisphere as a mesh.
         """
@@ -793,7 +793,7 @@ class DerivedTargetSpecModel(BaseModel):
             rk.update(region)
             rk["hemisphere"] = self.hemisphere
             overrides["reducer_kwargs"] = rk
-        elif self.reducer == "points_mean":
+        elif self.reducer in ("points_mean", "points_interior"):
             overrides["src"] = src_str
             overrides["loader"] = "ccf_region_voxel_points"
             lk = dict(region)

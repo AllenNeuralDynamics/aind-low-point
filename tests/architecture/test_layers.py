@@ -149,6 +149,19 @@ def test_the_solver_does_not_import_the_pipeline(graph: Graph) -> None:
     _assert_baseline(violations, SOLVER_TO_PIPELINE_BASELINE, "solver → pipeline")
 
 
+def test_nothing_imports_series(graph: Graph) -> None:
+    """A series is stated on top of everything else; nothing is built on it."""
+    series = f"{PACKAGE}.series"
+    violations = {
+        (imp.importer, target)
+        for imp in graph.imports
+        if (target := graph.owner(imp.target)) is not None
+        and target.startswith(series)
+        and not imp.importer.startswith(series)
+    }
+    assert not violations, f"→ series: {sorted(violations)}"
+
+
 def test_optimization_does_not_import_a_frontend(graph: Graph) -> None:
     violations = set()
     for imp in graph.imports:

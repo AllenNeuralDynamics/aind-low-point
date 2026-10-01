@@ -112,6 +112,10 @@ Module Organization
     ├── ccf/
     │   ├── ontology.py        # Allen CCF structures + search
     │   └── regions.py         # the halves of a region a definition keeps
+    ├── series/                # a series of sessions from one spec; nothing imports it
+    │   ├── spec.py            # SeriesSpec: subjects, regions, sets, allocations
+    │   ├── configs.py         # one config per subject, set and allocation
+    │   └── lock.py            # what a run was generated from, by hash
     └── optimization/          # the placement optimizer; see the optimizer guide
         ├── assignment/        # which probe goes where
         ├── geometry/          # holes, headstages, probes, kinematics
@@ -128,7 +132,7 @@ Module Organization
 Layer rules
 -----------
 
-Five rules hold over that tree, and ``tests/architecture/`` enforces each
+These rules hold over that tree, and ``tests/architecture/`` enforces each
 against the import graph rather than against a convention. Every rule carries a
 baseline of today's exceptions that may only shrink: fixing one means deleting
 its line, and a rule fails when a listed exception stops violating it, so the
@@ -153,6 +157,9 @@ lists cannot rot quietly.
    * - The planner imports without JAX installed, so the viewer runs without
        the optimizer stack.
      - ``test_jax_free.py``
+   * - Nothing imports ``series``, which sits above the config, the build and
+       the pipeline.
+     - ``test_layers.py``
    * - All six console scripts import and resolve.
      - ``test_console_scripts.py``
 

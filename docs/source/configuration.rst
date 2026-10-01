@@ -407,6 +407,11 @@ hemisphere:
           hemisphere: left
           keep: [dorsal, medial, posterior]
 
+A derived target that sets ``hemisphere`` over such an asset reduces the region's
+voxels: ``points_mean`` is their centroid, and ``points_interior`` is the
+centroid unless it falls outside the region, as it does for a thin or curved
+one, and then the voxel nearest it.
+
 Retro density and the recorded share read the same definition, so a probe whose
 ``regions`` names ``pDMS`` is scored on the cells and voxels of that part alone.
 A ``hemisphere`` or ``keep`` in the asset's ``metadata`` takes precedence for

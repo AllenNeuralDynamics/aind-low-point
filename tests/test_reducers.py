@@ -118,3 +118,27 @@ class TestPointsMean:
     def test_empty_raises(self):
         with pytest.raises(EmptyReductionError):
             _REDUCER_REGISTRY["points_mean"](np.zeros((0, 3)))
+
+
+class TestPointsInterior:
+    def test_a_mean_among_the_points_is_kept(self):
+        pts = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
+        c = _REDUCER_REGISTRY["points_interior"](pts)
+        assert c == pytest.approx([0.1, 0.0, 0.0])
+
+    def test_a_mean_outside_moves_to_the_nearest_point(self):
+        # An arc: its mean lies in the hollow.
+        angles = np.linspace(0.0, np.pi, 9)
+        pts = np.stack([np.cos(angles), np.sin(angles), np.zeros(9)], axis=1)
+        c = _REDUCER_REGISTRY["points_interior"](pts)
+        assert c == pytest.approx([0.0, 1.0, 0.0])
+
+    def test_tolerance_decides_what_outside_means(self):
+        pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        reduce = _REDUCER_REGISTRY["points_interior"]
+        assert reduce(pts, tolerance_mm=0.6) == pytest.approx([0.5, 0.0, 0.0])
+        assert reduce(pts, tolerance_mm=0.4) == pytest.approx([0.0, 0.0, 0.0])
+
+    def test_empty_raises(self):
+        with pytest.raises(EmptyReductionError):
+            _REDUCER_REGISTRY["points_interior"](np.zeros((0, 3)))

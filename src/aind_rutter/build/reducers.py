@@ -86,6 +86,25 @@ def points_mean(source: SourceGeo, **_) -> ReduceOut:
 
 
 @register_reducer
+def points_interior(source: SourceGeo, *, tolerance_mm: float = 0.1, **_) -> ReduceOut:
+    """The mean of an ``(N, 3)`` cloud, or its nearest point when the mean is outside.
+
+    A thin or curved region's centroid can fall outside the region; a target has
+    to be in it. The mean counts as inside when some point is within
+    ``tolerance_mm`` of it, which for a voxel cloud wants the voxel spacing.
+    """
+    pts = np.asarray(source, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        raise TypeError(f"points_interior needs an (N, 3) cloud, got {pts.shape}")
+    if pts.shape[0] == 0:
+        raise EmptyReductionError("points_interior: empty point cloud")
+    mean = pts.mean(axis=0)
+    apart = np.linalg.norm(pts - mean, axis=1)
+    nearest = int(np.argmin(apart))
+    return mean if apart[nearest] < tolerance_mm else pts[nearest]
+
+
+@register_reducer
 def points_in_region_center_mass(
     _source: SourceGeo,
     *,

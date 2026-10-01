@@ -15,6 +15,7 @@ Institute for Neural Dynamics.
    quickstart
    configuration
    vocabulary
+   series
 
 
 .. toctree::
