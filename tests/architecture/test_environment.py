@@ -46,6 +46,8 @@ ENV_READ_BASELINE = {
     "aind_rutter.optimization.pipeline.thick_well:XLA_PYTHON_CLIENT_PREALLOCATE@import",
     "aind_rutter.optimization.clearance.voxel_sdf:AIND_LOW_POINT_CACHE_DIR@function",
     "aind_rutter.optimization.clearance.envelope:AIND_LOW_POINT_CACHE_DIR@function",
+    # A CLI shim: the proposer runs without a card.
+    "aind_rutter.series.cli:JAX_PLATFORMS@function",
 }
 
 

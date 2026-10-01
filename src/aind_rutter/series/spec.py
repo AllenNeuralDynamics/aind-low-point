@@ -117,6 +117,19 @@ class ScheduleSpec(_Closed):
         return self
 
 
+class ProposeSpec(_Closed):
+    """How allocations are proposed; see ``optimization.pipeline.propose``."""
+
+    max_group: int = Field(3, ge=1)
+    # Of what a region records alone, the least it may keep on a shared probe.
+    min_kept: float = Field(0.1, ge=0, le=1)
+    per_count: int = Field(1, ge=1)
+    angle_step_deg: float = Field(3.0, gt=0)
+    spin_step_deg: float = Field(15.0, gt=0)
+    depth_step_mm: float = Field(0.1, gt=0)
+    max_points: int = Field(3000, ge=1)
+
+
 class RegionDef(_Closed):
     """A label's voxels: one or more CCF structures, cut to the halves kept."""
 
@@ -165,7 +178,8 @@ class SetSpec(_Closed):
 
     regions: tuple[str, ...] = Field(min_length=1)
     score: Score = Score.CENTROID
-    allocations: dict[str, tuple[ProbeSpec, ...]] = Field(min_length=1)
+    # None yet is a set still to be proposed for.
+    allocations: dict[str, tuple[ProbeSpec, ...]] = Field(default_factory=dict)
     # Fields of the series' ``solve`` this set states differently.
     solve: dict[str, Any] = Field(default_factory=dict)
 
@@ -204,6 +218,7 @@ class SeriesSpec(_Closed):
     sets: dict[str, SetSpec] = Field(min_length=1)
     solve: SolveSpec = SolveSpec()
     schedule: ScheduleSpec = ScheduleSpec()
+    propose: ProposeSpec = ProposeSpec()
 
     def solve_for(self, set_name: str) -> SolveSpec:
         stated = self.solve.model_dump(exclude_unset=True)

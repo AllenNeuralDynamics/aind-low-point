@@ -111,6 +111,8 @@ class TestReading:
 
 REFUSED = [
     ("propose", {"probes": [5]}, "Extra inputs"),
+    ("propose", {"max_group": 0}, "greater than or equal to 1"),
+    ("propose", {"min_kept": 1.5}, "less than or equal to 1"),
     ("schedule", {"first": ["three"]}, "schedule first: unknown sets"),
     ("schedule", {"within": {"three": 2}}, "schedule within: unknown sets"),
     ("sets.one.score", "cells", "centroid"),
@@ -128,7 +130,6 @@ REFUSED = [
     ("sets.one.regions", ["MD", "VM", "vCA1", "PL"], "records none of"),
     ("sets.one.regions", ["MD", "VM"], "does not list"),
     ("sets.two.regions", ["SI_HDB", "SI_HDB"], "listed twice"),
-    ("sets.two.allocations", {}, "at least 1"),
     ("sets.two.allocations.1p", [{"kind": Q, "regions": []}], "at least 1"),
     ("sets.one.allocations.3p.1.regions", ["VM", "MD"], "more than one probe"),
     ("sets.one.allocations.3p.1.kind", Q, "the inventory has 1"),
@@ -144,6 +145,12 @@ REFUSED = [
 def test_refuses(path: str, value: Any, says: str):
     with pytest.raises(ValidationError, match=says):
         SeriesSpec.model_validate(_edited(path, value))
+
+
+def test_a_set_may_state_no_allocation_yet():
+    data = spec_dict()
+    del data["sets"]["two"]["allocations"]
+    assert SeriesSpec.model_validate(data).sets["two"].allocations == {}
 
 
 def test_an_allocation_name_is_a_file_name():

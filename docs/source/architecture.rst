@@ -116,6 +116,7 @@ Module Organization
     │   ├── spec.py            # SeriesSpec: subjects, regions, sets, allocations
     │   ├── configs.py         # one config per subject, set and allocation
     │   ├── lock.py            # what a run was generated from, by hash
+    │   ├── propose.py         # allocations for a set, in the spec's form
     │   ├── solve.py           # one pipeline run per config, resumable
     │   ├── schedule.py        # a plan per set and the order, for least rework
     │   └── cli.py             # rutter-series

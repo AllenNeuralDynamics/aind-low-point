@@ -5,19 +5,22 @@ A series is several insertion sessions on the same mice: each session records
 one set of regions, and the sets share probes, a rig and an order. One file, the
 series spec, states what differs between series. ``rutter-series`` turns it into
 one planner config per subject, set and allocation, solves each, and picks the
-plan for each session and the order of the sessions.
+plan for each session and the order of the sessions. Before any of that it can
+propose the allocations themselves.
 
 .. code-block:: bash
 
+    rutter-series propose  dhc-bwcd.series.yml runs/dhc-bwcd   # a minute a set, no card
     rutter-series configs  dhc-bwcd.series.yml runs/dhc-bwcd
     rutter-series solve    dhc-bwcd.series.yml runs/dhc-bwcd   # hours, on the card
     rutter-series schedule dhc-bwcd.series.yml runs/dhc-bwcd
     rutter-series status   dhc-bwcd.series.yml runs/dhc-bwcd   # where each run stands
 
-Each command is a function of ``aind_rutter.series``: ``configs.write_configs``,
-``solve.solve``, and ``schedule.schedule_subject`` with ``write_schedule``.
-``solve`` and ``schedule`` take ``--subject``, and ``solve`` ``--set``, to do
-part of a series.
+Each command is a function of ``aind_rutter.series``:
+``propose.write_proposals``, ``configs.write_configs``, ``solve.solve``, and
+``schedule.schedule_subject`` with ``write_schedule``. ``propose``, ``solve``
+and ``schedule`` take ``--subject``, and ``propose`` and ``solve`` ``--set``,
+to do part of a series.
 
 The spec
 --------
@@ -38,6 +41,8 @@ The spec
     inventory: {quadbase-dovetail: 4, "2.1": 8}
 
     solve: {max_arcs: [3, 4], topk: 2000, select_by: objective}
+
+    propose: {max_group: 3, min_kept: 0.1, per_count: 1}
 
     schedule:
       costs: {arc_move: 1, slider_move: 1, spin: 1, mount: 10, arc_mount: 15}
@@ -77,8 +82,10 @@ The spec
     entry.
 
 ``sets``
-    The regions of one session, and one or more allocations of probes to them.
-    Regions, sets and allocations hold for every subject.
+    The regions of one session, and the allocations of probes to them. Regions,
+    sets and allocations hold for every subject. A set may state no allocation
+    yet: ``propose`` reads only its regions, and there is nothing of it to
+    solve or schedule until one is stated.
 
 ``allocations``
     Each is a list of probes. A probe records its ``regions``: the first anchors
@@ -112,6 +119,10 @@ The spec
     they are ranked (``learned`` needs a ``ranker_table``), and
     ``recorded_radius_mm`` the radius of the recorded share. A set's own
     ``solve`` restates only the fields it names.
+
+``propose``
+    How allocations are proposed; see `Proposing allocations`_. Every field
+    has a default.
 
 ``schedule``
     How the plan for each session and the order of the sessions are chosen; see
@@ -152,6 +163,63 @@ are taken over ``pDMS`` and not over all of ``CP``.
 The lock file records the resolved spec, the package version and commit, the
 hash of every config written, and the hash of every file the spec and the
 configs name: base configs, bore files, meshes, volumes and transforms.
+
+Proposing allocations
+---------------------
+
+Which regions share a probe, and which kind each probe is, decides more of what
+a session records than anything the solver does afterwards. ``propose`` answers
+it from the anatomy, the implant and the probes alone, for every probe count
+the set's regions and the bores allow:
+
+.. code-block:: text
+
+    <run>/<subject>/proposed/<set>.yml           the proposals, in the spec's form
+    <run>/<subject>/proposed/<set>.regions.yml   the config the regions were read from
+
+A line through a bore, at angles the rig reaches, is scored as emit scores a
+solved plan: the share of each region's points within ``recorded_radius_mm`` of
+the active stretch of each shank on it. The points are the labelled cells when
+the set's ``score`` is ``retro`` and the region's voxels otherwise, sampled
+down to ``max_points`` a region. Lines are tried every ``angle_step_deg`` in
+both arc angles, a row of shanks every ``spin_step_deg``, and the active
+stretch every ``depth_step_mm`` down the line; every shank must thread the bore.
+
+Up to ``max_group`` regions may share a probe when some line keeps, of every
+one of them, at least ``min_kept`` of what that region's best line records on
+the same kind of probe. A proposal splits the set's regions into such probes,
+each on a bore of its own, with the kinds that record the most in all within
+the inventory. The best ``per_count`` proposals at each probe count are
+written, named ``6p``, then ``6p-2``.
+
+.. code-block:: yaml
+
+    alone:                # the most each region can get, a probe to itself
+      MD: {quadbase-dovetail: 0.79, '2.1': 0.5}
+    allocations:
+      6p:
+      - kind: quadbase-dovetail
+        regions: [MD, VM]
+        points_RAS: {MD: [-0.2284, -0.4216, -3.6113], VM: [-0.7562, -1.0009, -4.4702]}
+      - {kind: '2.1', regions: [PL]}
+    predicted:
+      6p:
+        mean: 0.4737
+        regions: {MD: 0.3396, VM: 0.657, PL: 0.2541}
+        bores: {MD_VM: 3, PL: 10}
+
+To use a proposal, paste it under the set's ``allocations`` in the spec. It is
+not read from the run directory: an allocation in the spec is a decision
+someone made, and running the proposer again cannot change it. A shared probe
+comes with ``points_RAS`` on the line found, the region nearest the middle of
+the recorded stretch first.
+
+``predicted`` is what a region can get, not what a plan will give. The line
+knows nothing of fixtures or of the other probes, which are the solver's, so a
+solved plan records less, and comparing a plan's ``recorded`` with it shows how
+much the layout cost each region. The test is loose on purpose: a proposal that
+cannot be laid out costs solver time, while a wrongly refused one costs a plan
+nobody sees.
 
 Solving
 -------

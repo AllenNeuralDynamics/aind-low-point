@@ -30,6 +30,7 @@ JAX_FREE_MODULES = [
     "aind_rutter.series.cli",
     "aind_rutter.series.configs",
     "aind_rutter.series.lock",
+    "aind_rutter.series.propose",
     "aind_rutter.series.schedule",
     "aind_rutter.series.solve",
     "aind_rutter.series.spec",

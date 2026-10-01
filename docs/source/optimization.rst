@@ -819,6 +819,11 @@ Key Modules
   carriers shared by the enumerator, static builders, and batched objectives.
 * ``optimization.assignment.arc_placement``: bounded isotonic AP placement for
   separated arc seeds.
+* ``optimization.assignment.allocation``: which regions share a probe and which
+  kind each probe is, from the share a free line through a bore records. It
+  runs before any solve and is NumPy only; ``optimization.pipeline.propose``
+  feeds it a config's regions and probes, and ``rutter-series propose`` writes
+  the result (see :doc:`series`).
 * ``optimization.search.minimizers``: batched and chunked JAX objective
   builders. This is where per-candidate packed statics become reusable vmapped
   kernels.

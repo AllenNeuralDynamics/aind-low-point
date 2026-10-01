@@ -9,6 +9,7 @@ allocation's probes.
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -92,13 +93,24 @@ def allocation_config(
     allocation: str,
     base: dict[str, Any],
 ) -> dict[str, Any]:
-    """``base`` with the set's regions and the allocation's probes written in.
+    """``base`` with the set's regions and the allocation's probes written in."""
+    probes = spec.sets[set_name].allocations[allocation]
+    return set_config(spec, subject, set_name, probes, base)
+
+
+def set_config(
+    spec: SeriesSpec,
+    subject: str,
+    set_name: str,
+    probes: Sequence[ProbeSpec],
+    base: dict[str, Any],
+) -> dict[str, Any]:
+    """``base`` with the set's regions and ``probes`` written in.
 
     The base's own probes are replaced. Probes start on its arcs in turn; the
     solve reassigns them.
     """
     regions = spec.sets[set_name].regions
-    probes = spec.sets[set_name].allocations[allocation]
     cfg = copy.deepcopy(base)
     arcs = list((cfg.get("plan") or {}).get("arcs") or {})
     if not arcs:
