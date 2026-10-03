@@ -167,6 +167,14 @@ class PyVistaBackend:
     def has_node(self, node_id: str) -> bool:
         return node_id in self._actors
 
+    def actor(self, node_id: str) -> pv.Actor | None:
+        """The actor drawing ``node_id``, for styling outside the adapter."""
+        return self._actors.get(node_id)
+
+    def is_mesh(self, node_id: str) -> bool:
+        """Whether ``node_id`` is drawn as a mesh rather than points."""
+        return self._kinds.get(node_id) == "mesh"
+
     def flush(self) -> None:
         if self._flush_callback:
             self._flush_callback()
