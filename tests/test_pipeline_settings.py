@@ -147,6 +147,7 @@ def test_the_body_margin_is_pinned_only_when_set(
     monkeypatch.setenv("RUTTER_MIN_BODY_CLEARANCE", "0.5")
     spec = Phase2Settings().feasibility_spec()
     assert spec.pair_margins_mm() == (0.5, 0.1, 0.1, 0.1)
+    assert spec.fixture_margins_mm() == (0.5, 0.1)
     pinned = Phase1Settings().pinned_specs()["feasibility"]
     assert pinned["min_body_clearance_mm"] == 0.5
 

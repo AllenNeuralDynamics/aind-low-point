@@ -89,7 +89,8 @@ class PipelineSettings(BaseSettings):
     # Clearance every stage requires between probe and fixture surfaces (mm),
     # read as the soft minimum plus its measured shortfall; see feasibility_spec().
     min_clearance: float = Field(0.1)
-    # Between two probes' bodies, where unset follows min_clearance.
+    # From a probe's body to another body or a fixture; unset follows
+    # min_clearance. Shanks stay at min_clearance.
     min_body_clearance: float | None = Field(None, ge=0)
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable

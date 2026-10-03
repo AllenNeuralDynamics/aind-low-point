@@ -401,7 +401,8 @@ margin reads as a distance between surfaces. The offsets were measured at
 
 Every stage reads one spec, ``PipelineSettings.feasibility_spec``: a clearance
 margin of ``RUTTER_MIN_CLEARANCE`` (default 0.1 mm), corrected, which
-``RUTTER_MIN_BODY_CLEARANCE`` replaces between two probes' bodies when set. Both
+``RUTTER_MIN_BODY_CLEARANCE`` replaces, when set, wherever a probe's body (the
+probe less its shanks) meets another body or a fixture. Both
 must stay below the 1.5 mm the clearance rows read to. The retired
 ``RUTTER_MINCLEAR`` is refused by name, since an unknown variable would
 otherwise be ignored and the run would get the default.
@@ -612,7 +613,8 @@ Useful Phase-1 environment knobs:
      - Clearance in mm every stage requires (see `Feasibility`_).
    * - ``RUTTER_MIN_BODY_CLEARANCE``
      - unset
-     - Clearance in mm between two probes' bodies; unset, the one above.
+     - Clearance in mm from a probe's body to another body or a fixture;
+       unset, the one above.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
@@ -674,7 +676,8 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
 * Probe-probe clearance: soft dual-rep clearance, corrected for the soft
   minimum's shortfall, minus ``RUTTER_MIN_CLEARANCE`` for each pair/category, or
   ``RUTTER_MIN_BODY_CLEARANCE`` for body-body when set (see `Feasibility`_).
-* Probe-fixture clearance: likewise, per fixture, probe and category.
+* Probe-fixture clearance: likewise, per fixture, probe and category, with
+  ``RUTTER_MIN_BODY_CLEARANCE`` for the body category.
 * Brain containment, when present: negative signed distance margin at shank
   tips.
 * Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.

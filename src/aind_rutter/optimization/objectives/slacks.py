@@ -43,7 +43,7 @@ def fixture_clearance_slack(soft, spec: FeasibilitySpec):
     """Probe-fixture clearance beyond the margin (mm); ``soft`` holds the two
     categories on its last axis."""
     return _clearance_slack(
-        soft, FIXTURE_PAIR_SOFTMIN_BIAS_MM, spec.min_clearance_mm, spec
+        soft, FIXTURE_PAIR_SOFTMIN_BIAS_MM, spec.fixture_margins_mm(), spec
     )
 
 

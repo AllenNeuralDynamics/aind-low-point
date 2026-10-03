@@ -48,7 +48,8 @@ class FeasibilitySpec:
 
     min_clearance_mm: float
     softmin_correction: bool
-    # Between two probes' bodies; None holds them to ``min_clearance_mm``.
+    # From a probe's body (the probe less its shanks) to another body or a
+    # fixture; None holds bodies to ``min_clearance_mm``.
     min_body_clearance_mm: float | None = None
     threading_tolerance: float = 0.0
     # Length of the shaft segment whose crossing of each bore section is tested.
@@ -85,9 +86,17 @@ class FeasibilitySpec:
 
     def pair_margins_mm(self) -> tuple[float, float, float, float]:
         """Probe-pair margin per category, in ``PROBE_PAIR_SOFTMIN_BIAS_MM`` order."""
-        body = self.min_body_clearance_mm
         m = self.min_clearance_mm
-        return (m if body is None else body, m, m, m)
+        return (self._body_margin_mm(), m, m, m)
+
+    def fixture_margins_mm(self) -> tuple[float, float]:
+        """Probe-fixture margin per category, in ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``
+        order."""
+        return (self._body_margin_mm(), self.min_clearance_mm)
+
+    def _body_margin_mm(self) -> float:
+        body = self.min_body_clearance_mm
+        return self.min_clearance_mm if body is None else body
 
     def pair_softmin_kwargs(self) -> dict:
         """Soft-min keywords of the probe-pair clearance queries."""

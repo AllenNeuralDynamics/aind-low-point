@@ -362,7 +362,7 @@ def test_every_stage_states_its_spec(weights_cls) -> None:
         weights_cls()
 
 
-def test_the_body_margin_holds_only_body_to_body() -> None:
+def test_the_body_margin_holds_bodies_and_leaves_shanks() -> None:
     soft = jnp.full((1, 4), 0.3, jnp.float32)
     both = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
     apart = replace(both, min_body_clearance_mm=0.5)
@@ -371,7 +371,7 @@ def test_the_body_margin_holds_only_body_to_body() -> None:
         pair_clearance_slack(soft, apart), [[-0.2, 0.2, 0.2, 0.2]], atol=1e-6
     )
     np.testing.assert_allclose(
-        fixture_clearance_slack(soft[:, :2], apart), [[0.2, 0.2]], atol=1e-6
+        fixture_clearance_slack(soft[:, :2], apart), [[-0.2, 0.2]], atol=1e-6
     )
 
 
