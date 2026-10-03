@@ -43,7 +43,10 @@ from aind_rutter.optimization.pipeline.measure import (
     shank_geometry,
 )
 from aind_rutter.optimization.pipeline.payloads import read_handoff
-from aind_rutter.optimization.pipeline.probe_setup import retro_opts_from_env
+from aind_rutter.optimization.pipeline.probe_setup import (
+    retro_anchor_LPS,
+    retro_opts_from_env,
+)
 from aind_rutter.optimization.pipeline.settings import EmitSettings
 from aind_rutter.plan_io.plan_set import PlanEntry, RecordedMeasure, write_manifest
 from aind_rutter.plan_io.rig_export import reorder_plan_for_rig
@@ -152,9 +155,15 @@ def run(settings: EmitSettings) -> int:
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
     measure, runtime, clouds, shanks = None, None, {}, {}
-    if settings.recorded_radius_mm is not None:
+    retro_opts, anchors = None, {}
+    if settings.recorded_radius_mm is not None or retro_opts_from_env() is not None:
         runtime = build_runtime_from_config(cfg)
         retro_opts = retro_opts_from_env(runtime)
+    if retro_opts is not None:
+        # The solver aimed each probe here, and the pose's offsets and depth are
+        # relative to it; against the config's target the probes land elsewhere.
+        anchors = {nm: retro_anchor_LPS(runtime, nm, retro_opts) for nm in probe_names}
+    if settings.recorded_radius_mm is not None:
         clouds = region_clouds(cfg, runtime, retro_opts)
         shanks = shank_geometry(runtime)
         if clouds:
@@ -201,6 +210,10 @@ def run(settings: EmitSettings) -> int:
         _apply_x_to_plan_state(
             plan_state, np.asarray(r["pose"], float), statics, n_arcs
         )
+        for nm, anchor in anchors.items():
+            probe = plan_state.probes[nm]
+            probe.target_key = None
+            probe.target_point_LPS = tuple(float(v) for v in anchor)
         # Rig-readability ordering: arcs relabelled a=most-+AP, probes sorted by
         # arc then ML-descending. Cosmetic; pose semantics unchanged.
         plan_state = reorder_plan_for_rig(plan_state)

@@ -757,6 +757,12 @@ Emit Plans
 pose to a mesh-free planning state, reorders arcs/probes for rig readability,
 and writes plan-only YAML files plus a decision tree and manifest.
 
+A pose's offsets and depth are measured from the point the solver aimed at.
+Under ``RUTTER_RETRO_DENSITY`` that is the mean of the target region's masked
+cells rather than the config's target, so emit writes it as each probe's inline
+target; emit a retro run without the variable and every probe lands off by the
+gap between the two.
+
 It also measures each plan, which is the one step that loads the meshes. The
 objective's coverage is divided by a ceiling that depends on the probe kind, so
 it cannot compare a quad base with a single shank on one region, nor two

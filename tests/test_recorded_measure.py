@@ -11,7 +11,7 @@ import SimpleITK as sitk
 import yaml
 
 from aind_rutter.build.assemble import build_runtime_from_config
-from aind_rutter.config import ConfigModel
+from aind_rutter.config import ConfigModel, PlanningModel
 from aind_rutter.domain.scene import resolve_base_geometry
 from aind_rutter.optimization.pipeline import emit
 from aind_rutter.optimization.pipeline.measure import (
@@ -23,9 +23,14 @@ from aind_rutter.optimization.pipeline.measure import (
     shank_geometry,
 )
 from aind_rutter.optimization.pipeline.payloads import write_handoff
-from aind_rutter.optimization.pipeline.probe_setup import RetroDensityOpts
+from aind_rutter.optimization.pipeline.probe_setup import (
+    RetroDensityOpts,
+    retro_anchor_LPS,
+)
 from aind_rutter.optimization.pipeline.settings import EmitSettings
 from aind_rutter.plan_io.plan_set import RecordedMeasure, load_plan_set
+from aind_rutter.plan_io.replay import apply_plan_model_to_state
+from aind_rutter.session.store import PlanStore
 from tests.synthetic_subject import BRAIN_CENTER_LPS, write_subject
 
 VM_LEFT = -685  # the lateralized annotation negates the left hemisphere's id
@@ -226,3 +231,37 @@ def test_emit_writes_the_recorded_share(
         assert 0.02 < entry.recorded["VM"] < 0.2
     assert entry.mean_recorded() == entry.recorded["VM"]
     assert json.loads((out / "manifest.json").read_text())["version"] == 2
+
+
+def test_a_retro_plan_aims_where_the_solver_did(
+    config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = yaml.safe_load(config_path.read_text())
+    data["plan"]["probes"]["P2"]["regions"] = ["VM"]  # retro density needs a mask
+    config = tmp_path / "retro.yml"
+    config.write_text(yaml.safe_dump(data, sort_keys=False))
+    # The synthetic brain is a mesh, which the retro brain mask cannot read.
+    opts = RetroDensityOpts(common_mask_keys=())
+    monkeypatch.setattr(emit, "retro_opts_from_env", lambda runtime=None: opts)
+    _handoff(tmp_path / "handoff.json")
+    out = tmp_path / "emitted"
+    settings = EmitSettings(
+        config=config, handoff=tmp_path / "handoff.json", outdir=out
+    )
+    assert emit.run(settings) == 0
+
+    cfg = ConfigModel.from_yaml(config)
+    runtime = build_runtime_from_config(cfg)
+    anchor = retro_anchor_LPS(runtime, "P1", opts)
+    (entry,) = load_plan_set(out).entries
+    plan = PlanningModel.model_validate(
+        yaml.safe_load((out / "plans" / entry.file).read_text())
+    )
+    store = PlanStore(runtime.plan_state)
+    apply_plan_model_to_state(plan, store)
+    p1 = active_segments(store.state, runtime, shank_geometry(runtime))[0]
+    # P1 has no offset and no depth past its target, so its active stretch is
+    # centred on whatever it aimed at.
+    np.testing.assert_allclose(p1.start + p1.axis * p1.length_mm / 2, anchor, atol=1e-6)
+    config_target = np.ravel(runtime.plan_state.target_index["target:brain"])
+    assert np.linalg.norm(anchor - config_target) > 0.05

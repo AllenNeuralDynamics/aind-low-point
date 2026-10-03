@@ -30,8 +30,9 @@ class RetroDensityOpts:
 
     The per-probe density switches from a single-point Gaussian on the
     centroid to an equally-weighted Gaussian mixture on the masked
-    points with bandwidth ``sigma_mm``. ``target_LPS`` is set to the
-    centroid of the masked cloud for pose-bank anchoring.
+    points with bandwidth ``sigma_mm``. ``target_LPS`` becomes
+    :func:`retro_anchor_LPS`, so a plan written from the solved pose must aim
+    there too.
     """
 
     retro_asset_key: str = "retro-targets"
@@ -63,6 +64,17 @@ def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
         except Exception:
             return None
     return opts
+
+
+def _retro_regions(plan, name: str) -> tuple[str, ...]:
+    return tuple(plan.regions) if plan.regions else (name,)
+
+
+def retro_anchor_LPS(runtime, name: str, opts: RetroDensityOpts) -> np.ndarray:
+    """The point a probe aims at under retro density: the mean of its target
+    region's masked cells, which is not the config's target."""
+    region = _retro_regions(runtime.plan_state.probes[name], name)[0]
+    return masked_retro_points(runtime, region, opts).mean(0)
 
 
 def _transform_holes(holes: list[Hole], R: np.ndarray, t: np.ndarray) -> list[Hole]:
@@ -247,10 +259,11 @@ def _probe_static_info(
             )
         clouds = [
             masked_retro_points(runtime, region, retro_opts)
-            for region in plan.regions or (name,)
+            for region in _retro_regions(plan, name)
         ]
         target_points, target_point_weights = region_weighted_cloud(clouds)
-        # The target region alone anchors the pose, as without retro density.
+        # The target region alone anchors the pose, as without retro density;
+        # its mean is retro_anchor_LPS.
         anchor_points = clouds[0]
     context = probe_context_from_runtime(runtime, name, target_points_LPS=anchor_points)
     sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
