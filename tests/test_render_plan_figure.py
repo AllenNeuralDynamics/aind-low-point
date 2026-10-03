@@ -106,3 +106,9 @@ def test_a_geometry_report_is_not_loaded_as_a_plan(fig, tmp_path) -> None:
     path.write_text(yaml.safe_dump({"plan_export_version": 2}))
     with pytest.raises(SystemExit, match="geometry report"):
         fig.load_plan(path)
+
+
+def test_a_region_colour_is_found_whatever_its_case(fig) -> None:
+    assert fig.target_colour("vCA1") == fig.target_colour("VCA1") == "#2ca02c"
+    assert fig.target_colour("pl") == fig.TARGET_COLOURS["PL"]
+    assert fig.target_colour("SMT") is None

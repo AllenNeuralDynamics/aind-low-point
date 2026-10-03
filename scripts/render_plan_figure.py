@@ -119,10 +119,14 @@ TARGET_COLOURS: dict[str, str] = {
     "MD": "#17becf",
     "VM": "#e377c2",
     "CA1": "#2ca02c",
+    # Ventral CA1 is CA1 to the reader, so it shares the colour.
+    "vCA1": "#2ca02c",
     "BLA": "#ff7f0e",
     "RSP": "#d62728",
     "CLA": "#1f77b4",
 }
+
+_COLOUR_BY_UPPER = {k.upper(): v for k, v in TARGET_COLOURS.items()}
 
 #: Probe shanks where they are context rather than the subject of the panel.
 SHANK_COLOUR = "#7a7a7a"
@@ -543,6 +547,11 @@ def build_scene(args: Args) -> tuple[pv.Plotter, PyVistaBackend, RendererAdapter
     return plotter, backend, adapter, {"probes": touched, "catalog": catalog}
 
 
+def target_colour(name: str) -> str | None:
+    """``name``'s colour in :data:`TARGET_COLOURS`, ignoring case."""
+    return _COLOUR_BY_UPPER.get(name.upper())
+
+
 def _apply_opacity(actor, node, args: Args, implant_opacity: float) -> None:
     """Set one node's opacity from its role in the panel."""
     tags = node.tags
@@ -583,7 +592,7 @@ def _apply_color(actor, node, args: Args, indexed: dict[str, str]) -> None:
         return
 
     if args.region_colors and key.startswith("structure:"):
-        colour = TARGET_COLOURS.get(key.split(":", 1)[1].upper())
+        colour = target_colour(key.split(":", 1)[1])
         if colour is not None:
             actor.prop.color = colour
         return
@@ -594,7 +603,7 @@ def _apply_color(actor, node, args: Args, indexed: dict[str, str]) -> None:
             actor.prop.color = SHANK_COLOUR
         elif args.probe_colors == "index":
             actor.prop.color = indexed[name]
-        elif (colour := TARGET_COLOURS.get(name.upper())) is not None:
+        elif (colour := target_colour(name)) is not None:
             actor.prop.color = colour
 
 
