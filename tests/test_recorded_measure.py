@@ -17,6 +17,7 @@ from aind_rutter.optimization.pipeline import emit
 from aind_rutter.optimization.pipeline.measure import (
     ActiveSegment,
     active_segments,
+    recorded_mm3,
     recorded_share,
     region_clouds,
     region_names,
@@ -99,6 +100,9 @@ class TestRecordedShare:
         assert recorded_share(self.POINTS, [self.SEGMENT, far], 0.2) == pytest.approx(
             5 / 7
         )
+
+    def test_the_volume_counts_each_point_reached_as_one_voxel(self):
+        assert recorded_mm3(self.POINTS, [self.SEGMENT], 0.2, 0.5) == 2.0
 
     def test_no_segments_record_nothing(self):
         assert recorded_share(self.POINTS, [], 0.2) == 0.0
@@ -226,6 +230,11 @@ def test_emit_writes_the_recorded_share(
     assert list(entry.recorded) == ["VM"]
     if expect == "all":
         assert entry.recorded["VM"] == 1.0
+        # Every voxel, at the annotation's spacing; the headframe move is rigid.
+        assert entry.recorded_mm3["VM"] == pytest.approx(
+            np.prod(BLOCK_VOXELS) * SPACING_MM**3
+        )
+        assert plan_set.region_mm3 == {"VM": entry.recorded_mm3["VM"]}
     else:
         # One shank down a 2 x 2 mm column reaches a 0.4 mm core of it.
         assert 0.02 < entry.recorded["VM"] < 0.2
@@ -254,6 +263,9 @@ def test_a_retro_plan_aims_where_the_solver_did(
     runtime = build_runtime_from_config(cfg)
     anchor = retro_anchor_LPS(runtime, "P1", opts)
     (entry,) = load_plan_set(out).entries
+    # The share is of retro cells, the volume of voxels all the same.
+    assert load_plan_set(out).measure.cloud == "retro"
+    assert list(entry.recorded_mm3) == ["VM"] and entry.recorded_mm3["VM"] > 0
     plan = PlanningModel.model_validate(
         yaml.safe_load((out / "plans" / entry.file).read_text())
     )

@@ -17,6 +17,7 @@ from aind_rutter.series import cli
 from aind_rutter.series.schedule import (
     cheapest,
     plan_setup,
+    region_standing,
     schedule_sets,
     schedule_subject,
     subject_pools,
@@ -117,9 +118,12 @@ def _write_plan(path: Path, arcs: dict[str, float], probes: list[Probe]) -> None
 
 
 def _write_plans(
-    out_dir: Path, plans: list[tuple[float, dict[str, float], list[Probe]]]
+    out_dir: Path,
+    plans: list[tuple[float, dict[str, float], list[Probe]]],
+    vm_mm3: list[float] | None = None,
 ) -> None:
-    """A solve directory whose plans record the given shares, best first or not."""
+    """A solve directory whose plans record the given shares, best first or not,
+    and reach ``vm_mm3`` of VM (1 mm³ unless given) and 1 mm³ of MD."""
     (out_dir / "plans").mkdir(parents=True, exist_ok=True)
     entries = []
     for rank, (share, arcs, probes) in enumerate(plans, 1):
@@ -127,9 +131,19 @@ def _write_plans(
         _write_plan(out_dir / "plans" / file, arcs, probes)
         # Two regions, so the score is their mean.
         entries.append(
-            PlanEntry(file, rank, recorded={"MD": share + 0.1, "VM": share - 0.1})
+            PlanEntry(
+                file,
+                rank,
+                recorded={"MD": share + 0.1, "VM": share - 0.1},
+                recorded_mm3={
+                    "MD": 1.0,
+                    "VM": 1.0 if vm_mm3 is None else vm_mm3[rank - 1],
+                },
+            )
         )
-    write_manifest(out_dir, entries, probes=[], config=None)
+    write_manifest(
+        out_dir, entries, probes=[], config=None, region_mm3={"MD": 2.0, "VM": 0.5}
+    )
 
 
 ONE_SINGLE = ({"a": 0.0}, [(S, "a", 0.0, 0.0)])
@@ -168,9 +182,15 @@ def series(tmp_path: Path):
     return spec, run_dir, data
 
 
-def _solved(spec: SeriesSpec, run_dir: Path, label: str, plans: list) -> None:
+def _solved(
+    spec: SeriesSpec,
+    run_dir: Path,
+    label: str,
+    plans: list,
+    vm_mm3: list[float] | None = None,
+) -> None:
     run = next(r for r in solve_runs(spec, run_dir) if r.label == label)
-    _write_plans(run.out_dir, plans)
+    _write_plans(run.out_dir, plans, vm_mm3)
     record = {
         "request": request(spec, run),
         "attempts": [{"max_arcs": 3, "returncode": 0, "n_plans": len(plans)}],
@@ -284,6 +304,71 @@ class TestSchedule:
             schedule_subject(spec, run_dir, "m1")
 
 
+class TestRegionMinimum:
+    @pytest.fixture
+    def minimum(self, series):
+        spec, run_dir, data = series
+        data["schedule"] = {"floors": [1.0], "min_region_mm3": 0.1}
+        spec = SeriesSpec.model_validate(data)
+        _solve_all(spec, run_dir)
+        return spec, run_dir
+
+    def test_a_plan_short_of_it_is_dropped_before_the_floor(self, minimum):
+        spec, run_dir = minimum
+        plans = [(0.50, *ONE_SINGLE), (0.46, *SINGLE_SLID)]
+        _solved(spec, run_dir, "m1 / one / s", plans, vm_mm3=[0.05, 0.2])
+        (only,) = schedule_subject(spec, run_dir, "m1").schedules
+        one = next(x for x in only.sessions if x.plan.set_name == "one")
+        # The floor is taken over the plans that reach every region.
+        assert (one.plan.entry.rank, one.of_best) == (2, 1.0)
+
+    def test_a_set_no_plan_of_which_meets_it_is_refused(self, minimum):
+        spec, run_dir = minimum
+        plans = [(0.50, *ONE_SINGLE), (0.46, *SINGLE_SLID)]
+        _solved(spec, run_dir, "m1 / one / s", plans, vm_mm3=[0.05, 0.08])
+        with pytest.raises(ValueError, match=r"no plan of one .* 0\.080 mm³ of VM"):
+            schedule_subject(spec, run_dir, "m1")
+
+    def test_a_small_region_is_held_to_its_fraction(self, series):
+        spec, run_dir, data = series
+        data["schedule"] = {
+            "floors": [1.0],
+            "min_region_mm3": 0.1,
+            "min_region_fraction": 0.1,
+        }
+        spec = SeriesSpec.model_validate(data)
+        _solve_all(spec, run_dir)
+        # VM is 0.5 mm³, so a tenth of it, 0.05, is the bar; MD's 2 mm³ is not.
+        plans = [(0.50, *ONE_SINGLE), (0.46, *SINGLE_SLID)]
+        _solved(spec, run_dir, "m1 / one / s", plans, vm_mm3=[0.06, 0.2])
+        (only,) = schedule_subject(spec, run_dir, "m1").schedules
+        one = next(x for x in only.sessions if x.plan.set_name == "one")
+        assert one.plan.entry.rank == 1
+        _solved(spec, run_dir, "m1 / one / s", plans, vm_mm3=[0.04, 0.03])
+        with pytest.raises(ValueError, match="0.010 mm³ short"):
+            schedule_subject(spec, run_dir, "m1")
+
+    def test_the_report_places_each_region_among_the_sets_plans(self, minimum):
+        spec, run_dir = minimum
+        plans = [(0.50, *ONE_SINGLE), (0.46, *SINGLE_SLID), (0.40, *ONE_SINGLE)]
+        _solved(spec, run_dir, "m1 / one / s", plans, vm_mm3=[0.15, 0.3, 0.1])
+        result = schedule_subject(spec, run_dir, "m1")
+        one = next(x for x in result.schedules[0].sessions if x.plan.set_name == "one")
+        standing = region_standing(one.plan, result.pools["one"])
+        assert standing["VM"] == (0.15, pytest.approx(1 / 3))
+        assert standing["MD"] == (1.0, 0.0)  # every plan reaches as much
+        report = write_schedule(result, spec.schedule, run_dir / "m1")
+        assert "one: MD 1.00 mm³ (0%), VM 0.15 mm³ (33%)" in report.read_text()
+
+    def test_plans_emitted_without_volumes_are_refused(self, minimum):
+        spec, run_dir = minimum
+        out = run_dir / "m1" / "solve" / "two" / "s"
+        entry = PlanEntry("p.plan.yml", 1, recorded={"MD": 0.5, "VM": 0.5})
+        write_manifest(out, [entry], probes=[], config=None)
+        with pytest.raises(ValueError, match="no recorded volume"):
+            schedule_subject(spec, run_dir, "m1")
+
+
 class TestWritten:
     def test_the_json_the_report_and_a_copy_of_each_plan(self, series):
         spec, run_dir, _ = series
@@ -380,6 +465,8 @@ class TestCommand:
         ({"within": {"a": 0}}, "from 1"),
         ({"costs": {"mount": -1}}, "greater than or equal to 0"),
         ({"costs": {"unmount": 1}}, "Extra inputs"),
+        ({"min_region_mm3": -0.1}, "greater than or equal to 0"),
+        ({"min_region_fraction": 1.5}, "less than or equal to 1"),
     ],
 )
 def test_the_schedule_section_refuses(stated: dict, says: str):

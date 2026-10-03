@@ -2,8 +2,12 @@
 
 A set's plans are pooled over every allocation solved for it and scored by the
 mean recorded share, the one figure that compares across probe kinds and probe
-counts. For each floor, a plan qualifies when it scores that share of its set's
-best. Among the qualifying plans the cheapest choice and order is found
+counts. A plan that reaches less than ``min_region_mm3`` of any region, or
+than ``min_region_fraction`` of a region too small to give that, is dropped
+first: by volume so that a large region is not held to more tissue than a small
+one, and by fraction so that a small one is not held to more than it has. For
+each floor, a plan qualifies when it scores that share of its
+set's best. Among the qualifying plans the cheapest choice and order is found
 exactly; of equally cheap ones, the one that records most. Building the first
 session's rig is not charged.
 """
@@ -13,7 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +54,8 @@ class Candidate:
     path: Path
     score: float  # mean recorded share
     config: Path | None = None
+    # Region -> volume of all its voxels; see PlanSet.region_mm3.
+    region_mm3: dict[str, float] = field(default_factory=dict, hash=False)
 
 
 @dataclass(frozen=True)
@@ -108,7 +114,15 @@ def plan_candidates(
                 f"a schedule compares; emit the plans again"
             )
         out.append(
-            Candidate(set_name, allocation, entry, plan_set.path(entry), score, config)
+            Candidate(
+                set_name,
+                allocation,
+                entry,
+                plan_set.path(entry),
+                score,
+                config,
+                plan_set.region_mm3,
+            )
         )
     return out
 
@@ -200,6 +214,13 @@ def schedule_sets(
     empty = [name for name, plans in pools.items() if not plans]
     if empty:
         raise ValueError(f"sets with no solved plans: {empty}")
+    if schedule.min_region_mm3 > 0:
+        pools = {
+            name: _reaching(
+                name, plans, schedule.min_region_mm3, schedule.min_region_fraction
+            )
+            for name, plans in pools.items()
+        }
     costs = schedule.costs.costs()
     names = list(pools)
     top = {name: max(c.score for c in pools[name]) for name in names}
@@ -245,6 +266,54 @@ def schedule_sets(
                 )
             )
         out.append(Schedule(floor, total, tuple(sessions)))
+    return out
+
+
+def _reaching(
+    name: str, plans: Sequence[Candidate], min_mm3: float, fraction: float
+) -> list[Candidate]:
+    unmeasured = [
+        c for c in plans if not c.entry.recorded_mm3 or (fraction and not c.region_mm3)
+    ]
+    if unmeasured:
+        raise ValueError(
+            f"{unmeasured[0].path} carries no recorded volume, which a region "
+            "minimum needs; emit the plans again"
+        )
+
+    def needed(c: Candidate, region: str) -> float:
+        if not fraction:
+            return min_mm3
+        return min(min_mm3, fraction * c.region_mm3[region])
+
+    def short(c: Candidate) -> dict[str, float]:
+        """Per region, how far the plan falls below what it must reach."""
+        gaps = {r: needed(c, r) - v for r, v in c.entry.recorded_mm3.items()}
+        return {r: gap for r, gap in gaps.items() if gap > 0}
+
+    kept = [c for c in plans if not short(c)]
+    if not kept:
+        closest = min(plans, key=lambda c: max(short(c).values()))
+        gaps = short(closest)
+        region = max(gaps, key=gaps.__getitem__)
+        raise ValueError(
+            f"no plan of {name} reaches every region's minimum; the closest, "
+            f"{closest.path.name}, reaches "
+            f"{closest.entry.recorded_mm3[region]:.3f} mm³ of {region}, "
+            f"{gaps[region]:.3f} mm³ short"
+        )
+    return kept
+
+
+def region_standing(
+    plan: Candidate, pool: Sequence[Candidate]
+) -> dict[str, tuple[float, float]]:
+    """Per region, the volume ``plan`` reaches and the share of ``pool``'s plans
+    that reach less, which says whether a low figure is the plan or the region."""
+    out = {}
+    for region, mm3 in plan.entry.recorded_mm3.items():
+        others = [c.entry.recorded_mm3.get(region, 0.0) for c in pool]
+        out[region] = (mm3, sum(v < mm3 for v in others) / len(others))
     return out
 
 
@@ -305,6 +374,14 @@ def schedule_subject(
     return SubjectSchedule(
         subject, pools, left_out, tuple(schedule_sets(pools, spec.schedule))
     )
+
+
+def _least_text(entry: PlanEntry) -> str:
+    volumes = entry.recorded_mm3
+    if not volumes:
+        return ""
+    region = min(volumes, key=volumes.__getitem__)
+    return f"{region} {volumes[region]:.2f} mm³"
 
 
 def _setup_text(setup: RigSetup) -> str:
@@ -387,6 +464,12 @@ def schedule_json(
                         "copy": f"{PLANS_DIR}/{_floor_dir(s.floor)}/"
                         f"{_session_file(position, x)}",
                         "recorded": x.plan.score,
+                        "regions": {
+                            region: {"mm3": mm3, "beats": beats}
+                            for region, (mm3, beats) in region_standing(
+                                x.plan, result.pools[x.plan.set_name]
+                            ).items()
+                        },
                         "of_best": x.of_best,
                         "setup": [asdict(arc) for arc in x.setup],
                         "changes": None if x.changes is None else asdict(x.changes),
@@ -414,6 +497,16 @@ def schedule_report(result: SubjectSchedule, schedule: ScheduleSpec, root: Path)
         lines.append(f"First, in either order: {', '.join(schedule.first)}.")
     for name, last in schedule.within.items():
         lines.append(f"{name} is among the first {last} sessions.")
+    if schedule.min_region_mm3 > 0:
+        lines.append(
+            f"Every plan reaches at least {schedule.min_region_mm3:g} mm³ of "
+            "every region"
+            + (
+                f", or {schedule.min_region_fraction:.0%} of one too small to give it."
+                if schedule.min_region_fraction
+                else "."
+            )
+        )
     lines += [
         "",
         "| Set | Allocation | Plans | Best recorded share |",
@@ -432,16 +525,34 @@ def schedule_report(result: SubjectSchedule, schedule: ScheduleSpec, root: Path)
             f"## Plans recording at least {s.floor:.0%} of their set's best: "
             f"rework {s.cost:g}",
             "",
-            "| Session | Set | Allocation | Plan | Recorded | Of best | Rework "
-            "| Changes | Rig (arc AP: probes by ML) |",
-            "|---:|---|---|---:|---:|---:|---:|---|---|",
+            "| Session | Set | Allocation | Plan | Recorded | Of best | Least region "
+            "| Rework | Changes | Rig (arc AP: probes by ML) |",
+            "|---:|---|---|---:|---:|---:|---|---:|---|---|",
         ]
         for position, x in enumerate(s.sessions, 1):
             lines.append(
                 f"| {position} | {x.plan.set_name} | {x.plan.allocation} "
                 f"| {x.plan.entry.rank} | {x.plan.score:.3f} | {x.of_best:.0%} "
+                f"| {_least_text(x.plan.entry)} "
                 f"| {'' if x.changes is None else format(x.cost, 'g')} "
                 f"| {_changes_text(x.changes)} | {_setup_text(x.setup)} |"
+            )
+        lines += [
+            "",
+            "Volume of each region reached, and the share of the set's plans that "
+            "reach less:",
+            "",
+        ]
+        for position, x in enumerate(s.sessions, 1):
+            standing = region_standing(x.plan, result.pools[x.plan.set_name])
+            if not standing:
+                continue
+            lines.append(
+                f"{position}. {x.plan.set_name}: "
+                + ", ".join(
+                    f"{region} {mm3:.2f} mm³ ({beats:.0%})"
+                    for region, (mm3, beats) in standing.items()
+                )
             )
         lines += ["", "```text"]
         for position, x in enumerate(s.sessions, 1):

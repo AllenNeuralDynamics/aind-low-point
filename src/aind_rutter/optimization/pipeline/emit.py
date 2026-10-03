@@ -37,13 +37,16 @@ from aind_rutter.config import ConfigModel
 from aind_rutter.optimization.objectives.variables import _apply_x_to_plan_state
 from aind_rutter.optimization.pipeline.measure import (
     active_segments,
+    recorded_mm3,
     recorded_share,
     region_clouds,
     region_names,
     shank_geometry,
+    voxel_mm3,
 )
 from aind_rutter.optimization.pipeline.payloads import read_handoff
 from aind_rutter.optimization.pipeline.probe_setup import (
+    RetroDensityOpts,
     retro_anchor_LPS,
     retro_opts_from_env,
 )
@@ -154,17 +157,25 @@ def run(settings: EmitSettings) -> int:
     # recorded measure places the probes, and so loads the meshes.
     base_plan_state = build_plan_state_from_config(cfg)
     probe_names = list(base_plan_state.probes)
-    measure, runtime, clouds, shanks = None, None, {}, {}
-    retro_opts, anchors = None, {}
-    if settings.recorded_radius_mm is not None or retro_opts_from_env() is not None:
-        runtime = build_runtime_from_config(cfg)
-        retro_opts = retro_opts_from_env(runtime)
-    if retro_opts is not None:
+    measure, clouds, shanks = None, {}, {}
+    runtime = (
+        build_runtime_from_config(cfg)
+        if settings.recorded_radius_mm is not None or retro_opts_from_env() is not None
+        else None
+    )
+    retro_opts = None if runtime is None else retro_opts_from_env(runtime)
+    anchors = {}
+    if runtime is not None and retro_opts is not None:
         # The solver aimed each probe here, and the pose's offsets and depth are
         # relative to it; against the config's target the probes land elsewhere.
         anchors = {nm: retro_anchor_LPS(runtime, nm, retro_opts) for nm in probe_names}
-    if settings.recorded_radius_mm is not None:
+    voxels: dict = {}
+    voxel_size: dict[str, float] = {}
+    if settings.recorded_radius_mm is not None and runtime is not None:
         clouds = region_clouds(cfg, runtime, retro_opts)
+        voxels = clouds if retro_opts is None else region_clouds(cfg, runtime, None)
+        mask_fmt = (retro_opts or RetroDensityOpts()).region_mask_fmt
+        voxel_size = {r: voxel_mm3(runtime, mask_fmt.format(region=r)) for r in voxels}
         shanks = shank_geometry(runtime)
         if clouds:
             measure = RecordedMeasure(
@@ -213,11 +224,13 @@ def run(settings: EmitSettings) -> int:
         for nm, anchor in anchors.items():
             probe = plan_state.probes[nm]
             probe.target_key = None
-            probe.target_point_LPS = tuple(float(v) for v in anchor)
+            x, y, z = (float(v) for v in anchor)
+            probe.target_point_LPS = (x, y, z)
         # Rig-readability ordering: arcs relabelled a=most-+AP, probes sorted by
         # arc then ML-descending. Cosmetic; pose semantics unchanged.
         plan_state = reorder_plan_for_rig(plan_state)
         recorded: dict[str, float] = {}
+        reached_mm3: dict[str, float] = {}
         if measure is not None and runtime is not None:
             placed = copy.copy(plan_state)
             placed.target_index = runtime.plan_state.target_index
@@ -225,6 +238,12 @@ def run(settings: EmitSettings) -> int:
             recorded = {
                 region: recorded_share(cloud, segments, measure.radius_mm)
                 for region, cloud in clouds.items()
+            }
+            reached_mm3 = {
+                region: recorded_mm3(
+                    points, segments, measure.radius_mm, voxel_size[region]
+                )
+                for region, points in voxels.items()
             }
         # PLAN-ONLY file (just the plan section) so it pairs with the base config
         # via ``--plan``. Filename encodes the hole assignment (matches the tree).
@@ -260,6 +279,7 @@ def run(settings: EmitSettings) -> int:
                 holes={k: int(v) for k, v in r["hole"].items()},
                 arcs={nm: p.arc_id for nm, p in plan_state.probes.items()},
                 recorded=recorded,
+                recorded_mm3=reached_mm3,
             )
         )
         print(
@@ -275,6 +295,7 @@ def run(settings: EmitSettings) -> int:
         probes=probe_order,
         config=str(settings.config),
         measure=measure,
+        region_mm3={r: len(v) * voxel_size[r] for r, v in voxels.items()},
     )
     print(f"\nwrote {n_emit} plans → {plans_dir}/")
     print(f"wrote {out}/tree.txt + {out}/manifest.md + {out}/manifest.json")

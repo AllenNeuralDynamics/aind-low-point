@@ -770,7 +770,9 @@ configs that split the regions over different probes. ``manifest.json``
 therefore carries, per plan, ``recorded``: for each region, the share of its
 points within ``RUTTER_RECORDED_RADIUS_MM`` (0.2) of any probe's active sites.
 The points are the region's retro cells when ``RUTTER_RETRO_DENSITY`` is on and
-its voxels otherwise, and the manifest's ``measure`` says which. A region is one
+its voxels otherwise, and the manifest's ``measure`` says which. Beside it,
+``recorded_mm3`` is the volume of each region's voxels within the same radius,
+retro or not, which a series schedule's region minimum reads. A region is one
 of a probe's ``regions``, or the probe's name without them, and is scored only
 if the config has its ``structure:<region>`` asset; emit names the ones it
 could not score. ``EmitSettings(recorded_radius_mm=None)`` skips the measure.

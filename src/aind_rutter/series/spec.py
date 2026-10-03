@@ -99,6 +99,10 @@ class ScheduleSpec(_Closed):
     within: dict[str, int] = Field(default_factory=dict)
     # A plan qualifies when it records this share of its set's best plan.
     floors: tuple[float, ...] = Field((1.0, 0.95, 0.9), min_length=1)
+    # ...and reaches at least this volume of every region, or this fraction of
+    # one too small to give it; a set's best is taken over the plans that do.
+    min_region_mm3: float = Field(0.0, ge=0)
+    min_region_fraction: float = Field(0.0, ge=0, le=1)
 
     @model_validator(mode="after")
     def _consistent(self) -> ScheduleSpec:

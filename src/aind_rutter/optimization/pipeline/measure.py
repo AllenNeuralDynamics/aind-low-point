@@ -5,7 +5,8 @@ so it cannot compare a quad base on a region with a single shank on it, nor two
 configs that split the regions over different probes. This is the share of a
 region's own points within a radius of any probe's active sites, every probe
 counting: the retro cells labelled in it when the run scores retro density,
-else its voxels.
+else its voxels. Beside the share, the volume of a region's voxels within reach
+says whether a region is recorded at all without favouring small regions.
 """
 
 from __future__ import annotations
@@ -59,6 +60,21 @@ def _region_voxels(
     return points if pose is None else np.asarray(pose.apply_to(points))
 
 
+def voxel_mm3(runtime: RuntimeBundle, key: str) -> float:
+    """The scene volume of one voxel of a voxel asset's source image."""
+    import SimpleITK as sitk
+
+    reader = sitk.ImageFileReader()
+    reader.SetFileName(str(runtime.asset_catalog.assets[key].source_path))
+    reader.ReadImageInformation()
+    volume = float(np.prod(reader.GetSpacing()))
+    pose = resolve_base_pose(runtime.scene, key)
+    if pose is not None:
+        corners = np.asarray(pose.apply_to(np.vstack([np.zeros(3), np.eye(3)])))
+        volume *= abs(float(np.linalg.det(corners[1:] - corners[0])))
+    return volume
+
+
 def region_clouds(
     cfg: ConfigModel, runtime: RuntimeBundle, retro_opts: RetroDensityOpts | None
 ) -> dict[str, NDArray[np.float64]]:
@@ -108,14 +124,30 @@ def active_segments(
     return segments
 
 
-def recorded_share(
+def _reached(
     points: NDArray[np.float64], segments: list[ActiveSegment], radius_mm: float
-) -> float:
-    """The share of ``points`` within ``radius_mm`` of any segment."""
+) -> NDArray[np.bool_]:
     hit = np.zeros(len(points), bool)
     for seg in segments:
         rel = points - seg.start
         along = np.clip(rel @ seg.axis, 0.0, seg.length_mm)
         off = rel - along[:, None] * seg.axis
         hit |= np.einsum("ij,ij->i", off, off) <= radius_mm**2
-    return float(hit.mean())
+    return hit
+
+
+def recorded_share(
+    points: NDArray[np.float64], segments: list[ActiveSegment], radius_mm: float
+) -> float:
+    """The share of ``points`` within ``radius_mm`` of any segment."""
+    return float(_reached(points, segments, radius_mm).mean())
+
+
+def recorded_mm3(
+    voxels: NDArray[np.float64],
+    segments: list[ActiveSegment],
+    radius_mm: float,
+    voxel_mm3: float,
+) -> float:
+    """The volume of the ``voxels`` within ``radius_mm`` of any segment."""
+    return float(_reached(voxels, segments, radius_mm).sum()) * voxel_mm3

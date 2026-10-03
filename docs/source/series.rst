@@ -49,6 +49,8 @@ The spec
       first: [0-standard, A-broad]    # the first sessions, in either order
       within: {D-thalamic: 3}         # among the first three sessions
       floors: [1.0, 0.95, 0.9]
+      min_region_mm3: 0.05            # of every region, or the plan is dropped,
+      min_region_fraction: 0.1        # or a tenth of a region too small for that
 
     regions:
       ACC:    {ccf: ACA}
@@ -263,6 +265,20 @@ compares across probe kinds and counts. For each of ``floors``, a plan
 qualifies when it scores at least that share of its set's best plan, and one
 schedule is made from the qualifying plans. A lower floor gives up recorded
 share for less rework; the report shows each so the trade can be read off.
+
+A mean can hide a region a plan misses. ``min_region_mm3`` drops, before any
+floor, every plan reaching less than that volume of some region's voxels within
+the recorded radius, and a set's best is then its best plan that remains. It is
+a volume and not a share so that a large region is held to the same amount of
+tissue as a small one; ``min_region_fraction`` then lowers the bar for a region
+too small to give that volume to the fraction of it, so a thin region is not
+held to more than it has. A set none of whose plans meets it is refused, naming
+the plan that comes closest and how far short it falls. Both are 0, off, by
+default.
+
+The report lists, per session, the volume of each region reached and the share
+of the set's plans that reach less. A low volume that beats most plans is a
+region that is hard to reach, not a poor plan.
 
 ``costs`` prices each change, in units of sliding one arc: ``arc_move`` and
 ``slider_move`` for an arc or a probe kept and slid, ``spin`` for a kept probe

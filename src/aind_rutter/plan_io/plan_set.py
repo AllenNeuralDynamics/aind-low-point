@@ -31,6 +31,9 @@ class PlanEntry:
     arcs: dict[str, str | None] = field(default_factory=dict)
     # Region -> share of its cloud the active sites reach; see RecordedMeasure.
     recorded: dict[str, float] = field(default_factory=dict)
+    # Region -> volume of its voxels within the same radius, whatever the
+    # measure's cloud; a share would favour small regions.
+    recorded_mm3: dict[str, float] = field(default_factory=dict)
 
     def mean_recorded(self) -> float | None:
         """Regions weighted equally, so the figure compares across probe kinds."""
@@ -58,6 +61,8 @@ class PlanSet:
     config: str | None = None
     indexed: bool = True  # False: read from filenames, no manifest
     measure: RecordedMeasure | None = None
+    # Region -> volume of all its voxels, what ``recorded_mm3`` is part of.
+    region_mm3: dict[str, float] = field(default_factory=dict)
 
     def path(self, entry: PlanEntry) -> Path:
         return self.plans_dir / entry.file
@@ -70,6 +75,7 @@ def write_manifest(
     probes: list[str],
     config: str | None,
     measure: RecordedMeasure | None = None,
+    region_mm3: dict[str, float] | None = None,
 ) -> Path:
     path = Path(out_dir) / MANIFEST_NAME
     payload = {
@@ -77,6 +83,7 @@ def write_manifest(
         "config": config,
         "probes": list(probes),
         "measure": None if measure is None else asdict(measure),
+        "region_mm3": dict(region_mm3 or {}),
         "plans": [asdict(e) for e in entries],
     }
     path.write_text(json.dumps(payload, indent=1) + "\n")
@@ -102,6 +109,7 @@ def load_plan_set(path: Path) -> PlanSet:
             tuple(raw.get("probes", ())),
             raw.get("config"),
             measure=None if measure is None else RecordedMeasure(**measure),
+            region_mm3=raw.get("region_mm3", {}),
         )
     found: list[PlanEntry] = []
     for f in sorted(plans_dir.glob("*.plan.yml")):
