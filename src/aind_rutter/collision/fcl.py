@@ -11,12 +11,24 @@ from typing import (
 )
 
 import fcl
+import numpy as np
 
 from aind_rutter.collision.adapter import (
     CollisionBackend,
     CollisionPair,
     ObjSpec,
 )
+
+
+@dataclass(frozen=True)
+class Gap:
+    """How far apart two tested nodes are, and the midpoint of their closest
+    approach in world (LPS) coordinates."""
+
+    id1: str
+    id2: str
+    distance_mm: float
+    point_LPS: tuple[float, float, float]
 
 
 @dataclass
@@ -119,10 +131,39 @@ class FCLBackend(CollisionBackend):
             self._mgr.update()
 
     # ---- queries ----
+    def gaps(self) -> List[Gap]:
+        """Every pair ``collide_internal`` tests, closest first.
+
+        One exact distance query per pair, so it is for inspecting a plan, not
+        for the interactive path. Overlapping pairs read 0 or less.
+        """
+        with self._lock:
+            nodes = sorted(self._node_to_obj)
+            out = []
+            for i, n1 in enumerate(nodes):
+                for n2 in nodes[i + 1 :]:
+                    if not self._tested(n1, n2):
+                        continue
+                    res = fcl.DistanceResult()
+                    d = fcl.distance(
+                        self._node_to_obj[n1],
+                        self._node_to_obj[n2],
+                        fcl.DistanceRequest(enable_nearest_points=True),
+                        res,
+                    )
+                    a, b = (np.asarray(q, float) for q in res.nearest_points)
+                    x, y, z = ((a + b) / 2).tolist()
+                    out.append(Gap(n1, n2, float(d), (x, y, z)))
+        return sorted(out, key=lambda g: g.distance_mm)
+
+    def _tested(self, n1: str, n2: str) -> bool:
+        # Each node's mask must include the other's group.
+        g1, m1 = self._node_to_group.get(n1, 0), self._node_to_mask.get(n1, 0)
+        g2, m2 = self._node_to_group.get(n2, 0), self._node_to_mask.get(n2, 0)
+        return bool((m1 & g2) and (m2 & g1))
+
     def collide_internal(self) -> List[CollisionPair]:
         gid_map = dict(self._geomid_to_node)
-        group_map = self._node_to_group
-        mask_map = self._node_to_mask
         found_pairs: List[Tuple[str, str]] = []
 
         def _cb(o1, o2, _cdata):
@@ -135,11 +176,7 @@ class FCLBackend(CollisionBackend):
                 n2 = gid_map.get(id(c.o2))
                 if n1 is None or n2 is None:
                     return False
-                # Group/mask filter: n1's mask must include n2's group
-                # and vice versa
-                g1, m1 = group_map.get(n1, 0), mask_map.get(n1, 0)
-                g2, m2 = group_map.get(n2, 0), mask_map.get(n2, 0)
-                if (m1 & g2) and (m2 & g1):
+                if self._tested(n1, n2):
                     k = (n1, n2) if n1 <= n2 else (n2, n1)
                     found_pairs.append(k)
             return False  # never stop early

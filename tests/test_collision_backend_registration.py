@@ -171,3 +171,27 @@ def test_repeated_sync_of_the_same_node_does_not_duplicate_it(n: int) -> None:
         backend.sync([probe])
     pairs = backend.collide_internal()
     assert len(pairs) == 1
+
+
+def test_gaps_measure_only_the_pairs_collide_tests() -> None:
+    backend = FCLBackend()
+    backend.rebuild(
+        [
+            _spec("probe:A", (0.0, 0.0, 0.0), PROBE_GROUP, PROBE_MASK),
+            _spec("probe:B", (2.5, 0.0, 0.0), PROBE_GROUP, PROBE_MASK),
+            _spec("well", (0.0, 3.0, 0.0), FIXTURE_GROUP, FIXTURE_MASK),
+            _spec("headframe", (2.5, 3.0, 0.0), FIXTURE_GROUP, FIXTURE_MASK),
+        ]
+    )
+    gaps = backend.gaps()
+    assert {(g.id1, g.id2) for g in gaps} == {
+        ("probe:A", "probe:B"),
+        ("probe:A", "well"),
+        ("headframe", "probe:A"),
+        ("probe:B", "well"),
+        ("headframe", "probe:B"),
+    }
+    assert (gaps[0].id1, gaps[0].id2) == ("probe:A", "probe:B")
+    assert gaps[0].distance_mm == pytest.approx(0.5)
+    # Facing sides are parallel, so only the axis between them is pinned.
+    assert gaps[0].point_LPS[0] == pytest.approx(1.25)
