@@ -694,6 +694,7 @@ def run(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
         f" workers x {_THREADS} thr, maxiter={settings.p2_iter},"
         f" min_clearance={settings.min_clearance},"
+        f" min_body_clearance={settings.min_body_clearance},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
         f" smooth_thread={settings.smooth_thread_reward}, spin={settings.spin_param},"

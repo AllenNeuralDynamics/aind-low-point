@@ -140,6 +140,17 @@ def test_every_stage_reads_one_feasibility_spec(
     assert spec == Phase2Settings().feasibility_spec()
 
 
+def test_the_body_margin_is_pinned_only_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert "min_body_clearance_mm" not in Phase1Settings().pinned_specs()["feasibility"]
+    monkeypatch.setenv("RUTTER_MIN_BODY_CLEARANCE", "0.5")
+    spec = Phase2Settings().feasibility_spec()
+    assert spec.pair_margins_mm() == (0.5, 0.1, 0.1, 0.1)
+    pinned = Phase1Settings().pinned_specs()["feasibility"]
+    assert pinned["min_body_clearance_mm"] == 0.5
+
+
 @pytest.mark.parametrize("settings_cls", [Phase1Settings, Phase2Settings])
 @pytest.mark.parametrize("name", sorted(RETIRED_VARIABLES))
 def test_a_retired_variable_is_refused_by_name(

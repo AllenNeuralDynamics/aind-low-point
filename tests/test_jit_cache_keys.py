@@ -43,8 +43,13 @@ def _variants(value, name: str):
     """(name, changed value) for every field of ``value``, into nested dataclasses."""
     if isinstance(value, bool):
         yield name, not value
-    elif isinstance(value, (int, float)):
-        yield name, type(value)(value + 7)
+    elif value is None:
+        yield name, 0.7
+    elif isinstance(value, int):
+        yield name, value + 7
+    elif isinstance(value, float):
+        # Small enough that no clearance margin passes the spec's cap.
+        yield name, value + 0.7
     elif dc.is_dataclass(value):
         for field in dc.fields(value):
             for sub, changed in _variants(getattr(value, field.name), field.name):

@@ -19,6 +19,14 @@ from dataclasses import dataclass
 PROBE_PAIR_SOFTMIN_BIAS_MM = (0.10, 0.09, 0.0, 0.0)
 FIXTURE_PAIR_SOFTMIN_BIAS_MM = (0.05, 0.06)
 
+# Clearance rows read distances no larger than this. A lookup returns the true
+# distance inside a body's SDF grid and the sentinel outside it, so a row whose
+# last sample leaves the grid jumps by ~1e3, which IPOPT takes for a constraint
+# violation. Every out-of-grid point is at least the grid's padding from the body,
+# so a cap below the padding, less a voxel and the soft-min's bias, keeps each row
+# continuous; a row past the cap is slack either way.
+CLEARANCE_CAP_MM = 1.5
+
 # The soft minimum the offsets were measured at; any other stales them.
 SOFTMIN_BIAS_MEASURED_AT = {
     "softmin_beta": 20.0,
@@ -40,6 +48,8 @@ class FeasibilitySpec:
 
     min_clearance_mm: float
     softmin_correction: bool
+    # Between two probes' bodies; None holds them to ``min_clearance_mm``.
+    min_body_clearance_mm: float | None = None
     threading_tolerance: float = 0.0
     # Length of the shaft segment whose crossing of each bore section is tested.
     shaft_length_mm: float = 10.0
@@ -52,6 +62,14 @@ class FeasibilitySpec:
     top_k_shank_shank: int = 8
 
     def __post_init__(self) -> None:
+        for name in ("min_clearance_mm", "min_body_clearance_mm"):
+            margin = getattr(self, name)
+            # Rows read no further than the cap, so a margin past it is never met.
+            if margin is not None and margin >= CLEARANCE_CAP_MM:
+                raise ValueError(
+                    f"{name}={margin} is not below the {CLEARANCE_CAP_MM} mm "
+                    "clearance rows read to"
+                )
         if not self.softmin_correction:
             return
         stale = {
@@ -64,6 +82,12 @@ class FeasibilitySpec:
                 f"the soft-min correction was measured at {SOFTMIN_BIAS_MEASURED_AT}, "
                 f"not {stale}; re-measure the offsets or turn the correction off"
             )
+
+    def pair_margins_mm(self) -> tuple[float, float, float, float]:
+        """Probe-pair margin per category, in ``PROBE_PAIR_SOFTMIN_BIAS_MM`` order."""
+        body = self.min_body_clearance_mm
+        m = self.min_clearance_mm
+        return (m if body is None else body, m, m, m)
 
     def pair_softmin_kwargs(self) -> dict:
         """Soft-min keywords of the probe-pair clearance queries."""

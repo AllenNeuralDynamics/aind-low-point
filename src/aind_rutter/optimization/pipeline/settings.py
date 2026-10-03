@@ -89,6 +89,8 @@ class PipelineSettings(BaseSettings):
     # Clearance every stage requires between probe and fixture surfaces (mm),
     # read as the soft minimum plus its measured shortfall; see feasibility_spec().
     min_clearance: float = Field(0.1)
+    # Between two probes' bodies, where unset follows min_clearance.
+    min_body_clearance: float | None = Field(None, ge=0)
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
@@ -127,13 +129,19 @@ class PipelineSettings(BaseSettings):
     def feasibility_spec(self) -> FeasibilitySpec:
         """What every stage counts as feasible."""
         return FeasibilitySpec(
-            min_clearance_mm=self.min_clearance, softmin_correction=True
+            min_clearance_mm=self.min_clearance,
+            softmin_correction=True,
+            min_body_clearance_mm=self.min_body_clearance,
         )
 
     def pinned_specs(self) -> dict[str, dict[str, Any]]:
         """The specs a pool is built under, which Phase 2 must share."""
+        feasibility = asdict(self.feasibility_spec())
+        # Unset, it is left out so pools recorded before it existed still match.
+        if feasibility["min_body_clearance_mm"] is None:
+            del feasibility["min_body_clearance_mm"]
         return {
-            "feasibility": asdict(self.feasibility_spec()),
+            "feasibility": feasibility,
             "objective": asdict(self.objective_spec()),
         }
 

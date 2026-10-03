@@ -400,7 +400,9 @@ margin reads as a distance between surfaces. The offsets were measured at
 ``beta`` 20 and top-k 16/8/8, and a spec with the correction refuses any other.
 
 Every stage reads one spec, ``PipelineSettings.feasibility_spec``: a clearance
-margin of ``RUTTER_MIN_CLEARANCE`` (default 0.1 mm), corrected. The retired
+margin of ``RUTTER_MIN_CLEARANCE`` (default 0.1 mm), corrected, which
+``RUTTER_MIN_BODY_CLEARANCE`` replaces between two probes' bodies when set. Both
+must stay below the 1.5 mm the clearance rows read to. The retired
 ``RUTTER_MINCLEAR`` is refused by name, since an unknown variable would
 otherwise be ignored and the run would get the default.
 
@@ -608,6 +610,9 @@ Useful Phase-1 environment knobs:
    * - ``RUTTER_MIN_CLEARANCE``
      - ``0.1``
      - Clearance in mm every stage requires (see `Feasibility`_).
+   * - ``RUTTER_MIN_BODY_CLEARANCE``
+     - unset
+     - Clearance in mm between two probes' bodies; unset, the one above.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
@@ -667,8 +672,8 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   (default 0.07 mm) must also cover the shank's half-width. Every stage — spin restore, the reduced stage, Phase 1 and Phase 2 —
   threads the same way; the hole-assignment gate stays centreline.
 * Probe-probe clearance: soft dual-rep clearance, corrected for the soft
-  minimum's shortfall, minus ``RUTTER_MIN_CLEARANCE`` for each pair/category (see
-  `Feasibility`_).
+  minimum's shortfall, minus ``RUTTER_MIN_CLEARANCE`` for each pair/category, or
+  ``RUTTER_MIN_BODY_CLEARANCE`` for body-body when set (see `Feasibility`_).
 * Probe-fixture clearance: likewise, per fixture, probe and category.
 * Brain containment, when present: negative signed distance margin at shank
   tips.

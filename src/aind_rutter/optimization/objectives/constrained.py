@@ -60,7 +60,10 @@ from aind_rutter.optimization.objectives.evaluate import (
     poses_from_x,
     threading_g_per_probe,
 )
-from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
+from aind_rutter.optimization.objectives.feasibility import (
+    CLEARANCE_CAP_MM,
+    FeasibilitySpec,
+)
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.objectives.slack_layout import (
     LARGE_SLACK,
@@ -94,14 +97,6 @@ from aind_rutter.optimization.objectives.threading import (
     MAX_SHANKS_PAD,
 )
 from aind_rutter.optimization.pipeline.records import Phase2Problem
-
-# Clearance rows read distances no larger than this. A lookup returns the true
-# distance inside a body's SDF grid and the sentinel outside it, so a row whose
-# last sample leaves the grid jumps by ~1e3, which IPOPT takes for a constraint
-# violation. Every out-of-grid point is at least the grid's padding from the body,
-# so a cap below the padding, less a voxel and the soft-min's bias, keeps each row
-# continuous; a row past the cap is slack either way.
-CLEARANCE_CAP_MM = 1.5
 
 # ---------------------------------------------------------------------------
 # Weights

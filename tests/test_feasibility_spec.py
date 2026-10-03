@@ -29,6 +29,7 @@ from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.objectives.constrained import Phase2Weights, make_phase2
 from aind_rutter.optimization.objectives.coverage import GaussianCoverageData
 from aind_rutter.optimization.objectives.feasibility import (
+    CLEARANCE_CAP_MM,
     SOFTMIN_BIAS_MEASURED_AT,
     FeasibilitySpec,
 )
@@ -39,6 +40,10 @@ from aind_rutter.optimization.objectives.packing import (
     restore_arrays,
 )
 from aind_rutter.optimization.objectives.sdf_inputs import FixtureSDFData
+from aind_rutter.optimization.objectives.slacks import (
+    fixture_clearance_slack,
+    pair_clearance_slack,
+)
 from aind_rutter.optimization.objectives.soft import (
     PACKED_ARG_ORDER,
     Phase1Weights,
@@ -355,3 +360,23 @@ def test_every_stage_states_its_spec(weights_cls) -> None:
     """No stage falls back on a margin of its own."""
     with pytest.raises(TypeError):
         weights_cls()
+
+
+def test_the_body_margin_holds_only_body_to_body() -> None:
+    soft = jnp.full((1, 4), 0.3, jnp.float32)
+    both = FeasibilitySpec(min_clearance_mm=0.1, softmin_correction=False)
+    apart = replace(both, min_body_clearance_mm=0.5)
+    np.testing.assert_allclose(pair_clearance_slack(soft, both), [[0.2] * 4], atol=1e-6)
+    np.testing.assert_allclose(
+        pair_clearance_slack(soft, apart), [[-0.2, 0.2, 0.2, 0.2]], atol=1e-6
+    )
+    np.testing.assert_allclose(
+        fixture_clearance_slack(soft[:, :2], apart), [[0.2, 0.2]], atol=1e-6
+    )
+
+
+@pytest.mark.parametrize("name", ["min_clearance_mm", "min_body_clearance_mm"])
+def test_a_margin_past_the_clearance_cap_is_refused(name) -> None:
+    kwargs = {"min_clearance_mm": 0.1, name: CLEARANCE_CAP_MM}
+    with pytest.raises(ValueError, match="clearance rows read to"):
+        FeasibilitySpec(softmin_correction=True, **kwargs)

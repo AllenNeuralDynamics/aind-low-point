@@ -22,22 +22,29 @@ def shortfall(slack):
     return jnp.maximum(0.0, -slack)
 
 
-def _clearance_slack(soft, bias_mm: tuple[float, ...], spec: FeasibilitySpec):
+def _clearance_slack(
+    soft, bias_mm: tuple[float, ...], margin_mm, spec: FeasibilitySpec
+):
+    margin = jnp.asarray(margin_mm, jnp.float32)
     if spec.softmin_correction:
-        return soft + jnp.asarray(bias_mm, jnp.float32) - float(spec.min_clearance_mm)
-    return soft - float(spec.min_clearance_mm)
+        return soft + jnp.asarray(bias_mm, jnp.float32) - margin
+    return soft - margin
 
 
 def pair_clearance_slack(soft, spec: FeasibilitySpec):
     """Probe-pair clearance beyond the margin (mm); ``soft`` holds the four
     categories on its last axis."""
-    return _clearance_slack(soft, PROBE_PAIR_SOFTMIN_BIAS_MM, spec)
+    return _clearance_slack(
+        soft, PROBE_PAIR_SOFTMIN_BIAS_MM, spec.pair_margins_mm(), spec
+    )
 
 
 def fixture_clearance_slack(soft, spec: FeasibilitySpec):
     """Probe-fixture clearance beyond the margin (mm); ``soft`` holds the two
     categories on its last axis."""
-    return _clearance_slack(soft, FIXTURE_PAIR_SOFTMIN_BIAS_MM, spec)
+    return _clearance_slack(
+        soft, FIXTURE_PAIR_SOFTMIN_BIAS_MM, spec.min_clearance_mm, spec
+    )
 
 
 def threading_slack(g, spec: FeasibilitySpec):
