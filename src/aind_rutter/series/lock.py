@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from omegaconf import OmegaConf
+
+from aind_rutter.config.locations import Locator, load_resolved
 
 if TYPE_CHECKING:
     from aind_rutter.series.spec import SeriesSpec
@@ -26,7 +27,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def referenced_files(config: Path) -> set[Path]:
+def referenced_files(config: Path, locator: Locator | None = None) -> set[Path]:
     """Every file a config names, after interpolation: meshes, volumes, transforms."""
     found: set[Path] = set()
 
@@ -40,7 +41,7 @@ def referenced_files(config: Path) -> set[Path]:
         elif isinstance(node, str) and "/" in node and Path(node).is_file():
             found.add(Path(node).resolve())
 
-    walk(OmegaConf.to_container(OmegaConf.load(config), resolve=True))
+    walk(load_resolved(config, locator))
     return found
 
 

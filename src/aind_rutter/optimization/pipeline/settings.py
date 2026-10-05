@@ -41,6 +41,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aind_rutter.config.locations import Locator, PathsFiles, split_paths_files
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
@@ -70,6 +71,15 @@ class PipelineSettings(BaseSettings):
         Path("examples/836656-config-T12.yml"),
         description="Subject config YAML selecting assets, targets and transforms.",
     )
+    paths: PathsFiles = Field(
+        (),
+        description=(
+            "Paths files locating the config's `paths:` names, ahead of a "
+            "rutter.paths.yml beside the config and the machine's paths.yml; "
+            "separated by os.pathsep."
+        ),
+    )
+    _split_paths = field_validator("paths", mode="before")(split_paths_files)
     holes: Path = Field(
         Path("scratch/0283-300-04.holes.yml"),
         description="Implant bore file, placed by the config's implant_to_lps.",
@@ -127,6 +137,10 @@ class PipelineSettings(BaseSettings):
         None,
         description="Visibility atlas cache; defaults to one named for the config.",
     )
+
+    def locator(self) -> Locator:
+        """Where the config's ``paths:`` names are looked up for this run."""
+        return Locator(files=self.paths)
 
     def feasibility_spec(self) -> FeasibilitySpec:
         """What every stage counts as feasible."""

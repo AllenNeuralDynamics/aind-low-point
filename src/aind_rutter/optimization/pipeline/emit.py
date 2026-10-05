@@ -149,7 +149,7 @@ def _emit_manifest(meta, probe_order, path, fcl_desc):
 
 def run(settings: EmitSettings) -> int:
     """Write the top ranked plans of a handoff as plan-only YAML."""
-    cfg = ConfigModel.from_yaml(settings.config)
+    cfg = ConfigModel.from_yaml(settings.config, settings.locator())
     # Writing a plan is pure-symbolic: plan parameters (arc/ml/spin/offsets/
     # depth) go from the handoff x-vector into a PlanningModel, from the base
     # PlanningState (built mesh-free from the config's plan section) plus, per

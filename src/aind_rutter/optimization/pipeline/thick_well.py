@@ -208,7 +208,7 @@ def main() -> int:
     configure_compile_cache()
 
     settings = PipelineSettings()
-    cfg = ConfigModel.from_yaml(settings.config)
+    cfg = ConfigModel.from_yaml(settings.config, settings.locator())
     rt = build_runtime_from_config(cfg)
     mesh = rt.asset_catalog.get_geometry("well").raw
     well = next(f for f in build_fixture_sdf_data(rt) if f.name == "well")

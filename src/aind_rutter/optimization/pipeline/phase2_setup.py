@@ -34,6 +34,7 @@ def build_state(settings: Phase2Settings) -> dict[str, Any]:
         settings.config,
         settings.holes,
         thread_corners=settings.thread_shank == "corners",
+        locator=settings.locator(),
     )
     assets = opt.build_problem_assets(well_mode=settings.well, include_brain=True)
     # The FCL gate uses the same fixture names plus the world-frame implant BVH.

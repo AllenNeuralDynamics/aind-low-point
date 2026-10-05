@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from aind_rutter.config.locations import Locator, load_resolved
 from aind_rutter.config.models_catalog import (
     AssetSpecModel,
     AssetSpecUnion,
@@ -81,12 +82,13 @@ class ConfigModel(BaseModel):
     canonicalizations: dict[str, CanonicalizationDefModel] = Field(default_factory=dict)
 
     @classmethod
-    def from_yaml(cls, path: "str | Path") -> "ConfigModel":
-        """Load a ConfigModel from a YAML file with OmegaConf interpolation."""
-        from omegaconf import OmegaConf
-
-        raw = OmegaConf.load(path)
-        resolved = OmegaConf.to_container(raw, resolve=True)
+    def from_yaml(
+        cls, path: "str | Path", locator: "Locator | None" = None
+    ) -> "ConfigModel":
+        """Load a config, its ``paths:`` located by ``locator`` (by default
+        the paths files this machine and ``RUTTER_PATHS`` name) and its
+        interpolations resolved."""
+        resolved = load_resolved(path, locator)
         retired = retired_fields_in(resolved)
         if retired:
             says = "; ".join(f"`{k}` → {RETIRED_FIELDS[k]}" for k in sorted(retired))

@@ -1,6 +1,7 @@
 """Pytest configuration and shared fixtures for config tests."""
 
 import os
+import tempfile
 
 # Speed/repro setup — MUST run before numpy/jax import (i.e. at conftest import,
 # which pytest does before collecting test modules). Pin BLAS/OMP threads so the
@@ -18,6 +19,10 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 os.environ.setdefault("JAX_COMPILATION_CACHE_DIR", ".jax_test_cache")
 os.environ.setdefault("JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS", "0")
 os.environ.setdefault("JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES", "-1")
+
+# A config's paths would otherwise resolve against this machine's paths files.
+os.environ["RUTTER_CONFIG_DIR"] = tempfile.mkdtemp(prefix="rutter-config-")
+os.environ.pop("RUTTER_PATHS", None)
 
 import pytest  # noqa: E402
 

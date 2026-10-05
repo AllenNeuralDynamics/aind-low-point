@@ -26,10 +26,12 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import tyro
 
 from aind_rutter.config import ConfigModel
+from aind_rutter.config.locations import Locator, parse_overrides
 from aind_rutter.web.app import build_trame_app
 
 
@@ -52,6 +54,14 @@ class Args:
     """An emit output directory (or its ``plans/`` folder) to step through
     in the Plans tab. Its plans must share this config's probes."""
 
+    paths: Annotated[tuple[Path, ...], tyro.conf.UseAppendAction] = ()
+    """Paths file locating the config's ``paths:`` names, read ahead of
+    ``RUTTER_PATHS`` and the files found by search; repeatable, first wins."""
+
+    path: Annotated[tuple[str, ...], tyro.conf.UseAppendAction] = ()
+    """``NAME=DIR`` for one ``paths:`` name, ahead of every paths file;
+    repeatable."""
+
 
 def main() -> None:
     """Parse arguments, build the trame app, and start the server."""
@@ -71,8 +81,15 @@ def main() -> None:
     apply_plan_on_start = plan_path.exists()
 
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
+    # Say where each input folder came from when a paths file set it.
+    logging.getLogger("aind_rutter.config.locations").setLevel(logging.INFO)
 
-    cfg = ConfigModel.from_yaml(config_path)
+    try:
+        locator = Locator.from_environment(args.paths, parse_overrides(args.path))
+        cfg = ConfigModel.from_yaml(config_path, locator)
+    except LookupError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
     server = build_trame_app(
         cfg,
         ccf_volume=args.ccf_volume,

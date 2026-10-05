@@ -78,6 +78,7 @@ def build_or_load_atlas(settings: PipelineSettings) -> AtlasCachePayload:
         settings.config,
         settings.holes,
         thread_corners=settings.thread_shank == "corners",
+        locator=settings.locator(),
     )
     t0 = time.time()
     atlas = build_visibility_atlas(

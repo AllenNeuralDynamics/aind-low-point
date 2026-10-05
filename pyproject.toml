@@ -27,6 +27,7 @@ dependencies = [
   "numpy>=1.20,<3",
   "omegaconf>=2,<3",
   "pandas>=2,<3",
+  "platformdirs>=4,<5",
   "pydantic>=2,<3",
   "pydantic-settings>=2.15.0",
   "pynrrd>=1,<2",
@@ -87,6 +88,7 @@ rutter-emit = "aind_rutter.optimization.pipeline.emit:main"
 rutter-plan-csv = "aind_rutter.plan_io.cli_csv:main"
 rutter-bores = "aind_rutter.optimization.geometry.bore_fit:main"
 rutter-series = "aind_rutter.series.cli:main"
+rutter-paths = "aind_rutter.config.cli:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-rutter/"

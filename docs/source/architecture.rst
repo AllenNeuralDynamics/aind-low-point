@@ -70,6 +70,8 @@ Module Organization
     │   ├── models_plan.py     # arcs, probes, calibrations, head mount
     │   ├── templates.py       # the template merge
     │   ├── resolve.py         # effective canonicalization and transform
+    │   ├── locations.py       # where each paths: name is on this machine
+    │   ├── cli.py             # rutter-paths
     │   └── root.py            # ConfigModel and its cross-reference validation
     ├── build/                 # config → runtime
     │   ├── assemble.py        # build_runtime_from_config

@@ -12,6 +12,40 @@ Entry point: `ConfigModel.from_yaml(path)` — uses OmegaConf for `${...}`
 interpolation, then `model_validate`. Plain `model_validate(dict)` is fine
 for tests / programmatic config.
 
+## Where `paths:` names are
+
+A config reaches its input folders through `${paths.<name>}`, and the folders
+differ by machine. `from_yaml` locates each name declared in `paths:` before it
+resolves anything, taking the first of:
+
+1. `--path NAME=DIR` on the command line (`rutter-plan`, `rutter-paths`).
+2. `--paths FILE`, repeatable, then the files in `RUTTER_PATHS` (separated by
+   `os.pathsep`). The pipeline reads `RUTTER_PATHS` through its settings.
+3. `rutter.paths.yml` in the config's folder, then in each folder above it.
+4. The machine's `paths.yml`, in `RUTTER_CONFIG_DIR` or else the platform's
+   config folder (`~/.config/rutter` on Linux, `~/Library/Application
+   Support/rutter` on macOS, `%LOCALAPPDATA%\rutter` on Windows).
+5. The value written in the config.
+
+A paths file maps names to folders:
+
+```yaml
+template_dir: Z:/ephys/persist/data/MRI/Templates/AIND-MouseT1-v1.0
+rutter_data: ../rutter          # relative to this file's folder
+```
+
+- A name derived from another in the config (`${.template_dir}/x.nii.gz`)
+  follows wherever that name is located.
+- Names a file sets that the config does not declare are ignored; a `--path`
+  naming nothing declared is refused as a misspelling.
+- A config may write `???` for a name only a paths file can supply; loading
+  then fails listing every file searched.
+- Drive-letter and UNC folders count as absolute on every platform, so one
+  file means the same wherever it is read.
+
+`rutter-paths config.yml` prints each name, its folder, what set it and every
+file searched; values set by a paths file are also logged at load.
+
 ## Top-level shape
 
 ```yaml

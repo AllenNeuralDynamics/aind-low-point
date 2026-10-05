@@ -22,6 +22,7 @@ from aind_rutter.build.queries import (
 )
 from aind_rutter.build.transforms import CompiledTransforms, compile_all_transforms
 from aind_rutter.config import ConfigModel
+from aind_rutter.config.locations import Locator
 from aind_rutter.optimization.geometry.holes import Hole, load_holes
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.pipeline.probe_setup import (
@@ -99,8 +100,9 @@ class OptimizationRuntime:
         retro_opts: RetroDensityOpts | None = None,
         use_env_retro: bool = True,
         thread_corners: bool = True,
+        locator: Locator | None = None,
     ) -> "OptimizationRuntime":
-        cfg = ConfigModel.from_yaml(config_path)
+        cfg = ConfigModel.from_yaml(config_path, locator)
         return cls.from_config(
             cfg,
             holes_path,
