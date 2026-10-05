@@ -164,7 +164,10 @@ are taken over ``pDMS`` and not over all of ``CP``.
 
 The lock file records the resolved spec, the package version and commit, the
 hash of every config written, and the hash of every file the spec and the
-configs name: base configs, bore files, meshes, volumes and transforms.
+configs name: base configs, bore files, meshes, volumes and transforms. A file
+inside a pack is recorded as ``hardware/v1:probes/x.obj`` and one inside a
+folder a paths file or ``--path`` set as ``${paths.name}/x.obj``, so locks
+written on two machines compare; any other file by its absolute path.
 
 Proposing allocations
 ---------------------

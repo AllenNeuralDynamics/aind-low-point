@@ -388,3 +388,49 @@ def test_offline_on_the_locator_outranks_the_cache_it_is_given(
     with pytest.raises(FileNotFoundError, match="RUTTER_OFFLINE"):
         ConfigModel.from_yaml(_pack_config(tmp_path), offline)
     assert PipelineSettings(offline=True).locator().offline
+
+
+def test_the_lock_keys_a_pack_file_by_pack_and_a_located_one_by_name(
+    tmp_path: Path, pack_store: str
+) -> None:
+    from aind_rutter.series.lock import referenced_files
+
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "sub").mkdir(parents=True)
+    (elsewhere / "sub" / "t.tfm").write_text("")
+    written = tmp_path / "written.obj"
+    written.write_text("")
+    config = _write(
+        tmp_path / "proj" / "c.yml",
+        {
+            "paths": {"hw": {"pack": "hardware/v1"}, "other": "/nowhere"},
+            "a": "${paths.hw}/cone/cone.obj",
+            "b": "${paths.other}/sub/t.tfm",
+            "c": str(written),
+        },
+    )
+    _write(tmp_path / "proj" / PATHS_FILE_NAME, {"other": str(elsewhere)})
+    found = referenced_files(config, _pack_locator(tmp_path, pack_store))
+    # A companion (cone.mtl) is fetched beside its file but is not an input.
+    assert set(found) == {
+        "hardware/v1:cone/cone.obj",
+        "${paths.other}/sub/t.tfm",
+        str(written.resolve()),
+    }
+    assert found["${paths.other}/sub/t.tfm"] == elsewhere / "sub" / "t.tfm"
+
+
+def test_each_location_is_reported_once(
+    tree: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _write(tree / "proj" / PATHS_FILE_NAME, {"meshes": "/located/once"})
+    with caplog.at_level("INFO", logger="aind_rutter.config.locations"):
+        _paths(tree, _isolated())
+        _paths(tree, _isolated())
+    lines = [
+        r.getMessage() for r in caplog.records if "/located/once" in r.getMessage()
+    ]
+    assert lines == [
+        f"paths.meshes = {os.path.normpath('/located/once')} "
+        f"(from {tree / 'proj' / PATHS_FILE_NAME})"
+    ]

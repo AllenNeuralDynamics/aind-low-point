@@ -4,7 +4,7 @@ A config names its input folders through ``${paths.<name>}``; the folders
 themselves differ by machine. Each name takes the first of: a ``--path``
 override, a paths file given to the command or in ``RUTTER_PATHS``, a
 ``rutter.paths.yml`` in the config's folder or one above it, the machine's
-``paths.yml``, and last the value the config writes.
+``paths.yml``, for a pack the pack cache, and last the value the config writes.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, TextIO
 
 import yaml
 from pydantic import field_validator
@@ -273,10 +273,12 @@ def locate(
 
 @dataclass(frozen=True)
 class Loaded:
-    """A config's YAML resolved, and the cached packs it reads from."""
+    """A config's YAML resolved, where each ``paths:`` name was found, and the
+    cached packs it reads from."""
 
     data: Any
     packs: tuple[CachedPack, ...]
+    locations: Mapping[str, Location] = field(default_factory=dict)
 
 
 def load_resolved(path: str | Path, locator: Locator | None = None) -> Any:
@@ -295,6 +297,7 @@ def load_located(path: str | Path, locator: Locator | None = None) -> Loaded:
     if locator is None:
         locator = Locator.from_environment()
     cached: list[CachedPack] = []
+    located: dict[str, Location] = {}
     block = raw.get("paths") if isinstance(raw, DictConfig) else None
     if isinstance(block, DictConfig):
         # Unresolved, so a name derived from another (``${.template_dir}/x``)
@@ -304,9 +307,9 @@ def load_located(path: str | Path, locator: Locator | None = None) -> Loaded:
         located = locate(path, {str(k): v for k, v in written.items()}, locator)
         missing = []
         for loc in located.values():
+            report(loc)
             if loc.source != CONFIG_SOURCE:
                 block[loc.name] = loc.value
-                log.info("paths.%s = %s (from %s)", loc.name, loc.value, loc.source)
             elif OmegaConf.is_missing(block, loc.name):
                 missing.append(loc.name)
             if loc.cached is not None:
@@ -324,7 +327,31 @@ def load_located(path: str | Path, locator: Locator | None = None) -> Loaded:
     # checks that some of them exist; a folder is only created until the
     # config is expanded.
     fetch_referenced(packs, references(data), folders=False)
-    return Loaded(data, packs)
+    return Loaded(data, packs, located)
+
+
+_reported: set[Location] = set()
+
+
+def report(loc: Location) -> None:
+    """Log where a name was found, once per process however often it is loaded."""
+    if loc in _reported:
+        return
+    _reported.add(loc)
+    where = "the config" if loc.source == CONFIG_SOURCE else loc.source
+    via = f"pack {loc.pack}, " if loc.pack is not None else ""
+    log.info("paths.%s = %s (%sfrom %s)", loc.name, loc.value, via, where)
+
+
+def report_to(stream: TextIO) -> None:
+    """Write each location's line to ``stream``, for a caller that configures
+    no logging of its own; repeated calls add nothing."""
+    if not any(getattr(h, "rutter_report", False) for h in log.handlers):
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.rutter_report = True  # type: ignore[attr-defined]
+        log.addHandler(handler)
+    log.setLevel(logging.INFO)
 
 
 def fetch_referenced(

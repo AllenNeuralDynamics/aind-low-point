@@ -34,6 +34,7 @@ them visible in the meantime.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
@@ -41,7 +42,12 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from aind_rutter.config.locations import Locator, PathsFiles, split_paths_files
+from aind_rutter.config.locations import (
+    Locator,
+    PathsFiles,
+    report_to,
+    split_paths_files,
+)
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
@@ -143,7 +149,9 @@ class PipelineSettings(BaseSettings):
     )
 
     def locator(self) -> Locator:
-        """Where the config's ``paths:`` names are looked up for this run."""
+        """Where the config's ``paths:`` names are looked up for this run; each
+        name's folder and what set it go to stdout, the run's log."""
+        report_to(sys.stdout)
         return Locator(files=self.paths, offline=self.offline)
 
     def feasibility_spec(self) -> FeasibilitySpec:

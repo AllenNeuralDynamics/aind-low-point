@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from collections.abc import Sequence
 from importlib.metadata import version
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from aind_rutter.config.locations import Locator, load_resolved
+from aind_rutter.config.locations import CONFIG_SOURCE, Locator, load_located
 
 if TYPE_CHECKING:
     from aind_rutter.series.spec import SeriesSpec
@@ -27,9 +28,32 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def referenced_files(config: Path, locator: Locator | None = None) -> set[Path]:
-    """Every file a config names, after interpolation: meshes, volumes, transforms."""
-    found: set[Path] = set()
+def referenced_files(config: Path, locator: Locator | None = None) -> dict[str, Path]:
+    """Every file a config names, after interpolation (meshes, volumes,
+    transforms), by the key the lock records it under: ``pack:path`` inside a
+    pack, ``${paths.name}/path`` inside a folder a paths file or ``--path`` set,
+    which differ by machine, and otherwise the absolute path."""
+    loaded = load_located(config, locator)
+    data = loaded.data if isinstance(loaded.data, dict) else {}
+    resolved = data.get("paths") or {}
+    folders = sorted(
+        (
+            (Path(os.path.abspath(str(resolved[name]))), loc)
+            for name, loc in loaded.locations.items()
+            if loc.source != CONFIG_SOURCE or loc.pack is not None
+        ),
+        key=lambda item: -len(item[0].parts),
+    )
+    found: dict[str, Path] = {}
+
+    def key(path: Path) -> str:
+        for folder, loc in folders:
+            if path == folder or folder in path.parents:
+                rel = path.relative_to(folder).as_posix()
+                if loc.pack is not None:
+                    return f"{loc.pack}:{rel}"
+                return f"${{paths.{loc.name}}}" + (f"/{rel}" if rel != "." else "")
+        return str(path.resolve())
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
@@ -39,9 +63,10 @@ def referenced_files(config: Path, locator: Locator | None = None) -> set[Path]:
             for value in node:
                 walk(value)
         elif isinstance(node, str) and "/" in node and Path(node).is_file():
-            found.add(Path(node).resolve())
+            path = Path(os.path.abspath(node))
+            found[key(path)] = path
 
-    walk(load_resolved(config, locator))
+    walk(loaded.data)
     return found
 
 
@@ -77,11 +102,12 @@ def write_lock(
     spec_path: str | Path | None = None,
 ) -> Path:
     """Record the resolved spec, the code version and the hash of every input."""
-    inputs: set[Path] = set()
+    inputs: dict[str, Path] = {}
     if spec_path is not None:
-        inputs.add(Path(spec_path).resolve())
+        inputs[str(Path(spec_path).resolve())] = Path(spec_path)
     for subject in spec.subjects.values():
-        inputs |= {subject.base_config.resolve(), subject.holes.resolve()}
+        for path in (subject.base_config, subject.holes):
+            inputs[str(path.resolve())] = path
     for config in configs:
         inputs |= referenced_files(config)
     lock = {
@@ -92,7 +118,8 @@ def write_lock(
         "configs": {str(c.relative_to(run_dir)): file_sha256(c) for c in configs},
         # A file that is not there yet has no hash.
         "inputs": {
-            str(p): file_sha256(p) if p.is_file() else None for p in sorted(inputs)
+            k: file_sha256(p) if p.is_file() else None
+            for k, p in sorted(inputs.items())
         },
     }
     path = run_dir / LOCK_NAME
