@@ -62,6 +62,10 @@ class Args:
     """``NAME=DIR`` for one ``paths:`` name, ahead of every paths file;
     repeatable."""
 
+    offline: bool = False
+    """Fetch nothing: packs are read from the cache, and a missing file fails
+    naming it. ``RUTTER_OFFLINE=1`` does the same."""
+
 
 def main() -> None:
     """Parse arguments, build the trame app, and start the server."""
@@ -85,7 +89,9 @@ def main() -> None:
     logging.getLogger("aind_rutter.config.locations").setLevel(logging.INFO)
 
     try:
-        locator = Locator.from_environment(args.paths, parse_overrides(args.path))
+        locator = Locator.from_environment(
+            args.paths, parse_overrides(args.path), offline=args.offline
+        )
         cfg = ConfigModel.from_yaml(config_path, locator)
     except LookupError as e:
         print(e, file=sys.stderr)

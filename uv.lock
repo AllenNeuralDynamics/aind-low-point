@@ -63,6 +63,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aind-anatomical-utils" },
     { name = "aind-mri-utils" },
+    { name = "certifi" },
     { name = "mapbox-earcut" },
     { name = "numpy" },
     { name = "omegaconf" },
@@ -150,6 +151,7 @@ requires-dist = [
     { name = "aind-anatomical-utils", specifier = ">=0.1,<0.2" },
     { name = "aind-mri-utils", specifier = ">=0.12.1,<2" },
     { name = "cadquery-ocp-novtk", marker = "extra == 'step'", specifier = ">=8.0.1,<9" },
+    { name = "certifi", specifier = ">=2023" },
     { name = "cma", marker = "extra == 'optimization'", specifier = ">=4.4.4" },
     { name = "coacd", marker = "extra == 'optimization'", specifier = ">=1.0.11" },
     { name = "cyipopt", marker = "extra == 'ipopt'", specifier = ">=1.7.0" },

@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
   "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
+  "certifi>=2023",
   "mapbox-earcut>=2.0.0",
   "numpy>=1.20,<3",
   "omegaconf>=2,<3",
@@ -89,6 +90,7 @@ rutter-plan-csv = "aind_rutter.plan_io.cli_csv:main"
 rutter-bores = "aind_rutter.optimization.geometry.bore_fit:main"
 rutter-series = "aind_rutter.series.cli:main"
 rutter-paths = "aind_rutter.config.cli:main"
+rutter-data = "aind_rutter.packs.cli:main"
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/aind-rutter/"

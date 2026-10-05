@@ -80,6 +80,10 @@ class PipelineSettings(BaseSettings):
         ),
     )
     _split_paths = field_validator("paths", mode="before")(split_paths_files)
+    offline: bool = Field(
+        False,
+        description="Fetch no pack files; a file missing from the cache fails.",
+    )
     holes: Path = Field(
         Path("scratch/0283-300-04.holes.yml"),
         description="Implant bore file, placed by the config's implant_to_lps.",
@@ -140,7 +144,7 @@ class PipelineSettings(BaseSettings):
 
     def locator(self) -> Locator:
         """Where the config's ``paths:`` names are looked up for this run."""
-        return Locator(files=self.paths)
+        return Locator(files=self.paths, offline=self.offline)
 
     def feasibility_spec(self) -> FeasibilitySpec:
         """What every stage counts as feasible."""

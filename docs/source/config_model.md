@@ -25,7 +25,8 @@ resolves anything, taking the first of:
 4. The machine's `paths.yml`, in `RUTTER_CONFIG_DIR` or else the platform's
    config folder (`~/.config/rutter` on Linux, `~/Library/Application
    Support/rutter` on macOS, `%LOCALAPPDATA%\rutter` on Windows).
-5. The value written in the config.
+5. For a pack value, the pack cache.
+6. The value written in the config.
 
 A paths file maps names to folders:
 
@@ -43,8 +44,58 @@ rutter_data: ../rutter          # relative to this file's folder
 - Drive-letter and UNC folders count as absolute on every platform, so one
   file means the same wherever it is read.
 
-`rutter-paths config.yml` prints each name, its folder, what set it and every
-file searched; values set by a paths file are also logged at load.
+`rutter-paths config.yml` prints each name, its folder, what set it, every
+file searched and the pack cache; values set by a paths file are also logged at
+load.
+
+### Packs
+
+A `paths:` value may name a published, immutable folder instead of a location:
+
+```yaml
+paths:
+  hardware: {pack: hardware/v1}
+```
+
+A paths file can point a pack at a local copy, under `packs:` (in one file a
+name's own line beats its pack's line):
+
+```yaml
+packs:
+  hardware/v1: /mnt/Data/rutter/hardware
+```
+
+Otherwise the name resolves to the pack's folder in the cache, and loading
+fetches only what the config names: each file with its companions (same folder,
+same stem: an `.obj`'s `.mtl`), and a named folder whole once the config is
+validated and its bulk patterns expanded. Every download is checked against the
+pack's manifest for size and sha256.
+
+The store is `https://aind-scratch-data.s3.amazonaws.com/rutter/packs/`, laid
+out as `<name>/<version>/manifest.json` and `<name>/<version>/files/...`. The
+cache is in `RUTTER_CACHE` or the platform's cache folder, tagged with
+`CACHEDIR.TAG`. Once a day the first process to use it removes versions unused
+for 60 days, then the least recently used while it holds more than 10 GB, never
+a version used in the last day. Only the machine's `paths.yml` may change the
+store and limits:
+
+```yaml
+pack_store: s3://my-bucket/packs
+cache: {max_gb: 50, max_age_days: 120}
+```
+
+The environment outranks it: `RUTTER_PACK_STORE`, `RUTTER_CACHE_MAX_GB`,
+`RUTTER_CACHE_MAX_AGE_DAYS`. `--offline` (`rutter-plan`, `rutter-paths`; the
+pipeline's `RUTTER_OFFLINE`) reads only what is cached and names what is
+missing; `RUTTER_VERIFY_DOWNLOADS=0` skips the sha256 check.
+
+| `rutter-data …` | |
+|---|---|
+| `pull hardware/v1` | Fetch the whole pack into the cache, e.g. before going offline. |
+| `pull hardware/v1 --to DIR` | Copy it into a folder the cache never removes, and record it under `packs:` in the machine's `paths.yml`. |
+| `publish DIR hardware/v2` | Upload a folder as a new version (files first, the manifest last); an existing version is refused. Paths macOS or Windows cannot hold are refused. S3 needs `uv run --with boto3` and credentials. |
+| `verify hardware/v1 [DIR]` | Check a copy, or the cached files, against the manifest. |
+| `cache`, `cache clear [PACK]` | What the cache holds against its limits; empty it, or one pack. |
 
 A relative location anywhere in a config read by `from_yaml` (an asset's
 `src`, a transform's `path`, a calibration file) is taken against the config's

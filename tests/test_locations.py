@@ -12,16 +12,22 @@ import yaml
 
 from aind_rutter.config import ConfigModel
 from aind_rutter.config.locations import (
+    CACHE_SOURCE,
     CONFIG_SOURCE,
     OVERRIDE_SOURCE,
     PATHS_FILE_NAME,
     Locator,
+    PathsFile,
     load_resolved,
     locate,
     parse_overrides,
     read_paths_file,
+    record_pack_folder,
 )
 from aind_rutter.optimization.pipeline.settings import PipelineSettings
+from aind_rutter.packs import PackCache, PackRef, PackSettings
+from aind_rutter.packs.manifest import build_manifest
+from aind_rutter.packs.store import publish, store_url
 
 
 def _write(path: Path, data: object) -> Path:
@@ -149,14 +155,14 @@ def test_a_relative_folder_is_taken_against_its_file(
     path = _write(tmp_path / "f" / PATHS_FILE_NAME, {"data": written})
     if "{base}" in expected:
         expected = os.path.normpath(expected.format(base=tmp_path / "f"))
-    assert read_paths_file(path)["data"] == expected
+    assert read_paths_file(path).names["data"] == expected
 
 
 def test_home_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     path = _write(tmp_path / "f.yml", {"data": "~/data"})
-    assert read_paths_file(path)["data"] == str(tmp_path / "data")
+    assert read_paths_file(path).names["data"] == str(tmp_path / "data")
     assert parse_overrides(["data=~/data"]) == {"data": str(tmp_path / "data")}
 
 
@@ -179,7 +185,7 @@ def test_a_malformed_paths_file_is_refused(
 def test_an_empty_paths_file_sets_nothing(tmp_path: Path) -> None:
     path = tmp_path / "f.yml"
     path.write_text("")
-    assert read_paths_file(path) == {}
+    assert read_paths_file(path) == PathsFile({}, {}, {})
 
 
 @pytest.mark.parametrize("item", ["data", "=x", "data=", " = "])
@@ -249,3 +255,136 @@ def test_rutter_paths_reports_each_name_and_its_source(tree: Path) -> None:
     assert "set by --path" in out
     assert "/cli  [missing]" in out
     assert f"{tree}\n" in out  # exists, so not marked
+
+
+# ---- packs ----
+
+PACK_FILES = {
+    "cone/cone.obj": b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+    "cone/cone.mtl": b"newmtl a\n",
+    "masks/PL.nrrd": b"nrrd",
+    "masks/MOp.nrrd": b"nrrd",
+    "unused/big.step": b"x" * 1000,
+}
+
+
+@pytest.fixture
+def pack_store(tmp_path: Path) -> str:
+    src = tmp_path / "pack-src"
+    for rel, data in PACK_FILES.items():
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_bytes(data)
+    url = store_url(str(tmp_path / "store"))
+    publish(src, build_manifest(src, PackRef("hardware", "v1")), url)
+    return url
+
+
+def _pack_locator(tmp_path: Path, store: str, **kw) -> Locator:
+    cache = PackCache(PackSettings(pack_store=store, cache=tmp_path / "cache"))
+    return Locator(machine_file=None, cache=cache, **kw)
+
+
+def _pack_config(tmp_path: Path) -> Path:
+    return _write(
+        tmp_path / "proj" / "c.yml",
+        {
+            "paths": {"hw": {"pack": "hardware/v1"}},
+            "assets": [
+                {"key": "mesh:cone", "src": "${paths.hw}/cone/cone.obj"},
+                {"keys": ["structure:PL"], "src": "${paths.hw}/masks/{name}.nrrd"},
+            ],
+        },
+    )
+
+
+def _fetched(locator: Locator) -> list[str]:
+    folder = locator.pack_cache().version_dir(PackRef("hardware", "v1")) / "files"
+    return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.*"))
+
+
+def test_a_pack_value_comes_from_the_cache(tmp_path: Path, pack_store: str) -> None:
+    locator = _pack_locator(tmp_path, pack_store)
+    found = locate(
+        tmp_path / "c.yml", {"hw": {"pack": "hardware/v1"}, "d": "/d"}, locator
+    )
+    assert found["hw"].source == CACHE_SOURCE
+    assert found["hw"].pack == PackRef("hardware", "v1")
+    assert found["hw"].value.endswith(os.path.join("hardware", "v1", "files"))
+    assert found["d"].pack is None
+
+
+def test_loading_fetches_only_what_the_config_names(
+    tmp_path: Path, pack_store: str
+) -> None:
+    locator = _pack_locator(tmp_path, pack_store)
+    cfg = ConfigModel.from_yaml(_pack_config(tmp_path), locator)
+    assert Path(str(cfg.assets[0].src)).read_bytes() == PACK_FILES["cone/cone.obj"]
+    assert _fetched(locator) == ["cone/cone.mtl", "cone/cone.obj", "masks/PL.nrrd"]
+
+
+def test_a_paths_file_can_locate_a_pack(tmp_path: Path, pack_store: str) -> None:
+    config = _pack_config(tmp_path)
+    copy = tmp_path / "copy"
+    _write(tmp_path / "proj" / PATHS_FILE_NAME, {"packs": {"hardware/v1": str(copy)}})
+    found = locate(config, {"hw": {"pack": "hardware/v1"}}, _isolated())
+    assert (found["hw"].value, found["hw"].source) == (
+        str(copy),
+        f"{tmp_path / 'proj' / PATHS_FILE_NAME} (packs)",
+    )
+    assert found["hw"].cached is None
+
+
+def test_a_name_line_beats_a_pack_line_in_one_file(tmp_path: Path) -> None:
+    paths_file = _write(
+        tmp_path / PATHS_FILE_NAME, {"hw": "/by-name", "packs": {"hardware/v1": "/p"}}
+    )
+    found = locate(
+        tmp_path / "c.yml",
+        {"hw": {"pack": "hardware/v1"}},
+        _isolated(files=(paths_file,)),
+    )
+    assert found["hw"].value == os.path.normpath("/by-name")
+
+
+def test_only_the_machine_file_sets_the_store(tmp_path: Path) -> None:
+    paths_file = _write(tmp_path / PATHS_FILE_NAME, {"pack_store": "file:///x/"})
+    with pytest.raises(ValueError, match="only the machine"):
+        read_paths_file(paths_file)
+    assert read_paths_file(paths_file, machine=True).settings == {
+        "pack_store": "file:///x/"
+    }
+
+
+@pytest.mark.parametrize("value", [{"pack": "Hardware"}, {"pack": "a/b", "x": 1}])
+def test_a_malformed_pack_value_is_refused(tmp_path: Path, value: dict) -> None:
+    with pytest.raises(ValueError):
+        locate(tmp_path / "c.yml", {"hw": value}, _isolated())
+
+
+def test_recording_a_pack_folder_keeps_the_rest(tmp_path: Path) -> None:
+    machine = tmp_path / "paths.yml"
+    written = "# this machine\ndata: /mnt/data  # big disk\npacks:\n  other/v1: /o\n"
+    machine.write_text(written)
+    record_pack_folder(machine, PackRef("hardware", "v1"), Path("/copies/hw"))
+    record_pack_folder(machine, PackRef("hardware", "v1"), Path("/copies/hw2"))
+    text = machine.read_text()
+    assert text.startswith("# this machine\ndata: /mnt/data  # big disk\npacks:\n")
+    assert read_paths_file(machine, machine=True).packs == {
+        "hardware/v1": os.path.normpath("/copies/hw2"),
+        "other/v1": os.path.normpath("/o"),
+    }
+    fresh = tmp_path / "new" / "paths.yml"
+    record_pack_folder(fresh, PackRef("hardware", "v1"), Path("/c"))
+    assert read_paths_file(fresh).packs == {"hardware/v1": os.path.normpath("/c")}
+
+
+def test_offline_on_the_locator_outranks_the_cache_it_is_given(
+    tmp_path: Path, pack_store: str
+) -> None:
+    online = _pack_locator(tmp_path, pack_store)
+    online.pack_cache().open(PackRef("hardware", "v1"))
+    offline = _pack_locator(tmp_path, pack_store, offline=True)
+    assert offline.pack_cache().settings.offline
+    with pytest.raises(FileNotFoundError, match="RUTTER_OFFLINE"):
+        ConfigModel.from_yaml(_pack_config(tmp_path), offline)
+    assert PipelineSettings(offline=True).locator().offline

@@ -54,7 +54,9 @@ The two subject inputs are:
    Full aind-rutter config YAML. It defines probes, targets, fixture meshes,
    the implant transform, and the runtime plan skeleton. Its ``paths:`` names
    are located as for every command (see the config model guide); paths files
-   in ``RUTTER_PATHS``, separated by ``os.pathsep``, rank first.
+   in ``RUTTER_PATHS``, separated by ``os.pathsep``, rank first. Pack files
+   it names are fetched at load; ``RUTTER_OFFLINE=1`` fetches none, so a long
+   run can ``rutter-data pull`` its packs first and fail fast on a gap.
 
 ``RUTTER_HOLES``
    Implant-bore YAML loaded by ``optimization.geometry.holes.load_holes``. Each

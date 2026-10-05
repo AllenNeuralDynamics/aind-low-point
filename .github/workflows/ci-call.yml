@@ -41,3 +41,27 @@ jobs:
       smoke-extras: optimization
     secrets:
       repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Packs read and write a cache on the user's machine, so their file handling
+  # runs where renames, path rules and certificates differ. The rest of the
+  # stack has no wheels for every platform, hence the minimal install.
+  packs-portable:
+    if: >
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      github.actor != 'github-actions[bot]'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Pack tests
+        env:
+          PYTHONPATH: src
+        run: >
+          uv run --no-project --python 3.13
+          --with pytest --with pytest-xdist --with pydantic-settings
+          --with platformdirs --with certifi
+          pytest -q tests/test_packs.py

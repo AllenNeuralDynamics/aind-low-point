@@ -23,6 +23,7 @@ PARSED_ARGUMENTS = {
     "rutter-bores",
     "rutter-series",
     "rutter-paths",
+    "rutter-data",
 }
 
 # Importing these must not choose a GPU: the default platform is cuda.
@@ -61,6 +62,7 @@ def test_pyproject_declares_the_expected_commands() -> None:
         "rutter-bores",
         "rutter-series",
         "rutter-paths",
+        "rutter-data",
     }
 
 

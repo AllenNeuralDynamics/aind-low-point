@@ -11,7 +11,12 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from aind_rutter.config.locations import Locator, load_resolved
+from aind_rutter.config.locations import (
+    Locator,
+    fetch_referenced,
+    load_located,
+    references,
+)
 from aind_rutter.config.models_catalog import (
     AssetSpecModel,
     AssetSpecUnion,
@@ -88,8 +93,10 @@ class ConfigModel(BaseModel):
     ) -> "ConfigModel":
         """Load a config, its ``paths:`` located by ``locator`` (by default
         the paths files this machine and ``RUTTER_PATHS`` name) and its
-        interpolations resolved."""
-        resolved = load_resolved(path, locator)
+        interpolations resolved. Pack files the expanded config names are
+        fetched into the cache before it returns."""
+        loaded = load_located(path, locator)
+        resolved = loaded.data
         retired = retired_fields_in(resolved)
         if retired:
             says = "; ".join(f"`{k}` → {RETIRED_FIELDS[k]}" for k in sorted(retired))
@@ -100,7 +107,13 @@ class ConfigModel(BaseModel):
                 f"these fields."
             )
         config_dir = Path(os.path.abspath(path)).parent
-        return cls.model_validate(resolved, context={"config_dir": config_dir})
+        cfg = cls.model_validate(resolved, context={"config_dir": config_dir})
+        if loaded.packs:
+            # Bulk specs and atlas packs name their files only once expanded.
+            fetch_referenced(
+                loaded.packs, references(cfg.model_dump(mode="json")), folders=True
+            )
+        return cfg
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")

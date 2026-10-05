@@ -73,6 +73,11 @@ Module Organization
     │   ├── locations.py       # where each paths: name is on this machine
     │   ├── cli.py             # rutter-paths
     │   └── root.py            # ConfigModel and its cross-reference validation
+    ├── packs/                 # published folders of shared data; only cli.py imports rutter
+    │   ├── manifest.py        # PackRef, the manifest, portability checks
+    │   ├── store.py           # reading over HTTPS or file://, publishing
+    │   ├── cache.py           # PackCache: fetching, the daily sweep
+    │   └── cli.py             # rutter-data, which reads the machine's paths file
     ├── build/                 # config → runtime
     │   ├── assemble.py        # build_runtime_from_config
     │   ├── loaders.py         # the loader registry

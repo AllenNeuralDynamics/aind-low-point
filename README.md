@@ -99,6 +99,7 @@ otherwise do without.
 | `rutter-series propose\|configs\|solve\|schedule\|status spec.yml run/` | Plan a series of sessions from one spec: proposed allocations of probes to regions, its configs, their solves, and the plan per session and session order with the least rig rework. |
 | `rutter-plan-csv` | Convert a plan into a target CSV for the rig. |
 | `rutter-paths [config.yml]` | Show where each of a config's `paths:` names resolves on this machine, what set it, and every paths file read. |
+| `rutter-data pull\|publish\|verify\|cache` | Fetch, publish and check packs, the immutable folders of shared data a config can name, and see or clear the cache. |
 
 ## Documentation
 
