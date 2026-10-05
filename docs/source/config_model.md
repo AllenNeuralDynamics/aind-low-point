@@ -97,6 +97,14 @@ missing; `RUTTER_VERIFY_DOWNLOADS=0` skips the sha256 check.
 | `verify hardware/v1 [DIR]` | Check a copy, or the cached files, against the manifest. |
 | `cache`, `cache clear [PACK]` | What the cache holds against its limits; empty it, or one pack. |
 
+A recipient who is online needs only the config. For one who is not,
+`scripts/bundle_config.py CONFIG... --output DIR` (or `X.tar.zst`) copies the
+configs as written, their plans, and the files they read under the pack or
+`paths:` name each lives in, with a `rutter.paths.yml` at the top that points
+those packs and names at the copies. A file named by an absolute path outside
+every `paths:` name is listed and refuses the bundle, since it could only be
+redirected by rewriting the config.
+
 A relative location anywhere in a config read by `from_yaml` (an asset's
 `src`, a transform's `path`, a calibration file) is taken against the config's
 folder, not the working directory. A config built in code with

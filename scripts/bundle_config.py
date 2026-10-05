@@ -1,34 +1,20 @@
-"""Bundle one or more config files with all referenced assets into a
-portable tar.zst.
+"""Bundle configs with the files they read into one folder that runs anywhere.
 
-Walks every (validated) ConfigModel to find every referenced file path,
-copies them into a staging directory keyed off the original absolute
-paths, rewrites each config so that all path references go through a
-single ``${paths.bundle}`` indirection, and tars/compresses the result.
+Each config is copied as written, with its ``<config>.plan.yml`` if present.
+Every file a config reads is copied under the ``paths:`` name or pack it lives
+in, and a ``rutter.paths.yml`` at the top points those names and packs at the
+copies, so nothing inside is rewritten: the configs find it by searching
+upward. A file a config names by an absolute path outside every ``paths:``
+name cannot be redirected that way; it is listed, and the bundle refused
+unless ``--allow-outside``.
 
-When multiple configs are passed, the file set is the **union**
-(deduplicated) so the bundle stays small even with shared assets.
-Each rewritten config is written into the bundle root with a filename
-derived from the source.
-
-Receiving end:
-
-    tar -xf <bundle>.tar.zst -C /some/dir
-    # edit one of the configs in <bundle>/, set paths.bundle to the
-    # extracted dir, OR launch with the BUNDLE_DIR env var
-    BUNDLE_DIR=/some/dir/<bundle> uv run --python 3.13 \\
-        python examples/launch_trame_config.py /some/dir/<bundle>/config.yml
-
-Usage:
-    # single config
-    uv run --python 3.13 python scripts/bundle_config.py \\
-        examples/786864-config.yml \\
-        --output 786864-bundle.tar.zst
-
-    # multiple configs, unioned asset set
     uv run --python 3.13 python scripts/bundle_config.py \\
         examples/build5-template-config.yml examples/786864-config.yml \\
-        --output build5-asset-pack.tar.zst
+        --output build5-bundle            # a folder
+        --output build5-bundle.tar.zst    # or one archive of it
+
+Packs are copied only as far as the configs read them; a recipient who is
+online needs no bundle at all, since packs come from the store.
 """
 
 from __future__ import annotations
@@ -44,439 +30,163 @@ from pathlib import Path
 import yaml
 
 from aind_rutter.config import ConfigModel
+from aind_rutter.config.locations import (
+    PATHS_FILE_NAME,
+    Loaded,
+    Locator,
+    load_located,
+)
+
+ARCHIVE_SUFFIX = ".tar.zst"
 
 
-def collect_existing_file_paths(obj, out: set[Path]) -> None:
-    """Walk a (possibly nested) container and collect every value that
-    resolves to an existing file on disk. Accepts strings and Path objects."""
-    if isinstance(obj, dict):
-        for v in obj.values():
-            collect_existing_file_paths(v, out)
-    elif isinstance(obj, (list, tuple)):
-        for v in obj:
-            collect_existing_file_paths(v, out)
-    elif isinstance(obj, (str, Path)):
-        s = str(obj)
-        if s.startswith("/"):
-            p = Path(s)
-            if p.is_file():
-                out.add(p.resolve())
+def read_files(config: Path, loaded: Loaded, locator: Locator) -> set[Path]:
+    """Every existing file the config reads, with its companions (same folder
+    and stem, as an ``.obj``'s ``.mtl``), bulk patterns expanded."""
+    expanded = ConfigModel.from_yaml(config, locator).model_dump(mode="json")
+    found: set[Path] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key != "paths":
+                    walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+        elif isinstance(node, str) and os.path.isabs(node):
+            path = Path(node)
+            if path.is_file():
+                found.add(path)
+            elif path.is_dir():
+                found.update(p for p in path.rglob("*") if p.is_file())
+
+    walk(loaded.data)
+    walk(expanded)
+    for path in list(found):
+        stem = path.name.split(".", 1)[0]
+        found.update(
+            p
+            for p in path.parent.glob(f"{stem}.*")
+            if p.is_file() and p.name.split(".", 1)[0] == stem
+        )
+    return found
 
 
-def _resolve_paths_block(raw_paths: dict) -> dict[str, str]:
-    """Resolve OmegaConf interpolation in just the ``paths`` block."""
-    from omegaconf import OmegaConf
-
-    oc = OmegaConf.create({"paths": raw_paths})
-    return OmegaConf.to_container(oc, resolve=True)["paths"]
-
-
-def _named_roots_from_paths(
-    raw_paths: dict,
-) -> list[tuple[str, Path]]:
-    """Return ``(key, abs_path)`` for every ``paths.*`` entry whose
-    resolved value is an absolute path on disk. Sorted by path length
-    descending so longest-prefix matching falls out naturally when
-    multiple roots overlap (e.g. ``atlas_dir`` is a child of
-    ``template_dir``)."""
-    resolved = _resolve_paths_block(raw_paths)
-    roots: list[tuple[str, Path]] = []
-    for key, val in resolved.items():
-        if isinstance(val, str) and val.startswith("/"):
-            roots.append((key, Path(val)))
-    roots.sort(key=lambda kv: len(str(kv[1])), reverse=True)
-    return roots
-
-
-def _bundle_path_for(
-    abs_path: Path,
-    named_roots: list[tuple[str, Path]],
-    namespace: str | None,
-    misc_used: dict[str, int],
-) -> str:
-    """Compute a clean ``data/...`` bundle path for *abs_path*.
-
-    Files that fall under a named ``paths.*`` root are mirrored relative
-    to that root under ``data/<key>/`` (and ``data/<namespace>/<key>/``
-    if a namespace is set). Files outside every root land in
-    ``data/_misc/`` with a counter suffix on collisions — no machine
-    paths leak into the bundle.
-    """
-    prefix = "data" if namespace is None else f"data/{namespace}"
-    for key, root_path in named_roots:
-        try:
-            rel = abs_path.relative_to(root_path)
-        except ValueError:
-            continue
-        return f"{prefix}/{key}/{rel}"
-    base = abs_path.name
-    counter = misc_used.get(base, 0)
-    if counter:
-        stem, dot, ext = base.rpartition(".")
-        base = f"{stem}_{counter}.{ext}" if dot else f"{base}_{counter}"
-    misc_used[abs_path.name] = counter + 1
-    return f"{prefix}/_misc/{base}"
-
-
-def _rewrite_paths_block(
-    raw_paths: dict,
-    namespace: str | None,
-) -> dict:
-    """Rewrite a ``paths.*`` block so each absolute-path entry points at
-    its bundle subdirectory and ``bundle`` is injected at the top.
-
-    Interpolation chains whose resolved value happens to be an absolute
-    path (e.g. ``atlas_dir: ${.template_dir}/...``) are also flattened
-    to a direct ``${paths.bundle}/data/<key>`` literal — we don't try
-    to preserve chain semantics because the bundle layout already gives
-    each named root its own clean directory.
-    """
-    resolved = _resolve_paths_block(raw_paths)
-    prefix = "data" if namespace is None else f"data/{namespace}"
-    new_paths: dict = {
-        "bundle": "${oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}",
-    }
-    for key, val in raw_paths.items():
-        rval = resolved.get(key)
-        if isinstance(rval, str) and rval.startswith("/"):
-            p = Path(rval)
-            # When the root resolves to a single file (vs a directory) the
-            # bundle places it at ``data/<key>/<basename>`` so the
-            # extension survives — loader inference downstream needs
-            # ``.nrrd`` / ``.obj`` etc. on the path.
-            if p.is_file():
-                new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}/{p.name}"
-            else:
-                new_paths[key] = f"${{paths.bundle}}/{prefix}/{key}"
+def roots(loaded: Loaded) -> list[tuple[Path, str, str]]:
+    """``(folder, paths-file key, bundle folder)`` for each pack and each
+    ``paths:`` name written as a folder of its own, longest first. A derived
+    name (``${.base}/x``) follows its base and needs no line."""
+    resolved = loaded.data.get("paths") or {}
+    out = []
+    for name, loc in loaded.locations.items():
+        if loc.pack is not None:
+            key, dest = str(loc.pack), f"packs/{loc.pack.name}/{loc.pack.version}"
+        elif "${" not in loc.value and os.path.isabs(str(resolved[name])):
+            key, dest = name, f"data/{name}"
         else:
-            new_paths[key] = val
-    return new_paths
+            continue
+        out.append((Path(os.path.abspath(str(resolved[name]))), key, dest))
+    return sorted(out, key=lambda r: -len(r[0].parts))
 
 
-def _rewrite_inline_paths(
-    obj,
-    file_to_bundle_rel: dict[Path, str],
-):
-    """Walk *obj* and replace any leaf string that's an absolute path of
-    a bundled file with ``${paths.bundle}/<bundle_rel>``.
-
-    The common case (every file is referenced via ``${paths.foo}/...``
-    interpolation) needs no rewriting here because the ``paths.*`` block
-    rewrite already handles it. This is the fall-through for inline
-    absolute paths — they get sent to ``data/_misc/`` and the YAML's
-    pointer is updated to match.
-    """
-    if isinstance(obj, dict):
-        return {k: _rewrite_inline_paths(v, file_to_bundle_rel) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_rewrite_inline_paths(v, file_to_bundle_rel) for v in obj]
-    if isinstance(obj, str) and obj.startswith("/"):
-        rel = file_to_bundle_rel.get(Path(obj).resolve())
-        if rel is not None:
-            return f"${{paths.bundle}}/{rel}"
-    return obj
-
-
-def main() -> int:  # noqa: C901
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument(
-        "config",
-        type=Path,
-        nargs="+",
-        help="One or more YAML config files; asset sets are unioned.",
-    )
-    p.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        required=True,
-        help="Output tar.zst path",
-    )
-    p.add_argument(
-        "--bundle-name",
-        default=None,
-        help=(
-            "Name of the directory inside the tarball "
-            "(default: derived from output filename)"
-        ),
-    )
-    p.add_argument(
-        "--zstd-level",
-        type=int,
-        default=19,
-        help="zstd compression level 1-22 (default 19)",
-    )
-    args = p.parse_args()
-
-    for cp in args.config:
-        if not cp.is_file():
-            print(f"Config not found: {cp}", file=sys.stderr)
+def bundle(
+    configs: list[Path], out: Path, locator: Locator, *, allow_outside: bool
+) -> int:
+    sources: dict[str, Path] = {}  # paths-file key -> the folder copied
+    lines: dict[str, str] = {}
+    copies: dict[Path, Path] = {}
+    outside: dict[Path, list[str]] = {}
+    for config in configs:
+        loaded = load_located(config, locator)
+        config_roots = roots(loaded)
+        for folder, key, dest in config_roots:
+            # One paths file serves every config, so a name means one folder.
+            if sources.setdefault(key, folder) != folder:
+                raise SystemExit(
+                    f"{config}: {key} is {folder}, but {sources[key]} in an "
+                    "earlier config; bundle them separately"
+                )
+            lines[key] = dest
+        for path in read_files(config, loaded, locator):
+            for folder, _, dest in config_roots:
+                if path == folder or folder in path.parents:
+                    copies[path] = Path(dest) / path.relative_to(folder)
+                    break
+            else:
+                outside.setdefault(path, []).append(config.name)
+    if outside:
+        print("Named by an absolute path outside every paths: name:", file=sys.stderr)
+        for path, names in sorted(outside.items()):
+            print(f"  {path}  ({', '.join(names)})", file=sys.stderr)
+        if not allow_outside:
+            print(
+                "Give each a paths: name, or pass --allow-outside to bundle "
+                "without them.",
+                file=sys.stderr,
+            )
             return 1
 
-    bundle_name = args.bundle_name
-    if bundle_name is None:
-        stem = args.output.name
-        for suffix in (".tar.zst", ".tar.zstd", ".tzst", ".tar"):
-            if stem.endswith(suffix):
-                stem = stem[: -len(suffix)]
-                break
-        bundle_name = stem
-
-    # 1. Validate every config so bulk / range / atlas-pack specs are
-    #    expanded into concrete per-asset srcs, then union the file sets.
-    files: set[Path] = set()
-    missing: set[str] = set()
-    cfg_dumps: dict[Path, dict] = {}
-    for cp in args.config:
-        print(f"Loading {cp}")
-        cfg = ConfigModel.from_yaml(cp)
-        dump = cfg.model_dump(mode="python")
-        cfg_dumps[cp] = dump
-        per_cfg: set[Path] = set()
-        collect_existing_file_paths(dump, per_cfg)
-        files |= per_cfg
-        # also note any concrete absolute paths that don't exist
-        walk: list = [dump]
-        while walk:
-            node = walk.pop()
-            if isinstance(node, dict):
-                walk.extend(node.values())
-            elif isinstance(node, (list, tuple)):
-                walk.extend(node)
-            elif isinstance(node, (str, Path)):
-                s = str(node)
-                if s.startswith("/") and not Path(s).exists():
-                    missing.add(s)
-        print(f"  {len(per_cfg)} files referenced")
-
-    if not files:
-        print("No existing file references found.", file=sys.stderr)
-        return 2
-
-    if missing:
-        print("WARNING: some referenced paths do not exist on this machine:")
-        for m in sorted(missing):
-            print(f"  {m}")
-        print("They will be skipped from the bundle.")
-
-    sorted_files = sorted(files)
-    print(f"Union: {len(sorted_files)} files across {len(args.config)} config(s)")
-
-    # 2. For each config, build its named-root list (paths.* entries
-    #    whose resolved values are absolute paths) and pick a namespace
-    #    only when there are multiple configs sharing the bundle.
-    cfg_to_roots: dict[Path, list[tuple[str, Path]]] = {}
-    cfg_to_raw: dict[Path, dict] = {}
-    cfg_to_namespace: dict[Path, str | None] = {}
-    multi = len(args.config) > 1
-    for cp in args.config:
-        with cp.open() as f:
-            raw = yaml.safe_load(f)
-        cfg_to_raw[cp] = raw
-        cfg_to_roots[cp] = _named_roots_from_paths(raw.get("paths", {}) or {})
-    # When every config resolves the same ``paths`` block we can drop
-    # per-config namespacing — the staged files live under a single
-    # ``data/<key>/`` tree and every config's rewrite can point to the
-    # same location. Without this check each config's ``paths`` rewrite
-    # uses its own ``data/<stem>/<key>/`` prefix while staging picks
-    # the first config's stem as the winner, leaving every other config
-    # pointing at an empty subdirectory.
-    shared_paths = multi and all(
-        _resolve_paths_block(cfg_to_raw[cp].get("paths", {}) or {})
-        == _resolve_paths_block(cfg_to_raw[args.config[0]].get("paths", {}) or {})
-        for cp in args.config[1:]
+    out.mkdir(parents=True)
+    for config in configs:
+        shutil.copy2(config, out / config.name)
+        plan = config.with_suffix(".plan.yml")
+        if plan.is_file():
+            shutil.copy2(plan, out / plan.name)
+    for src, rel in sorted(copies.items()):
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, out / rel)
+    # A pack key is name/version; a paths: name never holds a slash.
+    packs = {k: v for k, v in lines.items() if "/" in k}
+    paths_file: dict[str, object] = {
+        k: v for k, v in sorted(lines.items()) if k not in packs
+    }
+    if packs:
+        paths_file["packs"] = dict(sorted(packs.items()))
+    (out / PATHS_FILE_NAME).write_text(
+        "# Folders relative to this file; every config here finds it.\n"
+        + yaml.safe_dump(paths_file, sort_keys=False)
     )
-    for cp in args.config:
-        cfg_to_namespace[cp] = cp.stem if (multi and not shared_paths) else None
-
-    # 3. Decide bundle-relative target for every file. Use the longest
-    #    matching named root from any config; fall back to ``_misc``.
-    file_to_bundle_rel: dict[Path, str] = {}
-    misc_used: dict[str, int] = {}
-    # Aggregate roots across all configs (longest path wins). For multi
-    # config setups we also need to know which namespace the root came
-    # from; track that alongside.
-    flat_roots: list[tuple[str, Path, str | None]] = []
-    for cp, roots in cfg_to_roots.items():
-        ns = cfg_to_namespace[cp]
-        for key, root_path in roots:
-            flat_roots.append((key, root_path, ns))
-    flat_roots.sort(key=lambda t: len(str(t[1])), reverse=True)
-
-    for abs_path in sorted_files:
-        matched = False
-        for key, root_path, ns in flat_roots:
-            try:
-                rel = abs_path.relative_to(root_path)
-            except ValueError:
-                continue
-            prefix = "data" if ns is None else f"data/{ns}"
-            # Single-file root: ``relative_to`` returns ``.`` which would
-            # land the file at ``data/<key>`` with no basename. Use the
-            # original filename so the suffix is preserved.
-            if str(rel) == ".":
-                rel = Path(abs_path.name)
-            file_to_bundle_rel[abs_path] = f"{prefix}/{key}/{rel}"
-            matched = True
-            break
-        if not matched:
-            base = abs_path.name
-            counter = misc_used.get(base, 0)
-            slug = base
-            if counter:
-                stem, dot, ext = base.rpartition(".")
-                slug = f"{stem}_{counter}.{ext}" if dot else f"{base}_{counter}"
-            misc_used[base] = counter + 1
-            file_to_bundle_rel[abs_path] = f"data/_misc/{slug}"
-
-    # 4. Stage in temp dir, copy files into their clean bundle paths.
-    with tempfile.TemporaryDirectory(prefix="bundle-") as tmp:
-        tmpdir = Path(tmp)
-        bundle_root = tmpdir / bundle_name
-        bundle_root.mkdir()
-
-        total_bytes = 0
-        for abs_path, bundle_rel in sorted(file_to_bundle_rel.items()):
-            dst = bundle_root / bundle_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            # copyfile + chmod 0o644 so the copy is readable on the
-            # other side. shutil.copy2 preserves the source perms which
-            # break when the source uses ACLs (common on scratch FSs).
-            shutil.copyfile(abs_path, dst)
-            os.chmod(dst, 0o644)
-            total_bytes += dst.stat().st_size
-        print(f"Copied {len(sorted_files)} files, {total_bytes / 1e6:.1f} MB raw")
-
-        # 5. Rewrite each source config so every absolute path goes
-        #    through ``${paths.bundle}/data/<key>/`` rather than mirroring
-        #    the original filesystem layout.
-        config_filenames: list[str] = []
-        for cp in args.config:
-            raw = cfg_to_raw[cp]
-            ns = cfg_to_namespace[cp]
-            raw["paths"] = _rewrite_paths_block(raw.get("paths", {}) or {}, ns)
-            for k in list(raw.keys()):
-                if k != "paths":
-                    raw[k] = _rewrite_inline_paths(raw[k], file_to_bundle_rel)
-            out_name = cp.name
-            with (bundle_root / out_name).open("w") as f:
-                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False)
-            config_filenames.append(out_name)
-
-        # 4. README so the recipient knows what to do.
-        configs_block = "\n".join(f"├── {name}" for name in config_filenames)
-        primary_cfg = config_filenames[0]
-        run_examples = "\n".join(
-            f"BUNDLE_DIR=$(pwd)/{bundle_name} \\\n"
-            f"    uv run --python 3.13 python examples/launch_trame_config.py "
-            f"{bundle_name}/{name}"
-            for name in config_filenames
-        )
-        (bundle_root / "README.md").write_text(
-            f"""# {bundle_name}
-
-A self-contained aind-rutter planning asset pack: every mesh, mask, and
-transform referenced by the bundled config(s) is included under `data/`,
-with paths rewritten to a single `${{paths.bundle}}` indirection so the
-config travels with the data.
-
-## What's inside
-
-```
-{bundle_name}/
-├── README.md         (this file)
-{configs_block}
-└── data/             (every referenced asset; original absolute paths preserved)
-```
-
-## Prerequisites
-
-1. **Python 3.13** — `python-fcl` does not ship 3.14 wheels. The launcher uses
-   `uv run --python 3.13 …`, which will fetch 3.13 if it isn't installed.
-2. **uv** — <https://docs.astral.sh/uv/>. Install with `curl -LsSf
-   https://astral.sh/uv/install.sh | sh` or your distro's package manager.
-3. **aind-rutter** — clone the repo and install in editable mode:
-   ```bash
-   git clone git@github.com:AllenNeuralDynamics/aind-rutter.git
-   cd aind-rutter
-   uv sync --python 3.13
-   ```
-
-## Get started
-
-```bash
-# 1. Extract the pack anywhere
-tar -xf {bundle_name}.tar.zst -C ~/data
-
-# 2. Launch the trame web app from your aind-rutter checkout. Set
-#    BUNDLE_DIR (the configs default to it via OmegaConf) or edit
-#    paths.bundle in the YAML to the absolute extracted path.
-cd ~/aind-rutter   # or wherever you cloned the repo
-{run_examples}
-```
-
-The launcher prints a URL (default <http://localhost:8080/index.html>);
-open it in any browser. Stop the server with Ctrl-C.
-
-## Quick UI tour
-
-- **Probe / Arc / Probe type / Target** drop-downs — pick which probe you're
-  editing, which arc it's bound to, which mesh to render it as, and which
-  catalog target it aims at.
-- **R / A / Depth** sliders — translate the probe entry point in mm; depth
-  pushes the tip past the target along the probe axis.
-- **AP tilt / ML tilt / Spin** sliders — angles in degrees. AP is shared
-  across probes on the same arc when bound; ML and spin are per-probe.
-- **Set target** — apply the dropdown selection; resets depth to zero.
-- **Save YAML** (if launched with `--save`) — writes the current plan to
-  the path you passed.
-- **CCF region search / opacity** (if launched with `--ccf-volume <path>`)
-  — toggle individual brain regions on/off in the 3D view.
-
-Probes that aim at a CCF-derived target are coloured to match the Allen
-region colour automatically; probe meshes can be swapped on the fly via
-the Probe type dropdown.
-
-## Editing the config
-
-Each config has a `paths.bundle` line at the very top. By default it
-reads `${{oc.env:BUNDLE_DIR,/EDIT_ME/path/to/extracted/bundle}}`, so
-you can either:
-
-1. set `BUNDLE_DIR` in the launching shell (recommended), or
-2. replace the placeholder with the absolute extracted path.
-
-Everything else under `paths:` is interpolated relative to that single
-indirection.
-
-## Optional: regenerate this pack
-
-```bash
-uv run --python 3.13 python scripts/bundle_config.py \\
-    examples/{primary_cfg} \\
-    --output {bundle_name}.tar.zst
-```
-
-(Pass multiple configs to union their asset sets in a single bundle.)
-"""
-        )
-
-        # 5. tar with zstd compression.
-        out = args.output.resolve()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ)
-        env["ZSTD_CLEVEL"] = str(args.zstd_level)
-        cmd = ["tar", "--zstd", "-cf", str(out), bundle_name]
-        print(f"Running: {' '.join(cmd)} (cwd={tmpdir})")
-        subprocess.run(cmd, cwd=tmpdir, env=env, check=True)
-
-    out_size = args.output.stat().st_size
-    ratio = out_size / total_bytes if total_bytes else 0
-    print(
-        f"Wrote {args.output}: {out_size / 1e6:.1f} MB compressed "
-        f"(ratio {ratio:.2f} of {total_bytes / 1e6:.1f} MB raw)"
+    run = f"uv run --python 3.13 rutter-plan {configs[0].name}"
+    (out / "README.md").write_text(
+        "# Rutter bundle\n\n"
+        "Configs as written, the files they read, and `rutter.paths.yml`,\n"
+        "which points the configs' `paths:` names and packs at those files.\n"
+        "With aind-rutter installed (see its README), from this folder:\n\n"
+        f"```bash\n{run}\n```\n"
     )
+    total = sum(p.stat().st_size for p in copies)
+    print(f"{len(configs)} config(s), {len(copies)} files, {total / 1e6:.1f} MB")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    parser.add_argument("configs", nargs="+", type=Path)
+    parser.add_argument(
+        "--output", required=True, type=Path, help=f"a folder, or *{ARCHIVE_SUFFIX}"
+    )
+    parser.add_argument("--allow-outside", action="store_true")
+    args = parser.parse_args()
+    locator = Locator.from_environment()
+    configs = [c.resolve() for c in args.configs]
+    if len({c.name for c in configs}) != len(configs):
+        raise SystemExit("two configs share a file name")
+    if args.output.exists():
+        raise SystemExit(f"{args.output} exists")
+    if not args.output.name.endswith(ARCHIVE_SUFFIX):
+        return bundle(configs, args.output, locator, allow_outside=args.allow_outside)
+    name = args.output.name.removesuffix(ARCHIVE_SUFFIX)
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / name
+        code = bundle(configs, folder, locator, allow_outside=args.allow_outside)
+        if code == 0:
+            out = args.output.resolve()
+            subprocess.run(
+                ["tar", "--zstd", "-cf", str(out), name], cwd=tmp, check=True
+            )
+            print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
+    return code
 
 
 if __name__ == "__main__":
