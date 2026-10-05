@@ -133,15 +133,27 @@ def build_trame_app(
     from aind_rutter.plan_io.rig_export import export_plan_geometry
     from aind_rutter.plan_io.roundtrip import (
         planning_state_to_plan_model,
+        replace_plan_block,
         save_plan_to_config,
     )
 
     stem = source_config_path.stem if source_config_path is not None else "rutter"
     src_str = str(source_config_path) if source_config_path is not None else None
 
+    # Read once, beside ``cfg``, so the saved config is the one that loaded.
+    written = (
+        source_config_path.read_text(encoding="utf-8")
+        if source_config_path is not None
+        else None
+    )
+
     def config_text() -> str:
-        updated = save_plan_to_config(store.state, cfg).model_dump(mode="json")
-        return yaml.dump(updated, default_flow_style=False, sort_keys=False)
+        updated = save_plan_to_config(store.state, cfg)
+        if written is not None:
+            return replace_plan_block(written, updated.plan)
+        return yaml.dump(
+            updated.model_dump(mode="json"), default_flow_style=False, sort_keys=False
+        )
 
     def plan_text() -> str:
         plan = planning_state_to_plan_model(store.state, cfg.plan)

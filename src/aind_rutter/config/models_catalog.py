@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from aind_rutter.config.models_common import (
     CanonicalizationDefModel,
     CanonicalizationOverrideModel,
+    ConfigPath,
+    ConfigPathPattern,
     GeometrySourceModel,
     MaterialModel,
     RecordingModel,
@@ -115,7 +117,7 @@ class BaseTemplateModel(GeometrySourceModel):
 class AssetTemplateModel(BaseTemplateModel):
     """Defaults oriented to geometry assets."""
 
-    src: Optional[Path] = None
+    src: Optional[ConfigPath] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -130,7 +132,7 @@ class TargetTemplateModel(BaseTemplateModel):
     role: Optional[Role] = Role.TARGET
 
     # explicit points
-    src: Optional[Path] = None
+    src: Optional[ConfigPath] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -168,7 +170,7 @@ class BaseSpecModel(BaseModel):
     auto_scene: bool = True  # set False to suppress auto scene node generation
 
     # Explicit points (file)
-    src: Optional[Path] = None
+    src: Optional[ConfigPath] = None
     loader: Optional[str] = None  # e.g., "numpy_points"
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -317,7 +319,7 @@ class BulkAssetSpecModel(BaseModel):
     auto_scene: bool = True
 
     # Source (with placeholders)
-    src: Optional[str] = None  # string for placeholder support
+    src: Optional[ConfigPathPattern] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -377,7 +379,7 @@ class AtlasMeshPackSpecModel(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    atlas_dir: Path
+    atlas_dir: ConfigPath
     acronyms: list[str] = Field(..., min_length=1)
     key_prefix: str = "atlas"
     file_extension: str = ".obj"
@@ -584,7 +586,7 @@ class RangeTargetSpecModel(BaseModel):
     auto_scene: bool = True
 
     # Source (with placeholders)
-    src: Optional[str] = None  # string for placeholder support
+    src: Optional[ConfigPathPattern] = None
     loader: Optional[str] = None
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 

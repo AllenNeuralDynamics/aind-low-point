@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
@@ -131,3 +133,55 @@ def save_plan_to_config(
         ]
 
     return ConfigModel.model_validate(data)
+
+
+def replace_plan_block(written: str, plan: PlanningModel) -> str:
+    """``written`` with its top-level ``plan:`` block replaced by ``plan``.
+
+    Every other line is kept as written, so comments, ``paths:`` and each
+    ``${…}`` reference survive; a config dumped from the model would carry
+    this machine's folders and every template already expanded. A column-0
+    comment directly above the next key belongs to that key.
+    """
+    import yaml
+
+    lines = written.splitlines(keepends=True)
+    block = yaml.safe_dump(
+        {"plan": plan.model_dump(mode="json")},
+        default_flow_style=False,
+        sort_keys=False,
+    )
+    start = next(
+        (i for i, line in enumerate(lines) if re.match(r"plan\s*:", line)), None
+    )
+    if start is None:
+        sep = "" if not lines or lines[-1].endswith("\n") else "\n"
+        out = written + sep + block
+    else:
+        end = start + 1
+        while end < len(lines) and not _starts_top_level(lines[end]):
+            end += 1
+        while end > start + 1 and _belongs_to_next(lines[end - 1]):
+            end -= 1
+        out = "".join(lines[:start]) + block + "".join(lines[end:])
+
+    expected = yaml.safe_load(written) or {}
+    expected["plan"] = plan.model_dump(mode="json")
+    try:
+        spliced = yaml.safe_load(out)
+    except yaml.YAMLError:
+        spliced = None
+    if spliced != expected:
+        raise ValueError(
+            "the config's plan block could not be replaced in place; its "
+            "top level is not one block-style key per line"
+        )
+    return out
+
+
+def _starts_top_level(line: str) -> bool:
+    return bool(line.strip()) and not line[0].isspace() and not line.startswith("#")
+
+
+def _belongs_to_next(line: str) -> bool:
+    return not line.strip() or line.startswith("#")

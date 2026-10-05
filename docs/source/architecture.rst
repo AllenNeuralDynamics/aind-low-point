@@ -85,7 +85,8 @@ Module Organization
     │   ├── transforms.py      # transform-reference resolution
     │   └── probe_context.py   # the per-probe view the optimizer reads
     ├── plan_io/               # reading a plan back out
-    │   ├── roundtrip.py       # planning_state_to_plan_model, save_plan_to_config
+    │   ├── roundtrip.py       # planning_state_to_plan_model, save_plan_to_config,
+    │   │                      #   replace_plan_block
     │   ├── replay.py          # apply_plan_model_to_state
     │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
     │   └── cli_csv.py         # the rutter-plan-csv entry point

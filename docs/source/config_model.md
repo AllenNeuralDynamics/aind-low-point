@@ -46,6 +46,16 @@ rutter_data: ../rutter          # relative to this file's folder
 `rutter-paths config.yml` prints each name, its folder, what set it and every
 file searched; values set by a paths file are also logged at load.
 
+A relative location anywhere in a config read by `from_yaml` (an asset's
+`src`, a transform's `path`, a calibration file) is taken against the config's
+folder, not the working directory. A config built in code with
+`model_validate` keeps the working directory.
+
+The planner's **Save config** writes the config as it was written with only its
+`plan:` block replaced (`replace_plan_block`), so comments, `paths:`, every
+`${…}` reference and unexpanded templates survive, and the saved file runs on
+any machine the original did.
+
 ## Top-level shape
 
 ```yaml

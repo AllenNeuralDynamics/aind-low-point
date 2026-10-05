@@ -138,10 +138,11 @@ def read_paths_file(path: Path) -> dict[str, str]:
 
 def _expand(folder: str, base: Path) -> str:
     folder = os.path.expanduser(folder)
-    return folder if _is_absolute(folder) else os.path.normpath(base / folder)
+    return folder if is_absolute_location(folder) else os.path.normpath(base / folder)
 
 
-def _is_absolute(folder: str) -> bool:
+def is_absolute_location(folder: str) -> bool:
+    """POSIX, drive-letter and UNC locations alike, whatever the platform."""
     # ``Z:/data`` is absolute on Windows only; read it as absolute everywhere
     # so a paths file means the same thing on every machine that reads it.
     return (

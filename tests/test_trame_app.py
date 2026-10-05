@@ -274,7 +274,8 @@ def test_the_default_opacity_keeps_the_rest_of_the_material(
 def test_the_files_tab_saves_through_the_browser(
     subject: SyntheticSubject,
 ) -> None:
-    """Each button's file is generated at the click and named for the config."""
+    """Each button's file is generated at the click and named for the config,
+    and the saved config is the one written with only its plan replaced."""
     server = _build(subject, source_config_path=subject.config)
     stem = subject.config.stem
     assert server.state.download_names == {
@@ -285,5 +286,10 @@ def test_the_files_tab_saves_through_the_browser(
     text = server.controller.trigger_fn("download")
     plan = PlanningModel.model_validate(yaml.safe_load(text("plan")))
     assert set(plan.probes) == {"P1", "P2"}
-    assert ConfigModel.model_validate(yaml.safe_load(text("config"))).plan.probes
+    written = yaml.safe_load(subject.config.read_text())
+    saved = yaml.safe_load(text("config"))
+    assert set(saved["plan"]["probes"]) == {"P1", "P2"}
+    assert {k: v for k, v in saved.items() if k != "plan"} == {
+        k: v for k, v in written.items() if k != "plan"
+    }
     assert "plan_export_version" in yaml.safe_load(text("poses"))

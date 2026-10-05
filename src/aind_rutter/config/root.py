@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import fnmatch
+import os
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -98,7 +99,8 @@ class ConfigModel(BaseModel):
                 f"{UPGRADE_FROM_COMMIT}, which is the last one that can read "
                 f"these fields."
             )
-        return cls.model_validate(resolved)
+        config_dir = Path(os.path.abspath(path)).parent
+        return cls.model_validate(resolved, context={"config_dir": config_dir})
 
     # ---------- Cross-file integrity checks ----------
     @model_validator(mode="after")

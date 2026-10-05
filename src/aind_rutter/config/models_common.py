@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 from pathlib import Path
 from typing import (
     Annotated,
@@ -15,13 +16,37 @@ from typing import (
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
+    DirectoryPath,
     Field,
     FilePath,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
 
+from aind_rutter.config.locations import is_absolute_location
 from aind_rutter.domain.enums import Kind, MRSignal, OrientationCode, Role
+
+
+def against_config_folder(value: Any, info: ValidationInfo) -> Any:
+    """A relative location taken against the config's folder, which
+    ``ConfigModel.from_yaml`` passes as ``context={"config_dir": ...}``;
+    without it, as for a config built in code, the working directory."""
+    config_dir = (info.context or {}).get("config_dir")
+    if config_dir is None or not isinstance(value, (str, Path)):
+        return value
+    text = str(value)
+    if not text or is_absolute_location(text):
+        return value
+    return os.path.normpath(Path(config_dir) / text)
+
+
+ConfigPath = Annotated[Path, BeforeValidator(against_config_folder)]
+ConfigFilePath = Annotated[FilePath, BeforeValidator(against_config_folder)]
+ConfigDirectoryPath = Annotated[DirectoryPath, BeforeValidator(against_config_folder)]
+ConfigPathPattern = Annotated[str, BeforeValidator(against_config_folder)]
+"""A location with ``{name}``-style placeholders still to fill."""
 
 # -----------------------------------------------------------------------------
 # Extension-based inference for kind and loader
@@ -99,7 +124,7 @@ class ImagingModel(BaseModel):
     magnet_frequency_MHz: float
     chem_shift_ppm_default: float = 3.7
     # optionally, where to read the reference image from if needed by your library
-    image_path: Optional[FilePath] = None
+    image_path: Optional[ConfigFilePath] = None
 
 
 # A probe with no recording array — a pipette — targets with its tip. Said out
@@ -175,7 +200,7 @@ class GeometrySourceModel(BaseModel):
     role: Optional[Role] = None
 
     # Explicit points (file)
-    src: Optional[Path] = None
+    src: Optional[ConfigPath] = None
     loader: Optional[str] = None  # e.g., "numpy_points"
     loader_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -307,7 +332,7 @@ class RotateEulerTxOpModel(TxOpBase):
 
 class LoadSITKTxOpModel(TxOpBase):
     kind: Literal["sitk_file"] = "sitk_file"
-    path: FilePath
+    path: ConfigFilePath
     inverted: bool = False
 
 

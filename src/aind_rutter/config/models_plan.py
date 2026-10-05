@@ -6,11 +6,11 @@ from typing import Annotated, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
-    DirectoryPath,
     Field,
-    FilePath,
     model_validator,
 )
+
+from aind_rutter.config.models_common import ConfigDirectoryPath, ConfigFilePath
 
 
 # -----------------------------------------------------------------------------
@@ -150,10 +150,10 @@ class CalibrationSourceModel(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    file: Optional[FilePath] = Field(
+    file: Optional[ConfigFilePath] = Field(
         default=None, description="Path to a single calibration file (e.g., .xlsx)"
     )
-    directory: Optional[DirectoryPath] = Field(
+    directory: Optional[ConfigDirectoryPath] = Field(
         default=None, description="Path to a parallax calibration directory"
     )
     reticle: Optional[str] = Field(
