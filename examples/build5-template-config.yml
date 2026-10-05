@@ -7,14 +7,13 @@ version: 1
 # authoritative; we are not estimating positions from an MRI scan.
 
 paths:
-  template_dir: "/mnt/Data/MRI/templates/AIND-MouseT1-v1.0"
+  template_dir: {pack: mouse-t1/v1.0}
   # Lateralized CCF annotation warped into template-LPS (left = negated label
   # id, IBL convention). Structures are meshed from this volume and per-hemisphere
   # targets are its region voxel centroids — the same voxel-label mechanism as the
   # subject configs.
   ccf_annotation_path: "${.template_dir}/template_to_ccf/CCF_annotation_100_lateralized_in_template.nii.gz"
-  probe_models_dir: "/mnt/vast/scratch/ephys/persist/data/MRI/HeadframeModels"
-  hardware_dir: "${.probe_models_dir}"
+  hardware: {pack: hardware/v1}
 
 # (no `imaging:` block — chem-shift correction is N/A in template space)
 
@@ -222,44 +221,44 @@ assets:
 
   # Hardware fixtures — each in its own native frame.
   - key: implant
-    src: "${paths.hardware_dir}/0274-P-001.obj"
+    src: "${paths.hardware}/implants/0274-P-001/0274-P-001.obj"
     templates: [hardware]
     canonicalization_ref: "obj-asr"
     scene_tags: [fixture, implant]
 
   - key: well
-    src: "${paths.hardware_dir}/0160-075-01-_DHC HF Well.obj"
+    src: "${paths.hardware}/fixtures/0160-075-01/0160-075-01-_DHC HF Well.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
     scene_tags: [fixture, well]
 
   - key: probe-guard
-    src: "${paths.hardware_dir}/0304-P-004-_DHC HF Probeguard.obj"
+    src: "${paths.hardware}/fixtures/0304-P-004/0304-P-004-_DHC HF Probeguard.obj"
     templates: [hardware]
     canonicalization_ref: "identity-lps-meters"
     scene_tags: [fixture, probe-guard]
 
   - key: headframe
-    src: "${paths.hardware_dir}/0160-100-57-_Dual Hemisphere Headframe V2.obj"
+    src: "${paths.hardware}/fixtures/0160-100-57/0160-100-57-_Dual Hemisphere Headframe V2.obj"
     templates: [hardware]
     canonicalization_ref: "obj-als-meters"
     scene_tags: [static, headframe]
 
   # Probe meshes (Newscale, LSA convention, from AIND's shared HeadframeModels).
   - key: probe:2.1
-    src: "${paths.probe_models_dir}/dovetailtweezer_oneShank_centered_corrected.obj"
+    src: "${paths.hardware}/probes/dovetailtweezer_oneShank_centered_corrected.obj"
     templates: [probe]
 
   - key: probe:2.4
-    src: "${paths.probe_models_dir}/dovetailwtweezer_fourShank_centeredOnShank0.obj"
+    src: "${paths.hardware}/probes/dovetailwtweezer_fourShank_centeredOnShank0.obj"
     templates: [probe]
 
   - key: probe:quadbase-alpha
-    src: "${paths.probe_models_dir}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj"
+    src: "${paths.hardware}/probes/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj"
     templates: [probe]
 
   - key: probe:quadbase-dovetail
-    src: "${paths.probe_models_dir}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj"
+    src: "${paths.hardware}/probes/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj"
     templates: [probe]
 
 targets:

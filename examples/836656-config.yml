@@ -30,8 +30,8 @@ paths:
   headframe_annotations_path: ${.annotations_path}/${.mouse}_HeadframeHoles.seg.nrrd
   brain_mask_path: ${.annotations_path}/${.mouse}_auto_skull_strip.nrrd
   structure_path: ${.annotations_path}/Masks
-  model_path: ${.base_path}/ephys/persist/data/MRI/HeadframeModels
-  hole_model_path: ${.model_path}/HoleOBJs
+  hardware: {pack: hardware/v1}
+  hole_model_path: ${.hardware}/implants/0283-300-04/holes
   ccf_annotation_path: ${.annotations_path}/ccfv3/ccf_annotation_in_subject.nii.gz
 imaging:
   magnet_frequency_MHz: 599.0
@@ -126,7 +126,7 @@ assets:
   scene_tags:
   - static
 - key: headframe
-  src: ${paths.model_path}/TenRunHeadframe.obj
+  src: ${paths.hardware}/fixtures/0274-400-05/TenRunHeadframe.obj
   mr_signal: fat
   templates:
   - hardware
@@ -138,21 +138,21 @@ assets:
   - fixture
   - headframe
 - key: cone
-  src: ${paths.model_path}/0274-430-01.obj
+  src: ${paths.hardware}/fixtures/0274-430-01/0274-430-01.obj
   templates:
   - hardware
   scene_tags:
   - fixture
   - cone
 - key: well
-  src: ${paths.model_path}/WHC_Well/0274-400-07_X02.obj
+  src: ${paths.hardware}/fixtures/0274-400-07/0274-400-07_X02.obj
   templates:
   - hardware
   scene_tags:
   - fixture
   - well
 - key: implant
-  src: ${paths.model_path}/0283-300-04.obj
+  src: ${paths.hardware}/implants/0283-300-04/0283-300-04.obj
   mr_signal: fat
   templates:
   - hardware
@@ -177,30 +177,30 @@ assets:
     opacity: 0.6
     point_size: 3.0
 - key: probe:2.1
-  src: ${paths.model_path}/dovetailtweezer_oneShank_centered_corrected.obj
+  src: ${paths.hardware}/probes/dovetailtweezer_oneShank_centered_corrected.obj
   templates:
   - probe
 - key: probe:2.1-alpha
   recording:
     active_ranges_mm: [[0.200, 3.065]]
-  src: ${paths.model_path}/Centered_Newscale_2pt0.obj
+  src: ${paths.hardware}/probes/Centered_Newscale_2pt0.obj
   templates:
   - probe
 - key: probe:quadbase-alpha
-  src: ${paths.model_path}/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj
+  src: ${paths.hardware}/probes/Quadbase_customHolder_centeredOnShank0_moreacuratewidth.obj
   templates:
   - probe
 - key: probe:quadbase-dovetail
-  src: ${paths.model_path}/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj
+  src: ${paths.hardware}/probes/Quadbase_dovetailHolder_centeredOnShank0_moreacuratewidth.obj
   templates:
   - probe
 - key: probe:2.4
-  src: ${paths.model_path}/dovetailwtweezer_fourShank_centeredOnShank0.obj
+  src: ${paths.hardware}/probes/dovetailwtweezer_fourShank_centeredOnShank0.obj
   templates:
   - probe
 - key: probe:pipette
   recording: none
-  src: ${paths.model_path}/injection_pipette.obj
+  src: ${paths.hardware}/probes/injection_pipette.obj
   templates:
   - probe
 - key: structure:BLA
