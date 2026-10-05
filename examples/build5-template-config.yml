@@ -7,7 +7,7 @@ version: 1
 # authoritative; we are not estimating positions from an MRI scan.
 
 paths:
-  template_dir: "/mnt/Data/MRI/templates/AIND-MRI-T1-template-47-brain-mirror-2026-04-13"
+  template_dir: "/mnt/Data/MRI/templates/AIND-MouseT1-v1.0"
   # Lateralized CCF annotation warped into template-LPS (left = negated label
   # id, IBL convention). Structures are meshed from this volume and per-hemisphere
   # targets are its region voxel centroids — the same voxel-label mechanism as the
