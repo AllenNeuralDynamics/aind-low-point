@@ -43,20 +43,10 @@ class Args:
     ccf_volume: Path | None = None
     """Path to a warped CCF segmentation volume (.nrrd)."""
 
-    save: Path | None = None
-    """Path for the 'Save' button — full updated config YAML
-    (default: ``<config>_out.yml``)."""
-
-    export_poses: Path | None = None
-    """Path for the 'Export rig poses' button — per-probe geometry for the
-    rig, which the app cannot load back (default: ``<config>.poses.yml``)."""
-
     plan: Path | None = None
-    """Path for the 'Save plan' / 'Load plan' buttons — plan-only YAML
-    (just the PlanningModel block, no asset lists). Default:
-    ``<config>.plan.yml``. Used for both save and load, so you can
-    round-trip into the same file. When this file exists, it is also
-    applied to the planning state at startup."""
+    """Plan-only YAML (the PlanningModel block, no asset lists) applied at
+    startup when it exists (default: ``<config>.plan.yml``). The Files tab
+    saves and loads through the browser."""
 
     plans: Path | None = None
     """An emit output directory (or its ``plans/`` folder) to step through
@@ -72,14 +62,6 @@ def main() -> None:
         print(f"Config file not found: {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    save_path = args.save
-    if save_path is None:
-        save_path = config_path.with_stem(config_path.stem + "_out")
-
-    export_poses_path = args.export_poses
-    if export_poses_path is None:
-        export_poses_path = config_path.with_suffix(".poses.yml")
-
     # When the user passes --plan explicitly, honour it; otherwise default
     # to <config>.plan.yml. Either way only auto-apply at startup if the
     # file actually exists, so the (possibly absent) default never errors.
@@ -94,8 +76,6 @@ def main() -> None:
     server = build_trame_app(
         cfg,
         ccf_volume=args.ccf_volume,
-        save_path=save_path,
-        export_poses_path=export_poses_path,
         plan_path=plan_path,
         source_config_path=config_path,
         apply_plan_on_start=apply_plan_on_start,

@@ -22,7 +22,7 @@ from aind_rutter.render.overlays import OverlayResolver, OverlayState
 from aind_rutter.render.pyvista import DebouncedFlush, PyVistaBackend
 from aind_rutter.session.store import PlanStore
 from aind_rutter.session.worker import AsyncLatestWorker
-from aind_rutter.web.controller import TrameController
+from aind_rutter.web.controller import Download, TrameController
 
 if TYPE_CHECKING:
     from trame.app.singleton import Server
@@ -32,8 +32,6 @@ def build_trame_app(
     cfg: ConfigModel,
     *,
     ccf_volume: Path | None = None,
-    save_path: Path | None = None,
-    export_poses_path: Path | None = None,
     plan_path: Path | None = None,
     source_config_path: Path | None = None,
     apply_plan_on_start: bool = False,
@@ -47,16 +45,11 @@ def build_trame_app(
         Validated configuration model.
     ccf_volume
         Optional path to a warped CCF segmentation volume (.nrrd).
-    save_path
-        Optional path for the "Save" button (full updated config YAML).
-    export_poses_path
-        Optional path for the "Export rig poses" button (per-probe geometry
-        report; not loadable).
     plan_path
-        Optional path for the "Save plan" / "Load plan" buttons (plan-only
-        ``PlanningModel`` YAML).
+        Optional plan-only ``PlanningModel`` YAML to apply at startup.
     source_config_path
-        Optional path recorded as the source config in exported plans.
+        Optional path recorded as the source config in exported plans; its
+        stem names the files the Files tab offers to save.
     apply_plan_on_start
         When ``True`` and ``plan_path`` exists, apply the plan to the
         planning state once at startup so the app opens with the plan
@@ -135,54 +128,45 @@ def build_trame_app(
 
         ccf_overlay = CCFOverlayManager(plotter=pl, volume_path=ccf_volume)
 
-    on_save = None
-    if save_path is not None:
-        from aind_rutter.plan_io.roundtrip import save_plan_to_config
+    import yaml
 
-        def on_save():
-            updated = save_plan_to_config(store.state, cfg)
-            import yaml
+    from aind_rutter.plan_io.rig_export import export_plan_geometry
+    from aind_rutter.plan_io.roundtrip import (
+        planning_state_to_plan_model,
+        save_plan_to_config,
+    )
 
-            data = updated.model_dump(mode="json")
-            with open(save_path, "w") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-            print(f"Saved config to {save_path}")
+    stem = source_config_path.stem if source_config_path is not None else "rutter"
+    src_str = str(source_config_path) if source_config_path is not None else None
 
-    on_export_poses = None
-    if export_poses_path is not None:
-        from aind_rutter.plan_io.rig_export import export_plan_geometry
+    def config_text() -> str:
+        updated = save_plan_to_config(store.state, cfg).model_dump(mode="json")
+        return yaml.dump(updated, default_flow_style=False, sort_keys=False)
 
-        src_str = str(source_config_path) if source_config_path is not None else None
+    def plan_text() -> str:
+        plan = planning_state_to_plan_model(store.state, cfg.plan)
+        return yaml.safe_dump(
+            plan.model_dump(mode="json"), default_flow_style=False, sort_keys=False
+        )
 
-        def on_export_poses():
-            import yaml
+    def poses_text() -> str:
+        payload = export_plan_geometry(
+            store.state, catalog, source_config=src_str, scene=scene
+        )
+        return yaml.safe_dump(payload, default_flow_style=False, sort_keys=False)
 
-            payload = export_plan_geometry(
-                store.state, catalog, source_config=src_str, scene=scene
-            )
-            with open(export_poses_path, "w") as f:
-                yaml.safe_dump(payload, f, default_flow_style=False, sort_keys=False)
-            print(f"Exported rig poses to {export_poses_path}")
+    downloads = {
+        "config": Download(f"{stem}_out.yml", config_text),
+        "plan": Download(f"{stem}.plan.yml", plan_text),
+        "poses": Download(f"{stem}.poses.yml", poses_text),
+    }
 
-    on_save_plan = None
     on_load_plan = None
     if plan_path is not None:
         from aind_rutter.config import PlanningModel
         from aind_rutter.plan_io.replay import apply_plan_model_to_state
-        from aind_rutter.plan_io.roundtrip import planning_state_to_plan_model
-
-        def on_save_plan():
-            import yaml
-
-            new_plan = planning_state_to_plan_model(store.state, cfg.plan)
-            data = new_plan.model_dump(mode="json")
-            with open(plan_path, "w") as f:
-                yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
-            print(f"Saved plan-only YAML to {plan_path}")
 
         def on_load_plan():
-            import yaml
-
             if not plan_path.exists():
                 print(f"Plan YAML not found at {plan_path}; nothing to load")
                 return
@@ -219,15 +203,8 @@ def build_trame_app(
         collision_handler=coll_handler,
         overlays_resolver=overlay_resolver,
         ccf_overlay=ccf_overlay,
-        on_save=on_save,
-        on_export_poses=on_export_poses,
-        on_save_plan=on_save_plan,
         on_load_plan=on_load_plan,
-        output_paths={
-            "config": save_path,
-            "plan": plan_path,
-            "poses": export_poses_path,
-        },
+        downloads=downloads,
         plan_set=None if plans is None else load_plan_set(plans),
     )
 

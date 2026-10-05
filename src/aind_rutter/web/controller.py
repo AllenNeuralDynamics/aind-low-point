@@ -9,7 +9,6 @@ beside this module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -73,6 +72,15 @@ def _as_float(value) -> float | None:
         return None
 
 
+@dataclass(frozen=True)
+class Download:
+    """A file a Files-tab button hands the browser: the name offered and what
+    writes its text at the click."""
+
+    filename: str
+    text: Callable[[], str]
+
+
 @dataclass
 class TrameController(
     LayoutMixin, PlanSetMixin, ReadoutsMixin, MaterialsMixin, CameraMixin
@@ -93,14 +101,8 @@ class TrameController(
 
     ccf_overlay: CCFOverlayManager | None = field(default=None)
 
-    on_save: Callable[[], None] | None = None
-
-    on_export_poses: Callable[[], None] | None = None
-
-    # Button key ("config", "plan", "poses") -> the file it writes.
-    output_paths: dict[str, Path | None] = field(default_factory=dict)
-
-    on_save_plan: Callable[[], None] | None = None
+    # Files-tab button key ("config", "plan", "poses") -> the file it saves.
+    downloads: dict[str, Download] = field(default_factory=dict)
 
     on_load_plan: Callable[[], None] | None = None
 
@@ -162,6 +164,7 @@ class TrameController(
 
         self._init_state(state)
         self._wire_handlers(state)
+        ctrl.trigger("download")(self._download_text)
         # Set edge highlight on the initial probe BEFORE the view widget
         # is created, so the first scene serialization picks it up. Skip
         # the view-update flush here — ctrl.view_update isn't assigned
@@ -174,10 +177,8 @@ class TrameController(
 
     def _init_state(self, state) -> None:
         """Populate trame reactive state from domain."""
-        state.output_names = {
-            key: path.name
-            for key, path in self.output_paths.items()
-            if path is not None
+        state.download_names = {
+            key: download.filename for key, download in self.downloads.items()
         }
         probe_names = sorted(self.store.state.probes.keys())
         arc_ids = sorted(self.store.state.kinematics.arc_angles.keys())
@@ -798,6 +799,10 @@ class TrameController(
         self._apply_newscale_to_probe(self._readout_state)
         # Refresh readouts to reflect the new pose.
         self._refresh_readouts(self._readout_state, self._readout_state.probe)
+
+    def _download_text(self, key: str) -> str:
+        """The text of the file the ``key`` button saves."""
+        return self.downloads[key].text()
 
     def _apply_plan_yaml_bytes(self, content) -> None:
         """Parse plan-only YAML bytes from a browser upload and apply.

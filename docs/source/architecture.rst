@@ -794,11 +794,12 @@ Trame web app (``web/controller.py`` + ``web/app.py``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``TrameController`` — Vuetify3 layout with PyVista 3D view via
-``pyvista.trame.ui.plotter_ui``. Includes optional Save-YAML and CCF region
-overlay controls.
+``pyvista.trame.ui.plotter_ui``. Includes the Files tab, whose saves and
+exports go to the browser (a save dialog where the browser has one, else its
+download folder), and optional CCF region overlay controls.
 
-``build_trame_app(cfg, *, ccf_volume=None, save_path=None) -> Server`` is the
-factory: wires runtime, store, render adapter, async collision worker,
+``build_trame_app(cfg, *, ccf_volume=None, plan_path=None, ...) -> Server`` is
+the factory: wires runtime, store, render adapter, async collision worker,
 overlay state, debounced flush, optional CCF overlay manager, and returns a
 ready-to-``server.start()`` trame server.
 

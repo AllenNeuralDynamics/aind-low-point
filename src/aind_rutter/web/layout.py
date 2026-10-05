@@ -110,6 +110,38 @@ class LayoutMixin:
                     "})();"
                 )
             )
+            # ``window._aind_save_as(name, pending)`` saves the text ``pending``
+            # resolves to. The picker opens before the text arrives, since
+            # Chromium allows it only during the click's user activation;
+            # browsers without it download to their usual place.
+            client.ClientTriggers(
+                mounted=(
+                    "(function(){"
+                    "if (window._aind_save_as) return;"
+                    "window._aind_save_as = async function(name, pending){"
+                    "  if (window.showSaveFilePicker) {"
+                    "    let handle = null;"
+                    "    try {"
+                    "      handle = await window.showSaveFilePicker({"
+                    "        suggestedName: name,"
+                    "        types: [{description: 'YAML', "
+                    "accept: {'text/yaml': ['.yml', '.yaml']}}]"
+                    "      });"
+                    "    } catch (err) {"
+                    "      if (err && err.name === 'AbortError') return;"
+                    "    }"
+                    "    if (handle) {"
+                    "      const out = await handle.createWritable();"
+                    "      await out.write(await pending);"
+                    "      await out.close();"
+                    "      return;"
+                    "    }"
+                    "  }"
+                    "  window.trame.utils.download(name, pending, 'text/yaml');"
+                    "};"
+                    "})();"
+                )
+            )
             # Silence the benign ``ResizeObserver loop completed with
             # undelivered notifications`` / ``ResizeObserver loop limit
             # exceeded`` error that Vuetify + trame's render-window
@@ -368,33 +400,13 @@ class LayoutMixin:
         plan-slice round-trip pair. Each writing button names its file,
         since a plan and a rig export differ only by suffix.
         """
-        # Save config: server-side write of the full ConfigModel YAML
-        # (paths, transforms, asset catalog, scene, options, plan).
-        # Re-importable.
-        if self.on_save is not None:
-            vuetify3.VBtn(
-                "Save config",
-                color="success",
-                click=self.on_save,
-                classes="mt-2",
-                block=True,
-            )
-            self._output_caption("config")
-        # Save plan + Load plan: the plan-only YAML round-trip pair.
-        # Save: server-side write to the configured plan path. Load: a
-        # browser file picker (VFileInput) — uploads the picked YAML to
-        # the server, our state.change handler parses + applies. The
-        # plan-only YAML has no asset list, so it ports across configs
-        # that share probe rosters.
-        if self.on_save_plan is not None:
-            vuetify3.VBtn(
-                "Save plan",
-                color="info",
-                click=self.on_save_plan,
-                classes="mt-2",
-                block=True,
-            )
-            self._output_caption("plan")
+        # Save config: the full ConfigModel YAML (paths, transforms, asset
+        # catalog, scene, options, plan). Re-importable.
+        self._download_button("config", "Save config", "success")
+        # Save plan + Load plan: the plan-only YAML round-trip pair, both
+        # through the browser. The plan-only YAML has no asset list, so it
+        # ports across configs that share probe rosters.
+        self._download_button("plan", "Save plan", "info")
         vuetify3.VFileInput(
             v_model=("plan_file",),
             label="Load plan",
@@ -414,22 +426,21 @@ class LayoutMixin:
         )
         # Export rig poses: derived per-probe geometry hand-off (resolved
         # tip positions, depths, AP/ML/spin numbers). Not re-importable.
-        if self.on_export_poses is not None:
-            vuetify3.VBtn(
-                "Export rig poses",
-                color="primary",
-                click=self.on_export_poses,
-                classes="mt-2",
-                block=True,
-            )
-            self._output_caption("poses")
+        self._download_button("poses", "Export rig poses", "primary")
 
-    def _output_caption(self, key: str) -> None:
-        """The file name the button above writes to."""
-        vuetify3.VLabel(
-            f"→ {{{{ output_names['{key}'] }}}}",
-            v_show=(f"output_names['{key}']",),
-            classes="mt-1 text-caption",
+    def _download_button(self, key: str, label: str, color: str) -> None:
+        """A button saving the ``key`` download wherever the browser is told."""
+        if key not in self.downloads:
+            return
+        vuetify3.VBtn(
+            label,
+            color=color,
+            click=(
+                f"window._aind_save_as(download_names['{key}'], "
+                f"trigger('download', ['{key}']))"
+            ),
+            classes="mt-2",
+            block=True,
         )
 
     def _slider_row(

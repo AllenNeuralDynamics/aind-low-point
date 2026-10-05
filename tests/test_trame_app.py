@@ -17,7 +17,7 @@ import pytest
 import pyvista as pv
 import yaml
 
-from aind_rutter.config import ConfigModel
+from aind_rutter.config import ConfigModel, PlanningModel
 from tests.synthetic_subject import SyntheticSubject, write_subject
 
 APPLIED_SPIN_DEG = 137.0
@@ -269,3 +269,21 @@ def test_the_default_opacity_keeps_the_rest_of_the_material(
     assert override.color_hex_str == base.color_hex_str
     assert (override.visible, override.wireframe) == (base.visible, base.wireframe)
     assert override.opacity != base.opacity
+
+
+def test_the_files_tab_saves_through_the_browser(
+    subject: SyntheticSubject,
+) -> None:
+    """Each button's file is generated at the click and named for the config."""
+    server = _build(subject, source_config_path=subject.config)
+    stem = subject.config.stem
+    assert server.state.download_names == {
+        "config": f"{stem}_out.yml",
+        "plan": f"{stem}.plan.yml",
+        "poses": f"{stem}.poses.yml",
+    }
+    text = server.controller.trigger_fn("download")
+    plan = PlanningModel.model_validate(yaml.safe_load(text("plan")))
+    assert set(plan.probes) == {"P1", "P2"}
+    assert ConfigModel.model_validate(yaml.safe_load(text("config"))).plan.probes
+    assert "plan_export_version" in yaml.safe_load(text("poses"))
