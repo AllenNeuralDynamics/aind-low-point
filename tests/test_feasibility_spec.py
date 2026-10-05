@@ -371,11 +371,27 @@ def test_the_body_margin_holds_bodies_and_leaves_shanks() -> None:
         pair_clearance_slack(soft, apart), [[-0.2, 0.2, 0.2, 0.2]], atol=1e-6
     )
     np.testing.assert_allclose(
-        fixture_clearance_slack(soft[:, :2], apart), [[-0.2, 0.2]], atol=1e-6
+        fixture_clearance_slack(soft[:, :2], apart), [[0.2, 0.2]], atol=1e-6
     )
 
 
-@pytest.mark.parametrize("name", ["min_clearance_mm", "min_body_clearance_mm"])
+def test_the_body_fixture_margin_holds_bodies_against_fixtures_alone() -> None:
+    soft = jnp.full((1, 4), 0.3, jnp.float32)
+    spec = FeasibilitySpec(
+        min_clearance_mm=0.1,
+        softmin_correction=False,
+        min_body_fixture_clearance_mm=0.4,
+    )
+    np.testing.assert_allclose(pair_clearance_slack(soft, spec), [[0.2] * 4], atol=1e-6)
+    np.testing.assert_allclose(
+        fixture_clearance_slack(soft[:, :2], spec), [[-0.1, 0.2]], atol=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["min_clearance_mm", "min_body_clearance_mm", "min_body_fixture_clearance_mm"],
+)
 def test_a_margin_past_the_clearance_cap_is_refused(name) -> None:
     kwargs = {"min_clearance_mm": 0.1, name: CLEARANCE_CAP_MM}
     with pytest.raises(ValueError, match="clearance rows read to"):

@@ -48,9 +48,10 @@ class FeasibilitySpec:
 
     min_clearance_mm: float
     softmin_correction: bool
-    # From a probe's body (the probe less its shanks) to another body or a
-    # fixture; None holds bodies to ``min_clearance_mm``.
+    # From a probe's body (the probe less its shanks) to another body, and to a
+    # fixture; None holds that pair to ``min_clearance_mm``.
     min_body_clearance_mm: float | None = None
+    min_body_fixture_clearance_mm: float | None = None
     threading_tolerance: float = 0.0
     # Length of the shaft segment whose crossing of each bore section is tested.
     shaft_length_mm: float = 10.0
@@ -63,7 +64,11 @@ class FeasibilitySpec:
     top_k_shank_shank: int = 8
 
     def __post_init__(self) -> None:
-        for name in ("min_clearance_mm", "min_body_clearance_mm"):
+        for name in (
+            "min_clearance_mm",
+            "min_body_clearance_mm",
+            "min_body_fixture_clearance_mm",
+        ):
             margin = getattr(self, name)
             # Rows read no further than the cap, so a margin past it is never met.
             if margin is not None and margin >= CLEARANCE_CAP_MM:
@@ -87,16 +92,16 @@ class FeasibilitySpec:
     def pair_margins_mm(self) -> tuple[float, float, float, float]:
         """Probe-pair margin per category, in ``PROBE_PAIR_SOFTMIN_BIAS_MM`` order."""
         m = self.min_clearance_mm
-        return (self._body_margin_mm(), m, m, m)
+        return (self._or_min_clearance(self.min_body_clearance_mm), m, m, m)
 
     def fixture_margins_mm(self) -> tuple[float, float]:
         """Probe-fixture margin per category, in ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``
         order."""
-        return (self._body_margin_mm(), self.min_clearance_mm)
+        body = self._or_min_clearance(self.min_body_fixture_clearance_mm)
+        return (body, self.min_clearance_mm)
 
-    def _body_margin_mm(self) -> float:
-        body = self.min_body_clearance_mm
-        return self.min_clearance_mm if body is None else body
+    def _or_min_clearance(self, margin_mm: float | None) -> float:
+        return self.min_clearance_mm if margin_mm is None else margin_mm
 
     def pair_softmin_kwargs(self) -> dict:
         """Soft-min keywords of the probe-pair clearance queries."""

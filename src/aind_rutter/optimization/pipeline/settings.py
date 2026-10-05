@@ -89,9 +89,10 @@ class PipelineSettings(BaseSettings):
     # Clearance every stage requires between probe and fixture surfaces (mm),
     # read as the soft minimum plus its measured shortfall; see feasibility_spec().
     min_clearance: float = Field(0.1)
-    # From a probe's body to another body or a fixture; unset follows
-    # min_clearance. Shanks stay at min_clearance.
+    # From a probe's body to another body, and to a fixture other than the
+    # implant; unset follows min_clearance. Shanks stay at min_clearance.
     min_body_clearance: float | None = Field(None, ge=0)
+    min_body_fixture_clearance: float | None = Field(None, ge=0)
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
@@ -133,14 +134,17 @@ class PipelineSettings(BaseSettings):
             min_clearance_mm=self.min_clearance,
             softmin_correction=True,
             min_body_clearance_mm=self.min_body_clearance,
+            min_body_fixture_clearance_mm=self.min_body_fixture_clearance,
         )
 
     def pinned_specs(self) -> dict[str, dict[str, Any]]:
         """The specs a pool is built under, which Phase 2 must share."""
         feasibility = asdict(self.feasibility_spec())
-        # Unset, it is left out so pools recorded before it existed still match.
-        if feasibility["min_body_clearance_mm"] is None:
-            del feasibility["min_body_clearance_mm"]
+        # Unset, they are left out so pools recorded before they existed still
+        # match.
+        for name in ("min_body_clearance_mm", "min_body_fixture_clearance_mm"):
+            if feasibility[name] is None:
+                del feasibility[name]
         return {
             "feasibility": feasibility,
             "objective": asdict(self.objective_spec()),
