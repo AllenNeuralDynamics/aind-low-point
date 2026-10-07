@@ -87,6 +87,54 @@ A config asset may also be a STEP file, read and tessellated at load. That
 needs the `step` extra (OpenCascade, from wheels), which the planner and solver
 otherwise do without.
 
+## Setting up a machine
+
+A config names its input folders in its `paths:` block, and the shared ones —
+hardware meshes, implant bores, the MRI template — as published **packs**:
+
+```yaml
+paths:
+  hardware: {pack: hardware/v1}
+```
+
+With nothing else set up, a pack is fetched on first use from
+`s3://aind-scratch-data/rutter/packs/` (public, no credentials) into a local
+cache, only the files the config reads. A machine file is needed only to
+point a pack or a name at a copy already on disk, such as a shared drive.
+
+The machine file is `paths.yml` in rutter's config folder:
+
+| Platform | Machine file | Pack cache |
+|---|---|---|
+| Linux, WSL2 | `~/.config/rutter/paths.yml` (or `$XDG_CONFIG_HOME/rutter`) | `~/.cache/rutter` |
+| macOS | `~/Library/Application Support/rutter/paths.yml` | `~/Library/Caches/rutter` |
+| Windows | `%LOCALAPPDATA%\rutter\paths.yml` | `%LOCALAPPDATA%\rutter\Cache` |
+
+`RUTTER_CONFIG_DIR` replaces the config folder and `RUTTER_CACHE` the cache.
+Create the folder and write the file by hand:
+
+```yaml
+# Local copies of published packs; configs name the packs, not these folders.
+packs:
+  hardware/v1: /mnt/Data/rutter
+  mouse-t1/v1.0: /mnt/Data/MRI/templates/AIND-MouseT1-v1.0
+
+# Any other paths: name a config declares, by name.
+retro_dir: Z:/ephys/persist/data/MRI/retro   # drive letters work everywhere
+scratch: ../scratch                           # relative to this file's folder
+```
+
+or let `rutter-data pull hardware/v1 --to DIR` copy a pack to `DIR` and add
+the `packs:` line itself. Check a copy you made another way with
+`rutter-data verify hardware/v1 DIR`.
+
+`rutter-paths config.yml` shows where every name resolved, what set it, and
+each paths file it looked for, the machine file included, so run it to confirm
+the setup. A `rutter.paths.yml` beside a config (or in a folder above it), or
+one named by `RUTTER_PATHS`, outranks the machine file for the configs it
+covers; the full order, the cache limits and the offline mode are in
+`docs/source/config_model.md`.
+
 ## Commands
 
 | Command | Does |
