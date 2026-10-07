@@ -102,6 +102,8 @@ class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
     full_fine: int
     # Absent from pools built before the option existed.
     fixture_c2f: bool
+    # By probe name; present only when the pool was built with a coverage floor.
+    coverage_floor_ceilings: dict[str, float]
 
 
 class Phase2InputRecordRequired(TypedDict):
@@ -157,6 +159,11 @@ class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
     strict_feasible: bool
     fcl_keep: bool
     thread_keep: bool
+    # Each probe's coverage, and its worst slack past the coverage floor as a
+    # fraction of its threaded best (None without a floor).
+    coverage_per_probe: dict[str, float]
+    coverage_floor_slack: float | None
+    coverage_keep: bool
     kept: bool
     # Set when the solve started from a jittered pose (P2_PERTURB) or ran with
     # diagnostics (P2_DIAG); see pipeline.phase2_diagnostics.

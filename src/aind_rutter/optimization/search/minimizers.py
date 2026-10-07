@@ -56,6 +56,7 @@ def make_batched_phase1_chunked(
     brain_sdf=None,
     coverage_ceilings=None,
     coverage_weights=None,
+    floor_ceilings=None,
 ) -> Phase1ChunkedFns:
     """Build the reusable pieces for VRAM-chunked evaluation:
     (vobj, vgrad, build_arglist).
@@ -83,6 +84,7 @@ def make_batched_phase1_chunked(
         brain_sdf=brain_sdf,
         coverage_ceilings=coverage_ceilings,
         coverage_weights=coverage_weights,
+        floor_ceilings=floor_ceilings,
     )
 
     def obj_pos(x, *args):
@@ -238,6 +240,7 @@ def build_cw_fns(
     weights: Phase1Weights,
     coverage_ceilings=None,
     coverage_weights=None,
+    floor_ceilings=None,
     spin_angle=False,
 ) -> tuple[BatchedObjectiveFn, BatchedGradientFn, list[Any]]:
     """make_batched_phase1_chunked's grad and objective with the coverage scale
@@ -259,6 +262,7 @@ def build_cw_fns(
         brain_sdf=brain,
         coverage_ceilings=coverage_ceilings,
         coverage_weights=coverage_weights,
+        floor_ceilings=floor_ceilings,
     )
 
     def obj_cw(x, coverage_scale, *args):

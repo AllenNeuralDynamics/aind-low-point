@@ -73,7 +73,7 @@ _os.environ.setdefault("JAX_PLATFORMS", _PLATFORM)
 
 import itertools  # noqa: E402
 import time  # noqa: E402
-from collections.abc import Callable  # noqa: E402
+from collections.abc import Callable, Mapping  # noqa: E402
 from multiprocessing import get_context  # noqa: E402
 from typing import Any, cast  # noqa: E402
 
@@ -82,6 +82,7 @@ import numpy as np  # noqa: E402
 from aind_rutter.domain.rig import reachable_ap_window_deg  # noqa: E402
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     classify_results,
+    floor_ceilings_by_probe,
     handoff_config,
 )
 from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
@@ -145,6 +146,7 @@ def _pin_worker(slices: list[list[int]], started: Any) -> None:
 def _init(
     settings: Phase2Settings | None = None,
     cpu_slices: tuple[list[list[int]], Any] | None = None,
+    floor_ceilings: Mapping[str, float] | None = None,
 ) -> None:
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap).
 
@@ -167,6 +169,9 @@ def _init(
 
     clear_jit_cache()
     _G.update(build_state(settings))
+    _G["floor_ceilings"] = floor_ceilings_by_probe(
+        settings, _G["probes"], floor_ceilings
+    )
 
 
 def _st_for_rec(rec: Phase2InputRecord):
@@ -218,7 +223,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     from scipy.optimize import Bounds, minimize
 
     from aind_rutter.optimization.objectives.coverage import (
-        coverage_total_over_probes,
+        coverage_per_probe_over_probes,
     )
     from aind_rutter.optimization.objectives.variables import (
         _poses,
@@ -365,14 +370,24 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     # shank nowhere near the bore). Record the worst g so main() can gate it.
     max_g_thread = worst_threading_g(st, np.asarray(res.x, float), n_arcs)
     Rs, ts, tp, mk = _poses(st, np.asarray(res.x, float), n_arcs)
-    cov = float(coverage_total_over_probes(Rs, ts, tp, mk, cov_data, 41))
+    cov_pp = np.asarray(coverage_per_probe_over_probes(Rs, ts, tp, mk, cov_data, 41))
+    floor = _G["floor_ceilings"]
+    floor_slack = (
+        None
+        if floor is None
+        else float(np.min(cov_pp / np.asarray(floor) - s.min_coverage_fraction))
+    )
     return dict(
         idx=idx,
         rank=rank,
         n_arcs=n_arcs,
         fcl=fcl,
         max_g_thread=max_g_thread,
-        coverage=cov,
+        coverage=float(cov_pp.sum()),
+        coverage_per_probe={
+            p.name: float(c) for p, c in zip(_G["probes"], cov_pp, strict=True)
+        },
+        coverage_floor_slack=floor_slack,
         pose=res.x,
         pose_in=pose,  # Phase-1 input pose (full@end), persisted for inspection
         objective_p1=rec.get("objective"),  # the Phase-1 objective it was culled by
@@ -475,6 +490,7 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         hessian=s.hess,
         drop_padded_rows=s.drop_dead_rows,
         grid_dtype=jnp.dtype(s.grid_dtype),
+        floor_ceilings=_G["floor_ceilings"],
         **cast(Any, _cov_norm_kwargs(st)),
     )
 
@@ -590,12 +606,14 @@ def solve_candidates(
     *,
     on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
     log: Callable[[str], None] | None = None,
+    floor_ceilings: Mapping[str, float] | None = None,
 ) -> list[Phase2ResultRecord]:
     """Solve every candidate, returning the results in rank order.
 
     ``on_result`` sees each result as it completes, which is not rank order, and
     ``log`` receives coarse progress. Both default to silent: an imported caller
-    gets results rather than stdout.
+    gets results rather than stdout. ``floor_ceilings`` is the pool's
+    ``coverage_floor_ceilings``, required when the settings set a floor.
     """
     note = log or (lambda _msg: None)
     # Pay the one-time compile ONCE. Threads share the PARENT's context, so warm
@@ -610,7 +628,7 @@ def solve_candidates(
         # worker tasks read back from _G. The setup itself is not optional —
         # only the compile that warmup pays up front, which WARMUP=0 moves onto
         # the first candidate instead.
-        _init(settings)
+        _init(settings, floor_ceilings=floor_ceilings)
         if settings.warmup:
             tw = time.time()
             note(f"warming (in-parent, single-threaded) for n_arcs {nstr}...")
@@ -640,7 +658,9 @@ def solve_candidates(
             else None
         )
         with ctx.Pool(
-            settings.workers, initializer=_init, initargs=(settings, cpu_slices)
+            settings.workers,
+            initializer=_init,
+            initargs=(settings, cpu_slices, floor_ceilings),
         ) as pool:
             if settings.warmup:
                 tw = time.time()
@@ -681,6 +701,7 @@ def run(
     *,
     on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
     log: Callable[[str], None] | None = None,
+    floor_ceilings: Mapping[str, float] | None = None,
 ) -> Phase2HandoffPayload:
     """Solve, classify and rank a selection of candidates.
 
@@ -696,12 +717,15 @@ def run(
         f" min_clearance={settings.min_clearance},"
         f" min_body_clearance={settings.min_body_clearance},"
         f" min_body_fixture_clearance={settings.min_body_fixture_clearance},"
+        f" min_coverage_fraction={settings.min_coverage_fraction},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
         f" smooth_thread={settings.smooth_thread_reward}, spin={settings.spin_param},"
         f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
     )
-    results = solve_candidates(recs, settings, on_result=on_result, log=log)
+    results = solve_candidates(
+        recs, settings, on_result=on_result, log=log, floor_ceilings=floor_ceilings
+    )
     feasible = classify_results(results, settings)
     payload: Phase2HandoffPayload = dict(
         ranked=_mmr_rank(feasible, settings.mmr_lambda),
@@ -779,7 +803,13 @@ def main() -> int:
     if warning:
         print(f"WARNING: {warning}", flush=True)
     recs = select_records(pool["records"], settings, log=_flush_print)
-    payload = run(recs, settings, on_result=_log_cand, log=_flush_print)
+    payload = run(
+        recs,
+        settings,
+        on_result=_log_cand,
+        log=_flush_print,
+        floor_ceilings=pool.get("coverage_floor_ceilings"),
+    )
     _print_report(payload, settings)
     write_handoff(settings.out, payload)
     print(

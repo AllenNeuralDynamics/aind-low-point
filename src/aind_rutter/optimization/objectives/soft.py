@@ -43,6 +43,7 @@ from aind_rutter.optimization.geometry.holes import MAX_WALLS_PAD, NO_WALL_OFFSE
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
+    coverage_per_probe_over_probes,
     coverage_total_over_probes,
 )
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
@@ -55,6 +56,7 @@ from aind_rutter.optimization.objectives.sdf_inputs import (
 from aind_rutter.optimization.objectives.slacks import (
     arc_separation_slack,
     brain_slack,
+    coverage_floor_slack,
     fixture_clearance_slack,
     ml_separation_slack,
     pair_clearance_slack,
@@ -99,6 +101,9 @@ class Phase1Weights:
     # Near-barrier on every shank tip staying inside the brain, against the
     # coverage gain from inserting deeper. Read only with a brain SDF.
     lambda_brain: float = 500.0
+    # On each probe's shortfall of the coverage floor, a fraction of its threaded
+    # best: a probe a tenth short pays as much as the other penalties' order 100.
+    lambda_coverage_floor: float = 1e4
     # Phase 2's OBB gain lifts OBB contact to the body categories' scale for the
     # solver; in Phase 1 it makes grazing shank contact outweigh coverage and
     # clears no more layouts.
@@ -217,6 +222,7 @@ def _build_jit(  # noqa: C901
     brain_sdf: "BrainSDFData | None" = None,
     coverage_ceilings: "tuple[float, ...] | None" = None,
     coverage_weights: "tuple[float, ...] | None" = None,
+    floor_ceilings: "tuple[float, ...] | None" = None,
 ) -> tuple[Callable, Callable]:
     """Build the (fn, grad) pair for one signature.
 
@@ -231,6 +237,10 @@ def _build_jit(  # noqa: C901
     normalised [0,1] blend ``(1 - cov_alpha)·mean(norm) + cov_alpha·worst(norm)``
     (``weights.objective.cov_alpha``); when ``None`` coverage is the plain
     sum over probes.
+
+    ``floor_ceilings`` (each probe's threaded best) penalises coverage short of
+    ``spec.min_coverage_fraction`` of it, scaled like coverage by
+    ``coverage_scale``; read only with a floor and ``coverage_data``.
     """
     (
         n_probes,
@@ -259,6 +269,7 @@ def _build_jit(  # noqa: C901
     lk = float(weights.lambda_kinematic)
     lcf = float(weights.lambda_clearance_fixture)
     lbrain = float(weights.lambda_brain)
+    lfloor = float(weights.lambda_coverage_floor)
     spec, objective = weights.spec, weights.objective
     shaft_len = float(spec.shaft_length_mm)
     cov_alpha = float(objective.cov_alpha)
@@ -273,6 +284,13 @@ def _build_jit(  # noqa: C901
         if coverage_weights is not None
         else None
     )
+    floor_on = (
+        spec.min_coverage_fraction > 0.0
+        and floor_ceilings is not None
+        and coverage_data is not None
+    )
+    if floor_on:
+        floor_ceil = jnp.asarray(floor_ceilings, dtype=jnp.float32)
     if brain_sdf is not None:
         brain_grid = jnp.asarray(brain_sdf.grid)
         brain_origin = jnp.asarray(brain_sdf.origin)
@@ -527,27 +545,42 @@ def _build_jit(  # noqa: C901
             )
         else:
             coverage_total = jnp.float32(0.0)
-
-        sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
-        # _thread_slacks/_thread_masks are (P, S*SH) from the vmap, so the reward
-        # sees each probe's tightest shank.
-        return objective_terms(
-            objective,
-            coverage_total,
-            arc_aps,
-            ml_vals,
-            sx_arr,
-            sy_arr,
-            tuple(clearances),
-            _thread_slacks,
-            _thread_masks,
-            coverage_scale=coverage_scale,
-        ) + (
+        penalty = (
             lt * j_thread
             + lc * j_clear
             + lcf * j_clear_fixture
             + lk * (j_arc_ap + j_ml)
             + lbrain * j_brain
+        )
+        if floor_on:
+            cov_pp = coverage_per_probe_over_probes(
+                Rs,
+                ts,
+                tips_local,
+                shank_mask,
+                coverage_data,
+                n_samples=coverage_n_samples,
+            )
+            short = shortfall(coverage_floor_slack(cov_pp, floor_ceil, spec))
+            penalty = penalty + lfloor * coverage_scale * jnp.sum(short * short)
+
+        sx_arr, sy_arr = spin_components_of(x, n_arcs, n_probes)
+        # _thread_slacks/_thread_masks are (P, S*SH) from the vmap, so the reward
+        # sees each probe's tightest shank.
+        return (
+            objective_terms(
+                objective,
+                coverage_total,
+                arc_aps,
+                ml_vals,
+                sx_arr,
+                sy_arr,
+                tuple(clearances),
+                _thread_slacks,
+                _thread_masks,
+                coverage_scale=coverage_scale,
+            )
+            + penalty
         )
 
     jit_obj = jax.jit(_objective)

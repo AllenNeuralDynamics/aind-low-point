@@ -141,6 +141,9 @@ class PoolFile(_Model):
     feasibility: dict[str, Any] | None = None
     objective: dict[str, Any] | None = None
     fixture_c2f: bool | None = None
+    # Each probe's best coverage alone through a bore it threads, which the
+    # coverage floor is a fraction of; recorded only with a floor.
+    coverage_floor_ceilings: dict[str, float] | None = None
 
 
 class Perturbation(_Model):
@@ -172,6 +175,9 @@ class HandoffRecord(_Model):
     strict_feasible: bool | None = None
     fcl_keep: bool | None = None
     thread_keep: bool | None = None
+    coverage_per_probe: dict[str, float] | None = None
+    coverage_floor_slack: float | None = None
+    coverage_keep: bool | None = None
     kept: bool | None = None
     pose_start: Float64Array | None = None
     perturb: Perturbation | None = None

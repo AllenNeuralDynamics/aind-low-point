@@ -411,6 +411,33 @@ wherever it meets a fixture. All three must stay below the 1.5 mm the clearance 
 ``RUTTER_MINCLEAR`` is refused by name, since an unknown variable would
 otherwise be ignored and the run would get the default.
 
+Coverage floor
+~~~~~~~~~~~~~~
+
+``RUTTER_MIN_COVERAGE_FRACTION`` (default 0, off) requires each probe to reach
+that fraction of its *threaded best*: the most coverage it reaches alone
+through a bore it threads. It turns trading a target away for clearance into a
+failure rather than a lower score. Before the first group, Phase 1 solves every
+probe by itself in each bore the visibility atlas says it passes, from eight of
+the atlas's anchors spread over spin, with the full stage and neither the
+normalization nor the floor shaping the solve, and keeps the best coverage
+among the results whose threading, well and brain rows hold
+(``pipeline.coverage_floor``). The log prints each probe's best per bore. The
+bests are an upper bound on what any layout gives that probe, and the pool
+records them as ``coverage_floor_ceilings``; Phase 2 reads them from there and
+refuses to run a floor against a pool without them. A probe with no feasible
+pose through any bore stops the run.
+
+The floor is one more slack, ``coverage / threaded best − fraction``, so its
+rows sit at the same scale for every probe. Phase 1 penalises its squared
+shortfall at ``Phase1Weights.lambda_coverage_floor`` (1e4: a probe a tenth
+short pays what the other penalties do at their order 100), scaled by the
+coverage weight, so the reduced stage ignores it. The penalty is continuously
+differentiable and its gradient goes to zero at the floor. Phase 2 constrains a
+``coverage`` group of one row per probe, empty when the floor is off. The
+threaded bests are separate from the open-space ceilings ``RUTTER_COV_NORM``
+divides by.
+
 A pool records the spec and the objective it was built under, as its header's
 ``feasibility`` and ``objective``. Phase 1 resumes only a pool whose record
 matches its settings, and Phase 2 refuses one whose record differs from its
@@ -623,6 +650,10 @@ Useful Phase-1 environment knobs:
      - unset
      - Clearance in mm from a probe's body to a fixture; unset,
        ``RUTTER_MIN_CLEARANCE``.
+   * - ``RUTTER_MIN_COVERAGE_FRACTION``
+     - ``0``
+     - Each probe's coverage floor as a fraction of its threaded best (see
+       `Coverage floor`_); 0 sets none.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
@@ -690,6 +721,8 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   tips.
 * Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.
 * Same-arc ML separation: ``abs_smooth(ml_i - ml_j)`` minus the spec's 16 deg.
+* Coverage floor, when set: each probe's coverage over its threaded best,
+  minus ``RUTTER_MIN_COVERAGE_FRACTION`` (see `Coverage floor`_).
 
 Phase 2 minimizes the `Objective`_ alone; the penalties Phase 1 adds to it are
 these constraints.
@@ -720,7 +753,10 @@ Phase 2 reports two feasibility axes:
 Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
 ``kept`` band is intentionally looser by default: ``RUTTER_FCL_TOL=0.2`` and
 ``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
-``all`` list for inspection.
+``all`` list for inspection. Under a coverage floor a result is also kept only
+when every probe sits within 0.01 of the floor (``COVERAGE_FLOOR_TOL``, in
+fractions of the threaded best); each result records ``coverage_per_probe`` and
+its worst ``coverage_floor_slack``.
 
 IPOPT sees only the rows that can change. Padding and the pair category the
 kernel never measures sit at the fill value of 1e3; left in, their

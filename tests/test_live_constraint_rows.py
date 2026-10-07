@@ -93,6 +93,7 @@ LABELS = {
     "fixtures": ["well", "cone"],
     "fixture_probes": [0, 1],
     "fixture_categories": ["body", "obb"],
+    "coverage_floor_rows": 0,
 }
 
 

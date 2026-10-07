@@ -156,6 +156,25 @@ def test_the_body_margins_are_pinned_only_when_set(
     assert pinned["min_body_fixture_clearance_mm"] == 0.3
 
 
+def test_the_coverage_floor_is_pinned_only_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert "min_coverage_fraction" not in Phase1Settings().pinned_specs()["feasibility"]
+    monkeypatch.setenv("RUTTER_MIN_COVERAGE_FRACTION", "0.1")
+    assert Phase2Settings().feasibility_spec().min_coverage_fraction == 0.1
+    pinned = Phase1Settings().pinned_specs()["feasibility"]
+    assert pinned["min_coverage_fraction"] == 0.1
+
+
+@pytest.mark.parametrize("fraction", ["-0.1", "1.0"])
+def test_a_coverage_floor_outside_zero_to_one_is_refused(
+    fraction: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RUTTER_MIN_COVERAGE_FRACTION", fraction)
+    with pytest.raises(ValidationError):
+        Phase1Settings()
+
+
 @pytest.mark.parametrize("settings_cls", [Phase1Settings, Phase2Settings])
 @pytest.mark.parametrize("name", sorted(RETIRED_VARIABLES))
 def test_a_retired_variable_is_refused_by_name(

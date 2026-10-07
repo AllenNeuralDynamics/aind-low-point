@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 from aind_rutter.optimization.pipeline.handoff import (
+    COVERAGE_FLOOR_TOL,
     classify_results,
     handoff_config,
 )
@@ -121,3 +122,13 @@ def test_importing_the_module_does_not_initialise_jax() -> None:
         env={**os.environ, "JAX_PLATFORMS": "cpu"},
     )
     assert out.stdout.strip() == "False"
+
+
+def test_a_result_below_the_coverage_floor_is_dropped() -> None:
+    """A plan that trades a target away for clearance is not kept, however
+    clear it is."""
+    under = _res(0.5, max_g_thread=-0.3, coverage_floor_slack=-2 * COVERAGE_FLOOR_TOL)
+    near = _res(0.5, max_g_thread=-0.3, coverage_floor_slack=-COVERAGE_FLOOR_TOL / 2)
+    unset = _res(0.5, max_g_thread=-0.3, coverage_floor_slack=None)
+    assert classify_results([under, near, unset], Phase2Settings()) == [near, unset]
+    assert not under["coverage_keep"] and under["fcl_keep"] and under["thread_keep"]

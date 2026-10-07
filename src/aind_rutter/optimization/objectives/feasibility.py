@@ -58,6 +58,9 @@ class FeasibilitySpec:
     min_arc_ap_sep_deg: float = 16.0
     min_intra_arc_ml_sep_deg: float = 16.0
     brain_margin_mm: float = 0.2
+    # Each probe's coverage as a fraction of the best it reaches alone through a
+    # bore it threads; 0 sets no floor.
+    min_coverage_fraction: float = 0.0
     softmin_beta: float = 20.0
     top_k_body_body: int = 16
     top_k_body_shank: int = 8
@@ -76,6 +79,10 @@ class FeasibilitySpec:
                     f"{name}={margin} is not below the {CLEARANCE_CAP_MM} mm "
                     "clearance rows read to"
                 )
+        if not 0.0 <= self.min_coverage_fraction < 1.0:
+            raise ValueError(
+                f"min_coverage_fraction={self.min_coverage_fraction} is not in [0, 1)"
+            )
         if not self.softmin_correction:
             return
         stale = {

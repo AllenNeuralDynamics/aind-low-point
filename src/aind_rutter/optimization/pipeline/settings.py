@@ -113,6 +113,9 @@ class PipelineSettings(BaseSettings):
     # implant; unset follows min_clearance. Shanks stay at min_clearance.
     min_body_clearance: float | None = Field(None, ge=0)
     min_body_fixture_clearance: float | None = Field(None, ge=0)
+    # Each probe's coverage must reach this fraction of the best it reaches alone
+    # through a bore it threads; 0 sets no floor.
+    min_coverage_fraction: float = Field(0.0, ge=0, lt=1)
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
@@ -161,6 +164,7 @@ class PipelineSettings(BaseSettings):
             softmin_correction=True,
             min_body_clearance_mm=self.min_body_clearance,
             min_body_fixture_clearance_mm=self.min_body_fixture_clearance,
+            min_coverage_fraction=self.min_coverage_fraction,
         )
 
     def pinned_specs(self) -> dict[str, dict[str, Any]]:
@@ -171,6 +175,8 @@ class PipelineSettings(BaseSettings):
         for name in ("min_body_clearance_mm", "min_body_fixture_clearance_mm"):
             if feasibility[name] is None:
                 del feasibility[name]
+        if feasibility["min_coverage_fraction"] == 0.0:
+            del feasibility["min_coverage_fraction"]
         return {
             "feasibility": feasibility,
             "objective": asdict(self.objective_spec()),

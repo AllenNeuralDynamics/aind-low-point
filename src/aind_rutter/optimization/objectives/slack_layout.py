@@ -17,7 +17,15 @@ PADDED_SLACK = LARGE_SLACK
 
 
 # Constraint groups, in the order they are concatenated into the slack vector.
-SLACK_GROUPS = ("thread", "probe_pair", "probe_fixture", "brain", "arc_sep", "ml_sep")
+SLACK_GROUPS = (
+    "thread",
+    "probe_pair",
+    "probe_fixture",
+    "brain",
+    "arc_sep",
+    "ml_sep",
+    "coverage",
+)
 
 
 def padding_mask(
@@ -60,6 +68,7 @@ def padding_mask(
         "brain": shank.reshape(-1) if has_brain else np.zeros(0, bool),
         "arc_sep": np.ones(n_arcs * (n_arcs - 1) // 2, bool),
         "ml_sep": same_arc[iu, ju],
+        "coverage": np.ones(labels["coverage_floor_rows"], bool),
     }
     return np.concatenate([by_group[name] for name in SLACK_GROUPS])
 

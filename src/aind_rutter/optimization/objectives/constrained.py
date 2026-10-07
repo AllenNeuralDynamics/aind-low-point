@@ -54,6 +54,7 @@ from aind_rutter.optimization.clearance.vec3 import matmul3
 from aind_rutter.optimization.objectives.cache_keys import weights_cache_key
 from aind_rutter.optimization.objectives.coverage import (
     CoverageData,
+    coverage_per_probe_over_probes,
     probe_coverage,
 )
 from aind_rutter.optimization.objectives.evaluate import (
@@ -74,6 +75,7 @@ from aind_rutter.optimization.objectives.slack_layout import (
 from aind_rutter.optimization.objectives.slacks import (
     arc_separation_slack,
     brain_slack,
+    coverage_floor_slack,
     fixture_clearance_slack,
     ml_separation_slack,
     pair_clearance_slack,
@@ -167,8 +169,13 @@ def _build_jit(  # noqa: C901
     brain_sdf: "BrainSDFData | None" = None,
     coverage_ceilings: "tuple[float, ...] | None" = None,
     coverage_weights: "tuple[float, ...] | None" = None,
+    floor_ceilings: "tuple[float, ...] | None" = None,
 ) -> dict:
-    """Build JIT'd (obj, obj_grad, all_slacks, all_slacks_jac) for one signature."""
+    """Build JIT'd (obj, obj_grad, all_slacks, all_slacks_jac) for one signature.
+
+    ``floor_ceilings`` (each probe's threaded best) adds one coverage-floor row
+    per probe when the spec sets a floor; otherwise the group is empty.
+    """
     (
         n_probes,
         n_arcs,
@@ -222,6 +229,13 @@ def _build_jit(  # noqa: C901
     )
     cov_alpha = float(objective.cov_alpha)
     beta_cov = float(objective.softmin_beta_cov)
+    floor_on = (
+        spec.min_coverage_fraction > 0.0
+        and floor_ceilings is not None
+        and coverage_data is not None
+    )
+    if floor_on:
+        floor_ceil = jnp.asarray(floor_ceilings, dtype=jnp.float32)
 
     # Padded fixture table (stacked edge-padded grids + n_real_f), built ONCE
     # from the closure-captured fixtures so the fixture × probe clearance is a
@@ -509,6 +523,18 @@ def _build_jit(  # noqa: C901
         else:
             ml_sep_vec = jnp.zeros(0)
 
+        coverage_vec = jnp.zeros(0)
+        if floor_on:
+            cov_pp = coverage_per_probe_over_probes(
+                Rs,
+                ts,
+                tips_local,
+                shank_mask,
+                coverage_data,
+                n_samples=coverage_n_samples,
+            )
+            coverage_vec = coverage_floor_slack(cov_pp, floor_ceil, spec)
+
         return (
             thread_vec,
             clear_pp_vec,
@@ -516,6 +542,7 @@ def _build_jit(  # noqa: C901
             brain_vec,
             ap_sep_vec,
             ml_sep_vec,
+            coverage_vec,
         )
 
     def _all_slacks(*args, **kwargs):
@@ -561,6 +588,7 @@ def _build_jit(  # noqa: C901
             ],
             "fixture_categories": list(FixtureClearance._fields),
             "fixture_gains": list(fixture_gains),
+            "coverage_floor_rows": n_probes if floor_on else 0,
         },
         slacks_jac=jax.jit(jax.jacfwd(_all_slacks)),
         slacks_hess=jax.jit(_slacks_hess),
@@ -601,6 +629,7 @@ def make_phase2(
     brain_sdf: "BrainSDFData | None" = None,
     coverage_ceilings: "tuple[float, ...] | None" = None,
     coverage_weights: "tuple[float, ...] | None" = None,
+    floor_ceilings: "tuple[float, ...] | None" = None,
     grid_dtype=jnp.bfloat16,
     hessian: str = "none",
     drop_padded_rows: bool = True,
@@ -631,6 +660,11 @@ def make_phase2(
         if coverage_weights is not None
         else None
     )
+    floor_key = (
+        tuple(round(float(c), 6) for c in floor_ceilings)
+        if floor_ceilings is not None
+        else None
+    )
     # bf16 collision-grid storage (probe + every fixture); see clearance_sweep
     # for the policy. Cast fixtures BEFORE _build_jit closure-captures them; the
     # dtype is in the cache key for the same reason.
@@ -640,7 +674,13 @@ def make_phase2(
     # the other values it bakes into the trace. Kept as two names rather than a
     # slice, so adding a component to the key cannot silently shift the unpack.
     shape_sig = _signature(statics, n_arcs, weights, fixtures, brain_sdf)
-    sig = shape_sig + (ceil_key, wcov_key, dtype_key, int(coverage_n_samples))
+    sig = shape_sig + (
+        ceil_key,
+        wcov_key,
+        floor_key,
+        dtype_key,
+        int(coverage_n_samples),
+    )
     if sig not in _JIT_CACHE:
         _JIT_CACHE[sig] = _build_jit(
             shape_sig,
@@ -651,6 +691,7 @@ def make_phase2(
             brain_sdf=brain_sdf,
             coverage_ceilings=coverage_ceilings,
             coverage_weights=coverage_weights,
+            floor_ceilings=floor_ceilings,
         )
         _CACHE_STATS["misses"] += 1
     else:
