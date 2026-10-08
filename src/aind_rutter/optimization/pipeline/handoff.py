@@ -14,10 +14,6 @@ import numpy as np
 from aind_rutter.optimization.pipeline.records import Phase2ResultRecord
 from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
-# How far below the coverage floor a kept plan may sit, as a fraction of the
-# probe's threaded best; IPOPT's constraint tolerance leaves rows this close.
-COVERAGE_FLOOR_TOL = 0.01
-
 
 def classify_results(
     results: list[Phase2ResultRecord], settings: Phase2Settings
@@ -32,13 +28,14 @@ def classify_results(
     independent and both REPORTED rather than hard-gated upstream. STRICT means
     truly feasible on both; the KEEP band also admits mildly-infeasible plans a
     human can salvage. Dropped plans stay in the payload's ``all`` for
-    inspection. Under a coverage floor a plan is kept only when every probe
-    reaches it, so no target is traded away for clearance.
+    inspection. Under a coverage floor a plan is kept only when every probe's
+    target region keeps its fraction of the share that probe records alone, so
+    no target is traded away for clearance.
     """
     kept: list[Phase2ResultRecord] = []
     for r in results:
         floor_slack = r.get("coverage_floor_slack")
-        coverage_keep = floor_slack is None or floor_slack >= -COVERAGE_FLOOR_TOL
+        coverage_keep = floor_slack is None or floor_slack >= 0.0
         g = r.get("max_g_thread", float("nan"))
         fcl_keep = bool(r["fcl"] >= -settings.fcl_tol)
         thread_keep = bool(np.isfinite(g) and g <= settings.g_tol)
@@ -54,27 +51,31 @@ def classify_results(
     return kept
 
 
-def floor_ceilings_by_probe(
-    settings: Phase2Settings, probes, floor_ceilings: Mapping[str, float] | None
+def best_alone_by_probe(
+    settings: Phase2Settings, probes, best_alone: Mapping[str, float] | None
 ) -> tuple[float, ...] | None:
-    """The pool's threaded bests in ``probes`` order, or None without a floor.
+    """The pool's recorded shares alone in ``probes`` order, or None without a
+    floor.
 
     Raises
     ------
     ValueError
-        If the settings set a floor and the pool lacks a probe's best.
+        If the settings set a floor and the pool lacks a probe's share, or no
+        radius to measure it at.
     """
     if settings.min_coverage_fraction == 0.0:
         return None
-    if floor_ceilings is None:
+    if settings.recorded_radius_mm is None:
+        raise ValueError("RUTTER_MIN_COVERAGE_FRACTION needs RUTTER_RECORDED_RADIUS_MM")
+    if best_alone is None:
         raise ValueError(
-            "RUTTER_MIN_COVERAGE_FRACTION is set but the pool records no threaded "
-            "coverage ceilings; build the pool with the same floor"
+            "RUTTER_MIN_COVERAGE_FRACTION is set but the pool records no share "
+            "alone per probe; build the pool with the same floor"
         )
-    missing = [p.name for p in probes if p.name not in floor_ceilings]
+    missing = [p.name for p in probes if p.name not in best_alone]
     if missing:
-        raise ValueError(f"the pool records no threaded coverage ceiling for {missing}")
-    return tuple(float(floor_ceilings[p.name]) for p in probes)
+        raise ValueError(f"the pool records no share alone for {missing}")
+    return tuple(float(best_alone[p.name]) for p in probes)
 
 
 def handoff_config(settings: Phase2Settings) -> dict[str, object]:

@@ -283,6 +283,7 @@ def _probe_static_info(
         target_points=target_points,
         target_point_weights=target_point_weights,
         region_points=region_points,
+        recorded_points=anchor_points,
         coverage_weight=context.coverage_weight,
         pivot_local=context.pivot_local,
         shank_half_xy=shank_half_xy,

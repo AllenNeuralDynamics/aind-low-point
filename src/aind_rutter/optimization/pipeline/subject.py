@@ -9,7 +9,7 @@ sets, brain SDF, and the implant-inclusive FCL fixture set used by Phase 2.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -101,6 +101,7 @@ class OptimizationRuntime:
         use_env_retro: bool = True,
         thread_corners: bool = True,
         locator: Locator | None = None,
+        retro_sigma_mm: float | None = None,
     ) -> "OptimizationRuntime":
         cfg = ConfigModel.from_yaml(config_path, locator)
         return cls.from_config(
@@ -109,6 +110,7 @@ class OptimizationRuntime:
             retro_opts=retro_opts,
             use_env_retro=use_env_retro,
             thread_corners=thread_corners,
+            retro_sigma_mm=retro_sigma_mm,
         )
 
     @classmethod
@@ -120,6 +122,7 @@ class OptimizationRuntime:
         retro_opts: RetroDensityOpts | None = None,
         use_env_retro: bool = True,
         thread_corners: bool = True,
+        retro_sigma_mm: float | None = None,
     ) -> "OptimizationRuntime":
         runtime = build_runtime_from_config(cfg)
         resolved_retro: RetroDensityOpts | None
@@ -129,6 +132,8 @@ class OptimizationRuntime:
             resolved_retro = retro_opts_from_env(runtime)
         else:
             resolved_retro = None
+        if resolved_retro is not None and retro_sigma_mm is not None:
+            resolved_retro = replace(resolved_retro, sigma_mm=retro_sigma_mm)
         probes = tuple(
             _probe_static_info(
                 runtime.plan_state,

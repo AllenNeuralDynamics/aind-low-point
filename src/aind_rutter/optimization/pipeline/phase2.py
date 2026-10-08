@@ -81,8 +81,8 @@ import numpy as np  # noqa: E402
 
 from aind_rutter.domain.rig import reachable_ap_window_deg  # noqa: E402
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
+    best_alone_by_probe,
     classify_results,
-    floor_ceilings_by_probe,
     handoff_config,
 )
 from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
@@ -146,7 +146,7 @@ def _pin_worker(slices: list[list[int]], started: Any) -> None:
 def _init(
     settings: Phase2Settings | None = None,
     cpu_slices: tuple[list[list[int]], Any] | None = None,
-    floor_ceilings: Mapping[str, float] | None = None,
+    best_alone: Mapping[str, float] | None = None,
 ) -> None:
     """Per-worker heavy setup (SDFs load from disk cache, so this is cheap).
 
@@ -169,9 +169,7 @@ def _init(
 
     clear_jit_cache()
     _G.update(build_state(settings))
-    _G["floor_ceilings"] = floor_ceilings_by_probe(
-        settings, _G["probes"], floor_ceilings
-    )
+    _G["best_alone"] = best_alone_by_probe(settings, _G["probes"], best_alone)
 
 
 def _st_for_rec(rec: Phase2InputRecord):
@@ -371,12 +369,16 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     max_g_thread = worst_threading_g(st, np.asarray(res.x, float), n_arcs)
     Rs, ts, tp, mk = _poses(st, np.asarray(res.x, float), n_arcs)
     cov_pp = np.asarray(coverage_per_probe_over_probes(Rs, ts, tp, mk, cov_data, 41))
-    floor = _G["floor_ceilings"]
-    floor_slack = (
-        None
-        if floor is None
-        else float(np.min(cov_pp / np.asarray(floor) - s.min_coverage_fraction))
-    )
+    best_alone = _G["best_alone"]
+    shares = floor_slack = None
+    if best_alone is not None:
+        from aind_rutter.optimization.pipeline.coverage_floor import recorded_shares
+
+        assert s.recorded_radius_mm is not None  # best_alone_by_probe checked
+        shares = recorded_shares(_G["probes"], Rs, ts, s.recorded_radius_mm)
+        floor_slack = float(
+            np.min(shares / np.asarray(best_alone) - s.min_coverage_fraction)
+        )
     return dict(
         idx=idx,
         rank=rank,
@@ -387,6 +389,9 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
         coverage_per_probe={
             p.name: float(c) for p, c in zip(_G["probes"], cov_pp, strict=True)
         },
+        recorded_share=None
+        if shares is None
+        else {p.name: float(v) for p, v in zip(_G["probes"], shares, strict=True)},
         coverage_floor_slack=floor_slack,
         pose=res.x,
         pose_in=pose,  # Phase-1 input pose (full@end), persisted for inspection
@@ -490,7 +495,6 @@ def _build_problem(st, n_arcs: int) -> Phase2Problem:
         hessian=s.hess,
         drop_padded_rows=s.drop_dead_rows,
         grid_dtype=jnp.dtype(s.grid_dtype),
-        floor_ceilings=_G["floor_ceilings"],
         **cast(Any, _cov_norm_kwargs(st)),
     )
 
@@ -606,14 +610,14 @@ def solve_candidates(
     *,
     on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
     log: Callable[[str], None] | None = None,
-    floor_ceilings: Mapping[str, float] | None = None,
+    best_alone: Mapping[str, float] | None = None,
 ) -> list[Phase2ResultRecord]:
     """Solve every candidate, returning the results in rank order.
 
     ``on_result`` sees each result as it completes, which is not rank order, and
     ``log`` receives coarse progress. Both default to silent: an imported caller
-    gets results rather than stdout. ``floor_ceilings`` is the pool's
-    ``coverage_floor_ceilings``, required when the settings set a floor.
+    gets results rather than stdout. ``best_alone`` is the pool's
+    ``recorded_share_alone``, required when the settings set a floor.
     """
     note = log or (lambda _msg: None)
     # Pay the one-time compile ONCE. Threads share the PARENT's context, so warm
@@ -628,7 +632,7 @@ def solve_candidates(
         # worker tasks read back from _G. The setup itself is not optional —
         # only the compile that warmup pays up front, which WARMUP=0 moves onto
         # the first candidate instead.
-        _init(settings, floor_ceilings=floor_ceilings)
+        _init(settings, best_alone=best_alone)
         if settings.warmup:
             tw = time.time()
             note(f"warming (in-parent, single-threaded) for n_arcs {nstr}...")
@@ -660,7 +664,7 @@ def solve_candidates(
         with ctx.Pool(
             settings.workers,
             initializer=_init,
-            initargs=(settings, cpu_slices, floor_ceilings),
+            initargs=(settings, cpu_slices, best_alone),
         ) as pool:
             if settings.warmup:
                 tw = time.time()
@@ -701,7 +705,7 @@ def run(
     *,
     on_result: Callable[[int, int, Phase2ResultRecord], None] | None = None,
     log: Callable[[str], None] | None = None,
-    floor_ceilings: Mapping[str, float] | None = None,
+    best_alone: Mapping[str, float] | None = None,
 ) -> Phase2HandoffPayload:
     """Solve, classify and rank a selection of candidates.
 
@@ -724,7 +728,7 @@ def run(
         f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
     )
     results = solve_candidates(
-        recs, settings, on_result=on_result, log=log, floor_ceilings=floor_ceilings
+        recs, settings, on_result=on_result, log=log, best_alone=best_alone
     )
     feasible = classify_results(results, settings)
     payload: Phase2HandoffPayload = dict(
@@ -808,7 +812,7 @@ def main() -> int:
         settings,
         on_result=_log_cand,
         log=_flush_print,
-        floor_ceilings=pool.get("coverage_floor_ceilings"),
+        best_alone=pool.get("recorded_share_alone"),
     )
     _print_report(payload, settings)
     write_handoff(settings.out, payload)

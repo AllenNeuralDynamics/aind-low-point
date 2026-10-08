@@ -103,7 +103,7 @@ class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
     # Absent from pools built before the option existed.
     fixture_c2f: bool
     # By probe name; present only when the pool was built with a coverage floor.
-    coverage_floor_ceilings: dict[str, float]
+    recorded_share_alone: dict[str, float]
 
 
 class Phase2InputRecordRequired(TypedDict):
@@ -159,9 +159,11 @@ class Phase2ResultRecord(Phase2ResultRecordRequired, total=False):
     strict_feasible: bool
     fcl_keep: bool
     thread_keep: bool
-    # Each probe's coverage, and its worst slack past the coverage floor as a
-    # fraction of its threaded best (None without a floor).
+    # Each probe's objective coverage; under a coverage floor, its target
+    # region's recorded share and the worst probe's share as a fraction of its
+    # share alone, less the floor (None without one).
     coverage_per_probe: dict[str, float]
+    recorded_share: dict[str, float] | None
     coverage_floor_slack: float | None
     coverage_keep: bool
     kept: bool

@@ -58,7 +58,6 @@ from aind_rutter.optimization.search.spin_restore import (
 )
 
 LAMBDA_THREAD, LAMBDA_PAIR, LAMBDA_FIXTURE, LAMBDA_KINEMATIC = 1.0, 10.0, 30.0, 0.01
-LAMBDA_FLOOR = 50.0
 
 # Targets along x; the fixture sits 0.5 mm past the third probe's body.
 TARGETS_X = (-2.5, 0.0, 6.0)
@@ -174,8 +173,7 @@ def _coverage(statics) -> tuple[GaussianCoverageData, ...]:
     )
 
 
-def _phase1_fns(statics, fixtures, spec, objective=NO_OBJECTIVE, floor=None):
-    """Phase 1's objective and gradient over ``x`` alone."""
+def _phase1_objective(statics, fixtures, spec, x, objective=NO_OBJECTIVE) -> float:
     weights = Phase1Weights(
         spec,
         objective,
@@ -183,42 +181,29 @@ def _phase1_fns(statics, fixtures, spec, objective=NO_OBJECTIVE, floor=None):
         lambda_clearance=LAMBDA_PAIR,
         lambda_clearance_fixture=LAMBDA_FIXTURE,
         lambda_kinematic=LAMBDA_KINEMATIC,
-        lambda_coverage_floor=LAMBDA_FLOOR,
     )
     n_arcs = 2
-    fn, grad = _build_jit(
+    fn, _ = _build_jit(
         _signature(statics, n_arcs, weights),
         weights,
         coverage_data=_coverage(statics),
         fixtures=fixtures,
-        floor_ceilings=floor,
     )
-    packed = {k: v for k, v in pack_statics(statics, n_arcs).items()}
-    args = {k: packed[k] for k in PACKED_ARG_ORDER}
-
-    def value(x, **kw):
-        return float(fn(jnp.asarray(x, jnp.float32), **args, **kw))
-
-    def gradient(x):
-        return np.asarray(grad(jnp.asarray(x, jnp.float32), **args), np.float64)
-
-    return value, gradient
+    packed = pack_statics(statics, n_arcs)
+    return float(
+        fn(jnp.asarray(x, jnp.float32), **{k: packed[k] for k in PACKED_ARG_ORDER})
+    )
 
 
-def _phase1_objective(statics, fixtures, spec, x, objective=NO_OBJECTIVE) -> float:
-    return _phase1_fns(statics, fixtures, spec, objective)[0](x)
-
-
-def _phase2(statics, fixtures, spec, objective=NO_OBJECTIVE, floor=None):
+def _phase2(statics, fixtures, spec, objective=NO_OBJECTIVE):
     return make_phase2(
         statics, 2, coverage_data=_coverage(statics), fixtures=fixtures,
         weights=Phase2Weights(spec, objective), grid_dtype=jnp.float32,
-        floor_ceilings=floor,
     )  # fmt: skip
 
 
-def _phase2_rows(statics, fixtures, spec, x, floor=None) -> dict[str, np.ndarray]:
-    p2 = _phase2(statics, fixtures, spec, floor=floor)
+def _phase2_rows(statics, fixtures, spec, x) -> dict[str, np.ndarray]:
+    p2 = _phase2(statics, fixtures, spec)
     return {k: np.asarray(v, np.float64) for k, v in p2["slack_parts"](x).items()}
 
 
@@ -231,7 +216,6 @@ def _penalty_from_rows(rows: dict[str, np.ndarray]) -> float:
         + LAMBDA_PAIR * sq("probe_pair")
         + LAMBDA_FIXTURE * sq("probe_fixture")
         + LAMBDA_KINEMATIC * (sq("arc_sep") + sq("ml_sep"))
-        + LAMBDA_FLOOR * sq("coverage")
     )
 
 
@@ -412,81 +396,3 @@ def test_a_margin_past_the_clearance_cap_is_refused(name) -> None:
     kwargs = {"min_clearance_mm": 0.1, name: CLEARANCE_CAP_MM}
     with pytest.raises(ValueError, match="clearance rows read to"):
         FeasibilitySpec(softmin_correction=True, **kwargs)
-
-
-FLOOR_SPEC = FeasibilitySpec(
-    min_clearance_mm=0.1, softmin_correction=True, min_coverage_fraction=0.1
-)
-
-
-def _coverage_at(statics, fixtures, x) -> np.ndarray:
-    """Each probe's coverage at ``x``, read back off unit-ceiling floor rows."""
-    rows = _phase2_rows(statics, fixtures, FLOOR_SPEC, x, floor=(1.0,) * len(statics))
-    return rows["coverage"] + FLOOR_SPEC.min_coverage_fraction
-
-
-def _short_floor(cov: np.ndarray, short: float) -> tuple[float, ...]:
-    """Ceilings that leave the last probe ``short`` below the floor, the others
-    far above it."""
-    f = FLOOR_SPEC.min_coverage_fraction
-    ceilings = cov / 0.5
-    ceilings[-1] = cov[-1] / (f - short)
-    return tuple(float(c) for c in ceilings)
-
-
-def test_the_floor_adds_a_row_per_probe_and_nothing_when_unset(problem) -> None:
-    statics, fixtures = problem
-    floor = (1.0,) * len(statics)
-    with_floor = _phase2_rows(statics, fixtures, FLOOR_SPEC, CLEAR, floor=floor)
-    unset = replace(FLOOR_SPEC, min_coverage_fraction=0.0)
-    without = _phase2_rows(statics, fixtures, unset, CLEAR, floor=floor)
-    assert with_floor["coverage"].shape == (len(statics),)
-    assert without["coverage"].size == 0
-    for group in without:
-        if group != "coverage":
-            np.testing.assert_array_equal(with_floor[group], without[group])
-
-
-def test_phase1_penalises_exactly_phase2s_coverage_shortfall(problem) -> None:
-    statics, fixtures = problem
-    cov = _coverage_at(statics, fixtures, CLEAR)
-    assert np.all(cov > 0), "every probe must cover something for the test to bite"
-    floor = _short_floor(cov, 0.05)
-    rows = _phase2_rows(statics, fixtures, FLOOR_SPEC, CLEAR, floor=floor)
-    assert rows["coverage"][-1] == pytest.approx(-0.05, abs=1e-5)
-    assert np.all(rows["coverage"][:-1] > 0)
-    value, _ = _phase1_fns(statics, fixtures, FLOOR_SPEC, floor=floor)
-    assert value(CLEAR) == pytest.approx(_penalty_from_rows(rows), rel=1e-4)
-    assert value(CLEAR) == pytest.approx(LAMBDA_FLOOR * 0.05**2, rel=1e-3)
-    # The reduced stage weighs coverage at zero, and the floor with it.
-    assert value(CLEAR, coverage_scale=0.0) == 0.0
-
-
-def test_the_floor_penalty_gradient_vanishes_continuously_at_the_floor(
-    problem,
-) -> None:
-    """Squared shortfall: the gradient shrinks in proportion to the shortfall,
-    so crossing the floor puts no step in what Phase 1 steps along."""
-    statics, fixtures = problem
-    cov = _coverage_at(statics, fixtures, CLEAR)
-    norms = []
-    for short in (1e-2, 1e-3, 0.0, -1e-2):
-        _, gradient = _phase1_fns(
-            statics, fixtures, FLOOR_SPEC, floor=_short_floor(cov, short)
-        )
-        norms.append(np.linalg.norm(gradient(CLEAR)))
-    # 2λ·short·∇cov/ceiling, and the ceiling here is cov/(f - short).
-    f = FLOOR_SPEC.min_coverage_fraction
-    assert norms[0] > 0
-    assert norms[1] / norms[0] == pytest.approx(
-        1e-3 * (f - 1e-3) / (1e-2 * (f - 1e-2)), rel=1e-3
-    )
-    # At the floor only float32 rounding of the ceiling is left.
-    assert norms[2] < 1e-5 * norms[0]
-    assert norms[3] == 0.0
-
-
-def test_a_floor_outside_zero_to_one_is_refused() -> None:
-    for fraction in (-0.1, 1.0):
-        with pytest.raises(ValueError, match="min_coverage_fraction"):
-            replace(FLOOR_SPEC, min_coverage_fraction=fraction)

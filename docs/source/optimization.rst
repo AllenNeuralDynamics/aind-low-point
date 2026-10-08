@@ -414,29 +414,28 @@ otherwise be ignored and the run would get the default.
 Coverage floor
 ~~~~~~~~~~~~~~
 
-``RUTTER_MIN_COVERAGE_FRACTION`` (default 0, off) requires each probe to reach
-that fraction of its *threaded best*: the most coverage it reaches alone
-through a bore it threads. It turns trading a target away for clearance into a
-failure rather than a lower score. Before the first group, Phase 1 solves every
-probe by itself in each bore the visibility atlas says it passes, from eight of
-the atlas's anchors spread over spin, with the full stage and neither the
-normalization nor the floor shaping the solve, and keeps the best coverage
-among the results whose threading, well and brain rows hold
-(``pipeline.coverage_floor``). The log prints each probe's best per bore. The
-bests are an upper bound on what any layout gives that probe, and the pool
-records them as ``coverage_floor_ceilings``; Phase 2 reads them from there and
-refuses to run a floor against a pool without them. A probe with no feasible
-pose through any bore stops the run.
+``RUTTER_MIN_COVERAGE_FRACTION`` (default 0, off) keeps a solved layout only
+when each probe's target region keeps that fraction of its *share alone*: the
+recorded share (see `Emit Plans`_) the probe reaches by itself through a bore it
+threads. It turns trading a target away for clearance into a failure rather
+than a lower score. The floor is a gate at Phase 2's keep step and no part of
+either solve, because as a penalty and a constraint it cost the search yield
+while its smooth coverage, a 0.3 mm kernel, could be met with nothing recorded
+within 0.2 mm. It needs ``RUTTER_RETRO_DENSITY``, since the share counts the
+region's retro cells.
 
-The floor is one more slack, ``coverage / threaded best − fraction``, so its
-rows sit at the same scale for every probe. Phase 1 penalises its squared
-shortfall at ``Phase1Weights.lambda_coverage_floor`` (1e4: a probe a tenth
-short pays what the other penalties do at their order 100), scaled by the
-coverage weight, so the reduced stage ignores it. The penalty is continuously
-differentiable and its gradient goes to zero at the floor. Phase 2 constrains a
-``coverage`` group of one row per probe, empty when the floor is off. The
-threaded bests are separate from the open-space ceilings ``RUTTER_COV_NORM``
-divides by.
+Before the first group, Phase 1 solves every probe by itself in each bore the
+visibility atlas says it passes, from eight of the atlas's anchors spread over
+spin, with the full stage and without the normalization, and keeps the best
+recorded share among the results whose threading, well and brain rows hold
+(``pipeline.coverage_floor``). The log prints each probe's best per bore. The
+pool records the shares as ``recorded_share_alone``; Phase 2 reads them from
+there and refuses to run a floor against a pool without them. A probe that
+records nothing through any bore stops the run.
+
+``RUTTER_RETRO_SIGMA_MM`` (default 0.3) sets the width of the Gaussian each
+retro cell contributes to the objective's coverage. A narrower kernel brings
+the smooth coverage closer to the hard count the gate reads.
 
 A pool records the spec and the objective it was built under, as its header's
 ``feasibility`` and ``objective``. Phase 1 resumes only a pool whose record
@@ -652,8 +651,16 @@ Useful Phase-1 environment knobs:
        ``RUTTER_MIN_CLEARANCE``.
    * - ``RUTTER_MIN_COVERAGE_FRACTION``
      - ``0``
-     - Each probe's coverage floor as a fraction of its threaded best (see
-       `Coverage floor`_); 0 sets none.
+     - The keep gate's floor on each target region's recorded share, as a
+       fraction of the probe's share alone (see `Coverage floor`_); 0 sets
+       none.
+   * - ``RUTTER_RETRO_SIGMA_MM``
+     - ``0.3``
+     - Width in mm of each retro cell's Gaussian in the coverage objective.
+   * - ``RUTTER_RECORDED_RADIUS_MM``
+     - ``0.2``
+     - How near an active site a point must be to count as recorded, for the
+       coverage floor and emit's measure.
 
 Each Phase-1 record contains the discrete decision, explicit arc assignment,
 full pose ``x``, reduced checkpoint ``x_reduced`` (the restored start when the
@@ -721,8 +728,6 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   tips.
 * Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.
 * Same-arc ML separation: ``abs_smooth(ml_i - ml_j)`` minus the spec's 16 deg.
-* Coverage floor, when set: each probe's coverage over its threaded best,
-  minus ``RUTTER_MIN_COVERAGE_FRACTION`` (see `Coverage floor`_).
 
 Phase 2 minimizes the `Objective`_ alone; the penalties Phase 1 adds to it are
 these constraints.
@@ -754,9 +759,10 @@ Strict feasibility is ``fcl >= -1e-4`` and ``max_g_thread <= 0``. The handoff
 ``kept`` band is intentionally looser by default: ``RUTTER_FCL_TOL=0.2`` and
 ``RUTTER_G_TOL=0.2`` admit mildly fixable plans while keeping every result in the
 ``all`` list for inspection. Under a coverage floor a result is also kept only
-when every probe sits within 0.01 of the floor (``COVERAGE_FLOOR_TOL``, in
-fractions of the threaded best); each result records ``coverage_per_probe`` and
-its worst ``coverage_floor_slack``.
+when every probe's target region records at least the floor's fraction of its
+share alone; each result records ``coverage_per_probe``, ``recorded_share`` and
+its worst ``coverage_floor_slack``, the lowest share over share alone less the
+floor.
 
 IPOPT sees only the rows that can change. Padding and the pair category the
 kernel never measures sit at the fill value of 1e3; left in, their

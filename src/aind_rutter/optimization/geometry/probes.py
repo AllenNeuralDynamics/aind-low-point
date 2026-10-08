@@ -52,6 +52,9 @@ class ProbeStaticInfo:
     # (K, 3) world LPS, one point per region this probe records, the target's
     # first: coverage sums a Gaussian on each. None scores ``target_LPS`` alone.
     region_points: NDArray[np.floating] | None = field(default=None, compare=False)
+    # (M, 3) world LPS: the target region's own labelled points, which the
+    # coverage floor counts within reach of active sites. None without a cloud.
+    recorded_points: NDArray[np.floating] | None = field(default=None, compare=False)
     # Per-target priority weight applied (after normalization) to this probe's
     # coverage in the normalized objective's weighted SUM (the fairness floor
     # stays unweighted). 1.0 ⇒ no preference.

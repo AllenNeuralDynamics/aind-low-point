@@ -37,6 +37,7 @@ def setup_runtime(settings: PipelineSettings) -> OptimizationRuntime:
         settings.holes,
         thread_corners=settings.thread_shank == "corners",
         locator=settings.locator(),
+        retro_sigma_mm=settings.retro_sigma_mm,
     )
 
 

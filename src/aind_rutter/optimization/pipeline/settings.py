@@ -113,9 +113,21 @@ class PipelineSettings(BaseSettings):
     # implant; unset follows min_clearance. Shanks stay at min_clearance.
     min_body_clearance: float | None = Field(None, ge=0)
     min_body_fixture_clearance: float | None = Field(None, ge=0)
-    # Each probe's coverage must reach this fraction of the best it reaches alone
-    # through a bore it threads; 0 sets no floor.
+    # A plan is kept only if each probe's target region has at least this fraction
+    # of the recorded share the probe reaches alone through a bore it threads; 0
+    # keeps every plan. A gate, not a term: the solves never see it.
     min_coverage_fraction: float = Field(0.0, ge=0, lt=1)
+    # Bandwidth (mm) of the Gaussian mixture on a probe's retro cloud, under
+    # RUTTER_RETRO_DENSITY.
+    retro_sigma_mm: float = Field(0.3, gt=0)
+    recorded_radius_mm: float | None = Field(
+        0.2,
+        description=(
+            "How near an active site a region's point must lie to count as "
+            "recorded, for the coverage floor and the per-region share each "
+            "plan's manifest entry carries; unset skips the measure in emit."
+        ),
+    )
     # The objective, which every stage minimizes; see objective_spec().
     # Coverage normalization divides each probe's coverage by its achievable
     # ceiling and blends the average and worst region by cov_alpha; cov_weight is
@@ -164,7 +176,6 @@ class PipelineSettings(BaseSettings):
             softmin_correction=True,
             min_body_clearance_mm=self.min_body_clearance,
             min_body_fixture_clearance_mm=self.min_body_fixture_clearance,
-            min_coverage_fraction=self.min_coverage_fraction,
         )
 
     def pinned_specs(self) -> dict[str, dict[str, Any]]:
@@ -175,8 +186,6 @@ class PipelineSettings(BaseSettings):
         for name in ("min_body_clearance_mm", "min_body_fixture_clearance_mm"):
             if feasibility[name] is None:
                 del feasibility[name]
-        if feasibility["min_coverage_fraction"] == 0.0:
-            del feasibility["min_coverage_fraction"]
         return {
             "feasibility": feasibility,
             "objective": asdict(self.objective_spec()),
@@ -234,14 +243,6 @@ class EmitSettings(PipelineSettings):
     outdir: Path = Field(
         Path("scratch/plans"),
         description="Directory receiving plans/, the tree and the manifests.",
-    )
-    recorded_radius_mm: float | None = Field(
-        0.2,
-        description=(
-            "How near an active site a region's point must lie to count as "
-            "recorded, for the per-region share each plan's manifest entry "
-            "carries; unset skips the measure and the mesh load it needs."
-        ),
     )
 
 

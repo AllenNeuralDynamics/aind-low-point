@@ -343,7 +343,6 @@ def _kernel(
     settings: Phase1Settings,
     ceilings=None,
     cov_weights=None,
-    floor_ceilings=None,
     periodic=None,
     step_scale=1.0,
 ) -> tuple[Callable, ArglistBuilder, Callable]:
@@ -369,7 +368,6 @@ def _kernel(
         brain_sdf=brain_sdf,
         coverage_ceilings=ceilings,
         coverage_weights=cov_weights,
-        floor_ceilings=floor_ceilings,
     )
     vg = build_cw_fns(
         st0,
@@ -380,7 +378,6 @@ def _kernel(
         weights=weights,
         coverage_ceilings=ceilings,
         coverage_weights=cov_weights,
-        floor_ceilings=floor_ceilings,
         spin_angle=settings.spin_param == "angle",
     )[1]
     return vobj, barg, make_runner(vg, periodic, step_scale, settings.trace)
@@ -398,7 +395,6 @@ def run_group(  # noqa: C901
     well_soft,
     brain_sdf,
     head_pitch_deg=0.0,
-    floor_ceilings: dict[str, float] | None = None,
 ):
     K = len(probes)
     names = [p.name for p in probes]
@@ -485,9 +481,6 @@ def run_group(  # noqa: C901
         settings=settings,
         ceilings=ceilings,
         cov_weights=cov_weights,
-        floor_ceilings=(
-            None if floor_ceilings is None else tuple(floor_ceilings[n] for n in names)
-        ),
         periodic=periodic,
         step_scale=step_scale,
     )
@@ -622,7 +615,7 @@ def make_phase1_pool_record(
 def save_results(
     records: list[Phase1PoolRecord],
     settings: Phase1Settings,
-    floor_ceilings: dict[str, float] | None = None,
+    best_alone: dict[str, float] | None = None,
 ) -> None:
     pinned = settings.pinned_specs()
     payload: Phase1PoolPayload = dict(
@@ -638,8 +631,8 @@ def save_results(
         feasibility=pinned["feasibility"],
         objective=pinned["objective"],
     )
-    if floor_ceilings is not None:
-        payload["coverage_floor_ceilings"] = floor_ceilings
+    if best_alone is not None:
+        payload["recorded_share_alone"] = best_alone
     write_pool(settings.out, payload)
 
 
@@ -774,7 +767,7 @@ def run(settings: Phase1Settings) -> int:
     # Resume: reload any previously-saved records and skip those n_arcs groups.
     records: list[Phase1PoolRecord] = []
     done_narcs: set = set()
-    floor_ceilings: dict[str, float] | None = None
+    best_alone: dict[str, float] | None = None
     if _os.path.exists(settings.out):
         # An unreadable pool aborts the run: save_results rewrites the file with
         # every group, so carrying on would discard the groups it already holds.
@@ -789,7 +782,7 @@ def run(settings: Phase1Settings) -> int:
             )
         records = list(pool["records"])
         done_narcs = {r["n_arcs"] for r in records}
-        floor_ceilings = pool.get("coverage_floor_ceilings")
+        best_alone = pool.get("recorded_share_alone")
         if done_narcs:
             print(
                 f"resuming from {settings.out}: {len(records)} records, "
@@ -797,8 +790,8 @@ def run(settings: Phase1Settings) -> int:
                 flush=True,
             )
 
-    if settings.min_coverage_fraction > 0 and floor_ceilings is None:
-        floor_ceilings = _threaded_ceilings(
+    if settings.min_coverage_fraction > 0 and best_alone is None:
+        best_alone = _best_alone(
             settings, probes, holes, sdf_by_name, bvh, well_soft, brain, opt
         )
 
@@ -822,7 +815,6 @@ def run(settings: Phase1Settings) -> int:
             well_soft=well_soft,
             brain_sdf=brain,
             head_pitch_deg=opt.head_pitch_deg,
-            floor_ceilings=floor_ceilings,
         )
         for i, c in enumerate(g):
             records.append(
@@ -838,24 +830,23 @@ def run(settings: Phase1Settings) -> int:
             )
         # Incremental save + free this group's GPU buffers before the next group
         # compiles its own kernels (cross-group accumulation caused the OOM).
-        save_results(records, settings, floor_ceilings)
+        save_results(records, settings, best_alone)
         print(f"  saved {len(records)} records → {settings.out}", flush=True)
         del statics_flat, x_out, x_red, obj, clr, clr_red
         gc.collect()
         jax.clear_caches()
 
-    save_results(records, settings, floor_ceilings)
+    save_results(records, settings, best_alone)
     print(f"\nsaved {len(records)} records → {settings.out}")
     return 0
 
 
-def _threaded_ceilings(
+def _best_alone(
     settings, probes, holes, sdf_by_name, bvh, well_soft, brain, opt
 ) -> dict[str, float]:
-    """Each probe's threaded best for the coverage floor, logged per bore."""
-    from aind_rutter.optimization.pipeline.coverage_floor import (
-        threaded_coverage_ceilings,
-    )
+    """Each probe's recorded share alone, which the coverage floor is a
+    fraction of, logged per bore."""
+    from aind_rutter.optimization.pipeline.coverage_floor import best_alone_shares
 
     bounds = phase1_bounds(1, 1, opt.head_pitch_deg)
     lo = np.array([b[0] for b in bounds], np.float32)
@@ -881,7 +872,7 @@ def _threaded_ceilings(
         )
 
     t0 = time.time()
-    best, by_hole = threaded_coverage_ceilings(
+    best, by_hole = best_alone_shares(
         settings=settings,
         atlas=build_or_load_atlas(settings).atlas,
         probes=probes,
@@ -897,8 +888,8 @@ def _threaded_ceilings(
         grid_dtype=grid_dtype,
     )
     print(
-        f"coverage floor {settings.min_coverage_fraction} of each probe's threaded "
-        f"best ({time.time() - t0:.0f}s):",
+        f"coverage floor {settings.min_coverage_fraction} of each probe's recorded "
+        f"share alone ({time.time() - t0:.0f}s):",
         flush=True,
     )
     for name, per_hole in by_hole.items():

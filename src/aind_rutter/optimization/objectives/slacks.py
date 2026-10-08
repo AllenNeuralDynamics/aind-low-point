@@ -66,8 +66,3 @@ def arc_separation_slack(ap_separation, spec: FeasibilitySpec):
 def ml_separation_slack(ml_separation, spec: FeasibilitySpec):
     """Same-arc ML separation beyond the minimum (deg)."""
     return ml_separation - float(spec.min_intra_arc_ml_sep_deg)
-
-
-def coverage_floor_slack(per_probe, threaded_ceilings, spec: FeasibilitySpec):
-    """Each probe's coverage past the floor, as a fraction of its threaded best."""
-    return per_probe / threaded_ceilings - float(spec.min_coverage_fraction)
