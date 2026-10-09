@@ -164,7 +164,6 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
     changed: Set[str] = set()
 
     if isinstance(cmd, SetArcAngle):
-        # clamp to limits (and apply any separation policy if you added it)
         ps.kinematics.set_arc(cmd.arc_id, cmd.ap_deg)
         # any non-calibrated probe bound to this arc is affected
         for name, plan in ps.probes.items():
@@ -206,9 +205,9 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
     if isinstance(cmd, SetProbeLocalAngles):
         plan = ps.probes[cmd.name]
         if cmd.ap_local is not None:
-            plan.ap_local = ps.kinematics.limits.ap_deg.clamp(cmd.ap_local)
+            plan.ap_local = float(cmd.ap_local)
         if cmd.ml_local is not None:
-            plan.ml_local = ps.kinematics.limits.ml_deg.clamp(cmd.ml_local)
+            plan.ml_local = float(cmd.ml_local)
         if cmd.spin is not None:
             plan.spin = ps.kinematics.limits.spin_deg.clamp(cmd.spin)
         changed.add(cmd.name)

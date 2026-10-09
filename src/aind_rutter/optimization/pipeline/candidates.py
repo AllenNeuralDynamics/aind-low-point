@@ -28,7 +28,11 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import time
 from collections.abc import Sequence
 
-from aind_rutter.domain.rig import AP_LIMIT_DEG, ML_LIMIT_DEG, PoseLimits
+from aind_rutter.domain.rig import (
+    DEFAULT_AP_RANGE_DEG,
+    DEFAULT_ML_RANGE_DEG,
+    PoseLimits,
+)
 from aind_rutter.optimization.assignment.atlas import Atlas
 from aind_rutter.optimization.assignment.seed_emission import emit_seed
 from aind_rutter.optimization.pipeline.payloads import (
@@ -143,14 +147,14 @@ class Enumerator:
         self.max_arcs = max_arcs
         self.max_probes_per_arc = max_probes_per_arc
         self.arr = _build_atlas_arrays(atlas, list(probe_names))
-        # Always clip to the kinematic rig limits so enumeration only generates
+        # Always clip to the rig's ranges so enumeration only generates
         # within-limit plans (ML is frame-invariant; AP is subject-frame and is
-        # shifted by head pitch by the caller). Explicit ap_range/ml_range
-        # (e.g. from env) override these defaults.
+        # shifted by head pitch by the caller). The defaults are the default
+        # rig's, unshifted.
         if ml_range is None:
-            ml_range = (-ML_LIMIT_DEG, ML_LIMIT_DEG)
+            ml_range = DEFAULT_ML_RANGE_DEG
         if ap_range is None:
-            ap_range = (-AP_LIMIT_DEG, AP_LIMIT_DEG)
+            ap_range = DEFAULT_AP_RANGE_DEG
         self._restrict_atlas(ap_range, ml_range)
 
         # Nodes = feasible (probe_idx, hole_id). Index them; record intervals.

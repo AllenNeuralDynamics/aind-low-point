@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,37 +20,44 @@ class JointRange:
         return float(min(max(v, self.lo), self.hi))
 
 
-# Rig-mechanical angular limits (deg), as half-ranges about 0. SINGLE SOURCE OF
-# TRUTH: ``PoseLimits`` defaults and every optimizer search bound / enumeration
-# window derive from these — change a limit here and it propagates everywhere
-# (import ``AP_LIMIT_DEG`` / ``ML_LIMIT_DEG`` rather than hardcoding literals).
-AP_LIMIT_DEG: float = 75.0
-ML_LIMIT_DEG: float = 42.0
+# Rig-mechanical angular ranges (deg, rig angles) for a config that states
+# none; a config's ``plan.rig_limits`` replaces them.
+DEFAULT_AP_RANGE_DEG: tuple[float, float] = (-75.0, 75.0)
+DEFAULT_ML_RANGE_DEG: tuple[float, float] = (-42.0, 42.0)
 
 
-def reachable_ap_window_deg(head_pitch_deg: float) -> tuple[float, float]:
+def head_pitch_deg(subject_from_rig: AffineTransform) -> float:
+    """Head pitch (deg) about L from a ``subject_from_rig`` transform; rig AP is
+    subject AP plus this."""
+    rotation = np.asarray(subject_from_rig.rotate_translate[0], dtype=float)
+    return float(np.rad2deg(np.arctan2(rotation[2, 1], rotation[1, 1])))
+
+
+def reachable_ap_window_deg(
+    limits: "PoseLimits", head_pitch_deg: float
+) -> tuple[float, float]:
     """The subject-frame arc AP angles the rig can reach, given head pitch.
 
     Rig AP is subject AP plus head pitch, because the head is mounted
-    nose-down, so the rig's symmetric ``±AP_LIMIT_DEG`` becomes a window
-    shifted by ``-head_pitch_deg`` in the subject frame. At a typical 14° the
-    reachable subject window is [-89, +61], not [-75, +75].
+    nose-down, so the rig's AP range is shifted by ``-head_pitch_deg`` in the
+    subject frame: at 14°, a rig range of [-75, +46] is [-89, +32].
 
     Every search bound, enumeration window and coverage ceiling has to use this
     same window: a ceiling computed over poses the solver cannot reach
     normalizes coverage by an unreachable maximum.
     """
-    return -AP_LIMIT_DEG - head_pitch_deg, AP_LIMIT_DEG - head_pitch_deg
+    return limits.ap_deg.lo - head_pitch_deg, limits.ap_deg.hi - head_pitch_deg
 
 
 @dataclass(frozen=True, slots=True)
 class PoseLimits:
-    # angular limits (deg)
+    # Angular ranges (deg) in rig angles; ML is the same in the subject frame,
+    # AP is shifted by head pitch (see reachable_ap_window_deg).
     ap_deg: JointRange = field(
-        default_factory=lambda: JointRange(-AP_LIMIT_DEG, AP_LIMIT_DEG)
+        default_factory=lambda: JointRange(*DEFAULT_AP_RANGE_DEG)
     )
     ml_deg: JointRange = field(
-        default_factory=lambda: JointRange(-ML_LIMIT_DEG, ML_LIMIT_DEG)
+        default_factory=lambda: JointRange(*DEFAULT_ML_RANGE_DEG)
     )
     spin_deg: JointRange = field(default_factory=lambda: JointRange(-180.0, 180.0))
     # translational work envelope (mm); set to None if unbounded
@@ -79,15 +86,6 @@ class PoseLimits:
         constraint. Also ≤ the probe count in practice."""
         span = self.ml_deg.hi - self.ml_deg.lo
         return int(span // self.min_within_arc_ml_separation_deg) + 1
-
-    def clamp_angles(
-        self, ap: float, ml: float, spin: float
-    ) -> Tuple[float, float, float]:
-        return (
-            self.ap_deg.clamp(ap),
-            self.ml_deg.clamp(ml),
-            self.spin_deg.clamp(spin),
-        )
 
     def clamp_xyz(self, tip_lps: np.ndarray) -> np.ndarray:
         t = np.asarray(tip_lps, dtype=np.float64).copy()
@@ -142,16 +140,15 @@ class Kinematics:
         R, _ = self.subject_from_rig.rotate_translate
         return np.asarray(R, dtype=np.float64).T
 
-    def set_arc(self, arc_id: str, ap_deg: float) -> float:
-        """Clamp and store AP for an arc; return the value actually stored."""
-        clamped = self.limits.ap_deg.clamp(ap_deg)
-        self.arc_angles[arc_id] = clamped
-        return clamped
+    @property
+    def head_pitch_deg(self) -> float:
+        return head_pitch_deg(self.subject_from_rig)
 
-    def clamp_angles(
-        self, ap: float, ml: float, spin: float
-    ) -> Tuple[float, float, float]:
-        return self.limits.clamp_angles(ap, ml, spin)
+    def set_arc(self, arc_id: str, ap_deg: float) -> float:
+        """Store AP for an arc, unclamped: manual planning may leave the rig's
+        range, which the kinematic overlay reports."""
+        self.arc_angles[arc_id] = float(ap_deg)
+        return self.arc_angles[arc_id]
 
     def clamp_xyz(self, tip_lps: np.ndarray) -> np.ndarray:
         return self.limits.clamp_xyz(tip_lps)

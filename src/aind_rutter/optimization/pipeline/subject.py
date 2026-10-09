@@ -23,6 +23,7 @@ from aind_rutter.build.queries import (
 from aind_rutter.build.transforms import CompiledTransforms, compile_all_transforms
 from aind_rutter.config import ConfigModel
 from aind_rutter.config.locations import Locator
+from aind_rutter.domain.rig import PoseLimits
 from aind_rutter.optimization.geometry.holes import Hole, load_holes
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.pipeline.probe_setup import (
@@ -157,6 +158,11 @@ class OptimizationRuntime:
             holes=holes,
             head_pitch_deg=head_pitch_deg_from_runtime(runtime),
         )
+
+    @property
+    def pose_limits(self) -> PoseLimits:
+        """The config's rig limits, in rig angles."""
+        return self.runtime.plan_state.kinematics.limits
 
     @property
     def probe_names(self) -> tuple[str, ...]:

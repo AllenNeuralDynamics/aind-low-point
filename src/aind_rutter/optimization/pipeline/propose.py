@@ -141,10 +141,11 @@ def propose(
         for c in found.values()
     ]
     shapes = [probe_shape(runtime, kind, count) for kind, count in inventory.items()]
+    limits = runtime.plan_state.kinematics.limits
     units = find_units(
         clouds,
         load_holes(holes),
-        reachable_ap_window_deg(head_pitch_deg_from_runtime(runtime)),
+        reachable_ap_window_deg(limits, head_pitch_deg_from_runtime(runtime)),
         shapes,
         radius_mm=options.radius_mm,
         max_group=options.max_group,
@@ -152,6 +153,7 @@ def propose(
         angle_step_deg=options.angle_step_deg,
         spin_step_deg=options.spin_step_deg,
         depth_step_mm=options.depth_step_mm,
+        ml_range_deg=(limits.ml_deg.lo, limits.ml_deg.hi),
     )
     alone = {
         name: {

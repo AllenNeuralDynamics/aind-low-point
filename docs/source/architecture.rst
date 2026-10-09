@@ -57,7 +57,7 @@ Module Organization
     │   ├── enums.py           # Role, Kind, MRSignal, OrientationCode; KNOWN_SCENE_TAGS
     │   ├── catalog.py         # AssetSpec, TargetSpec, AssetCatalog, Material
     │   ├── scene.py           # NodeInstance, Scene
-    │   ├── rig.py             # JointRange, PoseLimits, Kinematics, AP/ML_LIMIT_DEG
+    │   ├── rig.py             # JointRange, PoseLimits, Kinematics, default ranges
     │   ├── rig_setup.py       # RigSetup, setup_changes: the rework between two plans
     │   ├── plan.py            # ProbePlan, PlanningState, resolve_target_LPS
     │   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection

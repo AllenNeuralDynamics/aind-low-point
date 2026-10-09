@@ -192,7 +192,10 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
             for c in coverage_ceiling_per_probe(
                 st,
                 _G["cov_data"],
-                ap_window_deg=reachable_ap_window_deg(_G["head_pitch_deg"]),
+                ap_window_deg=reachable_ap_window_deg(
+                    _G["pose_limits"], _G["head_pitch_deg"]
+                ),
+                ml_range_deg=(_G["pose_limits"].ml_deg.lo, _G["pose_limits"].ml_deg.hi),
             )
         )
         weights = tuple(float(p.coverage_weight) for p in _G["probes"])
@@ -240,7 +243,9 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     st = _st_for_rec(rec)
     p2 = _build_problem(st, n_arcs)
     cov_data = _G["cov_data"]
-    bounds = phase1_bounds(n_arcs, _G["n_probes"], _G["head_pitch_deg"])
+    bounds = phase1_bounds(
+        n_arcs, _G["n_probes"], _G["head_pitch_deg"], _G["pose_limits"]
+    )
     pose_start = perturb_pose(
         pose,
         n_arcs,

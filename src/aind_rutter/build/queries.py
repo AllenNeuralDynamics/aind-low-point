@@ -6,10 +6,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from aind_rutter.build.assemble import RuntimeBundle
 from aind_rutter.domain.catalog import AssetCatalog
+from aind_rutter.domain.rig import PoseLimits
 from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
 from aind_rutter.domain.transforms import Transformed
 
@@ -31,21 +30,14 @@ class WorldGeometry:
         return self.transformed.raw
 
 
-def head_pitch_deg_from_subject_from_rig(subject_from_rig) -> float:
-    """Rig AP pitch (deg, subject frame) from a ``subject_from_rig`` transform.
-
-    Single source of the head-pitch extraction so the optimizer, the rig export,
-    and the runtime adapter can't drift. See dev memory rig_ap_sign_convention.
-    """
-    rotation = np.asarray(subject_from_rig.rotate_translate[0], dtype=float)
-    return float(np.rad2deg(np.arctan2(rotation[2, 1], rotation[1, 1])))
-
-
 def head_pitch_deg_from_runtime(runtime: RuntimeBundle) -> float:
     """Return rig AP pitch in degrees, expressed in the subject frame."""
-    return head_pitch_deg_from_subject_from_rig(
-        runtime.plan_state.kinematics.subject_from_rig
-    )
+    return runtime.plan_state.kinematics.head_pitch_deg
+
+
+def pose_limits_from_runtime(runtime: RuntimeBundle) -> PoseLimits:
+    """The config's rig limits (rig angles)."""
+    return runtime.plan_state.kinematics.limits
 
 
 def _tag_set(values: Iterable[str] | None) -> frozenset[str]:

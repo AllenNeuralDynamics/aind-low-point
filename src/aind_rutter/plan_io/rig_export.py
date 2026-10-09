@@ -11,7 +11,6 @@ import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.arc_angles import arc_angles_to_affine
 
-from aind_rutter.build.queries import head_pitch_deg_from_subject_from_rig
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import PlanningState
 from aind_rutter.domain.pose import ProbePose
@@ -113,12 +112,9 @@ def export_plan_geometry(
     brain_mesh = brain_world_mesh(catalog, scene, brain_asset_key, fallback_to_raw=True)
 
     # Head-tilt offset between subject-anatomical AP and rig-mechanical AP, from
-    # the single shared extractor (the optimizer/adapter use the same one) so the
-    # rig-frame readout below can't drift from the bounds. See dev memory
-    # rig_ap_sign_convention.
-    head_pitch_about_L = head_pitch_deg_from_subject_from_rig(
-        plan_state.kinematics.subject_from_rig
-    )
+    # the extractor the optimizer bounds use, so the rig-frame readout can't
+    # drift from them.
+    head_pitch_about_L = plan_state.kinematics.head_pitch_deg
 
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():

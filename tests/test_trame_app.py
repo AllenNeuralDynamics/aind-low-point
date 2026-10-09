@@ -207,15 +207,15 @@ def _controller_for(subject: SyntheticSubject):
 def test_the_sliders_show_the_angles_the_probe_is_actually_in(
     subject: SyntheticSubject,
 ) -> None:
-    """The readout resolved AP, ML and spin itself and skipped the clamp, so a
-    plan past a rig limit put a number on screen that nothing rendered."""
+    """The readout shows the resolved pose, the angles the probe renders in; past
+    a rig limit those are the stated AP and ML, which nothing clamps."""
     from aind_rutter.domain.pose import ProbePose, resolved_angles
 
     controller = _controller_for(subject)
     plan = controller.store.state.probes["P2"]
     plan.bind_ap_to_arc = False
-    plan.ap_local = 140.0  # past the +75 deg AP limit
-    plan.ml_local = -95.0  # past the -42 deg ML limit
+    plan.ap_local = 140.0  # past the AP limit
+    plan.ml_local = -95.0  # past the ML limit
     plan.spin = 400.0
 
     state = _FakeState(probe="P2")
@@ -227,7 +227,7 @@ def test_the_sliders_show_the_angles_the_probe_is_actually_in(
     assert (state.ap_tilt, state.ml_tilt) == resolved_angles(
         "P2", controller.store.state
     )[:2]
-    assert state.ap_tilt < 140.0 and state.ml_tilt > -95.0
+    assert (state.ap_tilt, state.ml_tilt) == (140.0, -95.0)
 
 
 def test_default_opacities_survive_a_repaint(subject: SyntheticSubject) -> None:

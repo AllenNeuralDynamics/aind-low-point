@@ -48,8 +48,9 @@ def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
             else plan.ap_local
         )
         ml = plan.ml_local
-    # clamp to rig limits
-    ap, ml, spin = ps.kinematics.clamp_angles(ap, ml, plan.spin)
+    # AP and ML stay unclamped: leaving the rig's range is a kinematic
+    # violation the planner reports, not one it corrects.
+    spin = ps.kinematics.limits.spin_deg.clamp(plan.spin)
     return ap, ml, spin
 
 

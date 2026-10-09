@@ -23,7 +23,7 @@ from aind_mri_utils.arc_angles import arc_angles_to_affine
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
-from aind_rutter.domain.rig import ML_LIMIT_DEG
+from aind_rutter.domain.rig import DEFAULT_ML_RANGE_DEG
 from aind_rutter.optimization.geometry.holes import DEFAULT_THREADING_MARGIN_MM, Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 
@@ -129,11 +129,15 @@ def threads(hole: Hole, p: NDArray, d: NDArray, margin_mm: float) -> NDArray[np.
 
 
 def bore_lines(
-    hole: Hole, ap_window_deg: tuple[float, float], step_deg: float, margin_mm: float
+    hole: Hole,
+    ap_window_deg: tuple[float, float],
+    step_deg: float,
+    margin_mm: float,
+    ml_range_deg: tuple[float, float] = DEFAULT_ML_RANGE_DEG,
 ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
     """``(entry, direction, ap, ml)`` of the lines that thread ``hole``."""
     aps = np.arange(ap_window_deg[0], ap_window_deg[1] + 1e-9, step_deg)
-    mls = np.arange(-ML_LIMIT_DEG, ML_LIMIT_DEG + 1e-9, step_deg)
+    mls = np.arange(ml_range_deg[0], ml_range_deg[1] + 1e-9, step_deg)
     ap, ml = (g.ravel() for g in np.meshgrid(aps, mls, indexing="ij"))
     d = shaft_down_LPS(ap, ml)
     tops = section_points(hole.sections[0])
@@ -245,6 +249,7 @@ def find_units(
     spin_step_deg: float = 15.0,
     depth_step_mm: float = 0.1,
     margin_mm: float = DEFAULT_THREADING_MARGIN_MM,
+    ml_range_deg: tuple[float, float] = DEFAULT_ML_RANGE_DEG,
 ) -> Units:
     """Per group of up to ``max_group`` regions, bore and kind, its best line.
 
@@ -260,7 +265,7 @@ def find_units(
     found: list[tuple[Hole, ProbeShape, tuple, _Rows]] = []
     alone = {shape.kind: np.zeros(R) for shape in shapes}
     for hole in holes:
-        lines = bore_lines(hole, ap_window_deg, angle_step_deg, margin_mm)
+        lines = bore_lines(hole, ap_window_deg, angle_step_deg, margin_mm, ml_range_deg)
         for shape in shapes:
             for rows in _bore_rows(
                 hole,

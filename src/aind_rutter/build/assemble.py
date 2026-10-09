@@ -32,6 +32,7 @@ from aind_rutter.config import (
     HeadMountModel,
     MaterialModel,
     ResourceModel,
+    RigLimitsModel,
     TargetSpecModel,
 )
 from aind_rutter.config.templates import merge_dict_shallow
@@ -39,7 +40,7 @@ from aind_rutter.domain.catalog import AssetCatalog, AssetSpec, Material, Target
 from aind_rutter.domain.enums import Kind, Role
 from aind_rutter.domain.plan import PlanningState, ProbePlan, RegionRef
 from aind_rutter.domain.probe_kinds import RecordingGeometry, pivot_from_shank_tips
-from aind_rutter.domain.rig import Kinematics
+from aind_rutter.domain.rig import JointRange, Kinematics, PoseLimits
 from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
 from aind_rutter.domain.transforms import (
     AffineTransform,
@@ -411,6 +412,13 @@ def load_resource(
     return geo
 
 
+def _build_pose_limits(rig_limits: RigLimitsModel) -> PoseLimits:
+    return PoseLimits(
+        ap_deg=JointRange(*rig_limits.ap_deg),
+        ml_deg=JointRange(*rig_limits.ml_deg),
+    )
+
+
 def build_plan_state_from_config(
     cfg: ConfigModel,
     *,
@@ -431,6 +439,7 @@ def build_plan_state_from_config(
         target_index = {}
     kinematics = Kinematics(
         arc_angles=dict(cfg.plan.arcs),
+        limits=_build_pose_limits(cfg.plan.rig_limits),
         subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
     )
     calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)

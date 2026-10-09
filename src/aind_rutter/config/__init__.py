@@ -60,6 +60,7 @@ from aind_rutter.config.models_plan import (
     NodeTargetRefModel,
     PlanningModel,
     ProbeDeclModel,
+    RigLimitsModel,
     TargetRef,
 )
 from aind_rutter.config.models_scene import SceneModel, SceneNodeModel
@@ -106,6 +107,7 @@ __all__ = [
     "PathsModel",
     "PlanningModel",
     "ProbeDeclModel",
+    "RigLimitsModel",
     "RangeTargetSpecModel",
     "RecordingModel",
     "ResourceModel",

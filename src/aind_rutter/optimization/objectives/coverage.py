@@ -29,7 +29,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.domain.rig import ML_LIMIT_DEG
 from aind_rutter.optimization.clearance.vec3 import matmul3
 
 _DEFAULT_KDE_SPACING_MM = 0.1
@@ -514,7 +513,7 @@ def coverage_ceiling_per_probe(
     coverage_data,
     *,
     ap_window_deg: tuple[float, float],
-    ml_bound_deg=ML_LIMIT_DEG,
+    ml_range_deg: tuple[float, float],
     offset_bound_mm=3.0,
     depth_bound_mm=2.0,
     n_samples=41,
@@ -525,10 +524,10 @@ def coverage_ceiling_per_probe(
     coverage over its pose DOFs (ap, ml, spin, off_R, off_A, depth) in
     ISOLATION (no inter-probe collisions, bounds matching ``phase1_bounds``).
 
-    ``ap_window_deg`` has no default on purpose. It is the rig-reachable
-    subject-frame window from :func:`reachable_ap_window_deg`, which head pitch
-    shifts off centre; a symmetric default silently normalized coverage by a
-    maximum the solver could not reach.
+    ``ap_window_deg`` and ``ml_range_deg`` have no default on purpose: they are
+    the config's rig ranges, AP as the subject-frame window from
+    :func:`reachable_ap_window_deg`, and a default would normalize coverage by a
+    maximum the solver cannot reach.
 
     A fixed per-probe constant used to normalise coverage so regions weigh
     equally regardless of shank count, active range, σ, or (KDE) label
@@ -552,7 +551,7 @@ def coverage_ceiling_per_probe(
 
     bounds = [
         ap_window_deg,
-        (-ml_bound_deg, ml_bound_deg),
+        ml_range_deg,
         (-180.0, 180.0),
         (-offset_bound_mm, offset_bound_mm),
         (-offset_bound_mm, offset_bound_mm),

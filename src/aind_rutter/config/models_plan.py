@@ -11,6 +11,7 @@ from pydantic import (
 )
 
 from aind_rutter.config.models_common import ConfigDirectoryPath, ConfigFilePath
+from aind_rutter.domain.rig import DEFAULT_AP_RANGE_DEG, DEFAULT_ML_RANGE_DEG
 
 
 # -----------------------------------------------------------------------------
@@ -270,6 +271,28 @@ class HeadMountModel(BaseModel):
     angle_deg: float = 0.0
 
 
+class RigLimitsModel(BaseModel):
+    """The rig's angular ranges, in rig angles (deg); they need not be symmetric.
+
+    ``ap_deg`` bounds the arc AP the rig sets, before ``subject_from_rig``'s
+    pitch: a rig AP of +46 at a 14° head pitch is a subject AP of +32.
+    ``ml_deg`` bounds each probe's ML on its arc.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    ap_deg: tuple[float, float] = DEFAULT_AP_RANGE_DEG
+    ml_deg: tuple[float, float] = DEFAULT_ML_RANGE_DEG
+
+    @model_validator(mode="after")
+    def _ranges_ordered(self) -> "RigLimitsModel":
+        for name in ("ap_deg", "ml_deg"):
+            lo, hi = getattr(self, name)
+            if not lo < hi:
+                raise ValueError(f"rig_limits.{name}: need lo < hi, got [{lo}, {hi}]")
+        return self
+
+
 class PlanningModel(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -282,6 +305,10 @@ class PlanningModel(BaseModel):
             "Rotation from rig mechanical frame to subject anatomical LPS. "
             "Encodes the mounted mouse's head tilt. See HeadMountModel."
         ),
+    )
+    rig_limits: RigLimitsModel = Field(
+        default_factory=RigLimitsModel,
+        description="The rig's angular ranges. See RigLimitsModel.",
     )
     probes: dict[str, ProbeDeclModel] = Field(
         default_factory=dict, description="probe_name → probe declaration"

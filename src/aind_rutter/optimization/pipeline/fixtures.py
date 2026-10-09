@@ -21,7 +21,7 @@ import numpy as np
 
 from aind_rutter.build.queries import fixture_node_keys, world_geometry_for_node
 from aind_rutter.domain.probe_kinds import RECORDING_GEOMETRY, RecordingGeometry
-from aind_rutter.domain.rig import ML_LIMIT_DEG, reachable_ap_window_deg
+from aind_rutter.domain.rig import PoseLimits, reachable_ap_window_deg
 from aind_rutter.optimization.clearance import (
     build_probe_sdf,
     build_probe_sdf_from_alpha_wrap,
@@ -33,14 +33,20 @@ from aind_rutter.optimization.objectives.coverage import (
 from aind_rutter.optimization.objectives.soft import BrainSDFData, FixtureSDFData
 
 
-def phase1_bounds(n_arcs: int, n_probes: int, head_pitch_deg: float = 0.0):
+def phase1_bounds(
+    n_arcs: int,
+    n_probes: int,
+    head_pitch_deg: float = 0.0,
+    limits: PoseLimits | None = None,
+):
     """Box bounds for Phase 1 x = (arc_aps, (ml, sx, sy, off_R, off_A, depth) × P)."""
+    limits = limits or PoseLimits()
     bounds = []
-    ap_window = reachable_ap_window_deg(head_pitch_deg)
+    ap_window = reachable_ap_window_deg(limits, head_pitch_deg)
     for _ in range(n_arcs):
         bounds.append(ap_window)
     for _ in range(n_probes):
-        bounds.append((-ML_LIMIT_DEG, +ML_LIMIT_DEG))  # ml
+        bounds.append((limits.ml_deg.lo, limits.ml_deg.hi))  # ml
         # (sx, sy) ±1.1 — unit_circle_penalty pulls magnitude → 1.
         bounds.append((-1.1, +1.1))  # sx
         bounds.append((-1.1, +1.1))  # sy

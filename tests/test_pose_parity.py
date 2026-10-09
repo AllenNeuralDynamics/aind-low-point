@@ -35,9 +35,8 @@ from aind_rutter.optimization.geometry.kinematics import (
 TARGET = np.array([1.5, -3.2, -4.0])
 KIND = "2.1"
 
-# (ap, ml, spin, off_R, off_A, past_target), all within the rig's angular
-# limits — AP ±75°, ML ±42° — because the app clamps to them and the two
-# optimizer builders do not. `test_the_app_differs_only_by_the_clamp` covers
+# (ap, ml, spin, off_R, off_A, past_target), within the default angular
+# limits — AP ±75°, ML ±42°. `test_the_app_does_not_clamp_angles` covers
 # what happens outside.
 CASES = [
     (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -51,7 +50,7 @@ CASES = [
 ]
 IDS = [f"ap{ap:g}_ml{ml:g}_spin{spin:g}" for ap, ml, spin, *_ in CASES]
 
-# Outside them, so the app's clamp bites.
+# Outside them, where the app reports a violation and moves nothing.
 OUT_OF_LIMITS = [
     (61.0, -45.0, 179.0, -1.0, -1.0, 0.25),
     (16.0, -49.0, 3.0, 0.5, 0.5, 6.0),
@@ -167,21 +166,11 @@ def test_the_pivot_puts_the_recording_centre_on_target() -> None:
     OUT_OF_LIMITS,
     ids=[f"ap{ap:g}_ml{ml:g}" for ap, ml, *_ in OUT_OF_LIMITS],
 )
-def test_the_app_differs_only_by_the_clamp(ap, ml, spin, off_r, off_a, past) -> None:
-    """Outside AP ±75° or ML ±42° the app moves the probe and the optimizer does
-    not — the app resolves angles through `Kinematics.clamp_angles`, the two
-    optimizer builders take whatever they are handed.
-
-    Feeding the clamped angles to the optimizer reproduces the app exactly, so
-    the clamp is the whole of the difference rather than a second formula.
-    """
+def test_the_app_does_not_clamp_angles(ap, ml, spin, off_r, off_a, past) -> None:
+    """Outside the rig's AP or ML range the app places the probe where the
+    optimizer would: leaving the range is reported as a kinematic violation,
+    never corrected, so the angles a plan states are the angles it shows."""
     pivot = recording_center_local_for_kind(KIND)
     raw = _numpy_pose(ap, ml, spin, off_r, off_a, past, pivot)[1]
     app = _app_tip(ap, ml, spin, off_r, off_a, past)
-    assert not np.allclose(app, raw, atol=1e-6), "case is inside the limits"
-
-    clamped_ap, clamped_ml, clamped_spin = Kinematics().clamp_angles(ap, ml, spin)
-    reclamped = _numpy_pose(
-        clamped_ap, clamped_ml, clamped_spin, off_r, off_a, past, pivot
-    )[1]
-    np.testing.assert_allclose(app, reclamped, atol=1e-6)
+    np.testing.assert_allclose(app, raw, atol=1e-6)

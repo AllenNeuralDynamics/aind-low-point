@@ -167,6 +167,8 @@ class MaterialsMixin:
         for a, b in viols["within_arc_ml"]:
             affected.add(f"probe:{a}")
             affected.add(f"probe:{b}")
+        for (name,) in viols["ap_range"] | viols["ml_range"]:
+            affected.add(f"probe:{name}")
         flips = list(self._prev_kinematic ^ affected)
         self._prev_kinematic = affected
         overlays_state = self.overlays_resolver.overlays

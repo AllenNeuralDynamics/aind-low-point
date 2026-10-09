@@ -248,7 +248,8 @@ class ReadoutsMixin:
             return has, is_cal, "—", "—", "—"
 
     def _kinematic_status_for_probe(self, probe_name: str) -> str:
-        """Per-probe textual readout: 'OK' / '⚠ ML vs X[, Y]; AP-arc vs Z'."""
+        """Per-probe textual readout: 'OK' / '⚠ ML vs X[, Y]; AP-arc vs Z; AP
+        range'."""
         plan = self.store.state.probes.get(probe_name)
         if plan is None:
             return "—"
@@ -262,11 +263,17 @@ class ReadoutsMixin:
             for a, b in viols["arc_ap"]:
                 if plan.arc_id in (a, b):
                     arc_clashes.add(b if a == plan.arc_id else a)
-        if not ml_clashes and not arc_clashes:
+        out_of_range = [
+            axis
+            for axis, key in (("AP", "ap_range"), ("ML", "ml_range"))
+            if (probe_name,) in viols[key]
+        ]
+        if not ml_clashes and not arc_clashes and not out_of_range:
             return "OK"
         msgs: list[str] = []
         if ml_clashes:
             msgs.append(f"ML vs {','.join(sorted(ml_clashes))}")
         if arc_clashes:
             msgs.append(f"AP-arc vs {','.join(sorted(arc_clashes))}")
+        msgs.extend(f"{axis} range" for axis in out_of_range)
         return "⚠ " + "; ".join(msgs)
