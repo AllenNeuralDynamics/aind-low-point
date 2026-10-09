@@ -130,7 +130,7 @@ resources:       # list[ResourceModel] — load-once shared files (fcsv, etc.)
 assets:          # list[AssetSpecUnion]  (Asset | BulkAsset)
 targets:         # list[TargetSpecUnion] (Target | RangeTarget | DerivedTarget)
 scene:           # SceneModel — list of SceneNodeModel
-plan:            # PlanningModel — arcs, probes, rig_limits, calibrations, reticles
+plan:            # PlanningModel — arcs, probes, rig, calibrations, reticles
 options:         # OptionsModel
 ```
 
@@ -248,24 +248,34 @@ The bare-list coercion happens in `ProbeDeclModel`'s pre-validator
 (~line 1099). Inline targets skip catalog/node xref checks (they're
 self-contained).
 
-## `plan.rig_limits` — the rig's angular ranges
+## `plan.rig` — the rig's mechanics
 
 ```yaml
 plan:
   subject_from_rig: {axis_LPS: [1, 0, 0], angle_deg: 14}
-  rig_limits:
-    ap_deg: [-75, 46]     # arc AP, rig angles; default [-75, 75]
-    ml_deg: [-42, 42]     # probe ML on its arc; the default
+  rig:
+    kind: arc                     # the default, and the only kind so far
+    name: dhc                     # optional; printed by each stage
+    ap_deg: [-75, 46]             # arc AP, rig angles; default [-75, 75]
+    ml_deg: [-42, 42]             # probe ML on its arc; the default
+    min_arc_ap_sep_deg: 16        # least AP between two arcs; the default
+    min_intra_arc_ml_sep_deg: 16  # least ML between probes on one arc; the default
 ```
 
-Both ranges are `[lo, hi]` in rig angles and need not be symmetric; a range
-with `lo >= hi` is refused. Rig AP is subject AP plus the head pitch from
-`subject_from_rig`, so with the block above every stage searches subject AP in
-[-89, +32]. ML is the same in both frames. The optimizer bounds, the
-enumeration windows and the coverage ceiling all read these; the planner never
-clamps to them, and reports a probe outside either range in its kinematic
-readout and overlay. The 16° separations between arcs and between probes on one
-arc are fixed. Loading a plan-only YAML keeps the open config's limits.
+Every field has a default, so a config that states no rig gets the arc rig
+above with symmetric ranges. Both ranges are `[lo, hi]` in rig angles and need
+not be symmetric; a range with `lo >= hi` is refused. Rig AP is subject AP plus
+the head pitch from `subject_from_rig`, so with the block above every stage
+searches subject AP in [-89, +32]. ML is the same in both frames.
+
+The optimizer bounds, the enumeration windows and the coverage ceiling read the
+ranges; the enumerator, the seed and both phases' constraints read the
+separations, and the arc caps follow from both. A Phase-1 pool records the
+separations in its feasibility spec and any range off the default under `rig`,
+so Phase 2 refuses a pool built for another rig. The planner never clamps to
+any of it, and reports a probe outside a range, or nearer than a separation,
+in its kinematic readout and overlay. Loading a plan-only YAML keeps the open
+config's rig.
 
 ## CanonicalizationDefModel
 

@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 from numpy.typing import ArrayLike, NDArray
+
+from aind_rutter.domain.rig import probe_rotation
 
 
 def pose_from_optimizer_vars(
@@ -65,7 +66,7 @@ def pose_from_optimizer_vars(
     constraints); it does not change what a given (ap, ml, spin) value
     means geometrically.
     """
-    R = arc_angles_to_affine(float(ap_deg), float(ml_deg), float(spin_deg))
+    R = probe_rotation(ap_deg, ml_deg, spin_deg)
     off_RAS = np.array([float(offset_R_mm), float(offset_A_mm), 0.0], dtype=np.float64)
     off_LPS = convert_coordinate_system(off_RAS, "RAS", "LPS")
     adjusted_target = np.asarray(target_LPS, dtype=np.float64) + off_LPS

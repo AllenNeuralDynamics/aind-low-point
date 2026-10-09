@@ -83,7 +83,7 @@ def ml_anchors_mrv(  # noqa: C901
     combination exists it returns the closest-AP one with ``min_gap ≥
     min_ml_sep_deg``; otherwise (the atlas, sampled at offset=0, can't separate
     these probes) it returns the **max-min-gap** combination with ``min_gap <
-    min_ml_sep_deg``. The downstream optimizer still enforces the hard 16°
+    min_ml_sep_deg``. The downstream optimizer still enforces the hard
     separation (and reaches the true config via offsets the atlas doesn't
     sample, as the manual plan does); ``min_gap`` is a ranking/quality flag, not
     a reject. The FCL gate is the real feasibility check.
@@ -165,8 +165,8 @@ def emit_seed(
     arcs: "list[dict]",
     aa,
     *,
-    min_arc_ap_sep_deg: float = 16.0,
-    min_ml_sep_deg: float = 16.0,
+    min_arc_ap_sep_deg: float,
+    min_ml_sep_deg: float,
 ) -> "tuple[list[float], dict[str, float], dict[str, float], float] | None":
     """Joint AP+ML+spin seed for a fixed (probe→hole, probe→arc) assignment.
 

@@ -92,7 +92,7 @@ up probe-mesh shapes for pivot calculations).
   `target_key` (or inline `target_point_RAS`), offsets, depth past
   target, calibration flag, `position_bearing_shank` (which shank's tip
   is the readout reference for multi-shank probes).
-- `Kinematics` — `arc_angles: {arc_id: deg}` and rig limits.
+- `Kinematics` — `arc_angles: {arc_id: deg}`, the rig (`ArcRig`) and the head pitch.
 - `PlanningState` — bundles `Kinematics`, `{name: ProbePlan}`,
   calibrations, and a `target_index: {key: LPS_point}` (precomputed
   from the catalog so probe-resolution doesn't need to re-read mesh

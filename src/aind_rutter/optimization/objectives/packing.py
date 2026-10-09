@@ -23,7 +23,7 @@ from aind_rutter.domain.probe_kinds import (
     RecordingGeometry,
     pivot_from_shank_tips,
 )
-from aind_rutter.domain.rig import PoseLimits, reachable_ap_window_deg
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.assignment.assignments import (
     ArcAssignment,
     HoleAssignment,
@@ -191,7 +191,7 @@ def build_batched_probe_static(
     W: int = MAX_WALLS_PAD,
     sdf_by_name: dict | None = None,
     head_pitch_deg: float = 0.0,
-    pose_limits: PoseLimits | None = None,
+    rig: ArcRig | None = None,
 ) -> BatchedProbeStatic:
     """Build the padded, batched static for a list of candidates.
 
@@ -212,8 +212,9 @@ def build_batched_probe_static(
         populated.
     head_pitch_deg : float
         Used in arc-AP bounds computation.
-    pose_limits : optional PoseLimits
-        The rig's AP and ML ranges; the default rig's when omitted.
+    rig : optional ArcRig
+        The rig whose AP and ML ranges bound the search; the default rig when
+        omitted.
     """
     B = len(candidates)
     K = len(probes)
@@ -270,12 +271,12 @@ def build_batched_probe_static(
     n_vars = reduced_n_vars(n_arcs, K)  # (ml, sx, sy) per probe
     bounds_lo = np.zeros((B, n_vars), dtype=np.float32)
     bounds_hi = np.zeros((B, n_vars), dtype=np.float32)
-    pose_limits = pose_limits or PoseLimits()
-    ap_lo, ap_hi = reachable_ap_window_deg(pose_limits, head_pitch_deg)
+    rig = rig or ArcRig()
+    ap_lo, ap_hi = rig.reachable_ap_window_deg(head_pitch_deg)
     # ML / (sx, sy) bounds. Spin is parameterized as a 2D unit-circle
     # vector to remove the ±180° angle wrap; each component bounded
     # to ±1.5 (loose around the unit circle).
-    ml_lo, ml_hi = pose_limits.ml_deg.lo, pose_limits.ml_deg.hi
+    ml_lo, ml_hi = rig.ml_range_deg
     sxy_lo, sxy_hi = -1.5, 1.5
 
     t_margins = [threading_margin_mm(p.shank_half_xy is not None) for p in probes]

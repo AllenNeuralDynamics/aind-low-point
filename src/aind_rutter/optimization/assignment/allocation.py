@@ -19,11 +19,10 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
-from aind_rutter.domain.rig import DEFAULT_ML_RANGE_DEG
+from aind_rutter.domain.rig import DEFAULT_ML_RANGE_DEG, probe_rotation
 from aind_rutter.optimization.geometry.holes import DEFAULT_THREADING_MARGIN_MM, Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection, cap_basis
 
@@ -92,7 +91,7 @@ class Cover:
 
 
 def shaft_down_LPS(ap_deg: NDArray, ml_deg: NDArray) -> NDArray[np.float64]:
-    """Shaft direction into the brain: ``-arc_angles_to_affine(ap, ml, ·)[:, 2]``."""
+    """Shaft direction into the brain: ``-probe_rotation(ap, ml, ·)[:, 2]``."""
     ap, ml = np.deg2rad(ap_deg), np.deg2rad(ml_deg)
     return np.stack([np.sin(ml), np.sin(ap) * np.cos(ml), -np.cos(ap) * np.cos(ml)], -1)
 
@@ -210,7 +209,7 @@ def _bore_rows(
             # the shaft, so a shank's line is the centre line moved by one.
             rows = np.stack(
                 [
-                    (np.asarray(arc_angles_to_affine(a, m, spin))[:3, :3] @ offsets.T).T
+                    (np.asarray(probe_rotation(a, m, spin))[:3, :3] @ offsets.T).T
                     for a, m in zip(AP[sl], ML[sl])
                 ]
             )
@@ -404,9 +403,9 @@ def aim_points(
     line: Line, clouds: Mapping[int, NDArray], shape: ProbeShape, radius_mm: float
 ) -> dict[int, NDArray[np.float64]]:
     """Per region of the line, the point on it midway through what it records there."""
-    R = np.asarray(
-        arc_angles_to_affine(line.ap_deg, line.ml_deg, line.spin_deg), float
-    )[:3, :3]
+    R = np.asarray(probe_rotation(line.ap_deg, line.ml_deg, line.spin_deg), float)[
+        :3, :3
+    ]
     rows = (R @ np.asarray(shape.shank_offsets, float).T).T
     out = {}
     for region in line.share:

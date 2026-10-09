@@ -90,11 +90,12 @@ class Phase1PoolPayloadRequired(TypedDict):
 
 
 class Phase1PoolPayload(Phase1PoolPayloadRequired, total=False):
-    """A pool also records the feasibility spec and objective it was built
-    under, as :meth:`PipelineSettings.pinned_specs` states them."""
+    """A pool also records the feasibility spec, objective and rig it was
+    built under, as :meth:`PipelineSettings.pinned_specs` states them."""
 
     feasibility: dict[str, Any]
     objective: dict[str, Any]
+    rig: dict[str, Any]
     # Read from a pool built with a coarse pass or a step-size restart; no build
     # writes them.
     coarse_n: int

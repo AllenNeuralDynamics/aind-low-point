@@ -113,74 +113,9 @@ class ProbePlan:
 def kinematic_violations(
     state: "PlanningState",
 ) -> dict[str, set[tuple[str, ...]]]:
-    """Detect probes that violate the rig's angular ranges and pairwise
-    separations.
-
-    Returns a dict with four keys:
-    ``"arc_ap"`` — set of (arc_a, arc_b) pairs whose AP angles are <
-    ``min_arc_ap_separation_deg`` apart, among arcs that carry a probe
-    (every probe on either arc is affected).
-    ``"within_arc_ml"`` — set of (probe_a, probe_b) pairs on the same arc
-    whose effective ML angles are < ``min_within_arc_ml_separation_deg``
-    apart.
-    ``"ap_range"`` — set of (probe,) whose rig AP (subject AP plus head pitch,
-    from its arc when bound) is outside ``limits.ap_deg``.
-    ``"ml_range"`` — set of (probe,) whose ML is outside ``limits.ml_deg``.
-
-    Sorted within each tuple so e.g. (a, b) and (b, a) hash the same.
-    """
-    limits = state.kinematics.limits
-    ap_thr = float(limits.min_arc_ap_separation_deg)
-    ml_thr = float(limits.min_within_arc_ml_separation_deg)
-
-    by_arc: dict[str, list[str]] = {}
-    for name, plan in state.probes.items():
-        if plan.arc_id is None:
-            continue
-        by_arc.setdefault(plan.arc_id, []).append(name)
-
-    # An arc no probe rides has nothing to keep apart, wherever it sits.
-    arc_violations: set[tuple[str, ...]] = set()
-    arcs = sorted(a for a in state.kinematics.arc_angles if a in by_arc)
-    for i, a in enumerate(arcs):
-        for b in arcs[i + 1 :]:
-            if (
-                abs(state.kinematics.arc_angles[a] - state.kinematics.arc_angles[b])
-                < ap_thr
-            ):
-                arc_violations.add(tuple(sorted((a, b))))
-
-    ml_violations: set[tuple[str, ...]] = set()
-    for arc_id, members in by_arc.items():
-        members.sort()
-        for i, a in enumerate(members):
-            ml_a = state.probes[a].ml_local
-            for b in members[i + 1 :]:
-                ml_b = state.probes[b].ml_local
-                if abs(ml_a - ml_b) < ml_thr:
-                    ml_violations.add(tuple(sorted((a, b))))
-
-    pitch = state.kinematics.head_pitch_deg
-    ap_range: set[tuple[str, ...]] = set()
-    ml_range: set[tuple[str, ...]] = set()
-    for name, plan in state.probes.items():
-        bound = plan.arc_id is not None and plan.bind_ap_to_arc
-        subject_ap = (
-            state.kinematics.arc_angles.get(plan.arc_id, plan.ap_local)
-            if bound
-            else plan.ap_local
-        )
-        if not limits.ap_deg.lo <= subject_ap + pitch <= limits.ap_deg.hi:
-            ap_range.add((name,))
-        if not limits.ml_deg.lo <= plan.ml_local <= limits.ml_deg.hi:
-            ml_range.add((name,))
-
-    return {
-        "arc_ap": arc_violations,
-        "within_arc_ml": ml_violations,
-        "ap_range": ap_range,
-        "ml_range": ml_range,
-    }
+    """Planned angles the rig cannot set; see :meth:`ArcRig.violations`."""
+    k = state.kinematics
+    return k.rig.violations(k.arc_angles, state.probes, k.head_pitch_deg)
 
 
 @dataclass(slots=True)

@@ -17,11 +17,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aind_rutter.build.assemble import RuntimeBundle, build_runtime_from_config
-from aind_rutter.build.queries import head_pitch_deg_from_runtime
+from aind_rutter.build.queries import head_pitch_deg_from_runtime, rig_from_runtime
 from aind_rutter.config import ConfigModel
 from aind_rutter.domain.plan import probe_asset_key
 from aind_rutter.domain.pose import detect_shank_tips_local
-from aind_rutter.domain.rig import reachable_ap_window_deg
 from aind_rutter.domain.transforms import MeshTransformable
 from aind_rutter.optimization.assignment.allocation import (
     Cover,
@@ -141,11 +140,11 @@ def propose(
         for c in found.values()
     ]
     shapes = [probe_shape(runtime, kind, count) for kind, count in inventory.items()]
-    limits = runtime.plan_state.kinematics.limits
+    rig = rig_from_runtime(runtime)
     units = find_units(
         clouds,
         load_holes(holes),
-        reachable_ap_window_deg(limits, head_pitch_deg_from_runtime(runtime)),
+        rig.reachable_ap_window_deg(head_pitch_deg_from_runtime(runtime)),
         shapes,
         radius_mm=options.radius_mm,
         max_group=options.max_group,
@@ -153,7 +152,7 @@ def propose(
         angle_step_deg=options.angle_step_deg,
         spin_step_deg=options.spin_step_deg,
         depth_step_mm=options.depth_step_mm,
-        ml_range_deg=(limits.ml_deg.lo, limits.ml_deg.hi),
+        ml_range_deg=rig.ml_range_deg,
     )
     alone = {
         name: {

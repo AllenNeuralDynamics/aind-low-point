@@ -92,7 +92,7 @@ def planning_state_to_plan_model(
     return PlanningModel(
         arcs=dict(state.kinematics.arc_angles),
         subject_from_rig=original.subject_from_rig,
-        rig_limits=original.rig_limits,
+        rig=original.rig,
         probes=probes,
         reticles=original.reticles,
         calibrations=original.calibrations,

@@ -209,7 +209,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
         if cmd.ml_local is not None:
             plan.ml_local = float(cmd.ml_local)
         if cmd.spin is not None:
-            plan.spin = ps.kinematics.limits.spin_deg.clamp(cmd.spin)
+            plan.spin = ps.kinematics.rig.spin_deg.clamp(cmd.spin)
         changed.add(cmd.name)
         return sorted(changed)
 

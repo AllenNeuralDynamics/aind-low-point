@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.pipeline.selection import (
     check_pool_specs,
     rank_order,
@@ -99,8 +100,14 @@ def test_the_arc_assignment_is_carried_through_verbatim() -> None:
 
 
 def test_phase2_takes_a_pool_built_under_its_own_specs() -> None:
-    pool = {"records": [], **Phase1Settings(min_clearance=0.3).pinned_specs()}
-    assert check_pool_specs(pool, Phase2Settings(min_clearance=0.3)) is None
+    pool = {
+        "records": [],
+        **Phase1Settings(min_clearance=0.3).with_rig(ArcRig()).pinned_specs(),
+    }
+    assert (
+        check_pool_specs(pool, Phase2Settings(min_clearance=0.3).with_rig(ArcRig()))
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -111,10 +118,12 @@ def test_phase2_takes_a_pool_built_under_its_own_specs() -> None:
     ],
 )
 def test_phase2_refuses_a_pool_built_under_other_specs(changed, field) -> None:
-    pool = {"records": [], **Phase1Settings().pinned_specs()}
+    pool = {"records": [], **Phase1Settings().with_rig(ArcRig()).pinned_specs()}
     with pytest.raises(ValueError, match=field):
-        check_pool_specs(pool, Phase2Settings(**changed))
+        check_pool_specs(pool, Phase2Settings(**changed).with_rig(ArcRig()))
 
 
 def test_a_pool_recording_no_specs_is_read_with_a_warning() -> None:
-    assert "no specs" in check_pool_specs({"records": []}, Phase2Settings())
+    assert "no specs" in check_pool_specs(
+        {"records": []}, Phase2Settings().with_rig(ArcRig())
+    )

@@ -57,7 +57,7 @@ Module Organization
     │   ├── enums.py           # Role, Kind, MRSignal, OrientationCode; KNOWN_SCENE_TAGS
     │   ├── catalog.py         # AssetSpec, TargetSpec, AssetCatalog, Material
     │   ├── scene.py           # NodeInstance, Scene
-    │   ├── rig.py             # JointRange, PoseLimits, Kinematics, default ranges
+    │   ├── rig.py             # ArcRig (ranges, separations, rotation), Kinematics
     │   ├── rig_setup.py       # RigSetup, setup_changes: the rework between two plans
     │   ├── plan.py            # ProbePlan, PlanningState, resolve_target_LPS
     │   ├── pose.py            # ProbePose, PoseResolver, shank-tip detection
@@ -472,8 +472,17 @@ Rig-wide parameters shared by all probes:
     @dataclass(slots=True)
     class Kinematics:
         arc_angles: dict[str, float]  # arc_id → AP angle
-        limits: PoseLimits            # Joint limits
-        coupled_axes: Set[str]        # Which DOFs are arc-coupled
+        rig: ArcRig                   # The rig's mechanics
+        subject_from_rig: AffineTransform  # Head pitch
+
+``ArcRig`` is the one place the code learns how the rig moves: its ranges, the
+separations between arcs and between probes on one arc, the arc caps those
+leave room for, the reachable AP window under head pitch, the probe rotation
+from ``(ap, ml, spin)``, and the planner's violations. The config states it as
+``plan.rig`` with ``kind: arc``. A rig of another kind would be a second model
+beside it and a member of that field's union; what it would also need of its
+own is the optimizer's variable layout, its JAX pose, and the enumeration and
+seeding, which partition probes into arcs.
 
 PlanningState
 ~~~~~~~~~~~~~

@@ -127,7 +127,9 @@ def test_emit_seed_separated_aps_and_mls_with_spin():
         },
         {"members": [(2, 12, "C")], "ap_lo": 35, "ap_hi": 39, "ap_desired": 37.0},
     ]
-    arc_aps, ml, spin, gap = emit_seed(arcs, aa)
+    arc_aps, ml, spin, gap = emit_seed(
+        arcs, aa, min_arc_ap_sep_deg=_SEP, min_ml_sep_deg=_SEP
+    )
     assert gap >= _SEP - 1e-9  # not a soft seed
     assert abs(arc_aps[0] - arc_aps[1]) >= _SEP - 1e-9  # arcs separated
     assert -40 <= arc_aps[0] <= -35 and 35 <= arc_aps[1] <= 39  # within windows
@@ -152,10 +154,14 @@ def test_emit_seed_best_effort_when_atlas_cannot_separate():
             "ap_desired": -37.0,
         }
     ]
-    arc_aps, ml, spin, gap = emit_seed(arcs, aa)
+    arc_aps, ml, spin, gap = emit_seed(
+        arcs, aa, min_arc_ap_sep_deg=_SEP, min_ml_sep_deg=_SEP
+    )
     assert abs(gap - 3.0) < 1e-9 and gap < _SEP  # best-effort, flagged
     assert ml == {"A": 5.0, "B": 8.0}
 
 
 def test_emit_seed_empty():
-    assert emit_seed([], _atlas({}, {}, {})) == ([], {}, {}, float("inf"))
+    assert emit_seed(
+        [], _atlas({}, {}, {}), min_arc_ap_sep_deg=_SEP, min_ml_sep_deg=_SEP
+    ) == ([], {}, {}, float("inf"))

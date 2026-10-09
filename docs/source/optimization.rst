@@ -236,13 +236,15 @@ AP feasibility is handled as an interval problem:
 * Probes on the same arc must have a non-empty common AP intersection.
 * In one dimension, pairwise interval overlap is enough to guarantee a common
   intersection for the arc.
-* Different arcs must be separated by at least 16 degrees. The implementation
+* Different arcs must be separated by at least the rig's
+  ``min_arc_ap_sep_deg`` (16 degrees by default). The implementation
   uses greedy interval placement to check whether one AP value per arc can be
   placed with that separation.
 
 ML feasibility is also interval-based. For probes sharing an arc, the enumerator
 computes each probe's ML window from atlas anchors within the arc's AP window
-and greedily places one ML value per probe with 16 degree separation. This is
+and greedily places one ML value per probe at the rig's
+``min_intra_arc_ml_sep_deg``. This is
 stronger than a pairwise "some pair can be far enough apart" check: it verifies
 that the whole arc can be packed at once.
 
@@ -286,7 +288,7 @@ Once a candidate fixes ``probe -> hole`` and ``probe -> arc``, each arc has:
 * a preferred AP, usually the center of its feasible AP window or a centroid of
   member preferences;
 * a lower/upper feasible AP window from the atlas;
-* a pairwise 16 degree separation requirement against neighboring arcs.
+* a pairwise arc separation requirement against neighboring arcs.
 
 The seed AP problem is therefore:
 
@@ -340,8 +342,8 @@ Seed emission has its own two-level algorithm:
 * APs are projected into their bounded arc intervals while preserving the
   required inter-arc separation.
 * For each arc, ``ml_anchors_mrv`` runs a bounded MRV/CSP over atlas anchors to
-  choose one ``(ml, spin, ap)`` anchor per probe. It tries to satisfy the 16
-  degree ML gap with anchors close to the chosen arc AP. If the sampled atlas
+  choose one ``(ml, spin, ap)`` anchor per probe. It tries to satisfy the
+  rig's ML gap with anchors close to the chosen arc AP. If the sampled atlas
   cannot satisfy the gap, it returns the max-min-gap best effort and records
   ``min_ml_gap`` as a quality flag rather than dropping the candidate.
 
@@ -352,8 +354,8 @@ optimizer can recover.
 The anchor CSP uses the same MRV idea at a smaller scale. Each probe on an arc
 has many atlas anchors ``(ml, spin, ap)`` for its assigned hole. Values are
 ordered by closeness to the selected arc AP, then the search assigns the probe
-with the fewest still-viable ML anchors first. It first tries to meet the 16
-degree ML separation exactly. If that fails within the bounded search budget, it
+with the fewest still-viable ML anchors first. It first tries to meet the ML
+separation exactly. If that fails within the bounded search budget, it
 binary-searches the largest achievable separation and returns that best-effort
 seed with ``min_ml_gap`` set below threshold.
 
@@ -386,9 +388,9 @@ Feasibility
 What a stage counts as a feasible plan is a ``FeasibilitySpec``
 (``optimization.objectives.feasibility``): the clearance margin, whether the
 soft minimum is corrected, the threading tolerance and shaft length, the arc AP
-and same-arc ML separations, the brain margin, and the soft minimum's ``beta``
-and top-k. ``optimization.objectives.slacks`` turns each condition into a slack
-that is ``>= 0`` where it is met. Phase 2 constrains ``gain * slack >= 0``;
+and same-arc ML separations (set by the config's rig), the brain margin, and
+the soft minimum's ``beta`` and top-k. ``optimization.objectives.slacks`` turns
+each condition into a slack that is ``>= 0`` where it is met. Phase 2 constrains ``gain * slack >= 0``;
 Phase 1 and the spin restore penalise ``(gain * shortfall)^2``. A pose that
 Phase 1 charges nothing for is therefore one that Phase 2 accepts under the same
 spec. The gains (``clearance.aggregate``) scale the solver's view of a row and
@@ -614,10 +616,10 @@ Useful Phase-1 environment knobs:
      - Meaning
    * - ``RUTTER_MAX_ARCS``
      - ``3``
-     - Maximum arcs in the MRV search.
+     - Maximum arcs in the MRV search, within the rig's own maximum.
    * - ``RUTTER_MAX_PROBES_PER_ARC``
      - ``4``
-     - Per-arc cap used by the search.
+     - Per-arc cap used by the search, within the rig's own maximum.
    * - ``RUTTER_ONLY_NARCS``
      - ``0``
      - Restrict a run to one arc-count group; the overnight wrapper uses this

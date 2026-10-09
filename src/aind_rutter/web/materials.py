@@ -6,12 +6,11 @@ is both colliding and over-inserted shows the collision colour.
 
 from __future__ import annotations
 
-from aind_mri_utils.arc_angles import arc_angles_to_affine
-
 from aind_rutter.ccf.ontology import CCFOntology
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import kinematic_violations
 from aind_rutter.domain.pose import ProbePose
+from aind_rutter.domain.rig import probe_rotation
 from aind_rutter.render.overlays import OverlaySpec
 
 # Overlay colour + priority for over-insertion warnings. Collisions are
@@ -192,7 +191,7 @@ class MaterialsMixin:
             pose = ProbePose.from_planning_state(
                 self.store.state, probe_name, catalog=self.assets
             )
-            R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+            R = probe_rotation(pose.ap, pose.ml, pose.spin)
             n_over, n_total = self._count_overinserted_shanks(
                 probe_name, pose, R, brain_mesh
             )

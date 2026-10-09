@@ -8,7 +8,7 @@ from typing import Any
 
 from aind_rutter.build.assemble import RuntimeBundle
 from aind_rutter.domain.catalog import AssetCatalog
-from aind_rutter.domain.rig import PoseLimits
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.domain.scene import NodeInstance, Scene, resolve_base_geometry
 from aind_rutter.domain.transforms import Transformed
 
@@ -35,9 +35,9 @@ def head_pitch_deg_from_runtime(runtime: RuntimeBundle) -> float:
     return runtime.plan_state.kinematics.head_pitch_deg
 
 
-def pose_limits_from_runtime(runtime: RuntimeBundle) -> PoseLimits:
-    """The config's rig limits (rig angles)."""
-    return runtime.plan_state.kinematics.limits
+def rig_from_runtime(runtime: RuntimeBundle) -> ArcRig:
+    """The config's rig."""
+    return runtime.plan_state.kinematics.rig
 
 
 def _tag_set(values: Iterable[str] | None) -> frozenset[str]:

@@ -140,6 +140,8 @@ class PoolFile(_Model):
     # The feasibility spec and objective the pool was built under.
     feasibility: dict[str, Any] | None = None
     objective: dict[str, Any] | None = None
+    # The rig's ranges that differ from the default rig's.
+    rig: dict[str, Any] | None = None
     fixture_c2f: bool | None = None
     # Each probe's recorded share alone through a bore it threads, which the
     # coverage floor is a fraction of; recorded only with a floor.

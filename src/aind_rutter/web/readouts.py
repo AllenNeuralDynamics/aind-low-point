@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 
 from aind_rutter.build.queries import brain_world_mesh
 from aind_rutter.domain.plan import (
@@ -22,6 +21,7 @@ from aind_rutter.domain.pose import (
     detect_shank_tips_local,
     named_shank_tip_world,
 )
+from aind_rutter.domain.rig import probe_rotation
 from aind_rutter.plan_io.rig_export import depth_along_probe_axis
 
 
@@ -44,7 +44,7 @@ class ReadoutsMixin:
         pose = ProbePose.from_planning_state(
             self.store.state, probe_name, catalog=self.assets
         )
-        R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+        R = probe_rotation(pose.ap, pose.ml, pose.spin)
         # Read out the position-bearing shank's tip, not shank-1's.
         # ``pose.tip`` is the world position of the canonical-local
         # origin (= shank-1 in the AIND canonicalization); the named

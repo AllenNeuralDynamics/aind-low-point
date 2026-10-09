@@ -333,20 +333,20 @@ def test_every_stage_searches_the_same_reachable_ap_window() -> None:
     maximum over poses the solver could not reach."""
     import inspect
 
-    from aind_rutter.domain.rig import JointRange, PoseLimits, reachable_ap_window_deg
+    from aind_rutter.domain.rig import ArcRig, JointRange
     from aind_rutter.optimization.objectives import packing
     from aind_rutter.optimization.pipeline.fixtures import phase1_bounds
 
-    asymmetric = PoseLimits(ap_deg=JointRange(-75.0, 46.0), ml_deg=JointRange(-30, 42))
-    for limits in (PoseLimits(), asymmetric):
+    asymmetric = ArcRig(ap_deg=JointRange(-75.0, 46.0), ml_deg=JointRange(-30, 42))
+    for rig in (ArcRig(), asymmetric):
         for pitch in (0.0, 14.0, -9.5):
-            window = reachable_ap_window_deg(limits, pitch)
-            assert window == (limits.ap_deg.lo - pitch, limits.ap_deg.hi - pitch)
+            window = rig.reachable_ap_window_deg(pitch)
+            assert window == (rig.ap_deg.lo - pitch, rig.ap_deg.hi - pitch)
             # The arc block of the Phase-1 box bounds is this window, per arc,
             # and each probe's ML bound is the rig's ML range.
-            bounds = phase1_bounds(3, 2, pitch, limits)
+            bounds = phase1_bounds(3, 2, pitch, rig)
             assert bounds[:3] == [window] * 3
-            assert bounds[3] == (limits.ml_deg.lo, limits.ml_deg.hi)
+            assert bounds[3] == (rig.ml_deg.lo, rig.ml_deg.hi)
 
     # Nothing may spell the shift out again.
     for mod in (packing, inspect.getmodule(phase1_bounds)):

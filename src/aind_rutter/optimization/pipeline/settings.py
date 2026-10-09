@@ -37,9 +37,9 @@ import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aind_rutter.config.locations import (
@@ -48,6 +48,7 @@ from aind_rutter.config.locations import (
     report_to,
     split_paths_files,
 )
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.payloads import check_payload_path
@@ -163,6 +164,29 @@ class PipelineSettings(BaseSettings):
         description="Visibility atlas cache; defaults to one named for the config.",
     )
 
+    # The config's rig, which a stage attaches once it has loaded the config: it
+    # comes from the config, not the environment.
+    _rig: ArcRig | None = PrivateAttr(None)
+
+    def with_rig(self, rig: ArcRig) -> Self:
+        """These settings, holding ``rig``."""
+        out = self.model_copy()
+        out._rig = rig
+        return out
+
+    @property
+    def holds_rig(self) -> bool:
+        return self._rig is not None
+
+    @property
+    def rig(self) -> ArcRig:
+        if self._rig is None:
+            raise RuntimeError(
+                "no rig attached: a stage attaches its config's rig with "
+                "with_rig() before reading the specs"
+            )
+        return self._rig
+
     def locator(self) -> Locator:
         """Where the config's ``paths:`` names are looked up for this run; each
         name's folder and what set it go to stdout, the run's log."""
@@ -176,6 +200,8 @@ class PipelineSettings(BaseSettings):
             softmin_correction=True,
             min_body_clearance_mm=self.min_body_clearance,
             min_body_fixture_clearance_mm=self.min_body_fixture_clearance,
+            min_arc_ap_sep_deg=self.rig.min_arc_ap_sep_deg,
+            min_intra_arc_ml_sep_deg=self.rig.min_intra_arc_ml_sep_deg,
         )
 
     def pinned_specs(self) -> dict[str, dict[str, Any]]:
@@ -186,9 +212,19 @@ class PipelineSettings(BaseSettings):
         for name in ("min_body_clearance_mm", "min_body_fixture_clearance_mm"):
             if feasibility[name] is None:
                 del feasibility[name]
+        # The ranges bound the search, so a pool's poses hold only under its
+        # rig's; the separations are in the feasibility spec. A default range is
+        # left out, as for the clearances.
+        default = ArcRig()
+        rig = {
+            name: [joint.lo, joint.hi]
+            for name in ("ap_deg", "ml_deg")
+            if (joint := getattr(self.rig, name)) != getattr(default, name)
+        }
         return {
             "feasibility": feasibility,
             "objective": asdict(self.objective_spec()),
+            "rig": rig,
         }
 
     def objective_spec(self) -> ObjectiveSpec:
@@ -272,8 +308,8 @@ class Phase1Settings(PipelineSettings):
     pipeline_depth: int = Field(2)
     bf16_store: bool = Field(True)
 
-    # Enumeration caps. Defaults reproduce the historical 3-arc pool; the
-    # kinematic maxima are 8 each.
+    # Enumeration caps, each further capped by the rig's own maximum. Defaults
+    # reproduce the historical 3-arc pool.
     max_arcs: int = Field(3)
     max_probes_per_arc: int = Field(4)
     only_narcs: int = Field(

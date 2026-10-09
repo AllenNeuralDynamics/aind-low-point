@@ -10,6 +10,7 @@ from typing import Any, cast, get_type_hints
 import numpy as np
 import pytest
 
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.assignment.atlas import Atlas, AtlasEntry, PoseAnchor
 from aind_rutter.optimization.pipeline import records as contracts
 from aind_rutter.optimization.pipeline.payloads import (
@@ -184,12 +185,16 @@ def test_a_pool_records_its_fixture_query_when_given_one(tmp_path: Path) -> None
 
 
 def test_the_specs_a_pool_records_read_back_as_pinned(tmp_path: Path) -> None:
-    pinned = Phase1Settings(min_clearance=0.3).pinned_specs()
+    pinned = Phase1Settings(min_clearance=0.3).with_rig(ArcRig()).pinned_specs()
     path = tmp_path / "pool.json.gz"
     write_pool(path, {**_pool([_pool_record()]), **pinned})
     back = read_pool(path)
     assert pinned_spec_differences(back, pinned) == []
-    other = Phase1Settings(min_clearance=0.2, lam_thread=2.0).pinned_specs()
+    other = (
+        Phase1Settings(min_clearance=0.2, lam_thread=2.0)
+        .with_rig(ArcRig())
+        .pinned_specs()
+    )
     assert pinned_spec_differences(back, other) == [
         "feasibility.min_clearance_mm: 0.3 vs 0.2",
         "objective.lambda_margin_thread: 1.0 vs 2.0",

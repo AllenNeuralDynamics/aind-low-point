@@ -38,7 +38,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from aind_rutter.domain.rig import PoseLimits, reachable_ap_window_deg
 from aind_rutter.optimization.clearance.sweep import (
     cast_fixture_grids,
     cast_packed_grids,
@@ -228,7 +227,6 @@ def restore_group(
     sdf_by_name,
     well,
     head_pitch_deg=0.0,
-    pose_limits=None,
 ):
     """Batched spin restore seeded from each cand's MRV ml/spin. Returns per-cand
     restored spin-degrees (parallel to cands)."""
@@ -268,7 +266,7 @@ def restore_group(
         n_arcs=n_arcs,
         sdf_by_name=sdf_by_name,
         head_pitch_deg=head_pitch_deg,
-        pose_limits=pose_limits,
+        rig=settings.rig,
     )
     restore = make_batched_spin_restore_partial(
         bs0,
@@ -291,7 +289,7 @@ def restore_group(
                 n_arcs=n_arcs,
                 sdf_by_name=sdf_by_name,
                 head_pitch_deg=head_pitch_deg,
-                pose_limits=pose_limits,
+                rig=settings.rig,
             )
         )
         y_r = restore(jnp.asarray(seeds[lo:hi]), *restore_arrays(bs))
@@ -398,12 +396,11 @@ def run_group(  # noqa: C901
     well_soft,
     brain_sdf,
     head_pitch_deg=0.0,
-    pose_limits=None,
 ):
     K = len(probes)
     names = [p.name for p in probes]
-    pose_limits = pose_limits or PoseLimits()
-    bounds = phase1_bounds(n_arcs, K, head_pitch_deg, pose_limits)
+    rig = settings.rig
+    bounds = phase1_bounds(n_arcs, K, head_pitch_deg, rig)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
     spin_angle = settings.spin_param == "angle"
@@ -423,7 +420,6 @@ def run_group(  # noqa: C901
         sdf_by_name=sdf_by_name,
         well=well_soft,
         head_pitch_deg=head_pitch_deg,
-        pose_limits=pose_limits,
     )
     print(f"  restore {time.time() - t0:.1f}s", flush=True)
 
@@ -465,8 +461,8 @@ def run_group(  # noqa: C901
             for c in coverage_ceiling_per_probe(
                 statics[0],
                 cov,
-                ap_window_deg=reachable_ap_window_deg(pose_limits, head_pitch_deg),
-                ml_range_deg=(pose_limits.ml_deg.lo, pose_limits.ml_deg.hi),
+                ap_window_deg=rig.reachable_ap_window_deg(head_pitch_deg),
+                ml_range_deg=rig.ml_range_deg,
             )
         )
         cov_weights = tuple(float(p.coverage_weight) for p in probes)
@@ -640,6 +636,8 @@ def save_results(
         feasibility=pinned["feasibility"],
         objective=pinned["objective"],
     )
+    if pinned["rig"]:
+        payload["rig"] = pinned["rig"]
     if best_alone is not None:
         payload["recorded_share_alone"] = best_alone
     write_pool(settings.out, payload)
@@ -734,6 +732,7 @@ def run(settings: Phase1Settings) -> int:
     # Explicit, because no import configures the compile cache any more.
     configure_compile_cache()
     opt = setup_runtime(settings)
+    settings = settings.with_rig(opt.rig)
     _cfg, _rt, probes, holes, sdf_by_name, bvh, fixtures, well_thin, _fbvh = setup(
         settings, opt
     )
@@ -745,6 +744,7 @@ def run(settings: Phase1Settings) -> int:
     )
     print(
         f"config: well={settings.well} spin={settings.spin_param} "
+        f"rig={settings.rig} "
         f"feasibility={settings.feasibility_spec()} "
         f"objective={settings.objective_spec()} "
         f"reduced {settings.stage1} → full {settings.stage2} → {settings.out}",
@@ -753,18 +753,14 @@ def run(settings: Phase1Settings) -> int:
 
     def _enum_factory() -> Enumerator:
         atlas_payload = build_or_load_atlas(settings)
-        # ML is invariant under head pitch; AP is not.
-        ap_range = reachable_ap_window_deg(
-            opt.pose_limits, atlas_payload.head_pitch_deg
-        )
         return Enumerator(
             atlas_payload.atlas,
             atlas_payload.probe_names,
+            settings.rig,
+            atlas_payload.head_pitch_deg,
             ml_margin_deg=0.0,
             max_arcs=settings.max_arcs,
             max_probes_per_arc=settings.max_probes_per_arc,
-            ap_range=ap_range,
-            ml_range=(opt.pose_limits.ml_deg.lo, opt.pose_limits.ml_deg.hi),
         )
 
     by_arcs = load_or_seed_groups(_enum_factory, settings)
@@ -827,7 +823,6 @@ def run(settings: Phase1Settings) -> int:
             well_soft=well_soft,
             brain_sdf=brain,
             head_pitch_deg=opt.head_pitch_deg,
-            pose_limits=opt.pose_limits,
         )
         for i, c in enumerate(g):
             records.append(
@@ -861,7 +856,7 @@ def _best_alone(
     fraction of, logged per bore."""
     from aind_rutter.optimization.pipeline.coverage_floor import best_alone_shares
 
-    bounds = phase1_bounds(1, 1, opt.head_pitch_deg, opt.pose_limits)
+    bounds = phase1_bounds(1, 1, opt.head_pitch_deg, settings.rig)
     lo = np.array([b[0] for b in bounds], np.float32)
     hi = np.array([b[1] for b in bounds], np.float32)
     ap_window = (float(lo[0]), float(hi[0]))

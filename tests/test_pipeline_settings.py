@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.objectives.feasibility import FeasibilitySpec
 from aind_rutter.optimization.objectives.objective_spec import ObjectiveSpec
 from aind_rutter.optimization.pipeline.settings import (
@@ -131,27 +132,27 @@ def test_both_phases_build_one_objective_from_their_shared_settings() -> None:
 def test_every_stage_reads_one_feasibility_spec(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert Phase1Settings().feasibility_spec() == FeasibilitySpec(
+    assert Phase1Settings().with_rig(ArcRig()).feasibility_spec() == FeasibilitySpec(
         min_clearance_mm=0.1, softmin_correction=True
     )
     monkeypatch.setenv("RUTTER_MIN_CLEARANCE", "0.3")
-    spec = Phase1Settings().feasibility_spec()
+    spec = Phase1Settings().with_rig(ArcRig()).feasibility_spec()
     assert spec.min_clearance_mm == 0.3
-    assert spec == Phase2Settings().feasibility_spec()
+    assert spec == Phase2Settings().with_rig(ArcRig()).feasibility_spec()
 
 
 def test_the_body_margins_are_pinned_only_when_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unset = Phase1Settings().pinned_specs()["feasibility"]
+    unset = Phase1Settings().with_rig(ArcRig()).pinned_specs()["feasibility"]
     assert "min_body_clearance_mm" not in unset
     assert "min_body_fixture_clearance_mm" not in unset
     monkeypatch.setenv("RUTTER_MIN_BODY_CLEARANCE", "0.5")
     monkeypatch.setenv("RUTTER_MIN_BODY_FIXTURE_CLEARANCE", "0.3")
-    spec = Phase2Settings().feasibility_spec()
+    spec = Phase2Settings().with_rig(ArcRig()).feasibility_spec()
     assert spec.pair_margins_mm() == (0.5, 0.1, 0.1, 0.1)
     assert spec.fixture_margins_mm() == (0.3, 0.1)
-    pinned = Phase1Settings().pinned_specs()["feasibility"]
+    pinned = Phase1Settings().with_rig(ArcRig()).pinned_specs()["feasibility"]
     assert pinned["min_body_clearance_mm"] == 0.5
     assert pinned["min_body_fixture_clearance_mm"] == 0.3
 
@@ -161,7 +162,10 @@ def test_the_coverage_floor_is_a_gate_not_part_of_the_spec(
 ) -> None:
     monkeypatch.setenv("RUTTER_MIN_COVERAGE_FRACTION", "0.1")
     assert Phase2Settings().min_coverage_fraction == 0.1
-    assert "min_coverage_fraction" not in Phase1Settings().pinned_specs()["feasibility"]
+    assert (
+        "min_coverage_fraction"
+        not in Phase1Settings().with_rig(ArcRig()).pinned_specs()["feasibility"]
+    )
 
 
 def test_the_retro_kernel_width_is_read_from_the_environment(

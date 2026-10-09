@@ -57,7 +57,7 @@ def build_state(settings: Phase2Settings) -> dict[str, Any]:
         cov_data=None,
         n_probes=len(opt.probes),
         head_pitch_deg=opt.head_pitch_deg,
-        pose_limits=opt.pose_limits,
+        rig=opt.rig,
         build_static=_build_probe_static,
         build_cov=build_coverage_data,
     )

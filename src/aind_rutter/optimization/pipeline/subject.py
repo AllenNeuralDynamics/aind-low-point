@@ -14,7 +14,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
-from aind_rutter.build.assemble import RuntimeBundle, build_runtime_from_config
+from aind_rutter.build.assemble import (
+    RuntimeBundle,
+    build_rig,
+    build_runtime_from_config,
+)
 from aind_rutter.build.queries import (
     head_pitch_deg_from_runtime,
     implant_world_geometry,
@@ -23,7 +27,7 @@ from aind_rutter.build.queries import (
 from aind_rutter.build.transforms import CompiledTransforms, compile_all_transforms
 from aind_rutter.config import ConfigModel
 from aind_rutter.config.locations import Locator
-from aind_rutter.domain.rig import PoseLimits
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.geometry.holes import Hole, load_holes
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
 from aind_rutter.optimization.pipeline.probe_setup import (
@@ -39,6 +43,11 @@ if TYPE_CHECKING:
         BrainSDFData,
         FixtureSDFData,
     )
+
+
+def config_rig(config_path: str | Path, locator: Locator | None = None) -> ArcRig:
+    """A config's rig, read without building its geometry."""
+    return build_rig(ConfigModel.from_yaml(config_path, locator).plan.rig)
 
 
 @dataclass(frozen=True)
@@ -160,9 +169,9 @@ class OptimizationRuntime:
         )
 
     @property
-    def pose_limits(self) -> PoseLimits:
-        """The config's rig limits, in rig angles."""
-        return self.runtime.plan_state.kinematics.limits
+    def rig(self) -> ArcRig:
+        """The config's rig."""
+        return self.runtime.plan_state.kinematics.rig
 
     @property
     def probe_names(self) -> tuple[str, ...]:

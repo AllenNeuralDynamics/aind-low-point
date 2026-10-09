@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import trimesh
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 from numpy.typing import ArrayLike, NDArray
 from scipy.cluster.hierarchy import fclusterdata
@@ -23,6 +22,7 @@ from aind_rutter.domain.plan import (
     probe_asset_key,
     resolve_target_LPS,
 )
+from aind_rutter.domain.rig import probe_rotation
 from aind_rutter.domain.scene import NodeInstance, Scene
 from aind_rutter.domain.transforms import (
     AffineTransform,
@@ -50,7 +50,7 @@ def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
         ml = plan.ml_local
     # AP and ML stay unclamped: leaving the rig's range is a kinematic
     # violation the planner reports, not one it corrects.
-    spin = ps.kinematics.limits.spin_deg.clamp(plan.spin)
+    spin = ps.kinematics.rig.spin_deg.clamp(plan.spin)
     return ap, ml, spin
 
 
@@ -74,7 +74,7 @@ class ProbePose:
         # The rig's head-tilt offset (``Kinematics.subject_from_rig``)
         # does not enter here — it only constrains which (ap, ml, spin)
         # values are mechanically reachable on the rig.
-        R = arc_angles_to_affine(self.ap, self.ml, self.spin)
+        R = probe_rotation(self.ap, self.ml, self.spin)
         t = self.tip
         return AffineTransform(R, t)
 
@@ -156,13 +156,12 @@ class ProbePose:
             pivot_local = recording_center_local_for_kind(plan.kind)
 
         # --- tip from depth, orientation, and pivot ---
-        # ``(ap, ml, spin)`` are subject-frame angles; pose composition
-        # is the legacy ``arc_angles_to_affine`` directly. The rig's
+        # ``(ap, ml, spin)`` are subject-frame angles. The rig's
         # head-tilt offset (``ps.kinematics.subject_from_rig``) only
         # affects which subject-frame values are mechanically reachable
         # on the rig (handled in the optimizer's bounds + rig-limit
         # checks), not the meaning of stored angles.
-        R_probe = arc_angles_to_affine(ap_deg, ml_deg, spin_deg)
+        R_probe = probe_rotation(ap_deg, ml_deg, spin_deg)
         insertion_vec = R_probe @ np.array(
             [0.0, 0.0, -float(plan.past_target_mm)], dtype=np.float64
         )

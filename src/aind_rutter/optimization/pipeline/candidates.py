@@ -12,10 +12,10 @@ MRV/CSP over atlas anchors via the shared ``emit_seed``) and most enumerated
 candidates never get polished, so seeding is LAZY: call ``Enumerator.seed(cand)``
 on the top-N you actually hand to the optimizer.
 
-The ``Enumerator`` accepts optional search limits: ``max_arcs`` /
-``max_probes_per_arc`` (default to the kinematic max) and ``ap_range`` /
-``ml_range`` windows (clip each (probe,hole)'s feasible AP envelope and drop
-anchors outside the AP/ML windows).
+The ``Enumerator`` searches within its rig: the rig's reachable AP window and ML
+range clip each (probe,hole)'s feasible AP envelope and drop anchors outside
+them, and its separations space the arcs and the probes on each. ``max_arcs`` /
+``max_probes_per_arc`` tighten the search below the rig's own maxima.
 """
 
 from __future__ import annotations
@@ -28,11 +28,7 @@ _os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import time
 from collections.abc import Sequence
 
-from aind_rutter.domain.rig import (
-    DEFAULT_AP_RANGE_DEG,
-    DEFAULT_ML_RANGE_DEG,
-    PoseLimits,
-)
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.assignment.atlas import Atlas
 from aind_rutter.optimization.assignment.seed_emission import emit_seed
 from aind_rutter.optimization.pipeline.payloads import (
@@ -52,13 +48,6 @@ from aind_rutter.optimization.pipeline.settings import PipelineSettings
 # the config stem — different subjects NEVER share an atlas. Override ATLAS_CACHE
 # to force a path.
 
-# Arc / per-arc caps are KINEMATIC (16° angular exclusion over the AP/ML
-# range), not hardware counts — no rail limit, the rig takes >4 per arc.
-_POSE_LIMITS = PoseLimits()
-MAX_ARCS = _POSE_LIMITS.max_arcs()
-MAX_PROBES_PER_ARC = _POSE_LIMITS.max_probes_per_arc()
-MIN_ARC_AP_SEP_DEG = 16.0
-MIN_ML_SEP_DEG = 16.0
 GLOBAL_CAP = 1_000_000
 
 
@@ -125,11 +114,11 @@ class Enumerator:
         self,
         atlas: Atlas,
         probe_names: Sequence[str],
+        rig: ArcRig,
+        head_pitch_deg: float,
         ml_margin_deg: float = 0.0,
-        max_arcs: int = MAX_ARCS,
-        max_probes_per_arc: int = MAX_PROBES_PER_ARC,
-        ap_range: "tuple[float, float] | None" = None,
-        ml_range: "tuple[float, float] | None" = None,
+        max_arcs: int | None = None,
+        max_probes_per_arc: int | None = None,
     ):
         from aind_rutter.optimization.assignment.seed_emission import (
             _build_atlas_arrays,
@@ -141,21 +130,18 @@ class Enumerator:
         # soft), so the greedy ML-pack uses ml-windows widened by this margin
         # to avoid false-rejecting tuples that polish to feasible.
         self.ml_margin = ml_margin_deg
-        # Arc / per-arc caps. Default to the KINEMATIC max (16° exclusion over
-        # the AP/ML range); callers can tighten them to restrict the search
-        # (e.g. reproduce the old 3-arc / 4-per-arc enumeration).
-        self.max_arcs = max_arcs
-        self.max_probes_per_arc = max_probes_per_arc
+        self.rig = rig
+        # A cap tightens the search; the rig's separations bound it anyway.
+        self.max_arcs = min(max_arcs or rig.max_arcs(), rig.max_arcs())
+        self.max_probes_per_arc = min(
+            max_probes_per_arc or rig.max_probes_per_arc(), rig.max_probes_per_arc()
+        )
         self.arr = _build_atlas_arrays(atlas, list(probe_names))
-        # Always clip to the rig's ranges so enumeration only generates
-        # within-limit plans (ML is frame-invariant; AP is subject-frame and is
-        # shifted by head pitch by the caller). The defaults are the default
-        # rig's, unshifted.
-        if ml_range is None:
-            ml_range = DEFAULT_ML_RANGE_DEG
-        if ap_range is None:
-            ap_range = DEFAULT_AP_RANGE_DEG
-        self._restrict_atlas(ap_range, ml_range)
+        # Clip to the rig's ranges so enumeration only generates within-limit
+        # plans; ML is frame-invariant, AP is shifted by head pitch.
+        self._restrict_atlas(
+            rig.reachable_ap_window_deg(head_pitch_deg), rig.ml_range_deg
+        )
 
         # Nodes = feasible (probe_idx, hole_id). Index them; record intervals.
         self.nodes: list[tuple[int, int, float, float]] = []
@@ -233,10 +219,12 @@ class Enumerator:
     def _ml_pack(self, arc):
         """Greedy ML-pack the arc's members over the arc's running AP window.
         Returns placed ml points (parallel to arc['members']) or None."""
-        return greedy_place(self._arc_ml_windows(arc), MIN_ML_SEP_DEG)
+        return greedy_place(
+            self._arc_ml_windows(arc), self.rig.min_intra_arc_ml_sep_deg
+        )
 
     def _ml_gate(self, arc) -> bool:
-        """Can every probe on this arc be placed MIN_ML_SEP_DEG apart?
+        """Can every probe on this arc be placed the rig's ML separation apart?
 
         Joint interval-packing, which is sound for K probes; the pairwise
         max-possible-difference it replaced admits infeasible 3-probe arcs.
@@ -244,7 +232,7 @@ class Enumerator:
         ivals = self._arc_ml_windows(arc)
         if len(ivals) < 2:
             return True
-        return greedy_place(ivals, MIN_ML_SEP_DEG) is not None
+        return greedy_place(ivals, self.rig.min_intra_arc_ml_sep_deg) is not None
 
     def enumerate(self) -> list[EnumeratorCandidate]:
         # arcs: list of dicts {members:[p...], holes:{p:h}, mask:int, lo,hi}
@@ -300,7 +288,7 @@ class Enumerator:
                 }
                 # inter-arc AP separation feasibility (greedy stab on intervals)
                 ivals = [(a["lo"], a["hi"]) for a in arcs] + [(nlo, nhi)]
-                if greedy_place(ivals, MIN_ARC_AP_SEP_DEG) is not None:
+                if greedy_place(ivals, self.rig.min_arc_ap_sep_deg) is not None:
                     self._recurse_assign(arcs + [new_arc], domain, used, assigned, p, h)
 
     def _recurse_assign(self, arcs, domain, used, assigned, p, h):
@@ -327,7 +315,7 @@ class Enumerator:
         # never get polished, so seeding is LAZY: call ``self.seed(candidate)``
         # on the top-N you actually hand to the optimizer.
         ivals = [(a["lo"], a["hi"]) for a in arcs]
-        if greedy_place(ivals, MIN_ARC_AP_SEP_DEG) is None:
+        if greedy_place(ivals, self.rig.min_arc_ap_sep_deg) is None:
             return  # arc APs cannot be >=16 deg separated -> reject
         probe_to_hole = {}
         partition = []
@@ -380,7 +368,7 @@ class Enumerator:
         seed = emit_seed(
             seed_arcs,
             self.arr,
-            min_arc_ap_sep_deg=MIN_ARC_AP_SEP_DEG,
-            min_ml_sep_deg=MIN_ML_SEP_DEG,
+            min_arc_ap_sep_deg=self.rig.min_arc_ap_sep_deg,
+            min_ml_sep_deg=self.rig.min_intra_arc_ml_sep_deg,
         )
         return None if seed is None else SeedResult(*seed)

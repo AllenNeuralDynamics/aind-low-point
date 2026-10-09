@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.pipeline.handoff import (
     classify_results,
     handoff_config,
@@ -67,14 +68,16 @@ def test_the_bands_come_from_settings_not_a_fixed_threshold() -> None:
 
 
 def test_provenance_carries_every_field_under_its_own_name() -> None:
-    s = Phase2Settings(topk=7, ip_tol=1e-3)
+    s = Phase2Settings(topk=7, ip_tol=1e-3).with_rig(ArcRig())
     cfg = handoff_config(s)
     assert cfg["settings"] == s.model_dump(mode="json")
     assert cast(Any, cfg["settings"])["topk"] == 7
 
 
 def test_the_flat_keys_repeat_the_settings_they_name() -> None:
-    s = Phase2Settings(topk=7, ip_acc_tol=3.0, fcl_tol=0.25, min_clearance=0.15)
+    s = Phase2Settings(
+        topk=7, ip_acc_tol=3.0, fcl_tol=0.25, min_clearance=0.15
+    ).with_rig(ArcRig())
     cfg = handoff_config(s)
     assert cfg["topk"] == 7
     assert cfg["acc_tol"] == 3.0, "IP_ACC_TOL keeps its earlier handoff spelling"
@@ -84,7 +87,7 @@ def test_the_flat_keys_repeat_the_settings_they_name() -> None:
 
 
 def test_provenance_records_the_specs_the_settings_resolve_to() -> None:
-    s = Phase2Settings(min_clearance=0.15, lam_thread=2.0)
+    s = Phase2Settings(min_clearance=0.15, lam_thread=2.0).with_rig(ArcRig())
     cfg = handoff_config(s)
     assert cast(Any, cfg["feasibility"])["min_clearance_mm"] == 0.15
     assert cast(Any, cfg["feasibility"])["softmin_correction"] is True
@@ -92,9 +95,12 @@ def test_provenance_records_the_specs_the_settings_resolve_to() -> None:
 
 
 def test_an_unset_ranks_file_records_an_empty_string() -> None:
-    assert handoff_config(Phase2Settings())["ranks_file"] == ""
+    assert handoff_config(Phase2Settings().with_rig(ArcRig()))["ranks_file"] == ""
     path = "scratch/ranks.txt"
-    assert handoff_config(Phase2Settings(ranks_file=path))["ranks_file"] == path
+    assert (
+        handoff_config(Phase2Settings(ranks_file=path).with_rig(ArcRig()))["ranks_file"]
+        == path
+    )
 
 
 def test_the_provenance_survives_a_round_trip_through_json() -> None:
@@ -102,7 +108,7 @@ def test_the_provenance_survives_a_round_trip_through_json() -> None:
 
     # The handoff is written as JSON; a settings dump that cannot serialise would
     # mean a Path or enum leaked into it.
-    json.dumps(handoff_config(Phase2Settings()))
+    json.dumps(handoff_config(Phase2Settings().with_rig(ArcRig())))
 
 
 def test_importing_the_module_does_not_initialise_jax() -> None:

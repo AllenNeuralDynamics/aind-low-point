@@ -67,17 +67,20 @@ def _available_solvers() -> list[str]:
 
 @pytest.fixture(scope="module", params=_available_solvers())
 def settings(request, subject: SyntheticSubject, caches: Path):
+    from aind_rutter.optimization.pipeline.phase2 import with_config_rig
     from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
-    return Phase2Settings(
-        config=subject.config,
-        holes=subject.holes,
-        poses=caches / "pool.json.gz",
-        out=caches / f"handoff-{request.param}.json",
-        workers=1,
-        well="thin",
-        p2_iter=20,
-        solver=request.param,
+    return with_config_rig(
+        Phase2Settings(
+            config=subject.config,
+            holes=subject.holes,
+            poses=caches / "pool.json.gz",
+            out=caches / f"handoff-{request.param}.json",
+            workers=1,
+            well="thin",
+            p2_iter=20,
+            solver=request.param,
+        )
     )
 
 
@@ -231,6 +234,18 @@ def test_worker_setup_drops_the_previous_subjects_state(settings) -> None:
     assert phase2._G.get("cov_norm") is None
     assert phase2._G["settings"] is settings
     assert cache_stats()["entries"] == 0
+
+
+def test_a_worker_takes_the_rig_of_the_subject_it_builds(settings) -> None:
+    """Settings handed to a worker without a rig still solve under the config's,
+    since each worker builds the subject anyway."""
+    from aind_rutter.optimization.pipeline import phase2
+    from aind_rutter.optimization.pipeline.settings import Phase2Settings
+
+    bare = Phase2Settings(**settings.model_dump(exclude_unset=True))
+    assert not bare.holds_rig
+    phase2._init(bare)
+    assert phase2._G["settings"].rig == settings.rig == phase2._G["rig"]
 
 
 def test_warmup_can_be_turned_off(settings, monkeypatch: pytest.MonkeyPatch) -> None:

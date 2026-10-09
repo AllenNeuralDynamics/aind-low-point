@@ -86,9 +86,13 @@ def handoff_config(settings: Phase2Settings) -> dict[str, object]:
     subset under the spelling earlier handoffs used, so one reader can load runs
     written either side of the settings refactor.
     """
+    pinned = settings.pinned_specs()
+    # As in the pool: the default rig's ranges are left out.
+    if not pinned["rig"]:
+        del pinned["rig"]
     return {
         "settings": settings.model_dump(mode="json"),
-        **settings.pinned_specs(),
+        **pinned,
         "subject_config": str(settings.config),
         "topk": settings.topk,
         "select_by": settings.select_by,

@@ -79,7 +79,6 @@ from typing import Any, cast  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from aind_rutter.domain.rig import reachable_ap_window_deg  # noqa: E402
 from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     best_alone_by_probe,
     classify_results,
@@ -107,6 +106,13 @@ from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
 from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
 
 _G: dict = {}
+
+
+def with_config_rig(settings: Phase2Settings) -> Phase2Settings:
+    """``settings`` holding their config's rig."""
+    from aind_rutter.optimization.pipeline.subject import config_rig
+
+    return settings.with_rig(config_rig(settings.config, settings.locator()))
 
 
 def _setup_compile_cache():
@@ -169,6 +175,8 @@ def _init(
 
     clear_jit_cache()
     _G.update(build_state(settings))
+    if not settings.holds_rig:
+        _G["settings"] = settings = settings.with_rig(_G["rig"])
     _G["best_alone"] = best_alone_by_probe(settings, _G["probes"], best_alone)
 
 
@@ -192,10 +200,8 @@ def _cov_norm_kwargs(st) -> dict[str, object]:
             for c in coverage_ceiling_per_probe(
                 st,
                 _G["cov_data"],
-                ap_window_deg=reachable_ap_window_deg(
-                    _G["pose_limits"], _G["head_pitch_deg"]
-                ),
-                ml_range_deg=(_G["pose_limits"].ml_deg.lo, _G["pose_limits"].ml_deg.hi),
+                ap_window_deg=_G["rig"].reachable_ap_window_deg(_G["head_pitch_deg"]),
+                ml_range_deg=_G["rig"].ml_range_deg,
             )
         )
         weights = tuple(float(p.coverage_weight) for p in _G["probes"])
@@ -243,9 +249,7 @@ def _phase2_one(rec: Phase2InputRecord) -> Phase2ResultRecord:
     st = _st_for_rec(rec)
     p2 = _build_problem(st, n_arcs)
     cov_data = _G["cov_data"]
-    bounds = phase1_bounds(
-        n_arcs, _G["n_probes"], _G["head_pitch_deg"], _G["pose_limits"]
-    )
+    bounds = phase1_bounds(n_arcs, _G["n_probes"], _G["head_pitch_deg"], _G["rig"])
     pose_start = perturb_pose(
         pose,
         n_arcs,
@@ -717,8 +721,11 @@ def run(
     The returned payload is what ``pipeline.emit`` consumes; writing it to disk
     is the caller's business. Each record carries pose, probe_to_hole,
     probe_to_arc_idx, arc_centroids_deg and n_arcs — enough to rebuild the plan
-    and emit a config per candidate.
+    and emit a config per candidate. Settings that hold no rig take their
+    config's.
     """
+    if not settings.holds_rig:
+        settings = with_config_rig(settings)
     note = log or (lambda _msg: None)
     note(
         f"Parallel Phase 2 [{_PLATFORM}]: {len(recs)} cands, {settings.workers}"
@@ -730,7 +737,8 @@ def run(
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"
         f" smooth_thread={settings.smooth_thread_reward}, spin={settings.spin_param},"
-        f" diag={settings.p2_diag}, perturb={settings.p2_perturb}"
+        f" diag={settings.p2_diag}, perturb={settings.p2_perturb},"
+        f" rig={settings.rig}"
     )
     results = solve_candidates(
         recs, settings, on_result=on_result, log=log, best_alone=best_alone
@@ -806,7 +814,7 @@ def _flush_print(msg: str) -> None:
 
 
 def main() -> int:
-    settings = Phase2Settings()
+    settings = with_config_rig(Phase2Settings())
     pool = read_pool(settings.poses)
     warning = check_pool_specs(pool, settings)
     if warning:

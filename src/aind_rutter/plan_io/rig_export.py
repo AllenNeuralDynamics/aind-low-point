@@ -9,11 +9,11 @@ from typing import Any, Optional
 import numpy as np
 import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
-from aind_mri_utils.arc_angles import arc_angles_to_affine
 
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import PlanningState
 from aind_rutter.domain.pose import ProbePose
+from aind_rutter.domain.rig import probe_rotation
 from aind_rutter.domain.scene import Scene
 
 
@@ -119,7 +119,7 @@ def export_plan_geometry(
     probes_out: dict[str, Any] = {}
     for name, plan in plan_state.probes.items():
         pose = ProbePose.from_planning_state(plan_state, name, catalog=catalog)
-        R = arc_angles_to_affine(pose.ap, pose.ml, pose.spin)
+        R = probe_rotation(pose.ap, pose.ml, pose.spin)
         # Tip readout = world position of the position-bearing shank's
         # tip, not necessarily shank-1. ``pose.tip`` is shank-1 (the
         # canonical local origin); shift to the named shank.

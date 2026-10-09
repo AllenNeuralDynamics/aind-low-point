@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 
 from aind_rutter.domain.plan import PlanningState, ProbePlan, kinematic_violations
-from aind_rutter.domain.rig import JointRange, Kinematics, PoseLimits
+from aind_rutter.domain.rig import ArcRig, JointRange, Kinematics
 from aind_rutter.domain.transforms import AffineTransform
 
 
 def _state(arc_angles: dict[str, float], probes: dict[str, ProbePlan]) -> PlanningState:
     return PlanningState(
-        kinematics=Kinematics(arc_angles=dict(arc_angles), limits=PoseLimits()),
+        kinematics=Kinematics(arc_angles=dict(arc_angles), rig=ArcRig()),
         probes=dict(probes),
     )
 
@@ -104,14 +104,11 @@ class TestPairOrderingStable:
 
 
 class TestCustomThreshold:
-    def test_pose_limits_threshold_is_respected(self):
+    def test_the_rigs_separations_are_respected(self):
         s = PlanningState(
             kinematics=Kinematics(
                 arc_angles={"a": 0.0, "b": 5.0},
-                limits=PoseLimits(
-                    min_arc_ap_separation_deg=3.0,
-                    min_within_arc_ml_separation_deg=3.0,
-                ),
+                rig=ArcRig(min_arc_ap_sep_deg=3.0, min_intra_arc_ml_sep_deg=3.0),
             ),
             probes={
                 "P1": _probe("a", ml=0.0),
@@ -135,7 +132,7 @@ class TestAngularRanges:
         return PlanningState(
             kinematics=Kinematics(
                 arc_angles={"a": arc_ap},
-                limits=PoseLimits(
+                rig=ArcRig(
                     ap_deg=JointRange(-75.0, 46.0), ml_deg=JointRange(-42.0, 42.0)
                 ),
                 subject_from_rig=_pitch(pitch_deg),
