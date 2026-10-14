@@ -98,17 +98,16 @@ def plan_to_rows(plan_path: Path, config_path: Path) -> list[dict[str, object]]:
         ideal = p["target"]["position_RAS_mm"]  # anatomical target centroid, no offset
         tip = p["tip_RAS_mm"]  # position-bearing shank tip (depth + angles applied)
         rig = p["angles_rig_deg"]
-        subj = p["angles_subject_deg"]
         arc_id = (p.get("arc") or {}).get("id")
         rows.append(
             {
                 "structure": name,
                 "probe_type": p["kind"],
                 "ap_arc_id": arc_id,
-                "ap_angle": subj["ap"],
+                "ap_angle": rig["ap"] - payload["head_pitch_about_L_deg"],
                 "ap_rig_angle": rig["ap"],
-                "ml_angle": subj["ml"],
-                "spin": subj["spin"],
+                "ml_angle": rig["ml"],
+                "spin": rig["spin"],
                 # target_pt = the executed landing: 3D RAS tip of the
                 # position-bearing shank at its final recording pose (offsets,
                 # depth, and angles already applied).

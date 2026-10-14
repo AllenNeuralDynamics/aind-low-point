@@ -58,7 +58,7 @@ def _merge_stacked_sources(
     return merged
 
 
-def _get_calibration_rt(
+def load_calibrations(
     calibrations: CalibrationsModel,
     reticles: dict[str, CalibrationReticleModel] = {},
 ) -> dict[str, "AffineTransform"]:
@@ -152,7 +152,7 @@ def newscale_to_lps(
     """Convert one or more NewScale machine-frame points to subject LPS.
 
     ``cal`` is the per-probe calibration ``(R, t)`` loaded by
-    :func:`runtime.calibration._get_calibration_rt`.
+    :func:`load_calibrations`.
     """
     pts = np.asarray(xyz_newscale, dtype=np.float64)
     single = pts.ndim == 1

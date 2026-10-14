@@ -91,7 +91,9 @@ def export_plan_geometry(
     coordinate, resolved angles, offsets, depth past target, the final
     tip position in RAS, and (when a brain mesh asset is available) the
     depth of the tip below the brain surface measured along the probe
-    axis.
+    axis. Angles are rig angles only, the values dialed at the rig. A probe
+    that is calibrated, with its calibration loaded, also carries the
+    NewScale position its tip should read.
 
     Pass ``scene`` when the brain asset has a scene-node-level transform
     (e.g. ``transform: headframe_to_lps``); the brain mesh will be
@@ -105,6 +107,7 @@ def export_plan_geometry(
     # sorted by arc then ML-descending. Cosmetic; does not change poses, and
     # leaves the caller's state — which may be a live session — untouched.
     plan_state = reorder_plan_for_rig(plan_state)
+    from aind_rutter.build.calibration import lps_to_newscale
     from aind_rutter.build.queries import brain_world_mesh
     from aind_rutter.domain.pose import detect_shank_tips_local, named_shank_tip_world
 
@@ -158,31 +161,20 @@ def export_plan_geometry(
             # Depth measured from the named shank's tip along the shaft.
             depth = depth_along_probe_axis(tip_lps, probe_axis, brain_mesh)
 
-        # Subject-anatomical angles: (ap, ml, spin) as stored on the plan.
-        # ap=0, ml=0, spin=0 means the probe is vertical in subject LPS.
-        #
-        # Rig-mechanical angles: what an experimenter dials into the rig.
-        # The mouse head is mounted nose-DOWN by the head pitch, so a
-        # subject-vertical probe (subject_ap = 0, lambda-bregma) requires a
-        # rig angle of +head_pitch: ``rig_ap = subject_ap + head_pitch_about_L``
-        # (aind-mri-utils convention; see dev memory rig_ap_sign_convention).
-        # ML/spin are unaffected by a pure-L-axis head pitch.
+        # The plan stores subject angles; the rig is dialed in rig angles. The
+        # head is mounted nose-down by the head pitch, so
+        # ``rig_ap = subject_ap + head_pitch_about_L``; ML and spin are
+        # unaffected by a pitch about L.
         ap_rig = float(pose.ap) + head_pitch_about_L
-        probes_out[name] = {
+        entry: dict[str, Any] = {
             "kind": plan.kind,
             "target": {
                 "key": plan.target_key,
                 "position_RAS_mm": target_ras,
             },
             "arc": {"id": plan.arc_id} if plan.arc_id else None,
-            # Rig-mechanical angles first — these are what's dialed at the rig.
             "angles_rig_deg": {
                 "ap": ap_rig,
-                "ml": float(pose.ml),
-                "spin": float(pose.spin),
-            },
-            "angles_subject_deg": {
-                "ap": float(pose.ap),
                 "ml": float(pose.ml),
                 "spin": float(pose.spin),
             },
@@ -192,22 +184,18 @@ def export_plan_geometry(
             "tip_RAS_mm": [float(c) for c in tip_ras],
             "depth_from_brain_surface_mm": depth,
         }
+        cal = plan_state.calibrations.get(name)
+        if plan.calibrated and cal is not None:
+            entry["newscale_tip_mm"] = [float(c) for c in lps_to_newscale(tip_lps, cal)]
+        probes_out[name] = entry
 
-    # v2: per-probe angles split into ``angles_subject_deg`` (anatomical,
-    # ap=0=probe vertical in subject) and ``angles_rig_deg`` (mechanical,
-    # the dial values an experimenter would set on the rig — differs
-    # from subject AP by the head pitch). v1 had a single ``angles_deg``
-    # block that conflated the two.
+    # Rig angles only: a document carrying both frames was misread at the rig.
     return {
-        "plan_export_version": 2,
+        "plan_export_version": 3,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "source_config": source_config,
         "head_pitch_about_L_deg": head_pitch_about_L,
-        "arc_angles_subject_deg": dict(plan_state.kinematics.arc_angles),
-        # rig_ap = subject_ap + head_pitch_about_L (mouse mounted nose-down; see
-        # dev memory rig_ap_sign_convention). Must match the per-probe
-        # ``angles_rig_deg`` sign above — this block previously used ``-`` and
-        # disagreed with the per-probe rig AP by 2*head_pitch.
+        # Same sign as each probe's ``angles_rig_deg``.
         "arc_angles_rig_deg": {
             arc_id: float(ap) + head_pitch_about_L
             for arc_id, ap in plan_state.kinematics.arc_angles.items()

@@ -95,6 +95,6 @@ def test_exporting_does_not_relabel_the_session() -> None:
     state = _state()
     payload = export_plan_geometry(state, AssetCatalog(assets={}))
 
-    assert set(payload["arc_angles_subject_deg"]) == {"a", "b", "c"}
+    assert set(payload["arc_angles_rig_deg"]) == {"a", "b", "c"}
     assert state.kinematics.arc_angles == ARC_ANGLES
     assert state.probes["P_on_x"].arc_id == "x"

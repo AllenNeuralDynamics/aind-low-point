@@ -91,9 +91,10 @@ Module Organization
     │   └── probe_context.py   # the per-probe view the optimizer reads
     ├── plan_io/               # reading a plan back out
     │   ├── roundtrip.py       # planning_state_to_plan_model, save_plan_to_config,
-    │   │                      #   replace_plan_block
+    │   │                      #   replace_plan_block, replace_top_level_block
     │   ├── replay.py          # apply_plan_model_to_state
     │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
+    │   ├── calibrate.py       # the rutter-calibrate entry point
     │   └── cli_csv.py         # the rutter-plan-csv entry point
     ├── session/
     │   ├── store.py           # PlanStore: one planning state, edited by command

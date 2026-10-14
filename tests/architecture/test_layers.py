@@ -80,7 +80,6 @@ PRIVATE_IMPORT_BASELINE = {
         "aind_rutter.optimization.clearance.samples",
         "aind_rutter.optimization.clearance.voxel_sdf",
     ),
-    ("aind_rutter.build.assemble", "aind_rutter.build.calibration"),
     ("aind_rutter.build.assemble", "aind_rutter.build.canonicalize"),
     ("aind_rutter.build.assemble", "aind_rutter.build.chem_shift"),
     ("aind_rutter.build.assemble", "aind_rutter.build.reducers"),

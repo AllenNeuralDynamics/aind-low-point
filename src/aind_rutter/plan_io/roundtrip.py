@@ -141,19 +141,26 @@ def replace_plan_block(written: str, plan: PlanningModel) -> str:
 
     Every other line is kept as written, so comments, ``paths:`` and each
     ``${…}`` reference survive; a config dumped from the model would carry
-    this machine's folders and every template already expanded. A column-0
-    comment directly above the next key belongs to that key.
+    this machine's folders and every template already expanded.
     """
+    return replace_top_level_block(written, "plan", plan.model_dump(mode="json"))
+
+
+def replace_top_level_block(written: str, key: str, value: object) -> str:
+    """``written`` with its top-level ``key:`` block replaced by ``value``,
+    every other line kept as written. A column-0 comment directly above the
+    next key belongs to that key."""
     import yaml
 
     lines = written.splitlines(keepends=True)
     block = yaml.safe_dump(
-        {"plan": plan.model_dump(mode="json")},
+        {key: value},
         default_flow_style=False,
         sort_keys=False,
     )
     start = next(
-        (i for i, line in enumerate(lines) if re.match(r"plan\s*:", line)), None
+        (i for i, line in enumerate(lines) if re.match(rf"{re.escape(key)}\s*:", line)),
+        None,
     )
     if start is None:
         sep = "" if not lines or lines[-1].endswith("\n") else "\n"
@@ -167,14 +174,14 @@ def replace_plan_block(written: str, plan: PlanningModel) -> str:
         out = "".join(lines[:start]) + block + "".join(lines[end:])
 
     expected = yaml.safe_load(written) or {}
-    expected["plan"] = plan.model_dump(mode="json")
+    expected[key] = value
     try:
         spliced = yaml.safe_load(out)
     except yaml.YAMLError:
         spliced = None
     if spliced != expected:
         raise ValueError(
-            "the config's plan block could not be replaced in place; its "
+            f"the config's {key} block could not be replaced in place; its "
             "top level is not one block-style key per line"
         )
     return out

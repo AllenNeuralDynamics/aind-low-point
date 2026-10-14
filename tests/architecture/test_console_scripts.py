@@ -20,6 +20,7 @@ from tests.architecture.graph import ROOT, console_scripts, module_graph
 PARSED_ARGUMENTS = {
     "rutter-plan",
     "rutter-plan-csv",
+    "rutter-calibrate",
     "rutter-bores",
     "rutter-series",
     "rutter-paths",
@@ -56,6 +57,7 @@ def test_pyproject_declares_the_expected_commands() -> None:
     assert set(console_scripts()) == {
         "rutter-plan",
         "rutter-plan-csv",
+        "rutter-calibrate",
         "rutter-phase1",
         "rutter-phase2",
         "rutter-emit",

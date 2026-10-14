@@ -12,7 +12,7 @@ import trimesh
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 from aind_mri_utils.reticle_calibrations import find_probe_angle
 
-from aind_rutter.build.calibration import _get_calibration_rt
+from aind_rutter.build.calibration import load_calibrations
 from aind_rutter.build.canonicalize import (
     CanonicalizationRuntime,
     _apply_canonicalization_mesh,
@@ -445,7 +445,7 @@ def build_plan_state_from_config(
         rig=build_rig(cfg.plan.rig),
         subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
     )
-    calibrations = _get_calibration_rt(cfg.plan.calibrations, cfg.plan.reticles)
+    calibrations = load_calibrations(cfg.plan.calibrations, cfg.plan.reticles)
     probes: dict[str, ProbePlan] = {}
 
     def resolve_ref(probe_name, ref):

@@ -11,7 +11,9 @@ runs without the optimizer extras.
 from __future__ import annotations
 
 import numpy as np
+from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
+from aind_rutter.build.calibration import lps_to_newscale
 from aind_rutter.domain.catalog import AssetCatalog
 from aind_rutter.domain.plan import PlanningState, ProbePlan
 from aind_rutter.domain.rig import Kinematics
@@ -61,10 +63,12 @@ def test_top_level_arc_rig_matches_per_probe_rig_ap() -> None:
     assert payload["head_pitch_about_L_deg"] == np.float64(HEAD_PITCH_DEG)
 
     # Top-level rig arc = subject arc + head pitch.
-    for arc_id, subj in payload["arc_angles_subject_deg"].items():
+    for arc_id, subj in arc_angles.items():
         assert payload["arc_angles_rig_deg"][arc_id] == np.float64(
             subj + HEAD_PITCH_DEG
         )
+    # Only the rig frame is exported.
+    assert "arc_angles_subject_deg" not in payload
 
     # The actual bug: each arc-bound probe's rig AP must equal the top-level rig
     # arc angle for its arc (they disagreed by 2*head_pitch before the fix).
@@ -76,8 +80,28 @@ def test_top_level_arc_rig_matches_per_probe_rig_ap() -> None:
             payload["arc_angles_rig_deg"][arc_id],
             atol=1e-9,
         )
-        np.testing.assert_allclose(
-            probe["angles_rig_deg"]["ap"],
-            probe["angles_subject_deg"]["ap"] + HEAD_PITCH_DEG,
-            atol=1e-9,
-        )
+        assert "angles_subject_deg" not in probe
+        assert "newscale_tip_mm" not in probe
+
+
+def test_a_calibrated_probe_carries_its_newscale_tip() -> None:
+    cal = AffineTransform(rotation=_rx(10.0), translation=np.array([1.0, -2.0, 3.0]))
+    calibrated = _arc_probe("a")
+    calibrated.calibrated = True
+    uncalibrated_with_cal = _arc_probe("a")
+    state = PlanningState(
+        kinematics=Kinematics(arc_angles={"a": 6.0}),
+        probes={"P_cal": calibrated, "P_off": uncalibrated_with_cal},
+        calibrations={"P_cal": cal, "P_off": cal},
+    )
+
+    probes = export_plan_geometry(state, AssetCatalog(assets={}))["probes"]
+
+    tip_lps = convert_coordinate_system(
+        np.asarray(probes["P_cal"]["tip_RAS_mm"]), "RAS", "LPS"
+    )
+    np.testing.assert_allclose(
+        probes["P_cal"]["newscale_tip_mm"], lps_to_newscale(tip_lps, cal)
+    )
+    # The calibration is loaded but not in use, so the rig reads nothing from it.
+    assert "newscale_tip_mm" not in probes["P_off"]

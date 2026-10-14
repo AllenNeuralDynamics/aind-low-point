@@ -958,6 +958,35 @@ Calibrations
             cal_id: cal_2024
             probe_code: "67890"
 
+The stacked form lists sources in order instead, merged per probe code with the
+last source winning, and maps each probe to its code:
+
+.. code-block:: yaml
+
+    plan:
+      calibrations:
+        sources:
+          - directory: ${paths.calibrations}/log_20261012_162041
+            reticle: '4'
+          - directory: ${paths.calibrations}/log_20261013_090000
+            reticle: '4'
+        probe_to_code:
+          probe_A: "50213"
+      probes:
+        probe_A:
+          calibrated: true   # AP and ML come from the calibration
+
+``rutter-calibrate CONFIG SOURCE...`` writes this for more sources, appended in
+the order given so the last wins: parallax directories, and manual-calibration
+workbooks (``.xlsx``), which become ``file:`` entries. The parallax directories
+take their reticle from a workbook's metadata (``--reticle-from``), from
+``--reticle NAME --reticle-offset X Y Z``, or by name from the config. It maps
+probes with ``--probe PROBE=CODE`` or by matching the fitted angles to a plan's
+(``--match-plan``); marks the mapped probes calibrated; and writes each source
+through the config's own ``paths:`` names. It rewrites only the ``plan:`` block,
+and checks that the result loads before writing ``--out`` (or the config, with
+``--in-place``).
+
 
 Plan-Only YAML
 --------------
@@ -1001,10 +1030,16 @@ Probes named in the loaded plan that aren't in the running session's
 state are skipped (with a stdout warning) — adding/removing probes is a
 full-config concern, not a plan concern.
 
+A plan's ``calibrated`` applies only where the file states it, since it
+describes the rig session; plans written by ``rutter-emit`` leave it out.
+
 The **Export rig poses** button writes a *different* format to
-``<config>.poses.yml`` (``plan_export_version: 1``, fields like
-``tip_RAS_mm`` and ``depth_from_brain_surface_mm``) intended for hand-off
-to physical execution. It's read-only — there's no loader for that variant.
+``<config>.poses.yml`` (``plan_export_version: 3``, fields like
+``angles_rig_deg``, ``tip_RAS_mm`` and ``depth_from_brain_surface_mm``)
+intended for hand-off to physical execution. Its angles are rig angles only,
+the values dialed at the rig, and a calibrated probe also carries
+``newscale_tip_mm``, the NewScale position its tip should read. It's read-only
+— there's no loader for that variant.
 
 
 Collision
