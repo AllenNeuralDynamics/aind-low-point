@@ -961,3 +961,31 @@ class TestApplyPlanModelToState:
         ):
             assert getattr(loaded, field) == getattr(src.probes["MD"], field), field
         assert loaded.offsets_LP == src.probes["MD"].offsets_LP
+
+    def test_calibrated_applies_only_where_stated(self):
+        """A plan that omits ``calibrated`` leaves the session's setting; one
+        that states it sets it."""
+        state = self._make_initial_state()
+        state.probes["P1"].calibrated = True
+        state.probes["P2"].calibrated = True
+        store = PlanStore(state)
+        loaded = PlanningModel.model_validate(
+            {
+                "probes": {
+                    "P1": {
+                        "kind": "2.1",
+                        "arc": "a",
+                        "target": {"kind": "catalog", "key": "t1"},
+                    },
+                    "P2": {
+                        "kind": "2.1",
+                        "arc": "a",
+                        "target": {"kind": "catalog", "key": "t2"},
+                        "calibrated": False,
+                    },
+                },
+            }
+        )
+        apply_plan_model_to_state(loaded, store)
+        assert store.state.probes["P1"].calibrated is True
+        assert store.state.probes["P2"].calibrated is False

@@ -26,6 +26,9 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
 
     Arc angles are dispatched first so any probe bound to that arc
     sees the new AP via the inner reducer's resolved-angles helper.
+
+    ``calibrated`` is applied only where the file states it: it describes the
+    rig session, so a plan that omits it leaves the current setting alone.
     """
     from aind_rutter.domain.commands import (
         AssignProbeArc,
@@ -80,7 +83,10 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
                 position_bearing_shank=int(decl.position_bearing_shank),
             )
         )
-        store.dispatch(SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated)))
+        if "calibrated" in decl.model_fields_set:
+            store.dispatch(
+                SetProbeCalibrated(name=name, calibrated=bool(decl.calibrated))
+            )
         # Target is always last — it can clear a stale target_key while
         # setting a new RAS-only target without an intervening invalid
         # state, since SetProbeTarget rejects "neither set" in one shot.

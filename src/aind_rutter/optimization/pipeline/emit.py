@@ -247,12 +247,16 @@ def run(settings: EmitSettings) -> int:
             }
         # PLAN-ONLY file (just the plan section) so it pairs with the base config
         # via ``--plan``. Filename encodes the hole assignment (matches the tree).
+        # ``calibrated`` is left out: it belongs to the rig session, and a
+        # loaded plan that states it would override the session's choice.
         plan_model = planning_state_to_plan_model(plan_state, cfg.plan)
         hp = _hole_path(r["hole"], probe_order)
         fname = f"plan-{i + 1:02d}-cov{r['coverage']:05.2f}-{hp}.plan.yml"
         with open(plans_dir / fname, "w") as f:
             yaml.safe_dump(
-                plan_model.model_dump(mode="json"),
+                plan_model.model_dump(
+                    mode="json", exclude={"probes": {"__all__": {"calibrated"}}}
+                ),
                 f,
                 sort_keys=False,
                 default_flow_style=False,

@@ -242,6 +242,22 @@ def test_emit_writes_the_recorded_share(
     assert json.loads((out / "manifest.json").read_text())["version"] == 2
 
 
+def test_an_emitted_plan_leaves_calibration_to_the_session(
+    config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RUTTER_RETRO_DENSITY", raising=False)
+    _handoff(tmp_path / "handoff.json")
+    out = tmp_path / "emitted"
+    settings = EmitSettings(
+        config=config_path, handoff=tmp_path / "handoff.json", outdir=out
+    )
+    assert emit.run(settings) == 0
+    (entry,) = load_plan_set(out).entries
+    raw = yaml.safe_load((out / "plans" / entry.file).read_text())
+    assert raw["probes"]
+    assert all("calibrated" not in decl for decl in raw["probes"].values())
+
+
 def test_a_retro_plan_aims_where_the_solver_did(
     config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
