@@ -733,6 +733,7 @@ def run(
         f" min_clearance={settings.min_clearance},"
         f" min_body_clearance={settings.min_body_clearance},"
         f" min_body_fixture_clearance={settings.min_body_fixture_clearance},"
+        f" min_shank_fixture_clearance={settings.min_shank_fixture_clearance},"
         f" min_coverage_fraction={settings.min_coverage_fraction},"
         f" lam={settings.lam_clear} tau={settings.tau_clear},"
         f" lam_thread={settings.lam_thread}, grids={settings.grid_dtype},"

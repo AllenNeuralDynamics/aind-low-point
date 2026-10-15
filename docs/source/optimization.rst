@@ -408,8 +408,9 @@ margin reads as a distance between surfaces. The offsets were measured at
 Every stage reads one spec, ``PipelineSettings.feasibility_spec``: a clearance
 margin of ``RUTTER_MIN_CLEARANCE`` (default 0.1 mm), corrected, which
 ``RUTTER_MIN_BODY_CLEARANCE`` replaces, when set, wherever a probe's body (the
-probe less its shanks) meets another body, and ``RUTTER_MIN_BODY_FIXTURE_CLEARANCE``
-wherever it meets a fixture. All three must stay below the 1.5 mm the clearance rows read to. The retired
+probe less its shanks) meets another body, ``RUTTER_MIN_BODY_FIXTURE_CLEARANCE``
+wherever a body meets a fixture, and ``RUTTER_MIN_SHANK_FIXTURE_CLEARANCE`` wherever
+a shank meets one. All four must stay below the 1.5 mm the clearance rows read to. The retired
 ``RUTTER_MINCLEAR`` is refused by name, since an unknown variable would
 otherwise be ignored and the run would get the default.
 
@@ -651,6 +652,10 @@ Useful Phase-1 environment knobs:
      - unset
      - Clearance in mm from a probe's body to a fixture; unset,
        ``RUTTER_MIN_CLEARANCE``.
+   * - ``RUTTER_MIN_SHANK_FIXTURE_CLEARANCE``
+     - unset
+     - Clearance in mm from a probe's shanks to a fixture; unset,
+       ``RUTTER_MIN_CLEARANCE``.
    * - ``RUTTER_MIN_COVERAGE_FRACTION``
      - ``0``
      - The keep gate's floor on each target region's recorded share, as a
@@ -725,7 +730,8 @@ inequality constraints, each expressed as ``slack(x) >= 0``:
   minimum's shortfall, minus ``RUTTER_MIN_CLEARANCE`` for each pair/category, or
   ``RUTTER_MIN_BODY_CLEARANCE`` for body-body when set (see `Feasibility`_).
 * Probe-fixture clearance: likewise, per fixture, probe and category, with
-  ``RUTTER_MIN_BODY_FIXTURE_CLEARANCE`` for the body category.
+  ``RUTTER_MIN_BODY_FIXTURE_CLEARANCE`` for the body category and
+  ``RUTTER_MIN_SHANK_FIXTURE_CLEARANCE`` for the shank (OBB) category.
 * Brain containment, when present: negative signed distance margin at shank
   tips.
 * Arc AP separation: ``abs_smooth(ap_i - ap_j)`` minus the spec's 16 deg.

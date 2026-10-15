@@ -147,14 +147,17 @@ def test_the_body_margins_are_pinned_only_when_set(
     unset = Phase1Settings().with_rig(ArcRig()).pinned_specs()["feasibility"]
     assert "min_body_clearance_mm" not in unset
     assert "min_body_fixture_clearance_mm" not in unset
+    assert "min_shank_fixture_clearance_mm" not in unset
     monkeypatch.setenv("RUTTER_MIN_BODY_CLEARANCE", "0.5")
     monkeypatch.setenv("RUTTER_MIN_BODY_FIXTURE_CLEARANCE", "0.3")
+    monkeypatch.setenv("RUTTER_MIN_SHANK_FIXTURE_CLEARANCE", "0.25")
     spec = Phase2Settings().with_rig(ArcRig()).feasibility_spec()
     assert spec.pair_margins_mm() == (0.5, 0.1, 0.1, 0.1)
-    assert spec.fixture_margins_mm() == (0.3, 0.1)
+    assert spec.fixture_margins_mm() == (0.3, 0.25)
     pinned = Phase1Settings().with_rig(ArcRig()).pinned_specs()["feasibility"]
     assert pinned["min_body_clearance_mm"] == 0.5
     assert pinned["min_body_fixture_clearance_mm"] == 0.3
+    assert pinned["min_shank_fixture_clearance_mm"] == 0.25
 
 
 def test_the_coverage_floor_is_a_gate_not_part_of_the_spec(

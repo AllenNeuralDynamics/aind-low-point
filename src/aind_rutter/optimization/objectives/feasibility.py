@@ -48,10 +48,12 @@ class FeasibilitySpec:
 
     min_clearance_mm: float
     softmin_correction: bool
-    # From a probe's body (the probe less its shanks) to another body, and to a
-    # fixture; None holds that pair to ``min_clearance_mm``.
+    # From a probe's body (the probe less its shanks) to another body, from a
+    # body to a fixture, and from a shank to a fixture; None holds that pair to
+    # ``min_clearance_mm``.
     min_body_clearance_mm: float | None = None
     min_body_fixture_clearance_mm: float | None = None
+    min_shank_fixture_clearance_mm: float | None = None
     threading_tolerance: float = 0.0
     # Length of the shaft segment whose crossing of each bore section is tested.
     shaft_length_mm: float = 10.0
@@ -68,6 +70,7 @@ class FeasibilitySpec:
             "min_clearance_mm",
             "min_body_clearance_mm",
             "min_body_fixture_clearance_mm",
+            "min_shank_fixture_clearance_mm",
         ):
             margin = getattr(self, name)
             # Rows read no further than the cap, so a margin past it is never met.
@@ -98,7 +101,8 @@ class FeasibilitySpec:
         """Probe-fixture margin per category, in ``FIXTURE_PAIR_SOFTMIN_BIAS_MM``
         order."""
         body = self._or_min_clearance(self.min_body_fixture_clearance_mm)
-        return (body, self.min_clearance_mm)
+        shank = self._or_min_clearance(self.min_shank_fixture_clearance_mm)
+        return (body, shank)
 
     def _or_min_clearance(self, margin_mm: float | None) -> float:
         return self.min_clearance_mm if margin_mm is None else margin_mm

@@ -110,10 +110,12 @@ class PipelineSettings(BaseSettings):
     # Clearance every stage requires between probe and fixture surfaces (mm),
     # read as the soft minimum plus its measured shortfall; see feasibility_spec().
     min_clearance: float = Field(0.1)
-    # From a probe's body to another body, and to a fixture other than the
-    # implant; unset follows min_clearance. Shanks stay at min_clearance.
+    # From a probe's body to another body, from a body to a fixture other than
+    # the implant, and from a shank to such a fixture; unset follows
+    # min_clearance. Shank-shank and body-shank stay at min_clearance.
     min_body_clearance: float | None = Field(None, ge=0)
     min_body_fixture_clearance: float | None = Field(None, ge=0)
+    min_shank_fixture_clearance: float | None = Field(None, ge=0)
     # A plan is kept only if each probe's target region has at least this fraction
     # of the recorded share the probe reaches alone through a bore it threads; 0
     # keeps every plan. A gate, not a term: the solves never see it.
@@ -200,6 +202,7 @@ class PipelineSettings(BaseSettings):
             softmin_correction=True,
             min_body_clearance_mm=self.min_body_clearance,
             min_body_fixture_clearance_mm=self.min_body_fixture_clearance,
+            min_shank_fixture_clearance_mm=self.min_shank_fixture_clearance,
             min_arc_ap_sep_deg=self.rig.min_arc_ap_sep_deg,
             min_intra_arc_ml_sep_deg=self.rig.min_intra_arc_ml_sep_deg,
         )
@@ -209,7 +212,11 @@ class PipelineSettings(BaseSettings):
         feasibility = asdict(self.feasibility_spec())
         # Unset, they are left out so pools recorded before they existed still
         # match.
-        for name in ("min_body_clearance_mm", "min_body_fixture_clearance_mm"):
+        for name in (
+            "min_body_clearance_mm",
+            "min_body_fixture_clearance_mm",
+            "min_shank_fixture_clearance_mm",
+        ):
             if feasibility[name] is None:
                 del feasibility[name]
         # The ranges bound the search, so a pool's poses hold only under its
