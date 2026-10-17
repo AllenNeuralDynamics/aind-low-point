@@ -86,6 +86,13 @@ class SetArcAngle:
 
 
 @dataclass(frozen=True)
+class RemoveArc:
+    """Drop an arc no probe is assigned to; refused while one is."""
+
+    arc_id: str
+
+
+@dataclass(frozen=True)
 class AssignProbeArc:
     """Assign/unassign probe to an arc and optionally (un)bind AP to arc."""
 
@@ -148,6 +155,7 @@ PlanningCommand = Union[
     NudgeProbePastTarget,
     SetProbeTarget,
     SetArcAngle,
+    RemoveArc,
     AssignProbeArc,
     BindProbeAPToArc,
     SetProbeCalibrated,
@@ -172,6 +180,13 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
                 if not (plan.calibrated and name in ps.calibrations):
                     changed.add(name)
         return sorted(changed)
+
+    if isinstance(cmd, RemoveArc):
+        users = [n for n, p in ps.probes.items() if p.arc_id == cmd.arc_id]
+        if users:
+            raise ValueError(f"arc {cmd.arc_id!r} still carries {users}")
+        ps.kinematics.arc_angles.pop(cmd.arc_id, None)
+        return []
 
     if isinstance(cmd, AssignProbeArc):
         plan = ps.probes[cmd.name]

@@ -29,9 +29,13 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
 
     ``calibrated`` is applied only where the file states it: it describes the
     rig session, so a plan that omits it leaves the current setting alone.
+
+    An arc the plan does not declare and no probe is left on is dropped, so a
+    plan with fewer arcs than the config does not keep the config's spare.
     """
     from aind_rutter.domain.commands import (
         AssignProbeArc,
+        RemoveArc,
         SetArcAngle,
         SetProbeCalibrated,
         SetProbeKind,
@@ -111,4 +115,9 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
                 )
             )
         touched.append(name)
+
+    in_use = {p.arc_id for p in store.state.probes.values()}
+    for arc_id in [a for a in store.state.kinematics.arc_angles if a not in plan.arcs]:
+        if arc_id not in in_use:
+            store.dispatch(RemoveArc(arc_id=arc_id))
     return touched

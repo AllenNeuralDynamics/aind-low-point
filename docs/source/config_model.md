@@ -403,12 +403,15 @@ commands (`SetProbeKind`, `AssignProbeArc`, `SetProbeLocalAngles`,
 not in the current state are skipped with a stdout warning. `SetProbeCalibrated`
 is sent only for a probe whose file states `calibrated`, because calibration
 belongs to the rig session; `rutter-emit` leaves it out of the plans it writes.
+An arc the plan does not declare and no probe is on is dropped, so a two-arc
+plan loaded over a three-arc config leaves two arcs.
 
 The **Export rig poses** button (`export_plan_geometry`, written to
 `<config>.poses.yml`) is a different format: it emits a flat per-probe
 summary (`kind`, `target`, `arc`, `angles_rig_deg`, `tip_RAS_mm`,
 `depth_from_brain_surface_mm`, and `newscale_tip_mm` for a calibrated probe)
-for hand-off to physical execution. Its angles are rig angles only. It's
+for hand-off to physical execution. Its angles are rig angles only, its arcs
+keep the letters the UI shows, and an arc no probe is on is left out. It's
 read-only; there's no loader for it. A loadable plan is `<config>.plan.yml`.
 
 ## Known gotchas

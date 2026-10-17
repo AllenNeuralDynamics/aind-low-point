@@ -96,6 +96,7 @@ class PlanSetMixin:
         except Exception as exc:
             state.plan_set_status = f"⚠ {file}: {exc}"
             return
+        self._sync_arc_list(state)
         self._load_probe_state(state)
         order = ordered_files(
             state.plan_set_rows, state.plan_set_sort, state.plan_set_search

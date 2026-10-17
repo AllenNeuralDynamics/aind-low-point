@@ -470,6 +470,7 @@ class TrameController(
                 return
             try:
                 self._apply_plan_yaml_bytes(content)
+                self._sync_arc_list(state)
                 state.plan_load_status = f"✓ Loaded {name}"
             except Exception as exc:
                 state.plan_load_status = f"⚠ {name}: {exc}"
@@ -824,6 +825,19 @@ class TrameController(
         raw = yaml.safe_load(text)
         loaded = PlanningModel.model_validate(raw)
         apply_plan_model_to_state(loaded, self.store)
+
+    def _sync_arc_list(self, state) -> None:
+        """Offer the arcs the plan now has; a loaded plan may have dropped one.
+
+        The selected arc falls back to the selected probe's own, which
+        ``_on_arc_assign`` sees as no change, rather than reassigning the probe.
+        """
+        arc_ids = sorted(self.store.state.kinematics.arc_angles)
+        with state:
+            state.arcs = arc_ids
+            if state.arc not in arc_ids:
+                plan = self.store.state.probes.get(state.probe)
+                state.arc = plan.arc_id if plan is not None else None
 
     def _load_probe_state(self, state) -> None:
         """Sync trame state from the currently selected probe."""

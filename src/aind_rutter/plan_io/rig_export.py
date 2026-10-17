@@ -17,23 +17,33 @@ from aind_rutter.domain.rig import probe_rotation
 from aind_rutter.domain.scene import Scene
 
 
-def reorder_plan_for_rig(state: PlanningState) -> PlanningState:
+def reorder_plan_for_rig(
+    state: PlanningState, *, relabel_arcs: bool = True
+) -> PlanningState:
     """Return a copy of ``state`` ordered for rig readability.
 
-    - **Arcs relabelled by AP**: ``a`` is the most-positive-AP arc, ``b`` next,
-      etc. (both ``kinematics.arc_angles`` keys and each probe's ``arc_id``).
-    - **Probes ordered** by arc ascending (``a`` first) then ML descending
-      (positive ML first) — the order an experimenter reads them off at the rig.
+    - **Arcs in AP order**, most positive first, and with ``relabel_arcs``
+      renamed to match: ``a`` is the most-positive-AP arc, ``b`` next, etc.
+      (both ``kinematics.arc_angles`` keys and each probe's ``arc_id``). The
+      emitter relabels, so a solved plan loads with AP-ordered letters; the rig
+      export does not, so it always reads with the letters the UI shows. An arc
+      no probe is on is left out, since nothing at the rig is set by it.
+    - **Probes ordered** by arc in that order, then ML descending (positive ML
+      first) — the order an experimenter reads them off at the rig.
 
     Cosmetic: pose semantics are unchanged, only the labels and the order. The
-    input is left alone, because the relabelling is a property of the exported
+    input is left alone, because the relabelling is a property of the written
     document rather than of the session that produced it — renaming a live
     session's arcs would change what the next save writes, and would do it
     without a dispatch, so nothing watching the plan would hear about it.
     """
-    arc_angles = dict(state.kinematics.arc_angles)
+    in_use = {plan.arc_id for plan in state.probes.values()}
+    arc_angles = {k: v for k, v in state.kinematics.arc_angles.items() if k in in_use}
     order = sorted(arc_angles, key=lambda k: -arc_angles[k])  # most +AP first
-    remap = {old: chr(ord("a") + i) for i, old in enumerate(order)}
+    remap = {
+        old: chr(ord("a") + i) if relabel_arcs else old for i, old in enumerate(order)
+    }
+    rank = {remap[old]: i for i, old in enumerate(order)}
     probes = {
         name: replace(plan, arc_id=remap.get(plan.arc_id, plan.arc_id))
         for name, plan in state.probes.items()
@@ -47,7 +57,10 @@ def reorder_plan_for_rig(state: PlanningState) -> PlanningState:
         probes=dict(
             sorted(
                 probes.items(),
-                key=lambda kv: (kv[1].arc_id or "z", -float(kv[1].ml_local or 0.0)),
+                key=lambda kv: (
+                    rank.get(kv[1].arc_id, len(rank)),
+                    -float(kv[1].ml_local or 0.0),
+                ),
             )
         ),
     )
@@ -103,10 +116,9 @@ def export_plan_geometry(
 
     The dict is yaml-serialisable. Intended for ``yaml.safe_dump``.
     """
-    # Rig-readability ordering: arcs relabelled by AP (a = most +AP), probes
-    # sorted by arc then ML-descending. Cosmetic; does not change poses, and
-    # leaves the caller's state — which may be a live session — untouched.
-    plan_state = reorder_plan_for_rig(plan_state)
+    # Arcs keep the session's letters so the sheet matches the UI; probes are
+    # sorted for the rig. Leaves the caller's state, maybe a live session, alone.
+    plan_state = reorder_plan_for_rig(plan_state, relabel_arcs=False)
     from aind_rutter.build.calibration import lps_to_newscale
     from aind_rutter.build.queries import brain_world_mesh
     from aind_rutter.domain.pose import detect_shank_tips_local, named_shank_tip_world

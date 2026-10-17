@@ -1031,14 +1031,16 @@ state are skipped (with a stdout warning) — adding/removing probes is a
 full-config concern, not a plan concern.
 
 A plan's ``calibrated`` applies only where the file states it, since it
-describes the rig session; plans written by ``rutter-emit`` leave it out.
+describes the rig session; plans written by ``rutter-emit`` leave it out. An
+arc the plan does not declare and no probe is on is dropped.
 
 The **Export rig poses** button writes a *different* format to
 ``<config>.poses.yml`` (``plan_export_version: 3``, fields like
 ``angles_rig_deg``, ``tip_RAS_mm`` and ``depth_from_brain_surface_mm``)
 intended for hand-off to physical execution. Its angles are rig angles only,
 the values dialed at the rig, and a calibrated probe also carries
-``newscale_tip_mm``, the NewScale position its tip should read. It's read-only
+``newscale_tip_mm``, the NewScale position its tip should read. Its arcs keep
+the letters the UI shows, and an arc no probe is on is left out. It's read-only
 — there's no loader for that variant.
 
 

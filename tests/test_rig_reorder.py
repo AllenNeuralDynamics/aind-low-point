@@ -1,10 +1,8 @@
 """Rig-readability ordering belongs to the exported document, not the session.
 
-`export_plan_geometry` is a reporter, and it used to relabel the arcs of whatever
-state it was handed — which, from the app's Export-plan button, is the live
-session. It renamed them without a dispatch, so nothing watching the plan heard
-about it, the UI kept showing the old labels, and the next save wrote the new
-ones.
+The emitter relabels arcs by AP in the plans it writes; the rig export keeps the
+session's letters, so the sheet read at the rig matches the UI. Neither renames
+the arcs of the state it is handed, which from the app is the live session.
 """
 
 from __future__ import annotations
@@ -93,8 +91,20 @@ def test_pose_values_survive_the_relabelling() -> None:
 def test_exporting_does_not_relabel_the_session() -> None:
     """The reported path: the app hands the Export-plan button its live state."""
     state = _state()
-    payload = export_plan_geometry(state, AssetCatalog(assets={}))
+    export_plan_geometry(state, AssetCatalog(assets={}))
 
-    assert set(payload["arc_angles_rig_deg"]) == {"a", "b", "c"}
     assert state.kinematics.arc_angles == ARC_ANGLES
     assert state.probes["P_on_x"].arc_id == "x"
+
+
+def test_the_export_keeps_the_letters_the_ui_shows() -> None:
+    payload = export_plan_geometry(_state(), AssetCatalog(assets={}))
+    assert list(payload["arc_angles_rig_deg"]) == ["z", "x", "y"]
+    assert [p["arc"]["id"] for p in payload["probes"].values()] == ["z", "z", "x", "y"]
+
+
+def test_an_arc_no_probe_is_on_is_left_out() -> None:
+    state = _state()
+    state.kinematics.arc_angles["w"] = 30.0
+    payload = export_plan_geometry(state, AssetCatalog(assets={}))
+    assert set(payload["arc_angles_rig_deg"]) == set(ARC_ANGLES)

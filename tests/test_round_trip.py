@@ -888,6 +888,42 @@ class TestApplyPlanModelToState:
         captured = capsys.readouterr()
         assert "GHOST" in captured.out
 
+    def test_apply_drops_a_spare_arc_the_plan_does_not_declare(self):
+        """A two-arc plan loaded over a three-arc config leaves two arcs, so
+        the export cannot relabel around the config's spare."""
+        state = self._make_initial_state()
+        state.kinematics.arc_angles["c"] = -25.0
+        store = PlanStore(state)
+        loaded = PlanningModel(
+            arcs={"a": 11.9, "b": -29.1},
+            probes={
+                "P1": ProbeDeclModel(
+                    kind="2.1", arc="a", target=CatalogTargetRefModel(key="t1")
+                ),
+                "P2": ProbeDeclModel(
+                    kind="2.1", arc="b", target=CatalogTargetRefModel(key="t2")
+                ),
+            },
+        )
+        apply_plan_model_to_state(loaded, store)
+        assert store.state.kinematics.arc_angles == {"a": 11.9, "b": -29.1}
+
+    def test_apply_keeps_an_undeclared_arc_a_probe_is_still_on(self):
+        state = self._make_initial_state()
+        state.kinematics.arc_angles["c"] = -25.0
+        state.probes["P2"].arc_id = "c"
+        store = PlanStore(state)
+        loaded = PlanningModel(
+            arcs={"a": 5.0},
+            probes={
+                "P1": ProbeDeclModel(
+                    kind="2.1", arc="a", target=CatalogTargetRefModel(key="t1")
+                )
+            },
+        )
+        apply_plan_model_to_state(loaded, store)
+        assert store.state.kinematics.arc_angles == {"a": 5.0, "c": -25.0}
+
     def test_save_then_load_round_trip(self):
         """``planning_state_to_plan_model`` followed by
         ``apply_plan_model_to_state`` reproduces the source state."""
