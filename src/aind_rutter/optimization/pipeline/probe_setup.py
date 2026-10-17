@@ -9,6 +9,7 @@ This module exports the infrastructure helpers that production scripts need:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,6 +40,23 @@ class RetroDensityOpts:
     common_mask_keys: tuple[str, ...] = ("brain",)
     region_mask_fmt: str = "structure:{region}"
     sigma_mm: float = 0.3
+
+
+@dataclass(frozen=True)
+class StructureCoverage:
+    """Each region's structure voxels (scene LPS), scored as a KDE of bandwidth
+    ``sigma_mm`` in place of a Gaussian on one point in the region."""
+
+    clouds: Mapping[str, np.ndarray]
+    sigma_mm: float
+
+    def voxels(self, region: str) -> np.ndarray:
+        cloud = self.clouds.get(region)
+        if cloud is None or len(cloud) == 0:
+            raise ValueError(
+                f"structure coverage: region {region!r} has no voxel structure asset"
+            )
+        return cloud
 
 
 def retro_opts_from_env(runtime=None) -> "RetroDensityOpts | None":
@@ -242,11 +260,13 @@ def _probe_static_info(
     retro_opts: RetroDensityOpts | None = None,
     *,
     thread_corners: bool = True,
+    structure: StructureCoverage | None = None,
 ) -> ProbeStaticInfo:
     """Build a ProbeStaticInfo for one probe from the runtime.
 
     ``thread_corners`` threads the shank's cross-section corners, measured from
-    the collision mesh, rather than its centreline.
+    the collision mesh, rather than its centreline. ``structure`` scores the
+    probe's regions over their voxels; the config's target still anchors it.
     """
     plan = runtime.plan_state.probes[name]
     region_points = resolve_region_points_LPS(plan, runtime.plan_state.target_index)
@@ -265,8 +285,20 @@ def _probe_static_info(
         # The target region alone anchors the pose, as without retro density;
         # its mean is retro_anchor_LPS.
         anchor_points = clouds[0]
-    context = probe_context_from_runtime(runtime, name, target_points_LPS=anchor_points)
+    recorded_points = anchor_points
     sigma = retro_opts.sigma_mm if retro_opts is not None else 0.5
+    if structure is not None:
+        if retro_opts is not None:
+            raise ValueError("structure coverage and retro density are exclusive")
+        if region_points is not None and not plan.regions:
+            raise ValueError(
+                f"probe {name!r} lists also_record without regions, so structure "
+                "coverage cannot tell which structure each point stands for"
+            )
+        clouds = [structure.voxels(region) for region in _retro_regions(plan, name)]
+        target_points, target_point_weights = region_weighted_cloud(clouds)
+        recorded_points, sigma = clouds[0], structure.sigma_mm
+    context = probe_context_from_runtime(runtime, name, target_points_LPS=anchor_points)
     shank_half_xy = None
     if thread_corners and context.collision_mesh is not None:
         shank_half_xy = shank_half_extents_xy(
@@ -283,7 +315,7 @@ def _probe_static_info(
         target_points=target_points,
         target_point_weights=target_point_weights,
         region_points=region_points,
-        recorded_points=anchor_points,
+        recorded_points=recorded_points,
         coverage_weight=context.coverage_weight,
         pivot_local=context.pivot_local,
         shank_half_xy=shank_half_xy,

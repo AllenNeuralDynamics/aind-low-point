@@ -101,8 +101,8 @@ def recorded_shares(probes, Rs, ts, radius_mm: float) -> np.ndarray:
     for p in probes:
         if p.recorded_points is None:
             raise ValueError(
-                f"{p.name}: the coverage floor counts retro points, so it needs "
-                "RUTTER_RETRO_DENSITY"
+                f"{p.name}: the coverage floor counts a region's points, so it "
+                "needs RUTTER_RETRO_DENSITY or RUTTER_STRUCTURE_COVERAGE"
             )
         shares.append(
             recorded_share(np.asarray(p.recorded_points), segments, radius_mm)

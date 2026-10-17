@@ -123,6 +123,12 @@ class PipelineSettings(BaseSettings):
     # Bandwidth (mm) of the Gaussian mixture on a probe's retro cloud, under
     # RUTTER_RETRO_DENSITY.
     retro_sigma_mm: float = Field(0.3, gt=0)
+    # Score each region a probe records over its structure's voxels, every region
+    # weighing equally, instead of a Gaussian on one point in it, so a probe is
+    # drawn into the region as a whole whatever its size and shape. The
+    # bandwidth (mm) smooths the voxels; exclusive with RUTTER_RETRO_DENSITY.
+    structure_coverage: bool = Field(False)
+    structure_sigma_mm: float = Field(0.2, gt=0)
     recorded_radius_mm: float | None = Field(
         0.2,
         description=(

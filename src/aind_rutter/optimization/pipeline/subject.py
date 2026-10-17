@@ -30,8 +30,10 @@ from aind_rutter.config.locations import Locator
 from aind_rutter.domain.rig import ArcRig
 from aind_rutter.optimization.geometry.holes import Hole, load_holes
 from aind_rutter.optimization.geometry.probes import ProbeStaticInfo
+from aind_rutter.optimization.pipeline.measure import region_clouds
 from aind_rutter.optimization.pipeline.probe_setup import (
     RetroDensityOpts,
+    StructureCoverage,
     _probe_static_info,
     _transform_holes,
     retro_opts_from_env,
@@ -112,6 +114,7 @@ class OptimizationRuntime:
         thread_corners: bool = True,
         locator: Locator | None = None,
         retro_sigma_mm: float | None = None,
+        structure_sigma_mm: float | None = None,
     ) -> "OptimizationRuntime":
         cfg = ConfigModel.from_yaml(config_path, locator)
         return cls.from_config(
@@ -121,6 +124,7 @@ class OptimizationRuntime:
             use_env_retro=use_env_retro,
             thread_corners=thread_corners,
             retro_sigma_mm=retro_sigma_mm,
+            structure_sigma_mm=structure_sigma_mm,
         )
 
     @classmethod
@@ -133,7 +137,10 @@ class OptimizationRuntime:
         use_env_retro: bool = True,
         thread_corners: bool = True,
         retro_sigma_mm: float | None = None,
+        structure_sigma_mm: float | None = None,
     ) -> "OptimizationRuntime":
+        """``structure_sigma_mm`` set scores each region over its structure's
+        voxels at that bandwidth (see ``StructureCoverage``)."""
         runtime = build_runtime_from_config(cfg)
         resolved_retro: RetroDensityOpts | None
         if retro_opts is not None:
@@ -144,6 +151,11 @@ class OptimizationRuntime:
             resolved_retro = None
         if resolved_retro is not None and retro_sigma_mm is not None:
             resolved_retro = replace(resolved_retro, sigma_mm=retro_sigma_mm)
+        structure = None
+        if structure_sigma_mm is not None:
+            structure = StructureCoverage(
+                region_clouds(cfg, runtime, None), structure_sigma_mm
+            )
         probes = tuple(
             _probe_static_info(
                 runtime.plan_state,
@@ -151,6 +163,7 @@ class OptimizationRuntime:
                 name,
                 resolved_retro,
                 thread_corners=thread_corners,
+                structure=structure,
             )
             for name in runtime.plan_state.probes
         )

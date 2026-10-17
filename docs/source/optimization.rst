@@ -424,8 +424,8 @@ threads. It turns trading a target away for clearance into a failure rather
 than a lower score. The floor is a gate at Phase 2's keep step and no part of
 either solve, because as a penalty and a constraint it cost the search yield
 while its smooth coverage, a 0.3 mm kernel, could be met with nothing recorded
-within 0.2 mm. It needs ``RUTTER_RETRO_DENSITY``, since the share counts the
-region's retro cells.
+within 0.2 mm. It needs ``RUTTER_RETRO_DENSITY`` or
+``RUTTER_STRUCTURE_COVERAGE``, since the share counts the region's points.
 
 Before the first group, Phase 1 solves every probe by itself in each bore the
 visibility atlas says it passes, from eight of the atlas's anchors spread over
@@ -439,6 +439,16 @@ records nothing through any bore stops the run.
 ``RUTTER_RETRO_SIGMA_MM`` (default 0.3) sets the width of the Gaussian each
 retro cell contributes to the objective's coverage. A narrower kernel brings
 the smooth coverage closer to the hard count the gate reads.
+
+Without retro density, each region a probe records is a Gaussian on one point
+in it, blind to the region's size and shape: too tight for a large region,
+which pulls a shared probe to one arbitrary point, and too loose across a thin
+one, which keeps most of its score with the shank beside it.
+``RUTTER_STRUCTURE_COVERAGE`` scores each region over its
+``structure:<region>`` voxels instead, every region weighing equally, smoothed
+by ``RUTTER_STRUCTURE_SIGMA_MM`` (default 0.2). The config's target still
+anchors the pose, and a probe with ``also_record`` must list its ``regions``.
+It is exclusive with ``RUTTER_RETRO_DENSITY``.
 
 A pool records the spec and the objective it was built under, as its header's
 ``feasibility`` and ``objective``. Phase 1 resumes only a pool whose record
@@ -664,6 +674,13 @@ Useful Phase-1 environment knobs:
    * - ``RUTTER_RETRO_SIGMA_MM``
      - ``0.3``
      - Width in mm of each retro cell's Gaussian in the coverage objective.
+   * - ``RUTTER_STRUCTURE_COVERAGE``
+     - off
+     - Score each region over its structure voxels rather than one point (see
+       `Coverage floor`_).
+   * - ``RUTTER_STRUCTURE_SIGMA_MM``
+     - ``0.2``
+     - Bandwidth in mm of the structure-voxel coverage.
    * - ``RUTTER_RECORDED_RADIUS_MM``
      - ``0.2``
      - How near an active site a point must be to count as recorded, for the
