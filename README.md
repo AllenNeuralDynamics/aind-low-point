@@ -139,7 +139,7 @@ covers; the full order, the cache limits and the offline mode are in
 
 | Command | Does |
 |---|---|
-| `rutter-plan config.yml` | Open the interactive planner. `--plan` loads a plan at startup. |
+| `rutter-plan config.yml` | Open the interactive planner. `--plan` loads a plan at startup; `--port` moves it off 8080. |
 | `rutter-bores implant.step out.yml --diagram implant.diagram.yml` | Fit the threading bores (`RUTTER_HOLES`) to an implant STEP; needs the `step` extra. |
 | `rutter-phase1` | Enumerate and score candidate configurations. |
 | `rutter-phase2` | Solve the top candidates exactly, then gate on collision and threading. |

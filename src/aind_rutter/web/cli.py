@@ -18,6 +18,10 @@ Open a config with a handoff plan applied at startup::
 Step through every plan emit wrote for it::
 
     rutter-plan examples/836656-config-T12.yml --plans scratch/handoff
+
+Serve on another port, where 8080 is taken::
+
+    rutter-plan examples/836656-config-T12.yml --port 8090
 """
 
 from __future__ import annotations
@@ -66,6 +70,9 @@ class Args:
     """Fetch nothing: packs are read from the cache, and a missing file fails
     naming it. ``RUTTER_OFFLINE=1`` does the same."""
 
+    port: int = 8080
+    """Port the planner serves on; 0 takes any free one."""
+
 
 def main() -> None:
     """Parse arguments, build the trame app, and start the server."""
@@ -110,7 +117,7 @@ def main() -> None:
     # (it prints "Loaded plan from …" on success, or a clear skip/validation
     # message otherwise) — don't claim success here before it has run.
     print("Starting trame server...")
-    server.start()
+    server.start(port=args.port)
 
 
 if __name__ == "__main__":
