@@ -983,9 +983,12 @@ take their reticle from a workbook's metadata (``--reticle-from``), from
 ``--reticle NAME --reticle-offset X Y Z``, or by name from the config. It maps
 probes with ``--probe PROBE=CODE`` or by matching the fitted angles to a plan's
 (``--match-plan``); marks the mapped probes calibrated; and writes each source
-through the config's own ``paths:`` names. It rewrites only the ``plan:`` block,
-and checks that the result loads before writing ``--out`` (or the config, with
-``--in-place``).
+through the ``paths:`` name that contains it. When none does, it declares one
+(``calibrations``, or ``--path-name``) at the sources' folder, so another
+machine locates the logs in its ``paths.yml`` (``calibrations:
+Z:/ephys/persist/data/probe_calibrations/CSVCalibrations``). It
+rewrites only the ``plan:`` block and that one ``paths:`` line, and checks that
+the result loads before writing ``--out`` (or the config, with ``--in-place``).
 
 
 Plan-Only YAML

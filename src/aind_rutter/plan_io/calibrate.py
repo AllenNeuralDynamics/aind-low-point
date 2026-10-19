@@ -6,8 +6,9 @@ per probe code with the last source winning. Declares the reticle the parallax
 directories were taken against (a workbook states its own), maps probes to
 probe codes and marks those probes calibrated. Only the ``plan:`` block is
 rewritten; comments, ``paths:`` and every ``${…}`` reference elsewhere
-survive. Each source is written through the config's own ``paths:`` names
-where one contains it, so the result runs on any machine that locates them.
+survive, except that a ``paths:`` name is added when none contains a source.
+Each source is written through the ``paths:`` name that contains it, so the
+result runs on any machine whose paths file locates that name.
 
 Examples
 --------
@@ -25,7 +26,10 @@ A manual calibration on top, codes given::
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePath
@@ -138,6 +142,60 @@ def written_path(source: Path, located: Mapping[str, Any]) -> str:
     return best[1] if best is not None else target.as_posix()
 
 
+def new_path_root(
+    sources: tuple[Path, ...], located: Mapping[str, Any], name: str
+) -> str | None:
+    """The folder to declare ``paths.<name>`` at so it contains every source no
+    located name does, or None when every source is contained.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is already located somewhere that does not contain them.
+    """
+    uncovered = [s for s in sources if not written_path(s, located).startswith("${")]
+    if not uncovered:
+        return None
+    if name in located:
+        raise ValueError(
+            f"paths.{name} is located at {located[name]}, which does not contain "
+            f"{uncovered[0]}; locate it with --path {name}=DIR or give --path-name"
+        )
+    parents = [str(s.resolve().parent) for s in uncovered]
+    return Path(os.path.commonpath(parents)).as_posix()
+
+
+def add_path_name(written: str, name: str, value: str) -> str:
+    """``written`` with ``name: value`` added at the end of its ``paths:`` block,
+    every other line kept as written."""
+    from aind_rutter.plan_io.roundtrip import replace_top_level_block
+
+    raw = yaml.safe_load(written) or {}
+    lines = written.splitlines(keepends=True)
+    start = next(
+        (i for i, line in enumerate(lines) if re.match(r"paths\s*:\s*(#.*)?$", line)),
+        None,
+    )
+    if start is None or not raw.get("paths"):
+        return replace_top_level_block(
+            written, "paths", {**(raw.get("paths") or {}), name: value}
+        )
+    end, indent = start + 1, None
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
+        if indent is None and lines[end].strip() and lines[end][0] != "#":
+            indent = lines[end][: len(lines[end]) - len(lines[end].lstrip())]
+        end += 1
+    # A blank line or column-0 comment above the next key belongs to that key.
+    while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1][0] == "#"):
+        end -= 1
+    added = f"{indent or '  '}{name}: {json.dumps(value)}\n"
+    out = "".join(lines[:end]) + added + "".join(lines[end:])
+    expected = {**raw, "paths": {**raw["paths"], name: value}}
+    if yaml.safe_load(out) != expected:
+        raise ValueError(f"could not add paths.{name} to the config's paths block")
+    return out
+
+
 def source_entry(written: str, is_directory: bool, reticle: str | None) -> dict:
     """A stacked-source entry: a directory names its reticle, a file does not."""
     if not is_directory:
@@ -213,15 +271,22 @@ def _reticle_differs(prior: Mapping[str, Any], reticle: Reticle) -> bool:
 
 
 def write_config(
-    config: Path, plan: Mapping[str, Any], out: Path, locator: Locator
+    config: Path,
+    plan: Mapping[str, Any],
+    out: Path,
+    locator: Locator,
+    new_path: tuple[str, str] | None = None,
 ) -> None:
-    """Write ``config`` with its plan block replaced to ``out``, refusing to
-    if the result does not load and resolve every calibration."""
+    """Write ``config`` with its plan block replaced, and ``new_path``'s name
+    and folder added to its paths, to ``out``, refusing to if the result does
+    not load and resolve every calibration."""
     from aind_rutter.build.calibration import load_calibrations
     from aind_rutter.config import ConfigModel
     from aind_rutter.plan_io.roundtrip import replace_top_level_block
 
     text = replace_top_level_block(config.read_text(), "plan", dict(plan))
+    if new_path is not None:
+        text = add_path_name(text, *new_path)
     # Beside ``out``, so relative paths in the config resolve as they will.
     staged = out.with_name(f".{out.name}.staged")
     staged.write_text(text)
@@ -277,6 +342,9 @@ class Args:
 
     path: Annotated[tuple[str, ...], tyro.conf.UseAppendAction] = ()
     """``NAME=DIR`` for one ``paths:`` name; repeatable."""
+
+    path_name: str = "calibrations"
+    """``paths:`` name to declare for sources no name in the config contains."""
 
     offline: bool = False
     """Fetch nothing while checking the result."""
@@ -341,14 +409,18 @@ def run(args: Args) -> None:
         )
 
     located = load_resolved(args.config, locator).get("paths") or {}
+    root = new_path_root(args.sources, located, args.path_name)
+    new_path = None if root is None else (args.path_name, root)
+    if root is not None:
+        located = {**located, args.path_name: root}
     name = reticle.name if reticle is not None else None
     entries = [
         source_entry(written_path(source, located), source.is_dir(), name)
         for source in args.sources
     ]
     new_plan = add_calibration(plan, entries, declare, name, mapping)
-    write_config(args.config, new_plan, out, locator)
-    _report(out, entries, mapping, fitted, origin, planned, given)
+    write_config(args.config, new_plan, out, locator, new_path)
+    _report(out, entries, mapping, fitted, origin, planned, given, new_path)
 
 
 def _declared(plan: Mapping[str, Any], name: str | None) -> Reticle:
@@ -399,8 +471,13 @@ def _report(
     origin: Mapping[str, str],
     planned: Mapping[str, tuple[float, float]],
     given: Mapping[str, str],
+    new_path: tuple[str, str] | None = None,
 ) -> None:
     print(f"Wrote {out}")
+    if new_path is not None:
+        name, root = new_path
+        print(f"  declared paths.{name}: {root}")
+        print(f"  another machine locates it in its paths.yml ({name}: <its folder>)")
     for entry in entries:
         where = entry.get("directory") or entry["file"]
         reticle = f" (reticle {entry['reticle']})" if "reticle" in entry else ""

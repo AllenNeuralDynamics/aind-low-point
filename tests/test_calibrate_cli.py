@@ -14,7 +14,9 @@ from aind_rutter.plan_io.calibrate import (
     Args,
     Reticle,
     add_calibration,
+    add_path_name,
     match_codes,
+    new_path_root,
     planned_angles,
     source_entry,
     written_path,
@@ -74,6 +76,36 @@ def test_a_source_is_written_through_the_narrowest_containing_name(
     assert written_path(run, located) == "${paths.calibrations}/log_1"
     assert written_path(run, {"here": str(run)}) == "${paths.here}"
     assert written_path(run, {}) == run.resolve().as_posix()
+
+
+def test_a_name_is_declared_for_sources_no_name_contains(tmp_path: Path) -> None:
+    runs = tmp_path / "cal"
+    (runs / "log_1").mkdir(parents=True)
+    (runs / "log_2").mkdir()
+    sources = (runs / "log_1", runs / "log_2")
+    assert new_path_root(sources, {}, "calibrations") == runs.resolve().as_posix()
+    assert new_path_root(sources, {"vast": str(tmp_path)}, "calibrations") is None
+    with pytest.raises(ValueError, match="does not contain"):
+        new_path_root(sources, {"calibrations": "/elsewhere"}, "calibrations")
+
+
+def test_a_path_name_is_added_with_the_block_kept() -> None:
+    written = (
+        "version: 1\n"
+        "paths:\n"
+        "  # the template\n"
+        "  template_dir: {pack: mouse-t1/v1.0}\n"
+        "  atlas: ${.template_dir}/atlas.nii.gz\n"
+        "\n"
+        "# plan below\n"
+        "plan: {}\n"
+    )
+    out = add_path_name(written, "calibrations", "/mnt/vast/cal")
+    assert "  # the template\n" in out
+    assert out.index('calibrations: "/mnt/vast/cal"') < out.index("# plan below")
+    assert yaml.safe_load(out)["paths"]["calibrations"] == "/mnt/vast/cal"
+    bare = add_path_name("version: 1\n", "calibrations", "/c")
+    assert yaml.safe_load(bare)["paths"] == {"calibrations": "/c"}
 
 
 def test_a_second_source_stacks_after_the_first() -> None:
@@ -190,6 +222,46 @@ def test_run_writes_a_config_that_loads(
     }
     assert all(p.calibrated for p in cfg.plan.probes.values())
     assert not list(tmp_path.glob(".*.staged"))
+
+
+def test_run_declares_a_name_for_an_uncovered_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = tmp_path / "cal" / "log_1"
+    run.mkdir(parents=True)
+    config = tmp_path / "config.yml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "assets": [{"key": "probe:2.1", "kind": "mesh", "src": "x.obj"}],
+                "plan": _plan(),
+            },
+            sort_keys=False,
+        )
+    )
+    monkeypatch.setattr(calibrate, "fitted_angles", lambda s, r: {"111": (0.0, 0.0)})
+    monkeypatch.setattr(
+        "aind_rutter.build.calibration.load_calibrations", lambda c, r: {}
+    )
+    calibrate.run(
+        Args(
+            config=config,
+            sources=(run,),
+            out=tmp_path / "out.yml",
+            reticle="4",
+            reticle_offset=RETICLE.offset_RAS,
+            probe=("P1=111",),
+        )
+    )
+    out = tmp_path / "out.yml"
+    raw = yaml.safe_load(out.read_text())
+    assert raw["paths"] == {"calibrations": (tmp_path / "cal").resolve().as_posix()}
+    assert raw["plan"]["calibrations"]["sources"] == [
+        _dir("${paths.calibrations}/log_1")
+    ]
+    cfg = ConfigModel.from_yaml(out, Locator(machine_file=None))
+    assert Path(cfg.plan.calibrations.sources[0].directory) == run.resolve()
 
 
 def test_run_needs_one_destination(tmp_path: Path) -> None:
