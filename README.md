@@ -147,6 +147,7 @@ covers; the full order, the cache limits and the offline mode are in
 | `rutter-series propose\|configs\|solve\|schedule\|status spec.yml run/` | Plan a series of sessions from one spec: proposed allocations of probes to regions, its configs, their solves, and the plan per session and session order with the least rig rework. |
 | `rutter-plan-csv` | Convert a plan into a target CSV for the rig. |
 | `rutter-calibrate config.yml SOURCE... --reticle-from cal.xlsx --match-plan plan.yml --out out.yml` | Add calibration sources (parallax directories, manual workbooks) to a config, last winning: the reticle, each probe's code, and `calibrated` on the probes it maps. |
+| `rutter-locate-implant config.yml --holes bores.yml --in-hole CODE:HOLE:X,Y,Z --out out.yml` | Locate the implant from calibrated-probe readings of its holes, in or pointing at them, and write the move from the config's placement as `implant_to_lps`. |
 | `rutter-paths [config.yml]` | Show where each of a config's `paths:` names resolves on this machine, what set it, and every paths file read. |
 | `rutter-data pull\|publish\|verify\|cache` | Fetch, publish and check packs, the immutable folders of shared data a config can name, and see or clear the cache. |
 

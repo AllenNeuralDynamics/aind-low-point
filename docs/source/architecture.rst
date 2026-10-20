@@ -95,6 +95,7 @@ Module Organization
     │   ├── replay.py          # apply_plan_model_to_state
     │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
     │   ├── calibrate.py       # the rutter-calibrate entry point
+    │   ├── locate_implant.py  # the rutter-locate-implant entry point
     │   └── cli_csv.py         # the rutter-plan-csv entry point
     ├── session/
     │   ├── store.py           # PlanStore: one planning state, edited by command

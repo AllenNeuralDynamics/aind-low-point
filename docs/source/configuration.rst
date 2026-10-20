@@ -991,6 +991,42 @@ rewrites only the ``plan:`` block and that one ``paths:`` line, and checks that
 the result loads before writing ``--out`` (or the config, with ``--in-place``).
 
 
+Locating the implant from hole readings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Without an MRI, a calibrated probe can measure where the implant sits.
+``rutter-locate-implant CONFIG --holes BORES`` takes NewScale tip readings,
+in microns unless ``--units mm``, as ``PROBE:HOLE:X,Y,Z``, PROBE being a
+calibration code or a planned probe's name:
+
+- ``--in-hole``: the tip is inside the hole, so it lies on the bore's axis
+  within the channel.
+- ``--pointing-at``: the tip is above the hole with the probe aimed at the
+  channel's middle, so that point lies on the probe's line.
+
+It fits the rigid move of the implant from where the config puts it that best
+agrees with every reading and reports each reading's misfit before and after.
+The readings' geometry decides what the fit can claim, at an assumed aim error
+(``--aim-error-um``, 50 by default) that scales every uncertainty reported:
+
+- Every reading by one probe looks along that probe's line, so the shift along
+  it is undetermined, as is the shift along a bore read by one ``--in-hole``
+  reading, which the channel depth only bounds. Aiming a second probe at a hole
+  from 40° or more away fixes it.
+- A rotation is fitted only where the readings fix it to within 1.5°
+  (``--rotation on|off`` overrides); turning about a probe's line is seen from
+  three holes, tilting it needs a second angle as well.
+- Two probes at one hole should have lines that meet whatever the implant's
+  placement, so the gap between them is reported as a check on calibration and
+  aim.
+
+Whatever is undetermined stays at the config's placement and is listed with
+what reading would settle it. With ``--out`` or ``--in-place`` the move is appended to the config's
+``implant_to_lps``, which places the implant asset and the bores the solver
+reads, so a re-plan threads the measured implant while the brain stays where the
+config had it.
+
+
 Plan-Only YAML
 --------------
 

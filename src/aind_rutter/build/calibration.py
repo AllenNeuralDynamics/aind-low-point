@@ -58,6 +58,21 @@ def _merge_stacked_sources(
     return merged
 
 
+def load_calibration_bank(
+    calibrations: CalibrationsModel,
+    reticles: dict[str, CalibrationReticleModel] = {},
+) -> dict[str, AffineTransform]:
+    """Probe code → ``(R, t)`` over every source the config lists, the last
+    source winning, whether or not a planned probe is mapped to the code."""
+    sources = list(calibrations.sources) or list(calibrations.files.values())
+    return {
+        code: AffineTransform(
+            rotation=np.asarray(R, float), translation=np.asarray(t, float)
+        )
+        for code, (R, t) in _merge_stacked_sources(sources, reticles).items()
+    }
+
+
 def load_calibrations(
     calibrations: CalibrationsModel,
     reticles: dict[str, CalibrationReticleModel] = {},
