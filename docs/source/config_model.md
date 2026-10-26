@@ -411,8 +411,11 @@ The **Export rig poses** button (`export_plan_geometry`, written to
 summary (`kind`, `target`, `arc`, `angles_rig_deg`, `tip_RAS_mm`,
 `depth_from_brain_surface_mm`, and `newscale_tip_mm` for a calibrated probe)
 for hand-off to physical execution. Its angles are rig angles only, its arcs
-keep the letters the UI shows, and an arc no probe is on is left out. It's
-read-only; there's no loader for it. A loadable plan is `<config>.plan.yml`.
+keep the letters the UI shows, and an arc no probe is on is left out. It is
+not a plan, but `rutter-plan --poses` lays one over the startup plan
+(`plan_from_poses`, `plan_io/poses.py`) to reopen the session that exported
+it. A probe exported with `newscale_tip_mm` keeps the plan's AP and ML,
+because the export's are its calibration's.
 
 ## Known gotchas
 

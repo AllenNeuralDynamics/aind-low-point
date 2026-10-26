@@ -11,7 +11,7 @@ from aind_rutter.build.assemble import build_runtime_from_config
 from aind_rutter.collision.adapter import CollisionAdapter, CollisionState
 from aind_rutter.collision.fcl import FCLBackend
 from aind_rutter.collision.worker import CollisionHandler
-from aind_rutter.config import ConfigModel
+from aind_rutter.config import ConfigModel, PlanningModel
 from aind_rutter.plan_io.plan_set import load_plan_set
 from aind_rutter.render.adapter import (
     RendererAdapter,
@@ -36,6 +36,7 @@ def build_trame_app(
     source_config_path: Path | None = None,
     apply_plan_on_start: bool = False,
     plans: Path | None = None,
+    poses_path: Path | None = None,
 ) -> Server:
     """Build and return a ready-to-start trame server from a ConfigModel.
 
@@ -57,6 +58,10 @@ def build_trame_app(
     plans
         Optional emit output directory whose plans the Plans tab steps
         through; they must share ``cfg``'s probe roster.
+    poses_path
+        Optional rig-poses export laid over the startup plan (``plan_path``
+        when it exists, else the config's own), restoring each exported
+        probe's pose. Applied at startup, and again by "Load plan".
 
     Returns
     -------
@@ -174,37 +179,15 @@ def build_trame_app(
     }
 
     on_load_plan = None
-    if plan_path is not None:
-        from aind_rutter.config import PlanningModel
+    if plan_path is not None or poses_path is not None:
         from aind_rutter.plan_io.replay import apply_plan_model_to_state
 
         def on_load_plan():
-            if not plan_path.exists():
-                print(f"Plan YAML not found at {plan_path}; nothing to load")
-                return
-            with open(plan_path) as f:
-                raw = yaml.safe_load(f)
-            # A rig-poses export (written by export_plan_geometry / the
-            # Export-rig-poses button) is a human-readable geometry *report*, not a
-            # loadable PlanningModel — it carries derived fields like
-            # ``tip_RAS_mm`` and is keyed by ``plan_export_version``. Skip it
-            # with a clear message rather than dumping a wall of schema errors.
-            if isinstance(raw, dict) and "plan_export_version" in raw:
-                print(
-                    f"Plan YAML at {plan_path} is an exported geometry report "
-                    f"(plan_export_version={raw['plan_export_version']}), not a "
-                    "loadable plan; skipping. Use a plan saved via 'Save plan'."
-                )
-                return
-            try:
-                loaded = PlanningModel.model_validate(raw)
-            except Exception as exc:
-                print(f"Plan YAML at {plan_path} failed to validate: {exc}")
-                return
-            apply_plan_model_to_state(loaded, store)
-            print(f"Loaded plan from {plan_path}")
+            loaded = _startup_plan(cfg, plan_path, poses_path)
+            if loaded is not None:
+                apply_plan_model_to_state(loaded, store)
 
-        if apply_plan_on_start and plan_path.exists():
+        if apply_plan_on_start:
             on_load_plan()
 
     controller = TrameController(
@@ -229,3 +212,47 @@ def build_trame_app(
         ccf_overlay.flush_callback = debounced_flush
 
     return server
+
+
+def _startup_plan(
+    cfg: ConfigModel, plan_path: Path | None, poses_path: Path | None
+) -> PlanningModel | None:
+    """The plan at ``plan_path`` (else the config's own) with the poses at
+    ``poses_path`` laid over it, or ``None``, having said why, when there is
+    nothing to apply."""
+    import yaml
+
+    from aind_rutter.plan_io.poses import is_poses_export, plan_from_poses
+
+    loaded = cfg.plan
+    if plan_path is not None and plan_path.exists():
+        raw = yaml.safe_load(plan_path.read_text())
+        if is_poses_export(raw):
+            print(
+                f"Plan YAML at {plan_path} is a rig-poses export "
+                f"(plan_export_version={raw['plan_export_version']}), "
+                "not a plan; pass it as --poses. Skipping."
+            )
+            return None
+        try:
+            loaded = PlanningModel.model_validate(raw)
+        except Exception as exc:
+            print(f"Plan YAML at {plan_path} failed to validate: {exc}")
+            return None
+        print(f"Loaded plan from {plan_path}")
+    elif poses_path is None:
+        print(f"Plan YAML not found at {plan_path}; nothing to load")
+        return None
+    if poses_path is None:
+        return loaded
+    raw = yaml.safe_load(poses_path.read_text())
+    if not is_poses_export(raw):
+        print(f"{poses_path} is not a rig-poses export; skipping it")
+        return loaded
+    try:
+        loaded = plan_from_poses(loaded, raw)
+    except ValueError as exc:
+        print(f"Poses at {poses_path} do not fit the plan: {exc}")
+        return None
+    print(f"Restored poses from {poses_path}")
+    return loaded

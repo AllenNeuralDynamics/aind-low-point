@@ -19,6 +19,11 @@ Step through every plan emit wrote for it::
 
     rutter-plan examples/836656-config-T12.yml --plans scratch/handoff
 
+Reopen a session from the rig poses it exported, over the plan it started
+from::
+
+    rutter-plan examples/836656-config-T12.yml --poses rutter.poses.yml
+
 Serve on another port, where 8080 is taken::
 
     rutter-plan examples/836656-config-T12.yml --port 8090
@@ -53,6 +58,11 @@ class Args:
     """Plan-only YAML (the PlanningModel block, no asset lists) applied at
     startup when it exists (default: ``<config>.plan.yml``). The Files tab
     saves and loads through the browser."""
+
+    poses: Path | None = None
+    """A rig-poses export (the Files tab's "poses"), laid over the startup
+    plan to restore each probe's pose. A probe read through its calibration
+    keeps the plan's AP and ML, which the calibration replaced."""
 
     plans: Path | None = None
     """An emit output directory (or its ``plans/`` folder) to step through
@@ -89,7 +99,10 @@ def main() -> None:
     plan_path = args.plan
     if plan_path is None:
         plan_path = config_path.with_suffix(".plan.yml")
-    apply_plan_on_start = plan_path.exists()
+    if args.poses is not None and not args.poses.exists():
+        print(f"Poses file not found: {args.poses}", file=sys.stderr)
+        sys.exit(1)
+    apply_plan_on_start = plan_path.exists() or args.poses is not None
 
     logging.basicConfig(level=logging.WARNING, format="%(name)s: %(message)s")
     # Say where each input folder came from when a paths file set it.
@@ -110,6 +123,7 @@ def main() -> None:
         source_config_path=config_path,
         apply_plan_on_start=apply_plan_on_start,
         plans=args.plans,
+        poses_path=args.poses,
     )
 
     print(f"Loaded config: {config_path}")

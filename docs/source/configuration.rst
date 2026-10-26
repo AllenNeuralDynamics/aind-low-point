@@ -1079,8 +1079,11 @@ The **Export rig poses** button writes a *different* format to
 intended for hand-off to physical execution. Its angles are rig angles only,
 the values dialed at the rig, and a calibrated probe also carries
 ``newscale_tip_mm``, the NewScale position its tip should read. Its arcs keep
-the letters the UI shows, and an arc no probe is on is left out. It's read-only
-— there's no loader for that variant.
+the letters the UI shows, and an arc no probe is on is left out. It is not a
+plan, but ``rutter-plan CONFIG --poses FILE`` lays it over the startup plan to
+reopen the session that exported it: each probe's offsets, depth, spin, shank,
+kind and target, and the arcs. A probe exported with ``newscale_tip_mm`` keeps
+the plan's AP and ML, because the export's are its calibration's.
 
 
 Collision
