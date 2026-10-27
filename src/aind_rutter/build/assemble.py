@@ -498,6 +498,8 @@ def build_plan_state_from_config(
             bind_ap_to_arc=probe_decl.bind_ap_to_arc,
             ap_local=ap,
             ml_local=ml,
+            ap_bias=probe_decl.ap_bias,
+            ml_bias=probe_decl.ml_bias,
             spin=probe_decl.spin,
             past_target_mm=probe_decl.past_target_mm,
             offsets_LP=(-probe_decl.offsets_RA[0], -probe_decl.offsets_RA[1]),

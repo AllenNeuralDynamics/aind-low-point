@@ -141,6 +141,14 @@ class OptimizationRuntime:
     ) -> "OptimizationRuntime":
         """``structure_sigma_mm`` set scores each region over its structure's
         voxels at that bandwidth (see ``StructureCoverage``)."""
+        biased = sorted(n for n, p in cfg.plan.probes.items() if p.ap_bias or p.ml_bias)
+        if biased:
+            # The solver poses probes at their dial; it would thread them where
+            # they do not land.
+            raise ValueError(
+                f"probes {biased} carry a manipulator bias, which the solver "
+                "does not model; solve without it"
+            )
         runtime = build_runtime_from_config(cfg)
         resolved_retro: RetroDensityOpts | None
         if retro_opts is not None:

@@ -86,6 +86,10 @@ class ProbePlan:
     # not bound / not calibrated)
     ap_local: float = 0.0  # deg
     ml_local: float = 0.0  # deg
+    # How far this probe's manipulator lands from its dial, deg: the probe
+    # points at the dialed AP and ML plus these until a calibration measures it.
+    ap_bias: float = 0.0
+    ml_bias: float = 0.0
     spin: float = 0.0  # deg
     # targeting
     past_target_mm: float = 0.0

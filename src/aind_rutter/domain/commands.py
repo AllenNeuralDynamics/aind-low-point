@@ -15,7 +15,7 @@ import numpy as np
 from aind_anatomical_utils.coordinate_systems import convert_coordinate_system
 
 from aind_rutter.domain.plan import PlanningState
-from aind_rutter.domain.pose import resolved_angles
+from aind_rutter.domain.pose import dialed_angles
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,8 @@ class SetProbeLocalAngles:
     ap_local: Optional[float] = None  # deg
     ml_local: Optional[float] = None  # deg
     spin: Optional[float] = None  # deg
+    ap_bias: Optional[float] = None  # deg
+    ml_bias: Optional[float] = None  # deg
 
 
 @dataclass(frozen=True)
@@ -203,10 +205,7 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
         else:
             # freeze current effective AP into ap_local so unbinding doesn't jump
             if cmd.freeze_effective_on_unbind:
-                eff_ap, _, _ = resolved_angles(
-                    cmd.name, ps
-                )  # helper from earlier reply
-                plan.ap_local = eff_ap
+                plan.ap_local = dialed_angles(cmd.name, ps)[0]
             plan.bind_ap_to_arc = False
         changed.add(cmd.name)
         return sorted(changed)
@@ -225,6 +224,10 @@ def apply_planning_command(ps: PlanningState, cmd: PlanningCommand) -> List[str]
             plan.ml_local = float(cmd.ml_local)
         if cmd.spin is not None:
             plan.spin = ps.kinematics.rig.spin_deg.clamp(cmd.spin)
+        if cmd.ap_bias is not None:
+            plan.ap_bias = float(cmd.ap_bias)
+        if cmd.ml_bias is not None:
+            plan.ml_bias = float(cmd.ml_bias)
         changed.add(cmd.name)
         return sorted(changed)
 

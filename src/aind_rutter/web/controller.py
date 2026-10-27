@@ -35,7 +35,7 @@ from aind_rutter.domain.plan import (
 )
 from aind_rutter.domain.pose import (
     ProbePose,
-    resolved_angles,
+    dialed_angles,
 )
 from aind_rutter.plan_io.plan_set import PlanSet
 from aind_rutter.render.adapter import RendererAdapter
@@ -849,9 +849,9 @@ class TrameController(
 
         # The sliders are labelled R and A; the plan holds LPS.
         r_mm, a_mm = -plan.offsets_LP[0], -plan.offsets_LP[1]
-        # The same resolution ProbePose renders from, clamped to the rig
-        # limits, so the sliders cannot show a pose the probe is not in.
-        ap_tilt, ml_tilt, spin = resolved_angles(state.probe, self.store.state)
+        # The sliders set the dial, which a manipulator's bias moves the drawn
+        # probe away from; spin is clamped to the rig as the pose is.
+        ap_tilt, ml_tilt, spin = dialed_angles(state.probe, self.store.state)
         n_shanks = max(1, len(self._shank_tips_local(f"probe:{plan.kind}")))
         with state:
             state.offset_r = float(r_mm)

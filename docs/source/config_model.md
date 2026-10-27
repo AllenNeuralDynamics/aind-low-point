@@ -343,6 +343,9 @@ plan:
       # ap_local: null
       # bind_ap_to_arc: true
       # slider_ml: 0.0
+      # ap_bias: 0.0                # manipulator's landing error, deg: the arc
+      # ml_bias: 0.0                # and slider stay the dial, and the probe is
+      #                              # drawn at dial + bias until calibrated
       # spin: 0.0
       # also_record: []             # further regions scored in coverage;
       #                              # ``target`` still anchors the pose

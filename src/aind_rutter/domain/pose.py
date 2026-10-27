@@ -34,14 +34,18 @@ if TYPE_CHECKING:
     from aind_rutter.domain.catalog import AssetCatalog
 
 
-def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
-    plan = ps.probes[name]
-    cal = ps.calibrations.get(name)
+def _calibration_locked(name: str, ps: PlanningState) -> bool:
+    return CALIBRATION_LOCKED_AXES <= locked_axes_for(ps, name)
 
-    if CALIBRATION_LOCKED_AXES <= locked_axes_for(ps, name):
-        ap, ml = find_probe_angle(cal.rotation)  # locked to calibration
+
+def dialed_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
+    """The AP, ML and spin the rig is set to: the arc's AP if bound, else
+    ``ap_local``, and the slider's ML. A calibrated probe's are its calibration's,
+    which measures the rig as set."""
+    plan = ps.probes[name]
+    if _calibration_locked(name, ps):
+        ap, ml = find_probe_angle(ps.calibrations[name].rotation)
     else:
-        # AP: from arc if bound, else local; ML: always per-probe local
         ap = (
             ps.kinematics.get_arc(plan.arc_id)
             if (plan.arc_id and plan.bind_ap_to_arc)
@@ -52,6 +56,16 @@ def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
     # violation the planner reports, not one it corrects.
     spin = ps.kinematics.rig.spin_deg.clamp(plan.spin)
     return ap, ml, spin
+
+
+def resolved_angles(name: str, ps: PlanningState) -> tuple[float, float, float]:
+    """Where the probe points: its dial plus its manipulator's bias, or its
+    calibration, which already includes the bias."""
+    ap, ml, spin = dialed_angles(name, ps)
+    if _calibration_locked(name, ps):
+        return ap, ml, spin
+    plan = ps.probes[name]
+    return ap + plan.ap_bias, ml + plan.ml_bias, spin
 
 
 # Run time

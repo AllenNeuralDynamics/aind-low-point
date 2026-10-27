@@ -69,6 +69,8 @@ def apply_plan_model_to_state(plan: PlanningModel, store: "PlanStore") -> list[s
                 ap_local=(float(decl.ap_local) if decl.ap_local is not None else None),
                 ml_local=float(decl.slider_ml),
                 spin=float(decl.spin),
+                ap_bias=float(decl.ap_bias),
+                ml_bias=float(decl.ml_bias),
             )
         )
         store.dispatch(

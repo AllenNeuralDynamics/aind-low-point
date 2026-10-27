@@ -77,6 +77,8 @@ def planning_state_to_plan_model(
             spin=plan.spin,
             ap_local=plan.ap_local,
             bind_ap_to_arc=plan.bind_ap_to_arc,
+            ap_bias=plan.ap_bias,
+            ml_bias=plan.ml_bias,
             target=target_ref,
             # No command edits these, so the declaration is still what holds.
             also_record=orig_decl.also_record if orig_decl else [],

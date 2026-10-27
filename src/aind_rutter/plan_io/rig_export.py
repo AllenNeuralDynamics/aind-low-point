@@ -121,7 +121,11 @@ def export_plan_geometry(
     plan_state = reorder_plan_for_rig(plan_state, relabel_arcs=False)
     from aind_rutter.build.calibration import lps_to_newscale
     from aind_rutter.build.queries import brain_world_mesh
-    from aind_rutter.domain.pose import detect_shank_tips_local, named_shank_tip_world
+    from aind_rutter.domain.pose import (
+        detect_shank_tips_local,
+        dialed_angles,
+        named_shank_tip_world,
+    )
 
     # A catalog with no scene means the brain is authored directly in LPS.
     brain_mesh = brain_world_mesh(catalog, scene, brain_asset_key, fallback_to_raw=True)
@@ -176,8 +180,10 @@ def export_plan_geometry(
         # The plan stores subject angles; the rig is dialed in rig angles. The
         # head is mounted nose-down by the head pitch, so
         # ``rig_ap = subject_ap + head_pitch_about_L``; ML and spin are
-        # unaffected by a pitch about L.
-        ap_rig = float(pose.ap) + head_pitch_about_L
+        # unaffected by a pitch about L. The rig is set to the dial, not to
+        # where the manipulator's bias then carries the probe.
+        dial_ap, dial_ml, dial_spin = dialed_angles(name, plan_state)
+        ap_rig = float(dial_ap) + head_pitch_about_L
         entry: dict[str, Any] = {
             "kind": plan.kind,
             "target": {
@@ -187,8 +193,8 @@ def export_plan_geometry(
             "arc": {"id": plan.arc_id} if plan.arc_id else None,
             "angles_rig_deg": {
                 "ap": ap_rig,
-                "ml": float(pose.ml),
-                "spin": float(pose.spin),
+                "ml": float(dial_ml),
+                "spin": float(dial_spin),
             },
             "offsets_RA_mm": [-float(plan.offsets_LP[0]), -float(plan.offsets_LP[1])],
             "past_target_mm": float(plan.past_target_mm),
@@ -196,6 +202,8 @@ def export_plan_geometry(
             "tip_RAS_mm": [float(c) for c in tip_ras],
             "depth_from_brain_surface_mm": depth,
         }
+        if plan.ap_bias or plan.ml_bias:
+            entry["bias_deg"] = {"ap": float(plan.ap_bias), "ml": float(plan.ml_bias)}
         cal = plan_state.calibrations.get(name)
         if plan.calibrated and cal is not None:
             entry["newscale_tip_mm"] = [float(c) for c in lps_to_newscale(tip_lps, cal)]

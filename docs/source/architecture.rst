@@ -431,6 +431,8 @@ Declarative specification of a probe's intended state:
         bind_ap_to_arc: bool   # AP comes from arc angle?
         ap_local: float        # Per-probe AP override
         ml_local: float        # Per-probe ML angle
+        ap_bias: float         # Manipulator lands this far past its dial
+        ml_bias: float         #   (ignored once calibrated)
         spin: float            # Axial rotation
 
         # Targeting
@@ -782,6 +784,8 @@ Commands encapsulate state mutations. They are frozen dataclasses; a single
         ap_local: Optional[float] = None
         ml_local: Optional[float] = None
         spin: Optional[float] = None
+        ap_bias: Optional[float] = None
+        ml_bias: Optional[float] = None
 
     @dataclass(frozen=True)
     class SetArcAngle:

@@ -62,6 +62,12 @@ class ProbeDeclModel(BaseModel):
     ap_local: Optional[float] = None
     bind_ap_to_arc: bool = True
 
+    # How far this probe's manipulator lands from its dial, deg (calibrated
+    # minus dialed). The arc and ``slider_ml`` stay the dial; the probe is
+    # drawn and checked at dial plus bias until a calibration measures it.
+    ap_bias: float = 0.0
+    ml_bias: float = 0.0
+
     target: TargetRef
     # Further regions this probe records, scored in its coverage beside
     # ``target``, which alone anchors the pose.
