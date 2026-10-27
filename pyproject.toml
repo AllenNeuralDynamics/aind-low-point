@@ -43,7 +43,7 @@ dependencies = [
   "trame-pyvista>=0.1.7",
   "trame-vtk>=2.11.3",
   "trame-vuetify>=3.2.1",
-  "trimesh[recommend]>=4,<5",
+  "trimesh[recommend]>=4,<6",
   "tyro>=1.0.13",
   "vtk>=9.5.2",
 ]
