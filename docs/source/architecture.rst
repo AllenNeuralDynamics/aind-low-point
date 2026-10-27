@@ -96,6 +96,10 @@ Module Organization
     │   ├── rig_export.py      # export_plan_geometry, reorder_plan_for_rig
     │   ├── calibrate.py       # the rutter-calibrate entry point
     │   ├── locate_implant.py  # the rutter-locate-implant entry point
+    │   ├── insertion_tracks.py  # implant fits from past insertions' tracks
+    │   ├── manipulator_bias.py  # manipulators' angle errors and the dial sheet
+    │   ├── plan_check.py      # a plan threaded through a fitted implant
+    │   ├── cli_tracks.py      # the rutter-tracks entry point
     │   └── cli_csv.py         # the rutter-plan-csv entry point
     ├── session/
     │   ├── store.py           # PlanStore: one planning state, edited by command

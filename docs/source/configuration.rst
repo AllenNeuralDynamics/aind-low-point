@@ -1027,6 +1027,36 @@ reads, so a re-plan threads the measured implant while the brain stays where the
 config had it.
 
 
+Learning from past insertions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every calibrated insertion is also a measurement. ``rutter-tracks`` has three
+steps:
+
+- ``locate TRACKS.csv --holes BORES --config C --calibrations ROOT`` fits each
+  subject's implant from the NewScale tip of every calibrated insertion
+  through a hole. Each track's shanks must lie inside their bore, NewScale
+  reading shank 1's tip. Tracks through different calibrations, and through
+  different manipulators on one calibration, disagree by tenths of a
+  millimetre, so the fit allows each manipulator (``--errors``) its own
+  apparent shift of the implant, held near zero by ``--sigma-mm``, and
+  minimises how far tracks fall outside their bores.
+- ``bias SESSIONS.yml`` compares each manipulator's calibrated angles with the
+  plan it was dialed from, session by session.
+- ``check CONFIG --plan P --holes BORES --fit FIT --biases BIAS --assign
+  PROBE=MANIPULATOR ...`` writes the dial sheet: each arc set back by its
+  manipulators' mean AP bias, and each slider by its manipulator's ML bias
+  where that keeps its sign across sessions. It then threads the plan
+  through the design position and each fitted implant, adds each assigned
+  manipulator's fitted error, and reports per probe the clearance in its hole,
+  the worst clearance with AP and ML each ``--angle-step-deg`` off, and the
+  target offset that would thread it again.
+
+Calibration fixes where a probe ends, not the angle it took to get there, so
+an implant or angle error moves where the probe crosses its hole. The check
+says how much re-threading to expect after calibrating.
+
+
 Plan-Only YAML
 --------------
 
