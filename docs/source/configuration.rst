@@ -1170,7 +1170,11 @@ Every asset and target therefore states which resonance localized it:
         mr_signal: none
 
 ``imaging.chem_shift_ppm_default`` sets the ppm for the whole config; the
-per-asset ``chem_shift_ppm`` overrides it and is rarely needed.
+per-asset ``chem_shift_ppm`` overrides it and is rarely needed. The shift is
+``spacing × ppm × magnet_frequency_MHz / pixel_bandwidth_Hz`` mm along
+``readout`` (``AP``, ``LR`` or ``IS``), toward +P, +L or +S. ``pixel_bandwidth_Hz``
+and ``readout`` default to the 14T protocol's 500 Hz and ``AP``; a scan from
+another protocol must state both, since the image header does not record them.
 
 **A config with no** ``imaging`` **block declares no** ``mr_signal`` **at all.**
 An atlas-based plan has no image, so there is nothing to shift and nothing to

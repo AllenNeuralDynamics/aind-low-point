@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -119,3 +120,50 @@ def test_an_asset_overrides_its_template() -> None:
         }
     )
     assert [a.mr_signal for a in cfg.assets] == [MRSignal.NONE, MRSignal.FAT]
+
+
+def _image_context(**imaging: Any) -> ChemShiftContext:
+    import SimpleITK as sitk
+
+    image = sitk.Image(4, 4, 4, sitk.sitkUInt8)
+    image.SetSpacing((0.1, 0.1, 0.1))
+    cfg = ConfigModel.model_validate(
+        {**_config(imaging=False, mr_signal="water"), "imaging": {**IMAGING, **imaging}}
+    )
+    im = cfg.imaging
+    assert im is not None
+    return ChemShiftContext(
+        enabled=True,
+        magnet_MHz=im.magnet_frequency_MHz,
+        default_ppm=im.chem_shift_ppm_default,
+        image=image,
+        pixel_bandwidth_Hz=im.pixel_bandwidth_Hz,
+        readout=im.readout,
+    )
+
+
+def _shift_mm(ctx: ChemShiftContext) -> np.ndarray:
+    return np.asarray(ctx.pt_transform_for_ppm().apply_to(np.zeros((1, 3))))[0]
+
+
+def test_the_defaults_are_the_14t_protocol() -> None:
+    """Configs that name neither field keep the shift they always had."""
+    np.testing.assert_allclose(
+        _shift_mm(_image_context()), [0, 0.1 * 3.9 * 599 / 500, 0]
+    )
+
+
+def test_the_shift_follows_the_scanner() -> None:
+    ctx = _image_context(magnet_frequency_MHz=298.09, pixel_bandwidth_Hz=166.5)
+    np.testing.assert_allclose(_shift_mm(ctx), [0, 0.1 * 3.9 * 298.09 / 166.5, 0])
+
+
+@pytest.mark.parametrize(("readout", "axis"), [("LR", 0), ("AP", 1), ("IS", 2)])
+def test_the_shift_runs_along_the_readout(readout: str, axis: int) -> None:
+    shift = _shift_mm(_image_context(readout=readout))
+    assert np.flatnonzero(shift).tolist() == [axis]
+
+
+def test_a_misspelled_readout_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        _image_context(readout="ML")

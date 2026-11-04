@@ -26,7 +26,7 @@ from pydantic import (
 )
 
 from aind_rutter.config.locations import is_absolute_location
-from aind_rutter.domain.enums import Kind, MRSignal, OrientationCode, Role
+from aind_rutter.domain.enums import Kind, MRSignal, OrientationCode, Readout, Role
 
 
 def against_config_folder(value: Any, info: ValidationInfo) -> Any:
@@ -123,6 +123,9 @@ class ImagingModel(BaseModel):
 
     magnet_frequency_MHz: float
     chem_shift_ppm_default: float = 3.7
+    # Defaults are the 14T protocol's; the shift scales as 1/bandwidth.
+    pixel_bandwidth_Hz: float = Field(500.0, gt=0)
+    readout: Readout = Readout.AP
     # optionally, where to read the reference image from if needed by your library
     image_path: Optional[ConfigFilePath] = None
 

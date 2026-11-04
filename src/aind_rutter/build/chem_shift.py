@@ -12,7 +12,7 @@ from aind_mri_utils.chemical_shift import (
 )
 
 from aind_rutter.config import BaseSpecModel, ConfigModel
-from aind_rutter.domain.enums import MRSignal
+from aind_rutter.domain.enums import MRSignal, Readout
 from aind_rutter.domain.transforms import AffineTransform
 
 
@@ -23,6 +23,8 @@ class ChemShiftContext:
     default_ppm: float = 3.7
     # transforms to apply to geometry in image/LPS space
     image: Optional[sitk.Image] = None
+    pixel_bandwidth_Hz: float = 500.0
+    readout: Readout = Readout.AP
     # lazy cache: ppm -> AffineTransform (observed → corrected)
     _cache: dict[float, AffineTransform] = field(
         default_factory=dict, repr=False, compare=False
@@ -38,8 +40,18 @@ class ChemShiftContext:
                 ppm = self.default_ppm
             if ppm in self._cache:
                 return self._cache[ppm]
+            shift = compute_chemical_shift(
+                self.image,
+                ppm=ppm,
+                mag_freq=self.magnet_MHz,
+                pixel_bandwidth=self.pixel_bandwidth_Hz,
+                # The two helpers spell left-right differently.
+                frequency_encoding_direction=(
+                    "ML" if self.readout is Readout.LR else self.readout.value
+                ),
+            )
             chem_shift_pt_R, chem_shift_pt_t = chemical_shift_transform(
-                compute_chemical_shift(self.image, ppm=ppm)
+                shift, readout=self.readout.value
             )
             tf = AffineTransform(chem_shift_pt_R, chem_shift_pt_t)
             self._cache[ppm] = tf
@@ -53,9 +65,6 @@ class ChemShiftContext:
         im = cfg.imaging
         if im is None:
             return ChemShiftContext(False, 0.0, 0.0)
-        # Build correction using your existing aind_mri_utils helpers.
-        # If your `compute_chemical_shift` accepts only ppm, scale ppm if you want
-        # frequency-awareness; otherwise pass ppm through (common in practice).
         if im.image_path:
             brain_image = sitk.ReadImage(str(im.image_path))
         else:
@@ -65,6 +74,8 @@ class ChemShiftContext:
             magnet_MHz=im.magnet_frequency_MHz,
             default_ppm=im.chem_shift_ppm_default,
             image=brain_image,
+            pixel_bandwidth_Hz=im.pixel_bandwidth_Hz,
+            readout=im.readout,
         )
 
 

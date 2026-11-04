@@ -120,7 +120,7 @@ any machine the original did.
 ```yaml
 version: 1
 paths:           # PathsModel — free-form dict for ${paths.foo} interpolation
-imaging:         # ImagingModel — magnet_frequency_MHz, chem_shift_*
+imaging:         # ImagingModel — magnet_frequency_MHz, pixel_bandwidth_Hz, readout, chem_shift_*
 materials:       # dict[str, MaterialModel] — named material registry
 transforms:      # dict[str, TransformRecipeModel] — named transform registry
 canonicalizations:  # dict[str, CanonicalizationDefModel]

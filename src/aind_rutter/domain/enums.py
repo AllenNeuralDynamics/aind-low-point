@@ -23,6 +23,14 @@ class MRSignal(str, Enum):
     NONE = "none"
 
 
+class Readout(StrEnum):
+    """The MRI frequency-encoding axis, which chemical shift displaces along."""
+
+    AP = "AP"
+    LR = "LR"
+    IS = "IS"
+
+
 class Role(str, Enum):
     """What an asset is, as against where its coordinates came from.
 
