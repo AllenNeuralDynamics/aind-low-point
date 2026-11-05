@@ -37,7 +37,7 @@ wheels = [
 
 [[package]]
 name = "aind-mri-utils"
-version = "0.12.1"
+version = "0.13.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aind-anatomical-utils" },
@@ -51,9 +51,9 @@ dependencies = [
     { name = "simpleitk" },
     { name = "trimesh" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/b3/d95a0fe5afd92d6b1efe5a252a861c68be89765dbad0520a45487ff7e90d/aind_mri_utils-0.12.1.tar.gz", hash = "sha256:ce257dad6230ab3ebe658517763059441fa3d63b6f91a82984c29eac824cc326", size = 258127, upload-time = "2026-06-08T17:16:00.99Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/2a/fa3a8244b63ddf799dd05f1715ae9b50b3530b7700795d816073ce808768/aind_mri_utils-0.13.2.tar.gz", hash = "sha256:5f7452dee1ebc9985a687f296a2a37f32c8535098400abde24015f6667b6b978", size = 265021, upload-time = "2026-11-05T19:42:37.363Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/49/1b2291e85b8e7c4a19a797207cd2710374d95afdba9466e02367b7822e5a/aind_mri_utils-0.12.1-py3-none-any.whl", hash = "sha256:c1b7fcb1daf4a14943fa643e3ae144d6de96bdaca0bae7f87be96c6e0f009a31", size = 58588, upload-time = "2026-06-08T17:16:02.098Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/fc/e8aafeedcd2ba11aa93e76e76f5addb86053346910911be9ca7dfbede8ce/aind_mri_utils-0.13.2-py3-none-any.whl", hash = "sha256:2057a901c82622636f304a21ea238ec26834d03c86f4062bbd0151ff4ed678d7", size = 63031, upload-time = "2026-11-05T19:42:36.113Z" },
 ]
 
 [[package]]
@@ -149,7 +149,7 @@ vscode = [
 [package.metadata]
 requires-dist = [
     { name = "aind-anatomical-utils", specifier = ">=0.1,<0.2" },
-    { name = "aind-mri-utils", specifier = ">=0.12.1,<2" },
+    { name = "aind-mri-utils", specifier = ">=0.13.2,<2" },
     { name = "cadquery-ocp-novtk", marker = "extra == 'step'", specifier = ">=8.0.1,<9" },
     { name = "certifi", specifier = ">=2023" },
     { name = "cma", marker = "extra == 'optimization'", specifier = ">=4.4.4" },

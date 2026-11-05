@@ -22,7 +22,7 @@ version = "0.1.0"
 # ``[optimization]`` for that.
 dependencies = [
   "aind-anatomical-utils>=0.1,<0.2",
-  "aind_mri_utils>=0.12.1,<2",  # >=0.12.1: watertight mask_to_trimesh (padded marching cubes)
+  "aind_mri_utils>=0.13.2,<2",  # >=0.13.2: arc angles round-trip; latest parallax run per serial
   "certifi>=2023",
   "mapbox-earcut>=2.0.0",
   "numpy>=1.20,<3",
