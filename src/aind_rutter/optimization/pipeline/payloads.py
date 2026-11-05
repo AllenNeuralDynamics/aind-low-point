@@ -296,6 +296,20 @@ def pinned_spec_differences(
     return differences
 
 
+class _Kind(_Model):
+    model_config = ConfigDict(extra="ignore")
+    kind: str
+
+
+def payload_kind(path: str | Path) -> str:
+    """The ``kind`` a payload file declares, such as ``phase1_pool``."""
+    path = check_payload_path(path)
+    try:
+        return _Kind.model_validate_json(_read_bytes(path)).kind
+    except ValidationError as e:
+        raise ValueError(f"{path}: not a pipeline payload") from e
+
+
 def read_pool(path: str | Path) -> Phase1PoolPayload:
     """Read and validate a Phase-1 pool written by ``write_pool``."""
     path = check_payload_path(path)

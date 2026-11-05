@@ -85,6 +85,9 @@ from aind_rutter.optimization.pipeline.handoff import (  # noqa: E402
     handoff_config,
 )
 from aind_rutter.optimization.pipeline.payloads import (  # noqa: E402
+    payload_kind,
+    pinned_spec_differences,
+    read_handoff,
     read_pool,
     write_handoff,
 )
@@ -101,9 +104,13 @@ from aind_rutter.optimization.pipeline.records import (  # noqa: E402
 )
 from aind_rutter.optimization.pipeline.selection import (  # noqa: E402
     check_pool_specs,
+    select_from_handoff,
     select_records,
 )
-from aind_rutter.optimization.pipeline.settings import Phase2Settings  # noqa: E402
+from aind_rutter.optimization.pipeline.settings import (  # noqa: E402
+    Phase2Settings,
+    resolve_settings,
+)
 
 _G: dict = {}
 
@@ -814,20 +821,54 @@ def _flush_print(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _from_handoff(
+    settings: Phase2Settings,
+) -> tuple[Phase2Settings, list[Phase2InputRecord], Mapping[str, float] | None]:
+    """Settings and records for solving an earlier handoff again, reporting what
+    this run changes from the one it continues."""
+    from aind_rutter.optimization.geometry.holes import threading_margin_mm
+
+    handoff = read_handoff(settings.poses)
+    recorded = cast(dict[str, Any], handoff["config"])
+    settings, changed = resolve_settings(recorded.get("settings", {}))
+    settings = with_config_rig(settings)
+    margin = threading_margin_mm(settings.thread_shank == "corners")
+    was = recorded.get("threading_margin_mm", "unrecorded")
+    if was != margin:
+        changed["threading_margin_mm"] = (was, margin)
+    print(f"Solving again from {settings.poses} under {settings.config}", flush=True)
+    for name, (old, new) in changed.items():
+        print(f"  {name}: {old} -> {new}", flush=True)
+    differences = pinned_spec_differences(recorded, settings.pinned_specs())
+    if differences:
+        print("  specs differ: " + "; ".join(differences), flush=True)
+    recs = select_from_handoff(handoff, settings)
+    return settings, recs, recorded.get("recorded_share_alone")
+
+
 def main() -> int:
-    settings = with_config_rig(Phase2Settings())
-    pool = read_pool(settings.poses)
-    warning = check_pool_specs(pool, settings)
-    if warning:
-        print(f"WARNING: {warning}", flush=True)
-    recs = select_records(pool["records"], settings, log=_flush_print)
+    settings = Phase2Settings()
+    best_alone: Mapping[str, float] | None
+    if payload_kind(settings.poses) == "phase2_handoff":
+        settings, recs, best_alone = _from_handoff(settings)
+    else:
+        settings = with_config_rig(settings)
+        pool = read_pool(settings.poses)
+        warning = check_pool_specs(pool, settings)
+        if warning:
+            print(f"WARNING: {warning}", flush=True)
+        recs = select_records(pool["records"], settings, log=_flush_print)
+        best_alone = pool.get("recorded_share_alone")
     payload = run(
         recs,
         settings,
         on_result=_log_cand,
         log=_flush_print,
-        best_alone=pool.get("recorded_share_alone"),
+        best_alone=best_alone,
     )
+    if best_alone is not None:
+        # So a later run can solve this handoff again under the same floor.
+        payload["config"]["recorded_share_alone"] = dict(best_alone)
     _print_report(payload, settings)
     write_handoff(settings.out, payload)
     print(

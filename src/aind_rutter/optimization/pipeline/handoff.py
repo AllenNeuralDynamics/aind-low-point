@@ -11,6 +11,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from aind_rutter.optimization.geometry.holes import threading_margin_mm
 from aind_rutter.optimization.pipeline.records import Phase2ResultRecord
 from aind_rutter.optimization.pipeline.settings import Phase2Settings
 
@@ -114,4 +115,6 @@ def handoff_config(settings: Phase2Settings) -> dict[str, object]:
         "perturb_scale": settings.p2_perturb,
         "perturb_seed": settings.p2_perturb_seed,
         "ranks_file": str(settings.ranks_file or ""),
+        # Read from the environment below the settings layer, so recorded here.
+        "threading_margin_mm": threading_margin_mm(settings.thread_shank == "corners"),
     }

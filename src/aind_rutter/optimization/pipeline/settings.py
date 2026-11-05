@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -399,7 +400,11 @@ class Phase2Settings(PipelineSettings):
     )
     poses: Path = Field(
         Path("scratch/mrv_pool_results.json.gz"),
-        description="Phase-1 pool to select from.",
+        description=(
+            "Phase-1 pool to select from, or a Phase-2 handoff to solve again; a "
+            "handoff's recorded settings are the defaults for every problem and "
+            "solver field this run does not set."
+        ),
     )
     out: Path = Field(
         Path("scratch/phase2_handoff.json"),
@@ -410,6 +415,37 @@ class Phase2Settings(PipelineSettings):
         description="Explicit zero-based offsets into the select_by order.",
     )
     ranks_file: Path | None = Field(None)
+    candidates: str = Field(
+        "",
+        description="Candidate ids to solve, comma-separated, in this order; "
+        "replaces the ranked cut.",
+    )
+    candidates_file: Path | None = Field(
+        None,
+        description="Candidate ids as a list, or a plan set's manifest.json, whose "
+        "first topk plans (in candidates_by order) give them.",
+    )
+    candidates_by: Literal["manifest", "recorded"] = Field(
+        "manifest",
+        description="Order of a manifest's plans: as listed, or by mean recorded "
+        "share, best first.",
+    )
+    handoff_start: Literal["solved", "phase1"] = Field(
+        "solved",
+        description="Which pose of a handoff record a solve starts from: the one "
+        "Phase 2 reached, or the Phase-1 pose it started from.",
+    )
+
+    @model_validator(mode="after")
+    def _one_selection(self) -> Self:
+        given = [
+            n
+            for n in ("ranks", "ranks_file", "candidates", "candidates_file")
+            if getattr(self, n)
+        ]
+        if len(given) > 1:
+            raise ValueError(f"choose candidates one way, not by {given}")
+        return self
 
     @field_validator("poses", "out")
     @classmethod
@@ -502,3 +538,62 @@ class Phase2Settings(PipelineSettings):
                 raise ValueError("spin_param='angle' is only wired for solver='ipopt'")
             object.__setattr__(self, "spin_param", "unit_vector")
         return self
+
+
+# Recorded fields that describe a run rather than the problem it solved, which
+# a run solving its handoff again sets for itself.
+_RUN_FIELDS = frozenset(
+    {
+        "config",
+        "paths",
+        "offline",
+        "atlas_cache",
+        "poses",
+        "out",
+        "topk",
+        "select_by",
+        "rank_head",
+        "rank_workers",
+        "ranker_table",
+        "ranks",
+        "ranks_file",
+        "candidates",
+        "candidates_file",
+        "candidates_by",
+        "handoff_start",
+        "workers",
+        "warmup",
+    }
+)
+
+
+def resolve_settings(
+    recorded: Mapping[str, Any],
+    environ: Mapping[str, str] | None = None,
+    **given: Any,
+) -> tuple[Phase2Settings, dict[str, tuple[Any, Any]]]:
+    """Settings for solving a handoff again, and each problem or solver field
+    that differs from the one recorded, as (recorded, now).
+
+    Arguments rank first, then the environment, then the handoff's recorded
+    problem and solver fields, then the defaults; so a re-solve keeps every
+    margin and weight of the run it continues unless one is set.
+    """
+    env = os.environ if environ is None else environ
+    names = Phase2Settings.model_fields
+    kept = {
+        k: v
+        for k, v in recorded.items()
+        if k in names
+        and k not in _RUN_FIELDS
+        and k not in given
+        and f"RUTTER_{k.upper()}" not in env
+    }
+    settings = Phase2Settings(**kept, **given)
+    now = settings.model_dump(mode="json")
+    changed = {
+        k: (v, now[k])
+        for k, v in recorded.items()
+        if k in names and k not in _RUN_FIELDS and v != now[k]
+    }
+    return settings, changed

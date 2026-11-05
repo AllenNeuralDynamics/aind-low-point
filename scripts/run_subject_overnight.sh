@@ -33,6 +33,9 @@
 #       phase2_handoff.json, plans/, manifest.json and the geometry caches. An
 #       absolute path, or one relative to the repository.
 #   FRESH=1   force-clear the geometry caches + pool before running
+#   RUTTER_RESOLVE=<handoff>  skip Phase 1 and solve that earlier Phase 2 again
+#       under RUTTER_CONFIG, inheriting its settings; choose the records with
+#       RUTTER_CANDIDATES or RUTTER_CANDIDATES_FILE (else its first TOPK kept).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -74,8 +77,9 @@ MAX_ARCS="${RUTTER_MAX_ARCS:-3}"  # Phase 1 loops n_arcs down to 1, one process 
 MAX_PROBES_PER_ARC="${RUTTER_MAX_PROBES_PER_ARC:-4}"
 N_SPINS="${RUTTER_N_SPINS:-16}"
 PLANS="${RUTTER_PLANS:-}"
+RESOLVE="${RUTTER_RESOLVE:-}"
 # Refuse before Phase 1 what Phase 2 would refuse hours later.
-if [ "${RUTTER_SELECT_BY:-learned}" = learned ] && [ -z "${RUTTER_RANKS:-}${RUTTER_RANKS_FILE:-}" ] \
+if [ -z "$RESOLVE" ] && [ "${RUTTER_SELECT_BY:-learned}" = learned ] && [ -z "${RUTTER_RANKS:-}${RUTTER_RANKS_FILE:-}" ] \
   && [ "$TOPK" -gt "${RUTTER_RANK_HEAD:-100}" ] && [ ! -f "${RUTTER_RANKER_TABLE:-}" ]; then
   echo "RUTTER_TOPK=$TOPK passes the objective's head: set RUTTER_RANKER_TABLE" \
     "to a solved pool's training table, or RUTTER_SELECT_BY=objective" >&2
@@ -90,49 +94,54 @@ fi
 # Coverage settings (RUTTER_RETRO_DENSITY / RUTTER_COV_*) are NOT in the
 # fingerprint, so coverage variants still share the geometry caches.
 # NOT detected: editing a probe .obj in place (config text unchanged) → FRESH=1.
-export RUTTER_ATLAS_CACHE="${RUTTER_ATLAS_CACHE:-$ATLAS_CACHE}"
-export RUTTER_SEED_CACHE="${RUTTER_SEED_CACHE:-$SEED_CACHE}"
-FRESH="${FRESH:-0}"
-geom_fingerprint() {
-  {
-    cat "$CONFIG"
-    if [ -f "$HOLES" ]; then cat "$HOLES"; fi
-    printf 'caps MAX_ARCS=%s MPA=%s N_SPINS=%s\n' \
-      "$MAX_ARCS" "$MAX_PROBES_PER_ARC" "$N_SPINS"
-  } | sha256sum | cut -d' ' -f1
-}
-FP="$(geom_fingerprint)"
-if [ "$FRESH" = "1" ]; then
-  echo "[$(date +%H:%M)] FRESH=1 → clearing geometry caches + pool"
-  rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
-elif [ -f "$STAMP" ] && [ "$(cat "$STAMP")" != "$FP" ]; then
-  echo "[$(date +%H:%M)] config/holes/caps changed → clearing stale geometry caches + pool"
-  echo "    atlas=$RUTTER_ATLAS_CACHE seeds=$RUTTER_SEED_CACHE pool=$POOL"
-  rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
-elif [ ! -f "$STAMP" ]; then
-  echo "[$(date +%H:%M)] arming geometry-cache fingerprint (keeping existing caches);"
-  echo "    if you changed probe geometry/holes since they were built, re-run FRESH=1."
-  echo "$FP" >"$STAMP"
+if [ -z "$RESOLVE" ]; then
+  export RUTTER_ATLAS_CACHE="${RUTTER_ATLAS_CACHE:-$ATLAS_CACHE}"
+  export RUTTER_SEED_CACHE="${RUTTER_SEED_CACHE:-$SEED_CACHE}"
+  FRESH="${FRESH:-0}"
+  geom_fingerprint() {
+    {
+      cat "$CONFIG"
+      if [ -f "$HOLES" ]; then cat "$HOLES"; fi
+      printf 'caps MAX_ARCS=%s MPA=%s N_SPINS=%s\n' \
+        "$MAX_ARCS" "$MAX_PROBES_PER_ARC" "$N_SPINS"
+    } | sha256sum | cut -d' ' -f1
+  }
+  FP="$(geom_fingerprint)"
+  if [ "$FRESH" = "1" ]; then
+    echo "[$(date +%H:%M)] FRESH=1 → clearing geometry caches + pool"
+    rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+  elif [ -f "$STAMP" ] && [ "$(cat "$STAMP")" != "$FP" ]; then
+    echo "[$(date +%H:%M)] config/holes/caps changed → clearing stale geometry caches + pool"
+    echo "    atlas=$RUTTER_ATLAS_CACHE seeds=$RUTTER_SEED_CACHE pool=$POOL"
+    rm -f "$RUTTER_ATLAS_CACHE" "$RUTTER_SEED_CACHE" "$POOL"; echo "$FP" >"$STAMP"
+  elif [ ! -f "$STAMP" ]; then
+    echo "[$(date +%H:%M)] arming geometry-cache fingerprint (keeping existing caches);"
+    echo "    if you changed probe geometry/holes since they were built, re-run FRESH=1."
+    echo "$FP" >"$STAMP"
+  else
+    echo "[$(date +%H:%M)] geometry caches current (fingerprint matched)."
+  fi
+
+  echo "[$(date +%H:%M)] === subject=${STEM} ==="
+
+  echo "[$(date +%H:%M)] Phase 1: MRV enumerate + restore + RProp/coarse-fine (no FCL cull) → ${POOL}"
+  # One mrv_pool_run PROCESS per n_arcs group (ONLY_NARCS), largest first. Each
+  # group gets a fresh GPU context so the BFC allocator can't fragment across
+  # groups (the cause of the cross-group 5.9GiB restore OOM); the per-group resume
+  # logic accumulates records into $POOL. A group with no candidates no-ops.
+  for NA in $(seq "$MAX_ARCS" -1 1); do
+    echo "[$(date +%H:%M)]   Phase-1 group n_arcs=${NA}"
+    RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
+      RUTTER_MAX_ARCS="$MAX_ARCS" RUTTER_MAX_PROBES_PER_ARC="$MAX_PROBES_PER_ARC" \
+      RUTTER_ONLY_NARCS="$NA" RUTTER_WELL=thick RUTTER_N_SPINS="$N_SPINS" \
+      RUTTER_OUT="$POOL" \
+      JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
+      uv run --python 3.13 rutter-phase1
+  done
 else
-  echo "[$(date +%H:%M)] geometry caches current (fingerprint matched)."
+  echo "[$(date +%H:%M)] === subject=${STEM}: solving ${RESOLVE} again, no Phase 1 ==="
+  POOL="$RESOLVE"
 fi
-
-echo "[$(date +%H:%M)] === subject=${STEM} ==="
-
-echo "[$(date +%H:%M)] Phase 1: MRV enumerate + restore + RProp/coarse-fine (no FCL cull) → ${POOL}"
-# One mrv_pool_run PROCESS per n_arcs group (ONLY_NARCS), largest first. Each
-# group gets a fresh GPU context so the BFC allocator can't fragment across
-# groups (the cause of the cross-group 5.9GiB restore OOM); the per-group resume
-# logic accumulates records into $POOL. A group with no candidates no-ops.
-for NA in $(seq "$MAX_ARCS" -1 1); do
-  echo "[$(date +%H:%M)]   Phase-1 group n_arcs=${NA}"
-  RUTTER_CONFIG="$CONFIG" RUTTER_HOLES="$HOLES" \
-    RUTTER_MAX_ARCS="$MAX_ARCS" RUTTER_MAX_PROBES_PER_ARC="$MAX_PROBES_PER_ARC" \
-    RUTTER_ONLY_NARCS="$NA" RUTTER_WELL=thick RUTTER_N_SPINS="$N_SPINS" \
-    RUTTER_OUT="$POOL" \
-    JAX_PLATFORMS=cuda XLA_PYTHON_CLIENT_MEM_FRACTION=0.8 \
-    uv run --python 3.13 rutter-phase1
-done
 
 # A private MPS pipe directory, so this daemon neither finds nor stops another's.
 export CUDA_MPS_PIPE_DIRECTORY="${CUDA_MPS_PIPE_DIRECTORY:-/tmp/nvidia-mps-rutter}"

@@ -832,6 +832,32 @@ against similarity to already selected hole assignments. This keeps the handoff
 set useful to a human reviewer instead of returning many nearly identical
 plans.
 
+Solving A Handoff Again
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``RUTTER_POSES`` may name a Phase-2 handoff instead of a pool; Phase 2 then
+solves those plans again under ``RUTTER_CONFIG``, keeping each plan's holes and
+arc assignment. This carries plans made on a template to a subject whose implant
+has been located (``rutter-tracks place`` writes the config), or to a tighter
+margin, without a Phase 1. Every problem and solver setting the handoff records
+is the default for this run, so its margins are not dropped silently; a variable
+or argument still wins, and each field that differs is printed.
+``RUTTER_THREADING_MARGIN_MM`` is read below the settings, so it is recorded and
+compared separately and is not inherited.
+
+* ``RUTTER_CANDIDATES`` names the plans by candidate id; ``RUTTER_CANDIDATES_FILE``
+  takes a list of ids, or a plan set's ``manifest.json``, whose first
+  ``RUTTER_TOPK`` plans give them, as listed or by mean recorded share with
+  ``RUTTER_CANDIDATES_BY=recorded``. Without either, the handoff's first
+  ``RUTTER_TOPK`` ranked plans are solved. Both also select from a pool by id.
+* ``RUTTER_HANDOFF_START=solved`` (the default) starts from each solved pose,
+  ``phase1`` from the pose Phase 1 handed over. From the solved pose more plans
+  are kept and recorded share is the same or better.
+
+``scripts/run_subject_overnight.sh`` does this with ``RUTTER_RESOLVE=<handoff>``,
+skipping Phase 1 and its caches. Unchanged, a solve from the solved pose
+returns the plan it started from, so what moves is what the new config asks.
+
 
 Emit Plans
 ----------
