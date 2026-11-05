@@ -31,6 +31,7 @@ from aind_rutter.plan_io.plan_check import (
     dialed_plan,
     rethread,
     rethreaded_plan,
+    setup_sheet,
 )
 
 UP = np.array([0.0, 0.0, 1.0])
@@ -189,6 +190,50 @@ def test_a_dialed_plan_lands_each_probe_at_plan_plus_its_arc_leftover() -> None:
         assert p["slider_ml"] + p["ml_bias"] == pytest.approx(
             plan["probes"][name]["slider_ml"]
         )
+
+
+PITCHED = {
+    "arcs": {"a": 18.81, "b": 4.31},
+    "subject_from_rig": {"axis_LPS": [1.0, 0.0, 0.0], "angle_deg": 14.0},
+    "probes": {
+        "P1": {"arc": "a", "slider_ml": -12.75, "spin": -54.24},
+        "P2": {"arc": "a", "slider_ml": -28.75, "spin": 28.62},
+    },
+}
+
+
+def test_a_setup_sets_each_arc_at_subject_ap_plus_the_head_pitch() -> None:
+    sheet = setup_sheet(PITCHED, {"P1": "m1", "P2": "m2"})
+    assert sheet["head_pitch_deg"] == pytest.approx(14.0)
+    assert sheet["arcs"]["a"]["rig_ap_deg"] == pytest.approx(32.81)
+    assert sheet["arcs"]["a"]["subject_ap_deg"] == pytest.approx(18.81)
+    assert sheet["arcs"]["b"] == {
+        "rig_ap_deg": pytest.approx(18.31),
+        "subject_ap_deg": pytest.approx(4.31),
+        "probes": [],
+    }
+    assert sheet["probes"]["P2"]["slider_ml_deg"] == pytest.approx(-28.75)
+    assert not sheet["bias_corrected"]
+    with pytest.raises(ValueError, match="no manipulator"):
+        setup_sheet(PITCHED, {"P1": "m1"})
+
+
+def test_setup_refuses_to_bias_a_dialed_plan(tmp_path: Path) -> None:
+    from aind_rutter.plan_io.cli_tracks import Setup, setup
+
+    dialed = {**PITCHED, "probes": {**PITCHED["probes"]}}
+    dialed["probes"]["P1"] = {**PITCHED["probes"]["P1"], "ap_bias": 2.0}
+    config = tmp_path / "c.yml"
+    config.write_text(yaml.safe_dump({"plan": dialed}))
+    biases = tmp_path / "bias.yml"
+    biases.write_text("manipulators: {}\n")
+    with pytest.raises(ValueError, match="already carry biases"):
+        setup(Setup(config=config, assign=("P1=m1", "P2=m2"), biases=biases))
+    out = tmp_path / "s.yml"
+    setup(Setup(config=config, assign=("P1=m1", "P2=m2"), out=out))
+    written = yaml.safe_load(out.read_text())
+    assert written["bias_corrected"]
+    assert written["arcs"]["a"]["rig_ap_deg"] == pytest.approx(32.81)
 
 
 def test_place_writes_each_fitted_subjects_config(tmp_path: Path) -> None:

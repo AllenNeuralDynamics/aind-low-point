@@ -52,7 +52,7 @@ from aind_rutter.domain.transforms import (
 logger = logging.getLogger(__name__)
 
 
-def _build_subject_from_rig(model: HeadMountModel) -> AffineTransform:
+def build_subject_from_rig(model: HeadMountModel) -> AffineTransform:
     """Build an AffineTransform rotation from a HeadMountModel.
 
     The model carries an axis-angle in subject-LPS basis. When the angle
@@ -443,7 +443,7 @@ def build_plan_state_from_config(
     kinematics = Kinematics(
         arc_angles=dict(cfg.plan.arcs),
         rig=build_rig(cfg.plan.rig),
-        subject_from_rig=_build_subject_from_rig(cfg.plan.subject_from_rig),
+        subject_from_rig=build_subject_from_rig(cfg.plan.subject_from_rig),
     )
     calibrations = load_calibrations(cfg.plan.calibrations, cfg.plan.reticles)
     probes: dict[str, ProbePlan] = {}

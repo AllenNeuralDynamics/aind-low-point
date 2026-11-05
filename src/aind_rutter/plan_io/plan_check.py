@@ -162,6 +162,66 @@ def dialed_plan(plan: Mapping[str, Any], sheet: Any) -> dict[str, Any]:
     return {**plan, "arcs": arcs, "probes": probes}
 
 
+def plan_head_pitch_deg(plan: Mapping[str, Any]) -> float:
+    """The head pitch a plan's ``subject_from_rig`` states: rig AP minus subject AP."""
+    from aind_rutter.build.assemble import build_subject_from_rig
+    from aind_rutter.config import HeadMountModel
+    from aind_rutter.domain.rig import head_pitch_deg
+
+    mount = HeadMountModel.model_validate(plan.get("subject_from_rig") or {})
+    return head_pitch_deg(build_subject_from_rig(mount))
+
+
+def setup_sheet(
+    plan: Mapping[str, Any], assignment: Mapping[str, str]
+) -> dict[str, Any]:
+    """What to set on the rig for ``plan`` as written: each arc on the rig's AP
+    scale, each slider and spin, and the manipulator on each probe.
+
+    Every angle key names its frame: the plan's arcs are subject AP, the rig's
+    scale reads subject AP plus the head pitch, and a bare number reads as
+    either. ``bias_corrected`` says whether the plan's sliders and arcs already
+    carry each manipulator's bias, i.e. are dials rather than landing angles.
+    """
+    pitch = plan_head_pitch_deg(plan)
+    probes = plan.get("probes") or {}
+    missing = sorted(set(probes) - set(assignment))
+    if missing:
+        raise ValueError(f"no manipulator assigned to {missing}")
+    unknown = sorted(set(assignment) - set(probes))
+    if unknown:
+        raise ValueError(f"the plan has no probes {unknown}")
+    arcs = {
+        arc: {
+            "rig_ap_deg": round(float(ap) + pitch, 2),
+            "subject_ap_deg": round(float(ap), 2),
+            "probes": [n for n, p in probes.items() if p.get("arc") == arc],
+        }
+        for arc, ap in (plan.get("arcs") or {}).items()
+    }
+    unbound = [n for n, p in probes.items() if not p.get("bind_ap_to_arc", True)]
+    if unbound:
+        raise ValueError(f"{unbound} set AP off their arc, which no dial does")
+    return {
+        "head_pitch_deg": round(pitch, 2),
+        "set_on_rig": "each arc at rig_ap_deg; rig AP = subject AP + head pitch, "
+        "ML is the same in both frames",
+        "bias_corrected": any(
+            p.get("ap_bias") or p.get("ml_bias") for p in probes.values()
+        ),
+        "arcs": arcs,
+        "probes": {
+            n: {
+                "manipulator": str(assignment[n]),
+                "arc": p.get("arc"),
+                "slider_ml_deg": round(float(p["slider_ml"]), 2),
+                "spin_deg": round(float(p.get("spin") or 0.0), 1),
+            }
+            for n, p in probes.items()
+        },
+    }
+
+
 def probe_gaps(cfg: Any, plan: Mapping[str, Any]) -> list[Any]:
     """FCL gaps, closest first, of every pair the collision check tests for
     ``plan`` applied to the loaded config ``cfg``."""

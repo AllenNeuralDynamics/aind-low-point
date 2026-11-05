@@ -5,6 +5,7 @@ rutter-tracks locate tracks.csv --holes H.holes.yml --config C.yml --calibration
 rutter-tracks bias   sessions.yml
 rutter-tracks check  C.yml --plan P.plan.yml --holes H.holes.yml --fit implants.yml \\
                      --biases bias.yml --assign PROBE=MANIPULATOR ...
+rutter-tracks setup  C.yml --assign PROBE=MANIPULATOR ... [--biases bias.yml]
 rutter-tracks place  C.yml --fit implants.yml [--subject S]
 
 ``locate`` fits each subject's implant from its insertion tracks
@@ -12,7 +13,9 @@ rutter-tracks place  C.yml --fit implants.yml [--subject S]
 manipulator's angle error against the plans it was dialed from
 (:mod:`~aind_rutter.plan_io.manipulator_bias`); ``check`` threads a plan
 through each fitted implant and writes the dial sheet
-(:mod:`~aind_rutter.plan_io.plan_check`); ``place`` writes a config with the
+(:mod:`~aind_rutter.plan_io.plan_check`); ``setup`` writes the rig setup
+sheet, the one place a plan's subject-frame arcs become rig dials; ``place``
+writes a config with the
 implant at each subject's fit, for the optimizer to plan against.
 """
 
@@ -120,6 +123,28 @@ class Check:
 
     offline: bool = False
     """Fetch nothing while loading the config."""
+
+
+@dataclass
+class Setup:
+    """Write what to set on the rig for a plan: arcs on the rig's AP scale,
+    sliders, spins and the manipulator on each probe."""
+
+    config: tyro.conf.Positional[Path]
+    """Config whose plan block is the plan, unless ``--plan`` gives one."""
+
+    assign: Annotated[tuple[str, ...], tyro.conf.UseAppendAction]
+    """``PROBE=MANIPULATOR`` for every probe; repeatable."""
+
+    plan: Path | None = None
+    """Plan file to set up instead of the config's own plan."""
+
+    biases: Path | None = None
+    """``rutter-tracks bias`` output: dial each arc and slider back by its
+    manipulators' bias. Refused for a plan whose probes already carry one."""
+
+    out: Path | None = None
+    """Where to write the setup as YAML."""
 
 
 @dataclass
@@ -307,6 +332,43 @@ def check(args: Check) -> None:
     _write(args.out, record)
 
 
+def setup(args: Setup) -> None:
+    from aind_rutter.plan_io.manipulator_bias import dial_sheet, load_biases
+    from aind_rutter.plan_io.plan_check import (
+        dialed_plan,
+        plan_head_pitch_deg,
+        setup_sheet,
+    )
+
+    if args.plan is not None:
+        plan = yaml.safe_load(args.plan.read_text())
+    else:
+        plan = yaml.safe_load(args.config.read_text()).get("plan") or {}
+    assignment = _assignment(args.assign)
+    if args.biases is not None:
+        if any(p.get("ap_bias") or p.get("ml_bias") for p in plan["probes"].values()):
+            raise ValueError("the plan's probes already carry biases; it is dialed")
+        sheet = dial_sheet(
+            plan, assignment, load_biases(args.biases), plan_head_pitch_deg(plan)
+        )
+        plan = dialed_plan(plan, sheet)
+    sheet_out = setup_sheet(plan, assignment)
+    print(
+        f"Set on the rig (rig AP = subject AP + {sheet_out['head_pitch_deg']:g}°"
+        + ("" if sheet_out["bias_corrected"] else "; landing angles, no bias")
+        + "):"
+    )
+    for arc, a in sheet_out["arcs"].items():
+        who = ", ".join(a["probes"]) or "unused"
+        print(f"  arc {arc}: rig AP {a['rig_ap_deg']:+.2f}°  ({who})")
+    for n, p in sheet_out["probes"].items():
+        print(
+            f"  {n:<12} on {p['manipulator']}: arc {p['arc']}, "
+            f"slider ML {p['slider_ml_deg']:+.2f}°, spin {p['spin_deg']:+.1f}°"
+        )
+    _write(args.out, sheet_out)
+
+
 def place(args: Place) -> None:
     from aind_rutter.plan_io.insertion_tracks import from_ras
     from aind_rutter.plan_io.locate_implant import ImplantFit, located_config
@@ -401,7 +463,13 @@ def _write_located(
 
 def main() -> None:
     cmd = tyro.extras.subcommand_cli_from_dict(
-        {"locate": Locate, "bias": Bias, "check": Check, "place": Place},
+        {
+            "locate": Locate,
+            "bias": Bias,
+            "check": Check,
+            "setup": Setup,
+            "place": Place,
+        },
         prog="rutter-tracks",
     )
     try:
@@ -409,6 +477,8 @@ def main() -> None:
             locate(cmd)
         elif isinstance(cmd, Bias):
             bias(cmd)
+        elif isinstance(cmd, Setup):
+            setup(cmd)
         elif isinstance(cmd, Place):
             place(cmd)
         else:

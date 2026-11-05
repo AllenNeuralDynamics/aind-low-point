@@ -1031,7 +1031,7 @@ Learning from past insertions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Every calibrated insertion is also a measurement. ``rutter-tracks`` has three
-steps:
+steps, and a fourth that writes what the rig is set to:
 
 - ``locate TRACKS.csv --holes BORES --config C --calibrations ROOT`` fits each
   subject's implant from the NewScale tip of every calibrated insertion
@@ -1055,6 +1055,15 @@ steps:
 Calibration fixes where a probe ends, not the angle it took to get there, so
 an implant or angle error moves where the probe crosses its hole. The check
 says how much re-threading to expect after calibrating.
+
+``setup CONFIG --assign PROBE=MANIPULATOR ... [--plan P] [--biases BIAS]
+--out S.setup.yml`` writes the rig setup sheet: each arc as ``rig_ap_deg``,
+the plan's subject AP plus the head pitch its ``subject_from_rig`` states,
+beside ``subject_ap_deg``; each slider's ML and spin; and the manipulator on
+each probe. Plan arcs are subject AP and the arc scale reads rig AP, so an
+arc value handed to the rig comes from this sheet and never from ``plan.arcs``.
+With ``--biases`` the sheet is dialed back as ``check`` would; a plan whose
+probes already carry biases is refused, since it is dialed already.
 
 
 Plan-Only YAML
