@@ -5,13 +5,15 @@ rutter-tracks locate tracks.csv --holes H.holes.yml --config C.yml --calibration
 rutter-tracks bias   sessions.yml
 rutter-tracks check  C.yml --plan P.plan.yml --holes H.holes.yml --fit implants.yml \\
                      --biases bias.yml --assign PROBE=MANIPULATOR ...
+rutter-tracks place  C.yml --fit implants.yml [--subject S]
 
 ``locate`` fits each subject's implant from its insertion tracks
 (:mod:`~aind_rutter.plan_io.insertion_tracks`); ``bias`` measures each
 manipulator's angle error against the plans it was dialed from
 (:mod:`~aind_rutter.plan_io.manipulator_bias`); ``check`` threads a plan
 through each fitted implant and writes the dial sheet
-(:mod:`~aind_rutter.plan_io.plan_check`).
+(:mod:`~aind_rutter.plan_io.plan_check`); ``place`` writes a config with the
+implant at each subject's fit, for the optimizer to plan against.
 """
 
 from __future__ import annotations
@@ -118,6 +120,24 @@ class Check:
 
     offline: bool = False
     """Fetch nothing while loading the config."""
+
+
+@dataclass
+class Place:
+    """Write a config with its implant moved to each fitted subject's position."""
+
+    config: tyro.conf.Positional[Path]
+    """Config to move the implant of; its plan is kept as written."""
+
+    fit: Path
+    """``rutter-tracks locate`` output."""
+
+    subject: Annotated[tuple[str, ...], tyro.conf.UseAppendAction] = ()
+    """Subject to place; repeatable. Every fitted subject when omitted."""
+
+    out: Path | None = None
+    """Folder to write ``<config stem>-<subject>.yml`` into; the config's own
+    folder when omitted, so relative paths in it still resolve."""
 
 
 def _load_holes(path: Path) -> dict[int, Any]:
@@ -287,6 +307,27 @@ def check(args: Check) -> None:
     _write(args.out, record)
 
 
+def place(args: Place) -> None:
+    from aind_rutter.plan_io.insertion_tracks import from_ras
+    from aind_rutter.plan_io.locate_implant import ImplantFit, located_config
+
+    fitted = yaml.safe_load(args.fit.read_text())["subjects"]
+    subjects = args.subject or tuple(fitted)
+    unknown = sorted(set(subjects) - set(fitted))
+    if unknown:
+        raise ValueError(f"{args.fit} fits no subject {unknown}")
+    written = args.config.read_text()
+    folder = args.out or args.config.parent
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = args.config.name.removesuffix(".yml")
+    for subject in subjects:
+        shift = from_ras(fitted[subject]["implant_shift_RAS_mm"])
+        text = located_config(written, ImplantFit(np.eye(3), shift, False), "implant")
+        path = folder / f"{stem}-{subject}.yml"
+        path.write_text(text)
+        print(f"{subject}: wrote {path}")
+
+
 def _write_located(
     args: Check,
     plan_raw: dict[str, Any],
@@ -360,13 +401,16 @@ def _write_located(
 
 def main() -> None:
     cmd = tyro.extras.subcommand_cli_from_dict(
-        {"locate": Locate, "bias": Bias, "check": Check}, prog="rutter-tracks"
+        {"locate": Locate, "bias": Bias, "check": Check, "place": Place},
+        prog="rutter-tracks",
     )
     try:
         if isinstance(cmd, Locate):
             locate(cmd)
         elif isinstance(cmd, Bias):
             bias(cmd)
+        elif isinstance(cmd, Place):
+            place(cmd)
         else:
             check(cmd)
     except (OSError, ValueError, LookupError) as e:

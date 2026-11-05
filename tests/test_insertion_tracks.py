@@ -3,8 +3,11 @@ biases and the plan check, on synthetic bores."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
+import yaml
 
 from aind_rutter.optimization.geometry.holes import Hole
 from aind_rutter.optimization.geometry.primitives import HoleSection
@@ -186,3 +189,24 @@ def test_a_dialed_plan_lands_each_probe_at_plan_plus_its_arc_leftover() -> None:
         assert p["slider_ml"] + p["ml_bias"] == pytest.approx(
             plan["probes"][name]["slider_ml"]
         )
+
+
+def test_place_writes_each_fitted_subjects_config(tmp_path: Path) -> None:
+    from aind_rutter.plan_io.cli_tracks import Place, place
+
+    config = tmp_path / "set.yml"
+    config.write_text("assets:\n- key: implant\n  src: implant.obj\n")
+    fit = tmp_path / "fit.yml"
+    fit.write_text(
+        "subjects:\n"
+        "  a: {implant_shift_RAS_mm: [0.1, 0.2, 0.3]}\n"
+        "  b: {implant_shift_RAS_mm: [0.0, 0.0, 0.0]}\n"
+    )
+    place(Place(config=config, fit=fit, subject=("a",)))
+    written = yaml.safe_load((tmp_path / "set-a.yml").read_text())
+    assert not (tmp_path / "set-b.yml").exists()
+    assert written["assets"][0]["transform"] == "implant_to_lps"
+    (move,) = written["transforms"]["implant_to_lps"]["sequence"]
+    assert move["delta"] == pytest.approx([-0.1, -0.2, 0.3]), "RAS to LPS"
+    with pytest.raises(ValueError, match="fits no subject"):
+        place(Place(config=config, fit=fit, subject=("c",)))
